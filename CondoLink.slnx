@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CondoLink.Api/CondoLink.Api.csproj" />
+    <Project Path="src/CondoLink.Application/CondoLink.Application.csproj" />
+    <Project Path="src/CondoLink.Domain/CondoLink.Domain.csproj" />
+    <Project Path="src/CondoLink.Infrastructure/CondoLink.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CondoLink.Tests/CondoLink.Tests.csproj" />
+  </Folder>
+</Solution>

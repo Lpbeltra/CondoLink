@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: condolink-postgres
+    environment:
+      POSTGRES_DB: condolink
+      POSTGRES_USER: condolink
+      POSTGRES_PASSWORD: condolink_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - condolink_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U condolink -d condolink"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  condolink_postgres_data:
