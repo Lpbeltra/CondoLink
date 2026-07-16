@@ -1,0 +1,5 @@
+* { box-sizing: border-box; }
+html, body, #root { min-height: 100%; margin: 0; }
+body { min-width: 320px; -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; }
+::selection { color: #10275f; background: #c9d7ff; }

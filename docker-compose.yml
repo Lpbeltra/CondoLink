@@ -1,21 +1,46 @@
 services:
-  postgres:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: CondoLink.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: 8080
+      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=condolink;Username=postgres;Password=postgres
+      Jwt__Issuer: CondoLink
+      Jwt__Audience: CondoLink
+      Jwt__Key: development-only-secret-key-change-in-production
+      Jwt__ExpirationMinutes: 60
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
     image: postgres:17
-    container_name: condolink-postgres
     environment:
       POSTGRES_DB: condolink
-      POSTGRES_USER: condolink
-      POSTGRES_PASSWORD: condolink_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
-      - condolink_postgres_data:/var/lib/postgresql/data
+      - condolink_db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U condolink -d condolink"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U postgres -d condolink"]
+      interval: 5s
       timeout: 5s
-      retries: 5
-    restart: unless-stopped
+      retries: 10
 
 volumes:
-  condolink_postgres_data:
+  condolink_db_data:
