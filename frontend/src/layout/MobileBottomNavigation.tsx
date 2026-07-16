@@ -1,15 +1,15 @@
 import { BottomNavigation, BottomNavigationAction, Paper } from '@mui/material'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { getNavigationItems } from './navigation'
+import { getMobileNavigationItems } from './navigation'
 import { useCondominium } from '../condominiums/CondominiumContext'
 
 export function MobileBottomNavigation() {
   const navigate = useNavigate()
   const location = useLocation()
   const { currentCondominium } = useCondominium()
-  const navigationItems = getNavigationItems(currentCondominium?.roles ?? [])
-  const selectedPath = location.pathname.startsWith('/management/requests')
-    ? '/management/requests'
+  const navigationItems = getMobileNavigationItems(currentCondominium?.roles ?? [])
+  const selectedPath = location.pathname.startsWith('/management')
+    ? '/more'
     : location.pathname.startsWith('/requests')
       ? '/requests'
       : '/'

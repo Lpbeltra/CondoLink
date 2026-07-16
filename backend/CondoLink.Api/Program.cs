@@ -2,6 +2,7 @@ using CondoLink.Api.Features.Auth;
 using CondoLink.Api.Features.Categories;
 using CondoLink.Api.Features.Requests;
 using CondoLink.Api.Features.RequestMessages;
+using CondoLink.Api.Features.RequestAttachments;
 using CondoLink.Api.Features.Condominiums;
 using CondoLink.Api.Features.CondominiumMembers;
 using CondoLink.Api.Features.CondominiumMemberRoles;
@@ -15,6 +16,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddSingleton<LocalFileStorage>();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("FrontendDevelopment", policy =>
@@ -72,5 +74,6 @@ app.MapListRequestMessages();
 app.MapUpdateRequestStatus();
 app.MapUpdateRequestPriority();
 app.MapListCondominiumRequests();
+app.MapRequestAttachments();
 
 app.Run();

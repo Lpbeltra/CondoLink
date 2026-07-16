@@ -12,6 +12,12 @@ import { MyRequestsPage } from '../pages/MyRequestsPage'
 import { CreateRequestPage } from '../pages/CreateRequestPage'
 import { RequestDetailsPage } from '../pages/RequestDetailsPage'
 import { ManagementRequestsPage } from '../pages/ManagementRequestsPage'
+import { ManagementLayout } from '../management/components/ManagementLayout'
+import { ManagementUnitsPage } from '../pages/ManagementUnitsPage'
+import { CreateUnitPage } from '../pages/CreateUnitPage'
+import { UnitDetailsPage } from '../pages/UnitDetailsPage'
+import { ManagementCategoriesPage } from '../pages/ManagementCategoriesPage'
+import { MorePage } from '../pages/MorePage'
 
 function ProtectedRoute() {
   const { user, isInitializing } = useAuth()
@@ -36,6 +42,14 @@ export function App() {
                   <Route path="requests/new" element={<CreateRequestPage />} />
                   <Route path="requests/:requestId" element={<RequestDetailsPage />} />
                   <Route path="management/requests" element={<ManagementRequestsPage />} />
+                  <Route path="more" element={<MorePage />} />
+                  <Route path="management" element={<ManagementLayout />}>
+                    <Route index element={<Navigate to="units" replace />} />
+                    <Route path="units" element={<ManagementUnitsPage />} />
+                    <Route path="units/new" element={<CreateUnitPage />} />
+                    <Route path="units/:unitId" element={<UnitDetailsPage />} />
+                    <Route path="categories" element={<ManagementCategoriesPage />} />
+                  </Route>
                 </Route>
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />

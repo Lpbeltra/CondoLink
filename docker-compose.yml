@@ -20,11 +20,14 @@ services:
       Jwt__Audience: CondoLink
       Jwt__Key: development-only-secret-key-change-in-production
       Jwt__ExpirationMinutes: 60
+      FileStorage__RootPath: /app/storage
     ports:
       - "8080:8080"
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - condolink_file_storage:/app/storage
 
   db:
     image: postgres:17
@@ -44,3 +47,4 @@ services:
 
 volumes:
   condolink_db_data:
+  condolink_file_storage:

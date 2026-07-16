@@ -12,6 +12,7 @@ import { RequestTimeline } from '../requests/components/RequestTimeline'
 import { formatDateTime, getRequestError } from '../requests/presentation'
 import type { RequestDetails, RequestMessage } from '../requests/types'
 import { RequestManagementActions } from '../requests/components/RequestManagementActions'
+import { RequestAttachments } from '../requests/components/RequestAttachments'
 
 export function RequestDetailsPage() {
   const { requestId = '' } = useParams()
@@ -58,6 +59,7 @@ export function RequestDetailsPage() {
             {unit && <><Divider sx={{ my: 3 }} /><Typography variant="h3" mb={1}>Unidade relacionada</Typography><Typography>{unit}</Typography></>}
           </CardContent></Card>
           {isManager && details.condominiumId === currentCondominium?.condominium.id && <RequestManagementActions requestId={details.id} status={details.status} priority={details.priority} onUpdated={load} />}
+          <RequestAttachments requestId={details.id} cancelled={details.status === 'Cancelled'} />
           <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}><Typography variant="h2" mb={3}>Conversa</Typography><RequestConversation requestId={details.id} status={details.status} messages={messages} onMessageCreated={(message) => setMessages((current) => [...current, message])} /></CardContent></Card>
         </Grid>
         <Grid size={{ xs: 12, lg: 4 }}><Card elevation={0}><CardContent sx={{ p: { xs: 2.5, sm: 3 } }}><Typography variant="h2" mb={3}>Histórico</Typography><RequestTimeline history={details.statusHistory} /></CardContent></Card></Grid>

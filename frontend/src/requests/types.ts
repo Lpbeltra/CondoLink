@@ -43,6 +43,17 @@ export interface RequestMessage {
   createdAt: string
 }
 
+export interface RequestAttachment {
+  id: string
+  requestId: string
+  originalFileName: string
+  contentType: string
+  fileSize: number
+  uploadedBy: Person
+  createdAt: string
+  contentUrl: string
+}
+
 export interface CreatedRequest {
   id: string
   condominiumId: string

@@ -1,0 +1,12 @@
+import { useState, type FormEvent } from 'react'
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import { Alert, Button, Card, CardContent, Stack, TextField, Typography } from '@mui/material'
+import { useNavigate } from 'react-router-dom'
+import { PageContainer } from '../components/PageContainer'
+import { useCondominium } from '../condominiums/CondominiumContext'
+import { createUnit } from '../management/api'
+import { managementError } from '../management/errors'
+
+export function CreateUnitPage(){const navigate=useNavigate();const{currentCondominium}=useCondominium();const[identifier,setIdentifier]=useState('');const[block,setBlock]=useState('');const[floor,setFloor]=useState('');const[description,setDescription]=useState('');const[saving,setSaving]=useState(false);const[error,setError]=useState('')
+  const submit=async(e:FormEvent)=>{e.preventDefault();if(!identifier.trim()||saving)return;const id=currentCondominium?.condominium.id;if(!id)return;setSaving(true);setError('');try{const unit=await createUnit(id,{identifier:identifier.trim(),block:block.trim()||null,floor:floor.trim()||null,description:description.trim()||null});navigate(`/management/units/${unit.id}`,{state:{created:true}})}catch(err){setError(managementError(err))}finally{setSaving(false)}}
+  return <PageContainer><Button color="inherit" startIcon={<ArrowBackRoundedIcon/>} onClick={()=>navigate('/management/units')}>Voltar</Button><Typography variant="h1" mt={2}>Nova unidade</Typography><Card elevation={0} sx={{mt:3,maxWidth:720}}><CardContent component="form" onSubmit={e=>void submit(e)} sx={{p:{xs:2.5,sm:4}}}><Stack gap={2}>{error&&<Alert severity="error">{error}</Alert>}<TextField required label="Identificação" value={identifier} onChange={e=>setIdentifier(e.target.value)} slotProps={{htmlInput:{maxLength:50}}}/><TextField label="Bloco" value={block} onChange={e=>setBlock(e.target.value)} slotProps={{htmlInput:{maxLength:50}}}/><TextField label="Andar" value={floor} onChange={e=>setFloor(e.target.value)} slotProps={{htmlInput:{maxLength:20}}}/><TextField label="Descrição" multiline minRows={3} value={description} onChange={e=>setDescription(e.target.value)} slotProps={{htmlInput:{maxLength:500}}} helperText={`${description.length}/500`}/><Button type="submit" variant="contained" disabled={saving||!identifier.trim()}>{saving?'Salvando...':'Cadastrar unidade'}</Button></Stack></CardContent></Card></PageContainer>}
