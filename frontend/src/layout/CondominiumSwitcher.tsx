@@ -24,11 +24,10 @@ export function CondominiumSwitcher() {
         aria-haspopup={hasMultiple ? 'menu' : undefined}
         aria-expanded={hasMultiple && Boolean(anchor) ? 'true' : undefined}
         onClick={(event) => hasMultiple && setAnchor(event.currentTarget)}
-        sx={{ minWidth: 0, minHeight: 44, maxWidth: { xs: 180, sm: 300 }, px: 1.25, py: .5, borderRadius: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper', cursor: hasMultiple ? 'pointer' : 'default', '&:hover': { bgcolor: hasMultiple ? 'background.default' : 'background.paper' } }}
+        sx={{ minWidth: 0, width: '100%', minHeight: 44, maxWidth: { xs: 180, sm: 300 }, px: 1.25, py: .5, borderRadius: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper', cursor: hasMultiple ? 'pointer' : 'default', '&:hover': { bgcolor: hasMultiple ? 'background.default' : 'background.paper' } }}
       >
         <ApartmentRoundedIcon color="primary" sx={{ mr: 1, flexShrink: 0 }} />
         <Box minWidth={0} textAlign="left" flex={1}>
-          <Typography color="text.secondary" fontSize=".67rem" lineHeight={1.1}>Condomínio</Typography>
           <Typography fontWeight={750} fontSize=".85rem" noWrap>{currentCondominium.condominium.name}</Typography>
         </Box>
         {hasMultiple && <ExpandMoreRoundedIcon sx={{ ml: .5, color: 'text.secondary', flexShrink: 0 }} />}

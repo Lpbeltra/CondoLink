@@ -1,5 +1,5 @@
 import { api } from '../services/api'
-import type { Category, CreatedRequest, RequestDetails, RequestListItem, RequestMessage } from './types'
+import type { Category, CreatedRequest, ManagementRequestsResponse, RequestDetails, RequestListItem, RequestMessage, RequestPriority, RequestStatus } from './types'
 
 export async function listMyRequests() {
   return (await api.get<RequestListItem[]>('/requests/mine')).data
@@ -23,4 +23,16 @@ export async function listRequestMessages(requestId: string) {
 
 export async function createRequestMessage(requestId: string, content: string) {
   return (await api.post<RequestMessage>(`/requests/${requestId}/messages`, { content })).data
+}
+
+export async function listManagementRequests(condominiumId: string, filters: { status?: RequestStatus; priority?: RequestPriority }) {
+  return (await api.get<ManagementRequestsResponse>(`/condominiums/${condominiumId}/requests`, { params: filters })).data
+}
+
+export async function updateRequestStatus(requestId: string, status: RequestStatus, reason: string | null) {
+  return (await api.patch(`/requests/${requestId}/status`, { status, reason })).data
+}
+
+export async function updateRequestPriority(requestId: string, priority: RequestPriority) {
+  return (await api.patch(`/requests/${requestId}/priority`, { priority })).data
 }

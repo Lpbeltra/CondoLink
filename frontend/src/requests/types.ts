@@ -57,3 +57,22 @@ export interface CreatedRequest {
   updatedAt: string
   resolvedAt: string | null
 }
+
+export interface ManagementRequestItem extends RequestListItem {
+  author: Person
+}
+
+export interface RequestCounts {
+  open: number
+  inProgress: number
+  waitingForResident: number
+  waitingForThirdParty: number
+  resolved: number
+  cancelled: number
+}
+
+export interface ManagementRequestsResponse {
+  total: number
+  counts: RequestCounts
+  items: ManagementRequestItem[]
+}

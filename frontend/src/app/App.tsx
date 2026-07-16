@@ -11,6 +11,7 @@ import { CondominiumProvider } from '../condominiums/CondominiumProvider'
 import { MyRequestsPage } from '../pages/MyRequestsPage'
 import { CreateRequestPage } from '../pages/CreateRequestPage'
 import { RequestDetailsPage } from '../pages/RequestDetailsPage'
+import { ManagementRequestsPage } from '../pages/ManagementRequestsPage'
 
 function ProtectedRoute() {
   const { user, isInitializing } = useAuth()
@@ -34,6 +35,7 @@ export function App() {
                   <Route path="requests" element={<MyRequestsPage />} />
                   <Route path="requests/new" element={<CreateRequestPage />} />
                   <Route path="requests/:requestId" element={<RequestDetailsPage />} />
+                  <Route path="management/requests" element={<ManagementRequestsPage />} />
                 </Route>
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />

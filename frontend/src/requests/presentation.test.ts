@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AxiosError } from 'axios'
-import { canSendMessage, filterRequestsByCondominium, formatRelativeDate, getRequestError, priorityPresentation, statusPresentation } from './presentation'
+import { allowedStatusTransitions, canSendMessage, filterRequestsByCondominium, formatRelativeDate, getRequestError, priorityPresentation, statusPresentation } from './presentation'
 import type { RequestListItem } from './types'
 
 const request = (id: string, condominiumId: string): RequestListItem => ({ id, condominiumId, category: { id: 'category', name: 'Manutenção' }, targetUnit: null, title: id, status: 'Open', priority: 'Normal', createdAt: '2026-07-16T12:00:00Z', updatedAt: '2026-07-16T12:00:00Z', resolvedAt: null })
@@ -27,5 +27,11 @@ describe('request presentation', () => {
 
   it('maps a network failure without exposing technical details', () => {
     expect(getRequestError(new AxiosError('network'))).toBe('Não foi possível carregar as informações.')
+  })
+
+  it('exposes only valid workflow transitions', () => {
+    expect(allowedStatusTransitions.Open).toEqual(['InProgress', 'Cancelled'])
+    expect(allowedStatusTransitions.Resolved).toEqual(['InProgress'])
+    expect(allowedStatusTransitions.Cancelled).toEqual([])
   })
 })

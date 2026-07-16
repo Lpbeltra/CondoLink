@@ -1,5 +1,6 @@
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import ForumRoundedIcon from '@mui/icons-material/ForumRounded'
+import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded'
 import { Box, Button, Chip, Paper, Stack, Typography } from '@mui/material'
 import WavingHandRoundedIcon from '@mui/icons-material/WavingHandRounded'
 import { useAuth } from '../auth/AuthContext'
@@ -16,7 +17,7 @@ export function HomePage() {
   const accessMessage = getAccessMessage(isManager, isResident)
   return (
     <PageContainer>
-      <Paper elevation={0} sx={{ p: { xs: 3, sm: 4.5 }, border: '1px solid', borderColor: 'divider', background: 'linear-gradient(135deg, #fff 50%, rgba(31,94,255,.055))' }}>
+      <Paper elevation={0} sx={{ p: { xs: 3, sm: 4 }, border: '1px solid', borderColor: 'divider', background: 'linear-gradient(135deg, #fff 58%, rgba(31,94,255,.055))' }}>
         <Box display="flex" alignItems="center" gap={1} color="primary.main" mb={1.5}><WavingHandRoundedIcon /><Typography fontWeight={750}>Início</Typography></Box>
         <Typography variant="h1">Olá, {firstName}</Typography>
         <Typography variant="h2" mt={2}>{currentCondominium?.condominium.name}</Typography>
@@ -30,6 +31,7 @@ export function HomePage() {
         <Stack direction={{ xs: 'column', sm: 'row' }} gap={1.5} mt={4}>
           <Button variant="contained" startIcon={<ForumRoundedIcon />} onClick={() => navigate('/requests')}>Ver minhas solicitações</Button>
           <Button variant="outlined" startIcon={<AddRoundedIcon />} onClick={() => navigate('/requests/new')}>Abrir solicitação</Button>
+          {isManager && <Button variant="outlined" color="secondary" startIcon={<SupportAgentRoundedIcon />} onClick={() => navigate('/management/requests')}>Ir para atendimento</Button>}
         </Stack>
       </Paper>
     </PageContainer>

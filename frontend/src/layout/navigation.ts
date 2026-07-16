@@ -1,5 +1,6 @@
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import ForumRoundedIcon from '@mui/icons-material/ForumRounded'
+import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded'
 import type { SvgIconComponent } from '@mui/icons-material'
 import type { CondominiumRole } from '../condominiums/types'
 
@@ -13,6 +14,7 @@ interface NavigationItem {
 const commonItems: NavigationItem[] = [
   { label: 'Início', path: '/', icon: HomeRoundedIcon },
   { label: 'Solicitações', path: '/requests', icon: ForumRoundedIcon },
+  { label: 'Atendimento', path: '/management/requests', icon: SupportAgentRoundedIcon, requiredRole: 'Manager' },
 ]
 
 // Roles shape the visible UI only. Every real operation must still be authorized by the API.

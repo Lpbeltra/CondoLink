@@ -39,6 +39,15 @@ export function canSendMessage(status: RequestStatus) {
   return status !== 'Cancelled'
 }
 
+export const allowedStatusTransitions: Record<RequestStatus, RequestStatus[]> = {
+  Open: ['InProgress', 'Cancelled'],
+  InProgress: ['WaitingForResident', 'WaitingForThirdParty', 'Resolved', 'Cancelled'],
+  WaitingForResident: ['InProgress', 'Resolved', 'Cancelled'],
+  WaitingForThirdParty: ['InProgress', 'Resolved', 'Cancelled'],
+  Resolved: ['InProgress'],
+  Cancelled: [],
+}
+
 export function getRequestError(error: unknown, fallback = 'Não foi possível carregar as informações.') {
   if (axios.isAxiosError(error)) {
     if (error.response?.status === 403) return 'Você não possui acesso a esta solicitação.'

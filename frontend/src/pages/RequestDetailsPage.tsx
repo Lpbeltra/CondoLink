@@ -11,12 +11,13 @@ import { RequestStatusChip } from '../requests/components/RequestStatusChip'
 import { RequestTimeline } from '../requests/components/RequestTimeline'
 import { formatDateTime, getRequestError } from '../requests/presentation'
 import type { RequestDetails, RequestMessage } from '../requests/types'
+import { RequestManagementActions } from '../requests/components/RequestManagementActions'
 
 export function RequestDetailsPage() {
   const { requestId = '' } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
-  const { currentCondominium } = useCondominium()
+  const { currentCondominium, isManager } = useCondominium()
   const [details, setDetails] = useState<RequestDetails | null>(null)
   const [messages, setMessages] = useState<RequestMessage[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -39,10 +40,12 @@ export function RequestDetailsPage() {
   if (wrongContext) return <PageContainer><Alert severity="warning">Esta solicitação pertence a outro condomínio.</Alert><Button sx={{ mt: 2 }} onClick={() => navigate('/requests')}>Voltar para solicitações</Button></PageContainer>
   if (!details) return null
 
+  const returnPath = (location.state as { fromManagement?: boolean } | null)?.fromManagement ? '/management/requests' : '/requests'
+
   const unit = details.targetUnit && `${details.targetUnit.block ? `Bloco ${details.targetUnit.block} · ` : ''}${details.targetUnit.identifier}`
   return (
     <PageContainer>
-      <Button startIcon={<ArrowBackRoundedIcon />} color="inherit" onClick={() => navigate('/requests')} sx={{ mb: 2 }}>Voltar</Button>
+      <Button startIcon={<ArrowBackRoundedIcon />} color="inherit" onClick={() => navigate(returnPath)} sx={{ mb: 2 }}>Voltar</Button>
       {(location.state as { created?: boolean } | null)?.created && <Alert severity="success" sx={{ mb: 2 }}>Solicitação aberta com sucesso.</Alert>}
       <Grid container spacing={3}>
         <Grid size={{ xs: 12, lg: 8 }}>
@@ -54,6 +57,7 @@ export function RequestDetailsPage() {
             <Typography variant="h3" mb={1}>Descrição</Typography><Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{details.description}</Typography>
             {unit && <><Divider sx={{ my: 3 }} /><Typography variant="h3" mb={1}>Unidade relacionada</Typography><Typography>{unit}</Typography></>}
           </CardContent></Card>
+          {isManager && details.condominiumId === currentCondominium?.condominium.id && <RequestManagementActions requestId={details.id} status={details.status} priority={details.priority} onUpdated={load} />}
           <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}><Typography variant="h2" mb={3}>Conversa</Typography><RequestConversation requestId={details.id} status={details.status} messages={messages} onMessageCreated={(message) => setMessages((current) => [...current, message])} /></CardContent></Card>
         </Grid>
         <Grid size={{ xs: 12, lg: 4 }}><Card elevation={0}><CardContent sx={{ p: { xs: 2.5, sm: 3 } }}><Typography variant="h2" mb={3}>Histórico</Typography><RequestTimeline history={details.statusHistory} /></CardContent></Card></Grid>
