@@ -77,6 +77,7 @@ app.MapListUnitMemberships();
 app.MapManageUnitMembership();
 app.MapCreateCategory();
 app.MapListCondominiumCategories();
+app.MapManageCategory();
 app.MapCreateRequest();
 app.MapGetRequestById();
 app.MapListMyRequests();

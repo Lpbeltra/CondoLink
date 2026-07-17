@@ -17,4 +17,6 @@ export const updateUnitMembership = async (unitId: string, membershipId: string,
 export const deleteUnitMembership = async (unitId: string, membershipId: string) => api.delete(`/units/${unitId}/memberships/${membershipId}`)
 export const listCategories = async (condominiumId: string) => (await api.get<Category[]>(`/condominiums/${condominiumId}/categories`)).data
 export const createCategory = async (condominiumId: string, payload: { name: string; description: string | null }) => (await api.post<Category>(`/condominiums/${condominiumId}/categories`, payload)).data
+export const updateCategory = async (condominiumId: string, categoryId: string, name: string) => (await api.put<Category>(`/condominiums/${condominiumId}/categories/${categoryId}`, { name })).data
+export const deleteCategory = async (condominiumId: string, categoryId: string) => api.delete(`/condominiums/${condominiumId}/categories/${categoryId}`)
 export const onboardMember = async (condominiumId: string, payload: { fullName: string; email: string; phoneNumber: string | null; unitId: string | null; relationshipType: RelationshipType | null; isResident: boolean; isPrimaryResidence: boolean }) => (await api.post<OnboardResult>(`/condominiums/${condominiumId}/members/onboard`, payload)).data

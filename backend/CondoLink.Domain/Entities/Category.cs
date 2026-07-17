@@ -41,6 +41,12 @@ public sealed class Category
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
 
+    public void Rename(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Name is required.", nameof(name));
+        Name = name.Trim(); NormalizedName = Name.ToUpperInvariant(); UpdatedAt = DateTime.UtcNow;
+    }
+
     private static string? NormalizeOptional(string? value)
     {
         var trimmed = value?.Trim();

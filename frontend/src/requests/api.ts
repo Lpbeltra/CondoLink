@@ -25,7 +25,7 @@ export async function createRequestMessage(requestId: string, content: string) {
   return (await api.post<RequestMessage>(`/requests/${requestId}/messages`, { content })).data
 }
 
-export async function listManagementRequests(condominiumId: string, filters: { status?: RequestStatus; priority?: RequestPriority }) {
+export async function listManagementRequests(condominiumId: string, filters: { status?: RequestStatus; priority?: RequestPriority; categoryId?: string }) {
   return (await api.get<ManagementRequestsResponse>(`/condominiums/${condominiumId}/requests`, { params: filters })).data
 }
 

@@ -102,7 +102,8 @@ public static class ListCondominiumCategories
                 category.Id,
                 category.CondominiumId,
                 category.Name,
-                category.Description))
+                category.Description,
+                dbContext.Requests.Count(request => request.CategoryId == category.Id)))
             .ToListAsync(cancellationToken);
 
         return Results.Ok(categories);
@@ -112,5 +113,6 @@ public static class ListCondominiumCategories
         Guid Id,
         Guid CondominiumId,
         string Name,
-        string? Description);
+        string? Description,
+        int RequestCount);
 }
