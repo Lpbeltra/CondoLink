@@ -1,3 +1,6 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,15 +11,20 @@ public static class ListCondominiumUnits
     public static IEndpointRouteBuilder MapListCondominiumUnits(
         this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/condominiums/{condominiumId:guid}/units", HandleAsync);
+        endpoints.MapGet("/condominiums/{condominiumId:guid}/units", HandleAsync).RequireAuthorization();
         return endpoints;
     }
 
     private static async Task<IResult> HandleAsync(
         Guid condominiumId,
+        ClaimsPrincipal principal,
         AppDbContext dbContext,
         CancellationToken cancellationToken)
     {
+        var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var manager = Guid.TryParse(value, out var userId) && await dbContext.CondominiumMemberships.AsNoTracking().Where(x => x.UserId == userId && x.CondominiumId == condominiumId && x.IsActive && x.EndedAt == null)
+            .Join(dbContext.CondominiumMembershipRoles.AsNoTracking().Where(x => x.Role == CondominiumRole.Manager && x.IsActive && x.RevokedAt == null), x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(cancellationToken);
+        if (!manager) return Results.Forbid();
         var condominiumExists = await dbContext.Condominiums
             .AnyAsync(
                 condominium => condominium.Id == condominiumId,
@@ -27,22 +35,14 @@ public static class ListCondominiumUnits
             return Results.NotFound(new { error = "Condominium not found." });
         }
 
-        var units = await dbContext.Units
+        var units = await (from unit in dbContext.Units.AsNoTracking()
+            join block in dbContext.CondominiumBlocks.AsNoTracking() on unit.BlockId equals block.Id into blocks
+            from block in blocks.DefaultIfEmpty()
+            where unit.CondominiumId == condominiumId
+            select new { unit, block })
             .AsNoTracking()
-            .Where(unit => unit.CondominiumId == condominiumId)
-            .OrderBy(unit => unit.Block != null)
-            .ThenBy(unit => unit.Block)
-            .ThenBy(unit => unit.Identifier)
-            .Select(unit => new Response(
-                unit.Id,
-                unit.CondominiumId,
-                unit.Identifier,
-                unit.Block,
-                unit.Floor,
-                unit.Description,
-                unit.IsActive,
-                unit.CreatedAt,
-                unit.UpdatedAt))
+            .Select(item => new Response(item.unit.Id, item.unit.CondominiumId, item.unit.Identifier, item.unit.BlockId, item.block == null ? null : item.block.Identifier, item.unit.Floor, item.unit.Description, item.unit.IsActive,
+                dbContext.UnitMemberships.Count(link => link.UnitId == item.unit.Id), item.unit.CreatedAt, item.unit.UpdatedAt))
             .ToListAsync(cancellationToken);
 
         return Results.Ok(units);
@@ -52,10 +52,12 @@ public static class ListCondominiumUnits
         Guid Id,
         Guid CondominiumId,
         string Identifier,
+        Guid? BlockId,
         string? Block,
         string? Floor,
         string? Description,
         bool IsActive,
+        int PeopleCount,
         DateTime CreatedAt,
         DateTime UpdatedAt);
 }

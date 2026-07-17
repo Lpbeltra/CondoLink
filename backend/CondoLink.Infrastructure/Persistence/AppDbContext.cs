@@ -12,6 +12,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
 {
     public DbSet<Condominium> Condominiums => Set<Condominium>();
     public DbSet<Unit> Units => Set<Unit>();
+    public DbSet<CondominiumBlock> CondominiumBlocks => Set<CondominiumBlock>();
     public DbSet<CondominiumMembership> CondominiumMemberships =>
         Set<CondominiumMembership>();
     public DbSet<CondominiumMembershipRole> CondominiumMembershipRoles =>

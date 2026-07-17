@@ -2,8 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type PropsWithChildren } fro
 import { api } from '../services/api'
 import { AuthContext } from './AuthContext'
 import type { LoginResponse, User } from './types'
-
-const tokenKey = 'condolink.accessToken'
+import { clearStoredToken, getStoredToken, storeToken } from './authStorage'
 
 function setAuthorization(token: string | null) {
   if (token) api.defaults.headers.common.Authorization = `Bearer ${token}`
@@ -15,7 +14,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [isInitializing, setIsInitializing] = useState(true)
 
   const logout = useCallback(() => {
-    localStorage.removeItem(tokenKey)
+    clearStoredToken()
     setAuthorization(null)
     setUser(null)
   }, [])
@@ -28,7 +27,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     const restoreSession = async () => {
-      const token = localStorage.getItem(tokenKey)
+      const token = getStoredToken()
       if (!token) {
         setIsInitializing(false)
         return
@@ -49,7 +48,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const login = useCallback(async (email: string, password: string) => {
     const { data } = await api.post<LoginResponse>('/auth/login', { email, password })
-    localStorage.setItem(tokenKey, data.accessToken)
+    storeToken(data.accessToken)
     setAuthorization(data.accessToken)
     const currentUser = await api.get<User>('/users/me')
     setUser(currentUser.data)

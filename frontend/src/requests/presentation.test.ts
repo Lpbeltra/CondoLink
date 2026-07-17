@@ -30,8 +30,8 @@ describe('request presentation', () => {
   })
 
   it('exposes only valid workflow transitions', () => {
-    expect(allowedStatusTransitions.Open).toEqual(['InProgress', 'Cancelled'])
-    expect(allowedStatusTransitions.Resolved).toEqual(['InProgress'])
-    expect(allowedStatusTransitions.Cancelled).toEqual([])
+    expect(allowedStatusTransitions.Open).toEqual(['InProgress', 'Resolved', 'Cancelled'])
+    expect(allowedStatusTransitions.Resolved).toEqual(['Open'])
+    expect(allowedStatusTransitions.Cancelled).toEqual(['Open'])
   })
 })

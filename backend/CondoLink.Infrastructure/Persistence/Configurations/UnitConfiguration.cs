@@ -6,8 +6,8 @@ namespace CondoLink.Infrastructure.Persistence.Configurations;
 
 public sealed class UnitConfiguration : IEntityTypeConfiguration<Unit>
 {
-    public const string UniqueWithoutBlockIndex = "ux_units_condominium_identifier_without_block";
-    public const string UniqueWithBlockIndex = "ux_units_condominium_block_identifier";
+    public const string UniqueWithoutBlockIndex = "ux_units_condominium_identifier_without_block_id";
+    public const string UniqueWithBlockIndex = "ux_units_block_identifier";
 
     public void Configure(EntityTypeBuilder<Unit> builder)
     {
@@ -27,9 +27,7 @@ public sealed class UnitConfiguration : IEntityTypeConfiguration<Unit>
             .HasMaxLength(50)
             .IsRequired();
 
-        builder.Property(unit => unit.Block)
-            .HasColumnName("block")
-            .HasMaxLength(50);
+        builder.Property(unit => unit.BlockId).HasColumnName("block_id");
 
         builder.Property(unit => unit.Floor)
             .HasColumnName("floor")
@@ -56,14 +54,16 @@ public sealed class UnitConfiguration : IEntityTypeConfiguration<Unit>
             .HasForeignKey(unit => unit.CondominiumId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasOne<CondominiumBlock>().WithMany().HasForeignKey(unit => unit.BlockId).OnDelete(DeleteBehavior.Restrict);
+
         builder.HasIndex(unit => new { unit.CondominiumId, unit.Identifier })
             .HasDatabaseName(UniqueWithoutBlockIndex)
-            .HasFilter("block IS NULL")
+            .HasFilter("block_id IS NULL")
             .IsUnique();
 
-        builder.HasIndex(unit => new { unit.CondominiumId, unit.Block, unit.Identifier })
+        builder.HasIndex(unit => new { unit.BlockId, unit.Identifier })
             .HasDatabaseName(UniqueWithBlockIndex)
-            .HasFilter("block IS NOT NULL")
+            .HasFilter("block_id IS NOT NULL")
             .IsUnique();
     }
 }

@@ -9,7 +9,7 @@ public sealed class Unit
     public Unit(
         Guid condominiumId,
         string identifier,
-        string? block,
+        Guid? blockId,
         string? floor,
         string? description)
     {
@@ -28,7 +28,7 @@ public sealed class Unit
         Id = Guid.NewGuid();
         CondominiumId = condominiumId;
         Identifier = identifier.Trim();
-        Block = NormalizeOptional(block);
+        BlockId = blockId;
         Floor = NormalizeOptional(floor);
         Description = NormalizeOptional(description);
         IsActive = true;
@@ -39,12 +39,18 @@ public sealed class Unit
     public Guid Id { get; private set; }
     public Guid CondominiumId { get; private set; }
     public string Identifier { get; private set; } = null!;
-    public string? Block { get; private set; }
+    public Guid? BlockId { get; private set; }
     public string? Floor { get; private set; }
     public string? Description { get; private set; }
     public bool IsActive { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
+
+    public void Update(string identifier, Guid? blockId, string? description)
+    {
+        if (string.IsNullOrWhiteSpace(identifier)) throw new ArgumentException("Identifier is required.", nameof(identifier));
+        Identifier = identifier.Trim(); BlockId = blockId; Description = NormalizeOptional(description); UpdatedAt = DateTime.UtcNow;
+    }
 
     private static string? NormalizeOptional(string? value)
     {

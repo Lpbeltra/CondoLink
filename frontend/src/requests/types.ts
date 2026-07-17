@@ -4,7 +4,7 @@ export type RequestPriority = 'Normal' | 'High' | 'Urgent'
 export interface Category { id: string; condominiumId: string; name: string; description: string | null }
 export interface RequestCategory { id: string; name: string }
 export interface TargetUnit { id: string; identifier: string; block: string | null }
-export interface Person { id: string; fullName: string }
+export interface Person { id: string; fullName: string; isManager?: boolean }
 
 export interface RequestListItem {
   id: string

@@ -115,13 +115,31 @@ public static class ListRequestMessages
             .ThenBy(message => message.Id)
             .ToListAsync(cancellationToken);
 
+        var managerUserIds = await dbContext.CondominiumMemberships
+            .AsNoTracking()
+            .Where(membership =>
+                membership.CondominiumId == targetRequest.CondominiumId
+                && membership.IsActive
+                && membership.EndedAt == null)
+            .Join(
+                dbContext.CondominiumMembershipRoles.AsNoTracking().Where(role =>
+                    role.Role == CondominiumRole.Manager
+                    && role.IsActive
+                    && role.RevokedAt == null),
+                membership => membership.Id,
+                role => role.CondominiumMembershipId,
+                (membership, _) => membership.UserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
         var messages = rows
             .Select(message => new Response(
                 message.Id,
                 message.RequestId,
                 new AuthorResponse(
                     message.AuthorUserId,
-                    message.AuthorFullName),
+                    message.AuthorFullName,
+                    managerUserIds.Contains(message.AuthorUserId)),
                 message.Content,
                 message.CreatedAt))
             .ToArray();
@@ -129,7 +147,7 @@ public static class ListRequestMessages
         return Results.Ok(messages);
     }
 
-    public sealed record AuthorResponse(Guid Id, string FullName);
+    public sealed record AuthorResponse(Guid Id, string FullName, bool IsManager);
 
     public sealed record Response(
         Guid Id,

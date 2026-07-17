@@ -63,4 +63,25 @@ public sealed class UnitMembership
     public DateTime StartedAt { get; private set; }
     public DateTime? EndedAt { get; private set; }
     public DateTime CreatedAt { get; private set; }
+
+    public void Update(UnitRelationshipType relationshipType, bool isResident, bool isPrimaryResidence)
+    {
+        if (!IsActive) throw new InvalidOperationException("Inactive unit membership cannot be edited.");
+        if (!Enum.IsDefined(relationshipType)) throw new ArgumentOutOfRangeException(nameof(relationshipType));
+        if (isPrimaryResidence && !isResident) throw new ArgumentException("Primary residence requires the user to be a resident.", nameof(isPrimaryResidence));
+        RelationshipType = relationshipType; IsResident = isResident; IsPrimaryResidence = isPrimaryResidence;
+    }
+
+    public void End(DateTime endedAt)
+    {
+        if (!IsActive) throw new InvalidOperationException("Unit membership is already inactive.");
+        IsActive = false; EndedAt = endedAt;
+    }
+
+    public void Reactivate(bool isResident, bool isPrimaryResidence, DateTime startedAt)
+    {
+        if (IsActive) throw new InvalidOperationException("Unit membership is already active.");
+        if (isPrimaryResidence && !isResident) throw new ArgumentException("Primary residence requires the user to be a resident.", nameof(isPrimaryResidence));
+        IsResident = isResident; IsPrimaryResidence = isPrimaryResidence; IsActive = true; StartedAt = startedAt; EndedAt = null;
+    }
 }

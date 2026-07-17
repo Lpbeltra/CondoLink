@@ -124,9 +124,19 @@ public static class ListCondominiumRequests
             priorityFilter = parsedPriority;
         }
 
-        var requests = dbContext.Requests
+        var condominiumRequests = dbContext.Requests
             .AsNoTracking()
             .Where(request => request.CondominiumId == condominiumId);
+
+        var counts = new CountsResponse(
+            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.Open, cancellationToken),
+            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.InProgress, cancellationToken),
+            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.WaitingForResident, cancellationToken),
+            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.WaitingForThirdParty, cancellationToken),
+            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.Resolved, cancellationToken),
+            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.Cancelled, cancellationToken));
+
+        var requests = condominiumRequests;
 
         if (statusFilter.HasValue)
         {
@@ -177,7 +187,7 @@ public static class ListCondominiumRequests
                     CategoryName = category.Name,
                     TargetUnitId = unit == null ? (Guid?)null : unit.Id,
                     TargetUnitIdentifier = unit == null ? null : unit.Identifier,
-                    TargetUnitBlock = unit == null ? null : unit.Block,
+                    TargetUnitBlock = unit == null ? null : dbContext.CondominiumBlocks.Where(block => block.Id == unit.BlockId).Select(block => block.Identifier).FirstOrDefault(),
                     request.Title,
                     request.Status,
                     request.Priority,
@@ -186,14 +196,6 @@ public static class ListCondominiumRequests
                     request.ResolvedAt
                 })
             .ToListAsync(cancellationToken);
-
-        var counts = new CountsResponse(
-            rows.Count(item => item.Status == RequestStatus.Open),
-            rows.Count(item => item.Status == RequestStatus.InProgress),
-            rows.Count(item => item.Status == RequestStatus.WaitingForResident),
-            rows.Count(item => item.Status == RequestStatus.WaitingForThirdParty),
-            rows.Count(item => item.Status == RequestStatus.Resolved),
-            rows.Count(item => item.Status == RequestStatus.Cancelled));
 
         var items = rows
             .Select(item => new ItemResponse(

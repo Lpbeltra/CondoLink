@@ -18,6 +18,8 @@ import { CreateUnitPage } from '../pages/CreateUnitPage'
 import { UnitDetailsPage } from '../pages/UnitDetailsPage'
 import { ManagementCategoriesPage } from '../pages/ManagementCategoriesPage'
 import { MorePage } from '../pages/MorePage'
+import { ManagementPeoplePage } from '../pages/ManagementPeoplePage'
+import { ManagementBlocksPage } from '../pages/ManagementBlocksPage'
 
 function ProtectedRoute() {
   const { user, isInitializing } = useAuth()
@@ -48,7 +50,9 @@ export function App() {
                     <Route path="units" element={<ManagementUnitsPage />} />
                     <Route path="units/new" element={<CreateUnitPage />} />
                     <Route path="units/:unitId" element={<UnitDetailsPage />} />
+                    <Route path="blocks" element={<ManagementBlocksPage />} />
                     <Route path="categories" element={<ManagementCategoriesPage />} />
+                    <Route path="people" element={<ManagementPeoplePage />} />
                   </Route>
                 </Route>
               </Route>

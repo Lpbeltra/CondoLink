@@ -130,7 +130,7 @@ public static class GetRequestById
                 .Select(unit => new TargetUnitResponse(
                     unit.Id,
                     unit.Identifier,
-                    unit.Block))
+                    dbContext.CondominiumBlocks.Where(block => block.Id == unit.BlockId).Select(block => block.Identifier).FirstOrDefault()))
                 .SingleOrDefaultAsync(cancellationToken);
         }
 

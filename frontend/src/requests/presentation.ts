@@ -40,12 +40,12 @@ export function canSendMessage(status: RequestStatus) {
 }
 
 export const allowedStatusTransitions: Record<RequestStatus, RequestStatus[]> = {
-  Open: ['InProgress', 'Cancelled'],
+  Open: ['InProgress', 'Resolved', 'Cancelled'],
   InProgress: ['WaitingForResident', 'WaitingForThirdParty', 'Resolved', 'Cancelled'],
   WaitingForResident: ['InProgress', 'Resolved', 'Cancelled'],
   WaitingForThirdParty: ['InProgress', 'Resolved', 'Cancelled'],
-  Resolved: ['InProgress'],
-  Cancelled: [],
+  Resolved: ['Open'],
+  Cancelled: ['Open'],
 }
 
 export function getRequestError(error: unknown, fallback = 'Não foi possível carregar as informações.') {

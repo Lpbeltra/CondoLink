@@ -172,18 +172,24 @@ public static class CreateUnitMembership
             });
         }
 
-        var alreadyExists = await dbContext.UnitMemberships
-            .AsNoTracking()
-            .AnyAsync(
+        var existingRelationship = await dbContext.UnitMemberships
+            .SingleOrDefaultAsync(
                 membership =>
                     membership.UserId == request.UserId
                     && membership.UnitId == unitId
                     && membership.RelationshipType == relationshipType,
                 cancellationToken);
 
-        if (alreadyExists)
+        if (existingRelationship?.IsActive == true)
         {
             return DuplicateRelationshipConflict();
+        }
+
+        if (existingRelationship is not null)
+        {
+            existingRelationship.Reactivate(request.IsResident, request.IsPrimaryResidence, DateTime.UtcNow);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return Results.Ok(new Response(existingRelationship.Id, existingRelationship.UserId, existingRelationship.UnitId, existingRelationship.RelationshipType.ToString(), existingRelationship.IsResident, existingRelationship.IsPrimaryResidence, existingRelationship.IsActive, existingRelationship.StartedAt, existingRelationship.EndedAt, existingRelationship.CreatedAt));
         }
 
         var unitMembership = new UnitMembership(

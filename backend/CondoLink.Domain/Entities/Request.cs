@@ -126,7 +126,9 @@ public sealed class Request
         return currentStatus switch
         {
             RequestStatus.Open =>
-                newStatus is RequestStatus.InProgress or RequestStatus.Cancelled,
+                newStatus is RequestStatus.InProgress
+                    or RequestStatus.Resolved
+                    or RequestStatus.Cancelled,
             RequestStatus.InProgress =>
                 newStatus is RequestStatus.WaitingForResident
                     or RequestStatus.WaitingForThirdParty
@@ -140,8 +142,8 @@ public sealed class Request
                 newStatus is RequestStatus.InProgress
                     or RequestStatus.Resolved
                     or RequestStatus.Cancelled,
-            RequestStatus.Resolved => newStatus == RequestStatus.InProgress,
-            RequestStatus.Cancelled => false,
+            RequestStatus.Resolved => newStatus == RequestStatus.Open,
+            RequestStatus.Cancelled => newStatus == RequestStatus.Open,
             _ => false
         };
     }

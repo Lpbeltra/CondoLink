@@ -30,3 +30,9 @@ export function getMobileNavigationItems(roles: CondominiumRole[]) {
   if (!roles.includes('Manager')) return items
   return [items[0], items[1], { label: 'Mais', path: '/more', icon: MoreHorizRoundedIcon }]
 }
+
+export function getMobileSelectedPath(pathname: string) {
+  if (pathname === '/more' || pathname.startsWith('/management')) return '/more'
+  if (pathname.startsWith('/requests')) return '/requests'
+  return '/'
+}

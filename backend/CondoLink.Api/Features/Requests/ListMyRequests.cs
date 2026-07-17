@@ -70,7 +70,7 @@ public static class ListMyRequests
                     CategoryName = category.Name,
                     TargetUnitId = unit == null ? (Guid?)null : unit.Id,
                     TargetUnitIdentifier = unit == null ? null : unit.Identifier,
-                    TargetUnitBlock = unit == null ? null : unit.Block,
+                    TargetUnitBlock = unit == null ? null : dbContext.CondominiumBlocks.Where(block => block.Id == unit.BlockId).Select(block => block.Identifier).FirstOrDefault(),
                     request.Title,
                     request.Status,
                     request.Priority,

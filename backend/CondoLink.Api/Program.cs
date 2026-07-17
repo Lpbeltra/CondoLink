@@ -1,4 +1,5 @@
 using CondoLink.Api.Features.Auth;
+using CondoLink.Api.Features.Blocks;
 using CondoLink.Api.Features.Categories;
 using CondoLink.Api.Features.Requests;
 using CondoLink.Api.Features.RequestMessages;
@@ -17,13 +18,19 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOpenApi();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<LocalFileStorage>();
+var allowedOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>() ?? [];
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("FrontendDevelopment", policy =>
     {
-        policy.WithOrigins("http://localhost:5173")
-            .AllowAnyHeader()
-            .AllowAnyMethod();
+        if (allowedOrigins.Length > 0)
+        {
+            policy.WithOrigins(allowedOrigins)
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+        }
     });
 });
 
@@ -55,6 +62,8 @@ app.MapListCondominiums();
 app.MapCreateUnit();
 app.MapGetUnitById();
 app.MapListCondominiumUnits();
+app.MapCondominiumBlocks();
+app.MapManageUnit();
 app.MapCreateUser();
 app.MapLogin();
 app.MapGetCurrentUser();
@@ -62,8 +71,10 @@ app.MapListMyCondominiums();
 app.MapAddCondominiumMember();
 app.MapAddCondominiumMemberRole();
 app.MapListCondominiumMembers();
+app.MapOnboardCondominiumMember();
 app.MapCreateUnitMembership();
 app.MapListUnitMemberships();
+app.MapManageUnitMembership();
 app.MapCreateCategory();
 app.MapListCondominiumCategories();
 app.MapCreateRequest();

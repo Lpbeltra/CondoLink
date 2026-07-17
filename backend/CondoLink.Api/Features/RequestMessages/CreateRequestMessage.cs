@@ -125,10 +125,27 @@ public static class CreateRequestMessage
         dbContext.RequestMessages.Add(message);
         await dbContext.SaveChangesAsync(cancellationToken);
 
+        var authorIsManager = await dbContext.CondominiumMemberships
+            .AsNoTracking()
+            .Where(membership =>
+                membership.UserId == authenticatedUserId
+                && membership.CondominiumId == targetRequest.CondominiumId
+                && membership.IsActive
+                && membership.EndedAt == null)
+            .Join(
+                dbContext.CondominiumMembershipRoles.AsNoTracking().Where(role =>
+                    role.Role == CondominiumRole.Manager
+                    && role.IsActive
+                    && role.RevokedAt == null),
+                membership => membership.Id,
+                role => role.CondominiumMembershipId,
+                (_, _) => true)
+            .AnyAsync(cancellationToken);
+
         var response = new Response(
             message.Id,
             message.RequestId,
-            new AuthorResponse(message.AuthorUserId, authenticatedUser.FullName),
+            new AuthorResponse(message.AuthorUserId, authenticatedUser.FullName, authorIsManager),
             message.Content,
             message.CreatedAt);
 
@@ -136,7 +153,7 @@ public static class CreateRequestMessage
     }
 
     public sealed record RequestDto(string? Content);
-    public sealed record AuthorResponse(Guid Id, string FullName);
+    public sealed record AuthorResponse(Guid Id, string FullName, bool IsManager);
 
     public sealed record Response(
         Guid Id,
