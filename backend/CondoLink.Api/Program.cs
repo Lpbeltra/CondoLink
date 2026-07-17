@@ -1,6 +1,7 @@
 using CondoLink.Api.Features.Auth;
 using CondoLink.Api.Features.Blocks;
 using CondoLink.Api.Features.Categories;
+using CondoLink.Api.Features.Management;
 using CondoLink.Api.Features.Requests;
 using CondoLink.Api.Features.RequestMessages;
 using CondoLink.Api.Features.RequestAttachments;
@@ -13,8 +14,16 @@ using CondoLink.Api.Features.Users;
 using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Persistence;
 
+
 var builder = WebApplication.CreateBuilder(args);
 
+
+builder.Services.AddSwaggerGen(options =>
+{
+    options.CustomSchemaIds(type =>
+        type.FullName?.Replace("+", ".") ?? type.Name);
+});
+builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<LocalFileStorage>();
@@ -35,6 +44,12 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 
 if (app.Environment.IsDevelopment())
 {
@@ -68,6 +83,7 @@ app.MapCreateUser();
 app.MapLogin();
 app.MapGetCurrentUser();
 app.MapListMyCondominiums();
+app.MapManagementContext();
 app.MapAddCondominiumMember();
 app.MapAddCondominiumMemberRole();
 app.MapListCondominiumMembers();
