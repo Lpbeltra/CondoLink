@@ -20,6 +20,7 @@ import { ManagementCategoriesPage } from '../pages/ManagementCategoriesPage'
 import { MorePage } from '../pages/MorePage'
 import { ManagementPeoplePage } from '../pages/ManagementPeoplePage'
 import { ManagementBlocksPage } from '../pages/ManagementBlocksPage'
+import { ManagementContextProvider } from '../management/ManagementContextProvider'
 
 function ProtectedRoute() {
   const { user, isInitializing } = useAuth()
@@ -45,7 +46,7 @@ export function App() {
                   <Route path="requests/:requestId" element={<RequestDetailsPage />} />
                   <Route path="management/requests" element={<ManagementRequestsPage />} />
                   <Route path="more" element={<MorePage />} />
-                  <Route path="management" element={<ManagementLayout />}>
+                  <Route path="management" element={ <ManagementContextProvider> <ManagementLayout /> </ManagementContextProvider> }>
                     <Route index element={<Navigate to="units" replace />} />
                     <Route path="units" element={<ManagementUnitsPage />} />
                     <Route path="units/new" element={<CreateUnitPage />} />

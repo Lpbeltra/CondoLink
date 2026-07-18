@@ -36,6 +36,9 @@ public sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Appl
             .HasColumnName("is_active")
             .IsRequired();
 
+        builder.Property(user => user.ActiveManagementCondominiumId)
+            .HasColumnName("active_management_condominium_id");    
+
         builder.Property(user => user.CreatedAt)
             .HasColumnName("created_at")
             .IsRequired();

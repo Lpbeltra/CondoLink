@@ -35,8 +35,28 @@ public sealed class ApplicationUser : IdentityUser<Guid>
 
     public string FullName { get; private set; } = null!;
     public bool IsActive { get; private set; }
+    public Guid? ActiveManagementCondominiumId { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
+
+    public void SetActiveManagementCondominium(Guid condominiumId)
+    {
+        if (condominiumId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Condominium id cannot be empty.",
+                nameof(condominiumId));
+        }
+
+        ActiveManagementCondominiumId = condominiumId;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void ClearActiveManagementCondominium()
+    {
+        ActiveManagementCondominiumId = null;
+        UpdatedAt = DateTime.UtcNow;
+    }
 
     private static string? NormalizeOptional(string? value)
     {

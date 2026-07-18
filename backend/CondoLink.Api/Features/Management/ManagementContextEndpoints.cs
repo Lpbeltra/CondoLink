@@ -31,7 +31,13 @@ public static class ManagementContextEndpoints
             return InvalidAuthenticatedUser();
         }
 
-        if (!await IsAuthenticatedUserActive(authenticatedUserId, dbContext, cancellationToken))
+        var user = await dbContext.Set<ApplicationUser>()
+            .AsNoTracking()
+            .SingleOrDefaultAsync(
+                item => item.Id == authenticatedUserId && item.IsActive,
+                cancellationToken);
+
+        if (user is null)
         {
             return AuthenticationFailed();
         }
@@ -41,12 +47,15 @@ public static class ManagementContextEndpoints
             dbContext,
             cancellationToken);
 
-        var response = new ManagementContextResponse(
-            ScopeConsolidated,
-            null,
-            availableCondominiums);
+        Guid? activeCondominiumId =
+            user.ActiveManagementCondominiumId is Guid storedCondominiumId
+            && availableCondominiums.Any(item => item.Id == storedCondominiumId)
+                ? storedCondominiumId
+                : null;
 
-        return Results.Ok(response);
+        return Results.Ok(new ManagementContextResponse(
+            activeCondominiumId,
+            availableCondominiums));
     }
 
     private static async Task<IResult> HandlePutAsync(
@@ -60,21 +69,22 @@ public static class ManagementContextEndpoints
             return InvalidAuthenticatedUser();
         }
 
-        if (!await IsAuthenticatedUserActive(authenticatedUserId, dbContext, cancellationToken))
+        var user = await dbContext.Set<ApplicationUser>()
+            .SingleOrDefaultAsync(
+                item => item.Id == authenticatedUserId && item.IsActive,
+                cancellationToken);
+
+        if (user is null)
         {
             return AuthenticationFailed();
         }
 
-        if (string.IsNullOrWhiteSpace(request.Scope))
-        {
-            return Results.BadRequest(new { error = "Scope is required." });
-        }
-
-        if (request.Scope is not ScopeConsolidated and not ScopeCondominium)
+        if (request.CondominiumId is null ||
+            request.CondominiumId == Guid.Empty)
         {
             return Results.BadRequest(new
             {
-                error = "Scope must be either 'Consolidated' or 'Condominium'."
+                error = "CondominiumId is required."
             });
         }
 
@@ -83,48 +93,30 @@ public static class ManagementContextEndpoints
             dbContext,
             cancellationToken);
 
-        if (request.Scope == ScopeCondominium)
+        var selectedCondominiumIsAvailable =
+            availableCondominiums.Any(item =>
+                item.Id == request.CondominiumId.Value);
+
+        if (!selectedCondominiumIsAvailable)
         {
-            if (request.CondominiumId is null || request.CondominiumId == Guid.Empty)
-            {
-                return Results.BadRequest(new
-                {
-                    error = "CondominiumId is required when scope is 'Condominium'."
-                });
-            }
-
-            if (!availableCondominiums.Any(item =>
-                    item.Id == request.CondominiumId.Value))
-            {
-                return Results.Forbid();
-            }
-
-            return Results.Ok(new ManagementContextResponse(
-                request.Scope,
-                request.CondominiumId,
-                availableCondominiums));
+            return Results.Forbid();
         }
 
+        user.SetActiveManagementCondominium(
+            request.CondominiumId.Value);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
         return Results.Ok(new ManagementContextResponse(
-            request.Scope,
-            null,
+            user.ActiveManagementCondominiumId,
             availableCondominiums));
     }
 
-    private static async Task<bool> IsAuthenticatedUserActive(
-        Guid userId,
-        AppDbContext dbContext,
-        CancellationToken cancellationToken)
-    {
-        return await dbContext.Set<ApplicationUser>()
-            .AsNoTracking()
-            .AnyAsync(user => user.Id == userId && user.IsActive, cancellationToken);
-    }
-
-    private static async Task<ManagementCondominiumResponse[]> GetManagementCondominiumsAsync(
-        Guid userId,
-        AppDbContext dbContext,
-        CancellationToken cancellationToken)
+    private static async Task<ManagementCondominiumResponse[]>
+        GetManagementCondominiumsAsync(
+            Guid userId,
+            AppDbContext dbContext,
+            CancellationToken cancellationToken)
     {
         var rows = await (
                 from membership in dbContext.CondominiumMemberships.AsNoTracking()
@@ -179,7 +171,6 @@ public static class ManagementContextEndpoints
             statusCode: StatusCodes.Status401Unauthorized);
 
     public sealed record ManagementContextRequest(
-        string? Scope,
         Guid? CondominiumId);
 
     public sealed record ManagementCondominiumResponse(
@@ -188,10 +179,6 @@ public static class ManagementContextEndpoints
         bool IsActive);
 
     public sealed record ManagementContextResponse(
-        string Scope,
         Guid? ActiveCondominiumId,
         IReadOnlyList<ManagementCondominiumResponse> AvailableCondominiums);
-
-    private const string ScopeConsolidated = "Consolidated";
-    private const string ScopeCondominium = "Condominium";
 }

@@ -13,6 +13,7 @@ using CondoLink.Api.Features.UnitMemberships;
 using CondoLink.Api.Features.Users;
 using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Persistence;
+using Microsoft.OpenApi;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -22,6 +23,20 @@ builder.Services.AddSwaggerGen(options =>
 {
     options.CustomSchemaIds(type =>
         type.FullName?.Replace("+", ".") ?? type.Name);
+
+    options.AddSecurityDefinition("bearer", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        Description = "Informe o token JWT."
+    });
+
+    options.AddSecurityRequirement(document =>
+        new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecuritySchemeReference("bearer", document)] = []
+        });
 });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();

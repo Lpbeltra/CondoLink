@@ -5,14 +5,14 @@ import { Alert, Box, Button, InputAdornment, List, ListItemButton, ListItemText,
 import { useNavigate } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
 import { PageContainer } from '../components/PageContainer'
-import { useCondominium } from '../condominiums/CondominiumContext'
+import { useManagementContext } from '../management/ManagementContext'
 import { listBlocks, listUnits } from '../management/api'
 import { managementError } from '../management/errors'
 import { filterUnits, sortBlocks } from '../management/unitPresentation'
 import type { CondominiumBlock, Unit } from '../management/types'
 
 export function ManagementUnitsPage() {
-  const { currentCondominium } = useCondominium()
+  const { activeCondominiumId } = useManagementContext()
   const navigate = useNavigate()
   const [units, setUnits] = useState<Unit[]>([])
   const [blocks, setBlocks] = useState<CondominiumBlock[]>([])
@@ -21,14 +21,42 @@ export function ManagementUnitsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const load = useCallback(async () => {
-    const id = currentCondominium?.condominium.id
-    if (!id) return
-    setLoading(true); setUnits([]); setError('')
-    try { const [unitData, blockData] = await Promise.all([listUnits(id), listBlocks(id)]); setUnits(unitData); setBlocks(sortBlocks(blockData)) }
-    catch (requestError) { setError(managementError(requestError)) }
-    finally { setLoading(false) }
-  }, [currentCondominium?.condominium.id])
+    if (!activeCondominiumId) {
+      setUnits([])
+      setBlocks([])
+      setLoading(false)
+      return
+    }
+
+    setLoading(true)
+    setUnits([])
+    setBlocks([])
+    setError('')
+
+    try {
+      const [unitData, blockData] = await Promise.all([
+        listUnits(activeCondominiumId),
+        listBlocks(activeCondominiumId),
+      ])
+
+      setUnits(unitData)
+      setBlocks(sortBlocks(blockData))
+    } catch (requestError) {
+      setError(managementError(requestError))
+    } finally {
+      setLoading(false)
+    }
+  }, [activeCondominiumId])
   useEffect(() => { void load() }, [load])
+    if (!activeCondominiumId && !loading) {
+    return (
+      <PageContainer>
+        <Alert severity="info">
+          Selecione um condomínio para consultar e cadastrar unidades.
+        </Alert>
+      </PageContainer>
+    )
+  }
   const visible = filterUnits(units, search, blockId)
   return <PageContainer>
     <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2}><Box><Typography variant="h1">Unidades</Typography><Typography color="text.secondary">Cadastre e consulte as unidades do condomínio.</Typography></Box><Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => navigate('/management/units/new')}>Nova unidade</Button></Stack>
@@ -37,3 +65,5 @@ export function ManagementUnitsPage() {
       {units.length === 0 ? <EmptyState title="Nenhuma unidade cadastrada." description="Cadastre a primeira unidade para organizar moradores e vínculos." /> : visible.length === 0 ? <EmptyState title="Nenhuma unidade encontrada com os filtros selecionados." description="Revise a busca ou o bloco selecionado." /> : <List sx={{ mt: 2, bgcolor: 'background.paper', borderRadius: 2 }}>{visible.map(unit => <ListItemButton key={unit.id} divider onClick={() => navigate(`/management/units/${unit.id}`)} sx={{ py: 1.5 }}><ListItemText primary={`${unit.identifier}${unit.block ? ` / Bloco ${unit.block}` : ''}`} secondary={`${unit.peopleCount ?? 0} ${(unit.peopleCount ?? 0) === 1 ? 'pessoa vinculada' : 'pessoas vinculadas'}`} primaryTypographyProps={{ fontWeight: 750 }} /></ListItemButton>)}</List>}</>}
   </PageContainer>
 }
+
+

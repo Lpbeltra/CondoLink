@@ -1,5 +1,14 @@
 import { api } from '../services/api'
-import type { Category, CondominiumBlock, CondominiumMember, OnboardResult, RelationshipType, Unit, UnitMembership } from './types'
+import type {
+  Category,
+  CondominiumBlock,
+  CondominiumMember,
+  ManagementContextResponse,
+  OnboardResult,
+  RelationshipType,
+  Unit,
+  UnitMembership,
+} from './types'
 
 export const listUnits = async (condominiumId: string) => (await api.get<Unit[]>(`/condominiums/${condominiumId}/units`)).data
 export const getUnit = async (unitId: string) => (await api.get<Unit>(`/units/${unitId}`)).data
@@ -20,3 +29,12 @@ export const createCategory = async (condominiumId: string, payload: { name: str
 export const updateCategory = async (condominiumId: string, categoryId: string, name: string) => (await api.put<Category>(`/condominiums/${condominiumId}/categories/${categoryId}`, { name })).data
 export const deleteCategory = async (condominiumId: string, categoryId: string) => api.delete(`/condominiums/${condominiumId}/categories/${categoryId}`)
 export const onboardMember = async (condominiumId: string, payload: { fullName: string; email: string; phoneNumber: string | null; unitId: string | null; relationshipType: RelationshipType | null; isResident: boolean; isPrimaryResidence: boolean }) => (await api.post<OnboardResult>(`/condominiums/${condominiumId}/members/onboard`, payload)).data
+export const getManagementContext = async () =>
+  (await api.get<ManagementContextResponse>('/management/context')).data
+
+export const setManagementContext = async (condominiumId: string | null) =>
+  (
+    await api.put<ManagementContextResponse>('/management/context', {
+      condominiumId,
+    })
+  ).data

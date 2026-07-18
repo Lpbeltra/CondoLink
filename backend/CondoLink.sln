@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CondoLink.Domain", "CondoLi
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CondoLink.Infrastructure", "CondoLink.Infrastructure\CondoLink.Infrastructure.csproj", "{7B20E074-73B7-4C99-82BC-0DB7FE2A66E9}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CondoLink.Tests", "CondoLink.Tests\CondoLink.Tests.csproj", "{A66CFC9B-9DC5-4C7F-A67C-80F8E4567B09}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{7B20E074-73B7-4C99-82BC-0DB7FE2A66E9}.Release|x64.Build.0 = Release|Any CPU
 		{7B20E074-73B7-4C99-82BC-0DB7FE2A66E9}.Release|x86.ActiveCfg = Release|Any CPU
 		{7B20E074-73B7-4C99-82BC-0DB7FE2A66E9}.Release|x86.Build.0 = Release|Any CPU
+		{A66CFC9B-9DC5-4C7F-A67C-80F8E4567B09}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A66CFC9B-9DC5-4C7F-A67C-80F8E4567B09}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A66CFC9B-9DC5-4C7F-A67C-80F8E4567B09}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A66CFC9B-9DC5-4C7F-A67C-80F8E4567B09}.Debug|x64.Build.0 = Debug|Any CPU
+		{A66CFC9B-9DC5-4C7F-A67C-80F8E4567B09}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{A66CFC9B-9DC5-4C7F-A67C-80F8E4567B09}.Debug|x86.Build.0 = Debug|Any CPU
+		{A66CFC9B-9DC5-4C7F-A67C-80F8E4567B09}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A66CFC9B-9DC5-4C7F-A67C-80F8E4567B09}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A66CFC9B-9DC5-4C7F-A67C-80F8E4567B09}.Release|x64.ActiveCfg = Release|Any CPU
+		{A66CFC9B-9DC5-4C7F-A67C-80F8E4567B09}.Release|x64.Build.0 = Release|Any CPU
+		{A66CFC9B-9DC5-4C7F-A67C-80F8E4567B09}.Release|x86.ActiveCfg = Release|Any CPU
+		{A66CFC9B-9DC5-4C7F-A67C-80F8E4567B09}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

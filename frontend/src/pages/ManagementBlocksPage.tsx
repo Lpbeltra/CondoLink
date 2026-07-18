@@ -5,18 +5,30 @@ import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, List, ListItem, ListItemText, Skeleton, Stack, TextField, Typography } from '@mui/material'
 import { EmptyState } from '../components/EmptyState'
 import { PageContainer } from '../components/PageContainer'
-import { useCondominium } from '../condominiums/CondominiumContext'
+import { useManagementContext } from '../management/ManagementContext'
 import { createBlock, deleteBlock, listBlocks, updateBlock } from '../management/api'
 import { managementError } from '../management/errors'
 import { sortBlocks } from '../management/unitPresentation'
 import type { CondominiumBlock } from '../management/types'
 
 export function ManagementBlocksPage() {
-  const { currentCondominium } = useCondominium()
+  const { activeCondominiumId } = useManagementContext()
   const [blocks,setBlocks]=useState<CondominiumBlock[]>([]); const [loading,setLoading]=useState(true); const [saving,setSaving]=useState(false); const [error,setError]=useState(''); const [success,setSuccess]=useState(''); const [editing,setEditing]=useState<CondominiumBlock|null|undefined>(undefined); const [identifier,setIdentifier]=useState(''); const [deleting,setDeleting]=useState<CondominiumBlock|null>(null)
-  const condominiumId=currentCondominium?.condominium.id
-  const load=useCallback(async()=>{if(!condominiumId)return;setLoading(true);setError('');try{setBlocks(sortBlocks(await listBlocks(condominiumId)))}catch(e){setError(managementError(e))}finally{setLoading(false)}},[condominiumId])
+  const condominiumId = activeCondominiumId
+  const load=useCallback(async()=>{if (!condominiumId) {
+  setBlocks([])
+  setLoading(false)
+  return};setLoading(true);setError('');try{setBlocks(sortBlocks(await listBlocks(condominiumId)))}catch(e){setError(managementError(e))}finally{setLoading(false)}},[condominiumId])
   useEffect(()=>{void load()},[load])
+  if (!activeCondominiumId && !loading) {
+    return (
+      <PageContainer>
+        <Alert severity="info">
+          Selecione um condomínio para consultar e cadastrar blocos.
+        </Alert>
+      </PageContainer>
+    )
+  }
   const save=async(e:FormEvent)=>{e.preventDefault();if(!condominiumId||!identifier.trim()||saving)return;setSaving(true);setError('');try{if(editing)await updateBlock(condominiumId,editing.id,identifier.trim());else await createBlock(condominiumId,identifier.trim());setEditing(undefined);setIdentifier('');setSuccess(editing?'Bloco atualizado com sucesso.':'Bloco cadastrado com sucesso.');await load()}catch(err){setError(managementError(err))}finally{setSaving(false)}}
   const remove=async()=>{if(!condominiumId||!deleting||saving)return;setSaving(true);setError('');try{await deleteBlock(condominiumId,deleting.id);setDeleting(null);setSuccess('Bloco excluído com sucesso.');await load()}catch(err){setDeleting(null);setError(managementError(err))}finally{setSaving(false)}}
   return <PageContainer>
