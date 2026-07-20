@@ -32,7 +32,6 @@ public static class ManagementContextEndpoints
         }
 
         var user = await dbContext.Set<ApplicationUser>()
-            .AsNoTracking()
             .SingleOrDefaultAsync(
                 item => item.Id == authenticatedUserId && item.IsActive,
                 cancellationToken);
@@ -47,11 +46,23 @@ public static class ManagementContextEndpoints
             dbContext,
             cancellationToken);
 
-        Guid? activeCondominiumId =
+        var activeCondominiumId =
             user.ActiveManagementCondominiumId is Guid storedCondominiumId
             && availableCondominiums.Any(item => item.Id == storedCondominiumId)
                 ? storedCondominiumId
-                : null;
+                : (Guid?)null;
+
+        // Se existe apenas um condomínio disponível, seleciona automaticamente.
+        if (activeCondominiumId is null &&
+            availableCondominiums.Length == 1)
+        {
+            activeCondominiumId = availableCondominiums[0].Id;
+
+            user.SetActiveManagementCondominium(
+                activeCondominiumId.Value);
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
 
         return Results.Ok(new ManagementContextResponse(
             activeCondominiumId,

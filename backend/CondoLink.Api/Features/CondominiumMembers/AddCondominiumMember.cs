@@ -1,12 +1,9 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
-using CondoLink.Infrastructure.Persistence.Configurations;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 
 namespace CondoLink.Api.Features.CondominiumMembers;
 
@@ -15,7 +12,9 @@ public static class AddCondominiumMember
     public static IEndpointRouteBuilder MapAddCondominiumMember(
         this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapPost("/condominiums/{condominiumId:guid}/members", HandleAsync)
+        endpoints.MapPost(
+                "/condominiums/{condominiumId:guid}/members",
+                HandleAsync)
             .RequireAuthorization();
 
         return endpoints;
@@ -26,156 +25,132 @@ public static class AddCondominiumMember
         Request request,
         ClaimsPrincipal principal,
         AppDbContext dbContext,
+        CondominiumMembershipService membershipService,
         CancellationToken cancellationToken)
     {
         var authenticatedUserIdValue =
             principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
             ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-        if (!Guid.TryParse(authenticatedUserIdValue, out var authenticatedUserId))
+        if (!Guid.TryParse(
+                authenticatedUserIdValue,
+                out var authenticatedUserId))
         {
             return Results.Json(
-                new { error = "Invalid authenticated user." },
+                new
+                {
+                    error = "Invalid authenticated user."
+                },
                 statusCode: StatusCodes.Status401Unauthorized);
         }
 
-        var authenticatedUser = await dbContext.Set<ApplicationUser>()
+        var authenticatedUser = await dbContext
+            .Set<ApplicationUser>()
             .AsNoTracking()
             .Where(user => user.Id == authenticatedUserId)
-            .Select(user => new { user.IsActive })
+            .Select(user => new
+            {
+                user.IsActive
+            })
             .SingleOrDefaultAsync(cancellationToken);
 
         if (authenticatedUser is null)
         {
             return Results.Json(
-                new { error = "Authenticated user was not found." },
+                new
+                {
+                    error = "Authenticated user was not found."
+                },
                 statusCode: StatusCodes.Status401Unauthorized);
         }
 
         if (!authenticatedUser.IsActive)
         {
             return Results.Json(
-                new { error = "User account is inactive." },
+                new
+                {
+                    error = "User account is inactive."
+                },
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
-        if (request.UserId == Guid.Empty)
-        {
-            return Results.BadRequest(new { error = "UserId is required." });
-        }
-
-        var condominium = await dbContext.Condominiums
-            .AsNoTracking()
-            .Where(condominium => condominium.Id == condominiumId)
-            .Select(condominium => new { condominium.IsActive })
-            .SingleOrDefaultAsync(cancellationToken);
-
-        if (condominium is null)
-        {
-            return Results.NotFound(new { error = "Condominium not found." });
-        }
-
-        var isCondominiumManager = await dbContext.CondominiumMemberships
-            .AsNoTracking()
-            .Where(membership =>
-                membership.UserId == authenticatedUserId
-                && membership.CondominiumId == condominiumId
-                && membership.IsActive
-                && membership.EndedAt == null)
-            .Join(
-                dbContext.CondominiumMembershipRoles
-                    .AsNoTracking()
-                    .Where(role =>
-                        role.Role == CondominiumRole.Manager
-                        && role.IsActive
-                        && role.RevokedAt == null),
-                membership => membership.Id,
-                role => role.CondominiumMembershipId,
-                (_, _) => true)
-            .AnyAsync(cancellationToken);
+        var isCondominiumManager =
+            await dbContext.CondominiumMemberships
+                .AsNoTracking()
+                .Where(membership =>
+                    membership.UserId == authenticatedUserId &&
+                    membership.CondominiumId == condominiumId &&
+                    membership.IsActive &&
+                    membership.EndedAt == null)
+                .Join(
+                    dbContext.CondominiumMembershipRoles
+                        .AsNoTracking()
+                        .Where(role =>
+                            role.Role == CondominiumRole.Manager &&
+                            role.IsActive &&
+                            role.RevokedAt == null),
+                    membership => membership.Id,
+                    role => role.CondominiumMembershipId,
+                    (_, _) => true)
+                .AnyAsync(cancellationToken);
 
         if (!isCondominiumManager)
         {
             return Results.Json(
-                new { error = "Only condominium managers can add members." },
+                new
+                {
+                    error = "Only condominium managers can add members."
+                },
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
-        if (!condominium.IsActive)
+        var result = await membershipService.AddMemberAsync(
+            condominiumId,
+            request.UserId,
+            cancellationToken);
+
+        if (!result.Succeeded)
         {
-            return Results.Conflict(
-                new { error = "Inactive condominium cannot receive new members." });
+            return MapFailure(result);
         }
 
-        var user = await dbContext.Set<ApplicationUser>()
-            .AsNoTracking()
-            .Where(user => user.Id == request.UserId)
-            .Select(user => new { user.IsActive })
-            .SingleOrDefaultAsync(cancellationToken);
+        var membership = result.Membership!;
 
-        if (user is null)
-        {
-            return Results.NotFound(new { error = "User not found." });
-        }
-
-        if (!user.IsActive)
-        {
-            return Results.Conflict(
-                new { error = "Inactive user cannot be added to a condominium." });
-        }
-
-        var alreadyExists = await dbContext.CondominiumMemberships
-            .AsNoTracking()
-            .AnyAsync(
-                membership => membership.UserId == request.UserId
-                    && membership.CondominiumId == condominiumId,
-                cancellationToken);
-
-        if (alreadyExists)
-        {
-            return DuplicateMembershipConflict();
-        }
-
-        var membership = new CondominiumMembership(request.UserId, condominiumId);
-        dbContext.CondominiumMemberships.Add(membership);
-
-        try
-        {
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateException exception) when (IsDuplicateMembershipViolation(exception))
-        {
-            return DuplicateMembershipConflict();
-        }
-
-        var response = new Response(
-            membership.Id,
-            membership.UserId,
-            membership.CondominiumId,
-            membership.IsActive,
-            membership.JoinedAt,
-            membership.EndedAt,
-            membership.CreatedAt);
-
-        return Results.Created($"/condominium-memberships/{membership.Id}", response);
+        return Results.Created(
+            $"/condominium-memberships/{membership.Id}",
+            new Response(
+                membership.Id,
+                membership.UserId,
+                membership.CondominiumId,
+                membership.IsActive,
+                membership.JoinedAt,
+                membership.EndedAt,
+                membership.CreatedAt));
     }
 
-    private static bool IsDuplicateMembershipViolation(DbUpdateException exception)
+    private static IResult MapFailure(AddMemberResult result)
     {
-        return exception.InnerException is PostgresException
+        var response = new
         {
-            SqlState: PostgresErrorCodes.UniqueViolation,
-            ConstraintName:
-                CondominiumMembershipConfiguration.UniqueUserCondominiumIndex
+            error = result.ErrorMessage
         };
-    }
 
-    private static IResult DuplicateMembershipConflict()
-    {
-        return Results.Conflict(new
+        return result.Error switch
         {
-            error = "User is already associated with this condominium."
-        });
+            AddMemberError.InvalidUserId =>
+                Results.BadRequest(response),
+
+            AddMemberError.CondominiumNotFound or
+            AddMemberError.UserNotFound =>
+                Results.NotFound(response),
+
+            AddMemberError.InactiveCondominium or
+            AddMemberError.InactiveUser or
+            AddMemberError.DuplicateMembership =>
+                Results.Conflict(response),
+
+            _ => Results.BadRequest(response)
+        };
     }
 
     public sealed record Request(Guid UserId);

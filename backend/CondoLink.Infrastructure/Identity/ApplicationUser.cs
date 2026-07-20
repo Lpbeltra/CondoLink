@@ -33,11 +33,33 @@ public sealed class ApplicationUser : IdentityUser<Guid>
         UpdatedAt = now;
     }
 
-    public string FullName { get; private set; } = null!;
+    public string FullName { get; private set; }
     public bool IsActive { get; private set; }
     public Guid? ActiveManagementCondominiumId { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
+
+    public void Update(
+        string fullName,
+        string? phoneNumber)
+    {
+        if (string.IsNullOrWhiteSpace(fullName))
+        {
+            throw new ArgumentException(
+                "Full name is required.",
+                nameof(fullName));
+        }
+
+        FullName = fullName.Trim();
+        PhoneNumber = NormalizeOptional(phoneNumber);
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetActiveStatus(bool isActive)
+    {
+        IsActive = isActive;
+        UpdatedAt = DateTime.UtcNow;
+    }
 
     public void SetActiveManagementCondominium(Guid condominiumId)
     {
@@ -61,6 +83,8 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     private static string? NormalizeOptional(string? value)
     {
         var trimmed = value?.Trim();
-        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+        return string.IsNullOrEmpty(trimmed)
+            ? null
+            : trimmed;
     }
 }

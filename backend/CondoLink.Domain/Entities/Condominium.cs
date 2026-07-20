@@ -24,6 +24,23 @@ public sealed class Condominium
         UpdatedAt = now;
     }
 
+    public void SetActiveStatus(bool isActive)
+    {
+        IsActive = isActive;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void Update(
+        string name,
+        string? email,
+        string? phoneNumber)
+    {
+        Name = name;
+        Email = email;
+        PhoneNumber = phoneNumber;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public Guid Id { get; private set; }
     public string Name { get; private set; } = null!;
     public string? Email { get; private set; }

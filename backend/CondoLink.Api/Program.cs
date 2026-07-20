@@ -16,11 +16,14 @@ using CondoLink.Infrastructure.Persistence;
 using Microsoft.OpenApi;
 using CondoLink.Api;
 using CondoLink.Api.Features.Overwatch;
+using CondoLink.Api.Features.Overwatch.Managers;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
+builder.Services.AddScoped<CondominiumMembershipService>();
+builder.Services.AddScoped<ManagerOnboardingService>();
 
 builder.Services.AddSwaggerGen(options =>
 {
@@ -174,8 +177,9 @@ app.MapCreateRequestMessage();
 app.MapListRequestMessages();
 app.MapRequestAttachments();
 
-await app.InitializePlatformAdminAsync();
-
+// Overwatch
 app.MapOverwatchEndpoints();
+
+await app.InitializePlatformAdminAsync();
 
 app.Run();
