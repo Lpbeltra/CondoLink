@@ -13,6 +13,7 @@ services:
       context: ./backend
       dockerfile: CondoLink.Api/Dockerfile
     environment:
+      PlatformAdmin__Email: "lisandro@example.com"
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_HTTP_PORTS: 8080
       ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=condolink;Username=postgres;Password=postgres
@@ -48,3 +49,5 @@ services:
 volumes:
   condolink_db_data:
   condolink_file_storage:
+
+

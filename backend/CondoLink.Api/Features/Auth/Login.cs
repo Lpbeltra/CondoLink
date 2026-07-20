@@ -10,9 +10,13 @@ namespace CondoLink.Api.Features.Auth;
 
 public static class Login
 {
-    public static IEndpointRouteBuilder MapLogin(this IEndpointRouteBuilder endpoints)
+    public static IEndpointRouteBuilder MapLogin(
+        this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapPost("/auth/login", HandleAsync);
+        endpoints.MapPost("/auth/login", HandleAsync)
+            .WithTags("Authentication")
+            .WithSummary("Authenticate user");
+
         return endpoints;
     }
 
@@ -23,24 +27,30 @@ public static class Login
     {
         if (string.IsNullOrWhiteSpace(request.Email))
         {
-            return Results.BadRequest(new { error = "Email is required." });
+            return Results.BadRequest(
+                new { error = "Email is required." });
         }
 
         var email = request.Email.Trim();
 
         if (!new EmailAddressAttribute().IsValid(email))
         {
-            return Results.BadRequest(new { error = "Email is invalid." });
+            return Results.BadRequest(
+                new { error = "Email is invalid." });
         }
 
         if (string.IsNullOrEmpty(request.Password))
         {
-            return Results.BadRequest(new { error = "Password is required." });
+            return Results.BadRequest(
+                new { error = "Password is required." });
         }
 
         var user = await userManager.FindByEmailAsync(email);
 
-        if (user is null || !await userManager.CheckPasswordAsync(user, request.Password))
+        if (user is null
+            || !await userManager.CheckPasswordAsync(
+                user,
+                request.Password))
         {
             return Results.Json(
                 new { error = "Invalid email or password." },
@@ -57,21 +67,42 @@ public static class Login
         var issuer = configuration["Jwt:Issuer"]!;
         var audience = configuration["Jwt:Audience"]!;
         var key = configuration["Jwt:Key"]!;
-        var expirationMinutes = configuration.GetValue<int>("Jwt:ExpirationMinutes");
+
+        var expirationMinutes =
+            configuration.GetValue<int>("Jwt:ExpirationMinutes");
+
         var now = DateTime.UtcNow;
         var expiresAt = now.AddMinutes(expirationMinutes);
 
-        var claims = new[]
+        var roles = await userManager.GetRolesAsync(user);
+
+        var claims = new List<Claim>
         {
-            new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new Claim(JwtRegisteredClaimNames.Email, user.Email!),
-            new Claim(ClaimTypes.Name, user.FullName),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new Claim(
+            new(
+                JwtRegisteredClaimNames.Sub,
+                user.Id.ToString()),
+
+            new(
+                JwtRegisteredClaimNames.Email,
+                user.Email!),
+
+            new(
+                ClaimTypes.Name,
+                user.FullName),
+
+            new(
+                JwtRegisteredClaimNames.Jti,
+                Guid.NewGuid().ToString()),
+
+            new(
                 JwtRegisteredClaimNames.Iat,
                 EpochTime.GetIntDate(now).ToString(),
                 ClaimValueTypes.Integer64)
         };
+
+        claims.AddRange(
+            roles.Select(
+                role => new Claim(ClaimTypes.Role, role)));
 
         var token = new JwtSecurityToken(
             issuer: issuer,
@@ -80,19 +111,27 @@ public static class Login
             notBefore: now,
             expires: expiresAt,
             signingCredentials: new SigningCredentials(
-                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
+                new SymmetricSecurityKey(
+                    Encoding.UTF8.GetBytes(key)),
                 SecurityAlgorithms.HmacSha256));
 
         var response = new Response(
             new JwtSecurityTokenHandler().WriteToken(token),
             "Bearer",
             checked(expirationMinutes * 60),
-            new UserResponse(user.Id, user.FullName, user.Email!, user.IsActive));
+            new UserResponse(
+                user.Id,
+                user.FullName,
+                user.Email!,
+                user.IsActive,
+                roles.ToList()));
 
         return Results.Ok(response);
     }
 
-    public sealed record Request(string? Email, string? Password);
+    public sealed record Request(
+        string? Email,
+        string? Password);
 
     public sealed record Response(
         string AccessToken,
@@ -104,5 +143,6 @@ public static class Login
         Guid Id,
         string FullName,
         string Email,
-        bool IsActive);
+        bool IsActive,
+        IReadOnlyList<string> Roles);
 }

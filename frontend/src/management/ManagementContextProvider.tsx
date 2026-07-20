@@ -29,16 +29,26 @@ export function ManagementContextProvider({
   const [activeCondominiumId, setActiveCondominiumId] = useState<
     string | null
   >(null)
+
+  // Apenas para o carregamento inicial do contexto
   const [isLoading, setIsLoading] = useState(false)
+
+  // Apenas para a troca de condomínio
+  const [isSwitching, setIsSwitching] = useState(false)
+
   const [error, setError] = useState<string | null>(null)
 
   const requestVersion = useRef(0)
 
   const clearContext = useCallback(() => {
     requestVersion.current += 1
+
     setCondominiums([])
     setActiveCondominiumId(null)
+
     setIsLoading(false)
+    setIsSwitching(false)
+
     setError(null)
   }, [])
 
@@ -84,7 +94,7 @@ export function ManagementContextProvider({
 
   const selectCondominium = useCallback(
     async (condominiumId: string | null) => {
-      setIsLoading(true)
+      setIsSwitching(true)
       setError(null)
 
       try {
@@ -96,7 +106,7 @@ export function ManagementContextProvider({
         setError(getErrorMessage(requestError))
         throw requestError
       } finally {
-        setIsLoading(false)
+        setIsSwitching(false)
       }
     },
     []
@@ -107,6 +117,7 @@ export function ManagementContextProvider({
       condominiums,
       activeCondominiumId,
       isLoading,
+      isSwitching,
       error,
       refresh,
       selectCondominium,
@@ -114,8 +125,9 @@ export function ManagementContextProvider({
     [
       activeCondominiumId,
       condominiums,
-      error,
       isLoading,
+      isSwitching,
+      error,
       refresh,
       selectCondominium,
     ]
