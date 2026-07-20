@@ -153,16 +153,25 @@ public static class CreateRequest
                 new { error = "Inactive category cannot be used in new requests." });
         }
 
-        if (request.TargetUnitId.HasValue)
+        var targetUnitId = request.TargetUnitId;
+        if (!targetUnitId.HasValue)
         {
-            if (request.TargetUnitId == Guid.Empty)
+            var activeUnitIds = await ActiveUnitIdsAsync(dbContext, authenticatedUserId, condominiumId, cancellationToken);
+            if (activeUnitIds.Length == 1) targetUnitId = activeUnitIds[0];
+            else if (activeUnitIds.Length > 1)
+                return Results.BadRequest(new { error = "Target unit is required when the member has multiple active units." });
+        }
+
+        if (targetUnitId.HasValue)
+        {
+            if (targetUnitId == Guid.Empty)
             {
                 return Results.BadRequest(new { error = "Target unit is invalid." });
             }
 
             var targetUnit = await dbContext.Units
                 .AsNoTracking()
-                .Where(unit => unit.Id == request.TargetUnitId)
+                .Where(unit => unit.Id == targetUnitId)
                 .Select(unit => new { unit.CondominiumId })
                 .SingleOrDefaultAsync(cancellationToken);
 
@@ -183,7 +192,7 @@ public static class CreateRequest
         var domainRequest = new DomainRequest(
             condominiumId,
             authenticatedUserId,
-            request.TargetUnitId,
+            targetUnitId,
             request.CategoryId,
             title,
             description);
@@ -216,6 +225,13 @@ public static class CreateRequest
 
         return Results.Created($"/requests/{domainRequest.Id}", response);
     }
+
+    public static Task<Guid[]> ActiveUnitIdsAsync(AppDbContext dbContext, Guid userId, Guid condominiumId, CancellationToken cancellationToken = default) =>
+        (from membership in dbContext.UnitMemberships.AsNoTracking()
+         join unit in dbContext.Units.AsNoTracking() on membership.UnitId equals unit.Id
+         where membership.UserId == userId && membership.IsActive && membership.EndedAt == null
+               && unit.CondominiumId == condominiumId && unit.IsActive
+         select unit.Id).Distinct().Take(2).ToArrayAsync(cancellationToken);
 
     public sealed record RequestDto(
         Guid CategoryId,

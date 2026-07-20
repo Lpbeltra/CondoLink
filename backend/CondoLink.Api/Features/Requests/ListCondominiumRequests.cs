@@ -4,6 +4,7 @@ using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using DomainRequest = CondoLink.Domain.Entities.Request;
 
 namespace CondoLink.Api.Features.Requests;
 
@@ -13,7 +14,7 @@ public static class ListCondominiumRequests
         this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet(
-                "/condominiums/{condominiumId:guid}/requests",
+                "/management/requests",
                 HandleAsync)
             .RequireAuthorization();
 
@@ -21,7 +22,6 @@ public static class ListCondominiumRequests
     }
 
     private static async Task<IResult> HandleAsync(
-        Guid condominiumId,
         string? status,
         string? priority,
         Guid? categoryId,
@@ -62,43 +62,6 @@ public static class ListCondominiumRequests
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
-        var condominiumExists = await dbContext.Condominiums
-            .AsNoTracking()
-            .AnyAsync(
-                condominium => condominium.Id == condominiumId,
-                cancellationToken);
-
-        if (!condominiumExists)
-        {
-            return Results.NotFound(new { error = "Condominium not found." });
-        }
-
-        var isCondominiumManager = await dbContext.CondominiumMemberships
-            .AsNoTracking()
-            .Where(membership =>
-                membership.UserId == authenticatedUserId
-                && membership.CondominiumId == condominiumId
-                && membership.IsActive
-                && membership.EndedAt == null)
-            .Join(
-                dbContext.CondominiumMembershipRoles
-                    .AsNoTracking()
-                    .Where(role =>
-                        role.Role == CondominiumRole.Manager
-                        && role.IsActive
-                        && role.RevokedAt == null),
-                membership => membership.Id,
-                role => role.CondominiumMembershipId,
-                (_, _) => true)
-            .AnyAsync(cancellationToken);
-
-        if (!isCondominiumManager)
-        {
-            return Results.Json(
-                new { error = "Only condominium managers can view condominium requests." },
-                statusCode: StatusCodes.Status403Forbidden);
-        }
-
         RequestStatus? statusFilter = null;
         RequestPriority? priorityFilter = null;
 
@@ -124,9 +87,7 @@ public static class ListCondominiumRequests
             priorityFilter = parsedPriority;
         }
 
-        var condominiumRequests = dbContext.Requests
-            .AsNoTracking()
-            .Where(request => request.CondominiumId == condominiumId);
+        var condominiumRequests = AuthorizedRequests(dbContext, authenticatedUserId);
 
         var counts = new CountsResponse(
             await condominiumRequests.CountAsync(item => item.Status == RequestStatus.Open, cancellationToken),
@@ -169,6 +130,8 @@ public static class ListCondominiumRequests
                     on request.AuthorUserId equals author.Id
                 join category in dbContext.Categories.AsNoTracking()
                     on request.CategoryId equals category.Id
+                join condominium in dbContext.Condominiums.AsNoTracking()
+                    on request.CondominiumId equals condominium.Id
                 join unit in dbContext.Units.AsNoTracking()
                     on request.TargetUnitId equals unit.Id into targetUnits
                 from unit in targetUnits.DefaultIfEmpty()
@@ -181,6 +144,7 @@ public static class ListCondominiumRequests
                 {
                     request.Id,
                     request.CondominiumId,
+                    CondominiumName = condominium.Name,
                     AuthorId = author.Id,
                     AuthorFullName = author.FullName,
                     CategoryId = category.Id,
@@ -201,6 +165,7 @@ public static class ListCondominiumRequests
             .Select(item => new ItemResponse(
                 item.Id,
                 item.CondominiumId,
+                item.CondominiumName,
                 new AuthorResponse(item.AuthorId, item.AuthorFullName),
                 new CategoryResponse(item.CategoryId, item.CategoryName),
                 item.TargetUnitId.HasValue
@@ -218,6 +183,19 @@ public static class ListCondominiumRequests
             .ToArray();
 
         return Results.Ok(new Response(rows.Count, counts, items));
+    }
+
+    public static IQueryable<DomainRequest> AuthorizedRequests(AppDbContext dbContext, Guid managerUserId)
+    {
+        var managedCondominiumIds = dbContext.CondominiumMemberships
+            .AsNoTracking()
+            .Where(membership => membership.UserId == managerUserId && membership.IsActive && membership.EndedAt == null)
+            .Join(dbContext.CondominiumMembershipRoles.AsNoTracking().Where(role =>
+                    role.Role == CondominiumRole.Manager && role.IsActive && role.RevokedAt == null),
+                membership => membership.Id, role => role.CondominiumMembershipId,
+                (membership, _) => membership.CondominiumId)
+            .Distinct();
+        return dbContext.Requests.AsNoTracking().Where(request => managedCondominiumIds.Contains(request.CondominiumId));
     }
 
     private static bool TryParseStatus(string value, out RequestStatus status)
@@ -257,6 +235,7 @@ public static class ListCondominiumRequests
     public sealed record ItemResponse(
         Guid Id,
         Guid CondominiumId,
+        string CondominiumName,
         AuthorResponse Author,
         CategoryResponse Category,
         TargetUnitResponse? TargetUnit,

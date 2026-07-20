@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
@@ -55,8 +55,18 @@ export function ManagementCategoriesPage() {
   )
   const [deleting, setDeleting] = useState<Category | null>(null)
   const [name, setName] = useState('')
+  const loadVersion = useRef(0)
+  const activeIdRef = useRef(condominiumId)
+  activeIdRef.current = condominiumId
 
   const load = useCallback(async () => {
+    const version = ++loadVersion.current
+    setItems([])
+    setSearch('')
+    setEditing(undefined)
+    setDeleting(null)
+    setSuccess('')
+    setSaving(false)
     if (!condominiumId) {
       setItems([])
       setLoading(false)
@@ -67,11 +77,12 @@ export function ManagementCategoriesPage() {
     setError('')
 
     try {
-      setItems(await listCategories(condominiumId))
+      const result = await listCategories(condominiumId)
+      if (version === loadVersion.current) setItems(result)
     } catch (requestError) {
-      setError(managementError(requestError))
+      if (version === loadVersion.current) setError(managementError(requestError))
     } finally {
-      setLoading(false)
+      if (version === loadVersion.current) setLoading(false)
     }
   }, [condominiumId])
 
@@ -89,6 +100,7 @@ export function ManagementCategoriesPage() {
     setSaving(true)
     setError('')
 
+    const operationCondominiumId = condominiumId
     try {
       if (editing) {
         await updateCategory(condominiumId, editing.id, name.trim())
@@ -98,6 +110,8 @@ export function ManagementCategoriesPage() {
           description: null,
         })
       }
+
+      if (activeIdRef.current !== operationCondominiumId) return
 
       setEditing(undefined)
       setName('')
@@ -109,9 +123,9 @@ export function ManagementCategoriesPage() {
 
       await load()
     } catch (requestError) {
-      setError(managementError(requestError))
+      if (activeIdRef.current === operationCondominiumId) setError(managementError(requestError))
     } finally {
-      setSaving(false)
+      if (activeIdRef.current === operationCondominiumId) setSaving(false)
     }
   }
 
@@ -121,18 +135,23 @@ export function ManagementCategoriesPage() {
     setSaving(true)
     setError('')
 
+    const operationCondominiumId = condominiumId
     try {
       await deleteCategory(condominiumId, deleting.id)
+
+      if (activeIdRef.current !== operationCondominiumId) return
 
       setDeleting(null)
       setSuccess('Categoria excluída com sucesso.')
 
       await load()
     } catch (requestError) {
-      setDeleting(null)
-      setError(managementError(requestError))
+      if (activeIdRef.current === operationCondominiumId) {
+        setDeleting(null)
+        setError(managementError(requestError))
+      }
     } finally {
-      setSaving(false)
+      if (activeIdRef.current === operationCondominiumId) setSaving(false)
     }
   }
 

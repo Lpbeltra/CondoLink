@@ -1,17 +1,22 @@
-import { Alert, Box, Tab, Tabs, Typography } from '@mui/material'
+import { Alert, Box, Skeleton, Tab, Tabs, Typography } from '@mui/material'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { PageContainer } from '../../components/PageContainer'
-import { useCondominium } from '../../condominiums/CondominiumContext'
+import { useManagementContext } from '../ManagementContext'
 import { ManagementCondominiumSwitcher } from './ManagementCondominiumSwitcher'
 
 export function ManagementLayout() {
-  const { isManager } = useCondominium()
+  const { condominiums, isLoading } = useManagementContext()
 
   const navigate = useNavigate()
   const location = useLocation()
+  const isRequestsPage = location.pathname.startsWith('/management/requests')
 
-  if (!isManager) {
+  if (isLoading) {
+    return <PageContainer><Skeleton variant="rounded" height={160} /></PageContainer>
+  }
+
+  if (condominiums.length === 0) {
     return (
       <PageContainer>
         <Alert severity="warning">
@@ -25,6 +30,8 @@ export function ManagementLayout() {
     )
   }
 
+  if (isRequestsPage) return <Outlet />
+
   const value = location.pathname.startsWith('/management/blocks')
     ? '/management/blocks'
     : location.pathname.startsWith('/management/categories')
@@ -35,7 +42,7 @@ export function ManagementLayout() {
 
   return (
     <>
-      <PageContainer pb={{ xs: 0.5, md: 1 }}>
+      <PageContainer maxWidth={1440} pb={{ xs: 0.5, md: 1 }}>
         <Typography variant="h1">
           Gestão
         </Typography>

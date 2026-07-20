@@ -5,6 +5,7 @@ import ApartmentRoundedIcon from '@mui/icons-material/ApartmentRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import type { SvgIconComponent } from '@mui/icons-material'
 import type { CondominiumRole } from '../condominiums/types'
+import type { CondominiumContext } from '../condominiums/types'
 
 interface NavigationItem {
   label: string
@@ -35,4 +36,9 @@ export function getMobileSelectedPath(pathname: string) {
   if (pathname === '/more' || pathname.startsWith('/management')) return '/more'
   if (pathname.startsWith('/requests')) return '/requests'
   return '/'
+}
+
+export function shouldShowGeneralCondominiumSwitcher(pathname: string, condominiums: CondominiumContext[]) {
+  if (pathname.startsWith('/management')) return false
+  return condominiums.some(item => item.roles.includes('Resident'))
 }

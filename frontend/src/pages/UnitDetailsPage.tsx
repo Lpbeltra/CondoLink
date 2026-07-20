@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type FormEvent,
 } from 'react'
@@ -93,8 +94,10 @@ export function UnitDetailsPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const loadVersion = useRef(0)
 
   const load = useCallback(async () => {
+    const version = ++loadVersion.current
     if (isManagementContextLoading) {
       return
     }
@@ -107,6 +110,14 @@ export function UnitDetailsPage() {
 
     setLoading(true)
     setError('')
+    setUnit(null)
+    setLinks([])
+    setMembers([])
+    setBlocks([])
+    setDialogOpen(false)
+    setEditing(null)
+    setRemoving(null)
+    setSuccess('')
 
     try {
       const [loadedUnit, loadedLinks, loadedMembers, loadedBlocks] =
@@ -120,6 +131,8 @@ export function UnitDetailsPage() {
       if (loadedUnit.condominiumId !== condominiumId) {
         throw new Error('wrong condominium')
       }
+
+      if (version !== loadVersion.current) return
 
       const orderedBlocks = sortBlocks(loadedBlocks)
 
@@ -138,10 +151,11 @@ export function UnitDetailsPage() {
       )
       setDescription(loadedUnit.description ?? '')
     } catch (requestError) {
+      if (version !== loadVersion.current) return
       setUnit(null)
       setError(managementError(requestError))
     } finally {
-      setLoading(false)
+      if (version === loadVersion.current) setLoading(false)
     }
   }, [
     condominiumId,

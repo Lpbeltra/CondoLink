@@ -59,7 +59,9 @@ public static class OnboardCondominiumMember
         if (email.Length > 254 || !new EmailAddressAttribute().IsValid(email)) return Results.BadRequest(new { error = "Email is invalid." });
         var phone = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
         if (phone?.Length > 30) return Results.BadRequest(new { error = "PhoneNumber must not exceed 30 characters." });
-        if (await userManager.FindByEmailAsync(email) is not null) return DuplicateEmail();
+        var existingUser = await userManager.FindByEmailAsync(email);
+        if (existingUser is { IsActive: false })
+            return Results.Conflict(new { error = "Inactive user cannot be associated." });
 
         UnitRelationshipType? relationship = null;
         if (request.UnitId is null)
@@ -81,27 +83,59 @@ public static class OnboardCondominiumMember
                 return Results.BadRequest(new { error = "Primary residence requires the user to be a resident." });
         }
 
-        var initialPassword = GeneratePassword();
+        var isNewUser = existingUser is null;
+        var initialPassword = isNewUser ? GeneratePassword() : null;
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
-            var user = new ApplicationUser(fullName, email, phone);
-            var identityResult = await userManager.CreateAsync(user, initialPassword);
-            if (!identityResult.Succeeded)
+            var user = existingUser ?? new ApplicationUser(fullName, email, phone);
+            if (isNewUser)
             {
-                await transaction.RollbackAsync(cancellationToken);
-                if (identityResult.Errors.Any(x => x.Code is "DuplicateEmail" or "DuplicateUserName")) return DuplicateEmail();
-                return Results.BadRequest(new { errors = identityResult.Errors.Select(x => x.Description).ToArray() });
+                var identityResult = await userManager.CreateAsync(user, initialPassword!);
+                if (!identityResult.Succeeded)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    if (identityResult.Errors.Any(x => x.Code is "DuplicateEmail" or "DuplicateUserName")) return DuplicateEmail();
+                    return Results.BadRequest(new { errors = identityResult.Errors.Select(x => x.Description).ToArray() });
+                }
             }
 
-            var membership = new CondominiumMembership(user.Id, condominiumId);
-            var role = new CondominiumMembershipRole(membership.Id, CondominiumRole.Resident);
-            UnitMembership? unitMembership = request.UnitId.HasValue
-                ? new UnitMembership(user.Id, request.UnitId.Value, relationship!.Value, request.IsResident, request.IsPrimaryResidence)
-                : null;
-            dbContext.CondominiumMemberships.Add(membership);
-            dbContext.CondominiumMembershipRoles.Add(role);
-            if (unitMembership is not null) dbContext.UnitMemberships.Add(unitMembership);
+            var membership = await dbContext.CondominiumMemberships.SingleOrDefaultAsync(
+                x => x.UserId == user.Id && x.CondominiumId == condominiumId, cancellationToken);
+            if (membership is { IsActive: false })
+                return Results.Conflict(new { error = "Inactive condominium membership cannot be reused." });
+            if (membership is null)
+            {
+                membership = new CondominiumMembership(user.Id, condominiumId);
+                dbContext.CondominiumMemberships.Add(membership);
+            }
+
+            var role = await dbContext.CondominiumMembershipRoles.SingleOrDefaultAsync(
+                x => x.CondominiumMembershipId == membership.Id && x.Role == CondominiumRole.Resident, cancellationToken);
+            if (role is { IsActive: false })
+                return Results.Conflict(new { error = "Inactive resident role cannot be reused." });
+            if (role is null) dbContext.CondominiumMembershipRoles.Add(new CondominiumMembershipRole(membership.Id, CondominiumRole.Resident));
+
+            UnitMembership? unitMembership = null;
+            if (request.UnitId.HasValue)
+            {
+                unitMembership = await dbContext.UnitMemberships.SingleOrDefaultAsync(x =>
+                    x.UserId == user.Id && x.UnitId == request.UnitId.Value && x.RelationshipType == relationship!.Value,
+                    cancellationToken);
+                if (unitMembership is null)
+                {
+                    unitMembership = new UnitMembership(user.Id, request.UnitId.Value, relationship!.Value, request.IsResident, request.IsPrimaryResidence);
+                    dbContext.UnitMemberships.Add(unitMembership);
+                }
+                else if (!unitMembership.IsActive)
+                {
+                    unitMembership.Reactivate(request.IsResident, request.IsPrimaryResidence, DateTime.UtcNow);
+                }
+                else
+                {
+                    unitMembership.Update(relationship!.Value, request.IsResident, request.IsPrimaryResidence);
+                }
+            }
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
@@ -111,6 +145,7 @@ public static class OnboardCondominiumMember
                 [CondominiumRole.Resident.ToString()],
                 unitMembership is null ? null : new UnitMembershipResponse(unitMembership.Id, unitMembership.UnitId,
                     unitMembership.RelationshipType.ToString(), unitMembership.IsResident, unitMembership.IsPrimaryResidence),
+                isNewUser,
                 initialPassword));
         }
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
@@ -154,5 +189,5 @@ public static class OnboardCondominiumMember
     public sealed record MembershipResponse(Guid Id, Guid CondominiumId, bool IsActive, DateTime JoinedAt);
     public sealed record UnitMembershipResponse(Guid Id, Guid UnitId, string RelationshipType, bool IsResident, bool IsPrimaryResidence);
     public sealed record Response(UserResponse User, MembershipResponse Membership, IReadOnlyList<string> Roles,
-        UnitMembershipResponse? UnitMembership, string InitialPassword);
+        UnitMembershipResponse? UnitMembership, bool IsNewUser, string? InitialPassword);
 }

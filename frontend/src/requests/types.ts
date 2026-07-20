@@ -71,6 +71,7 @@ export interface CreatedRequest {
 
 export interface ManagementRequestItem extends RequestListItem {
   author: Person
+  condominiumName: string
 }
 
 export interface RequestCounts {

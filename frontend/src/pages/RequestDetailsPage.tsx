@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import { Alert, Button, Card, CardContent, Divider, Grid, Skeleton, Stack, Typography } from '@mui/material'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
@@ -14,7 +14,12 @@ import type { RequestDetails, RequestMessage } from '../requests/types'
 import { RequestManagementActions } from '../requests/components/RequestManagementActions'
 import { RequestAttachments } from '../requests/components/RequestAttachments'
 
-export function RequestDetailsPage() {
+interface RequestDetailsPageProps {
+  managementCondominiumId?: string | null
+  managementMode?: boolean
+}
+
+export function RequestDetailsPage({ managementCondominiumId, managementMode = false }: RequestDetailsPageProps = {}) {
   const { requestId = '' } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
@@ -23,25 +28,29 @@ export function RequestDetailsPage() {
   const [messages, setMessages] = useState<RequestMessage[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const loadVersion = useRef(0)
+  const expectedCondominiumId = managementMode ? managementCondominiumId : currentCondominium?.condominium.id
+  const returnPath = managementMode || (location.state as { fromManagement?: boolean } | null)?.fromManagement ? '/management/requests' : '/requests'
 
   const load = useCallback(async () => {
+    const version = ++loadVersion.current
+    if (!managementMode && !expectedCondominiumId) { setDetails(null); setMessages([]); setIsLoading(false); return }
     setIsLoading(true); setError(''); setDetails(null); setMessages([])
     try {
       const [request, conversation] = await Promise.all([getRequest(requestId), listRequestMessages(requestId)])
+      if (version !== loadVersion.current) return
       setDetails(request); setMessages(conversation)
-    } catch (requestError) { setError(getRequestError(requestError)) }
-    finally { setIsLoading(false) }
-  }, [requestId])
+    } catch (requestError) { if (version === loadVersion.current) setError(getRequestError(requestError)) }
+    finally { if (version === loadVersion.current) setIsLoading(false) }
+  }, [expectedCondominiumId, managementMode, requestId])
 
-  useEffect(() => { void load() }, [load, currentCondominium?.condominium.id])
-  const wrongContext = details && details.condominiumId !== currentCondominium?.condominium.id
+  useEffect(() => { void load() }, [load])
+  const wrongContext = !managementMode && details && details.condominiumId !== expectedCondominiumId
 
   if (isLoading) return <PageContainer><Skeleton variant="rounded" height={420} /></PageContainer>
-  if (error) return <PageContainer><Button startIcon={<ArrowBackRoundedIcon />} onClick={() => navigate('/requests')}>Voltar</Button><Alert severity="error" sx={{ mt: 2 }} action={<Button color="inherit" onClick={() => void load()}>Tentar novamente</Button>}>{error}</Alert></PageContainer>
-  if (wrongContext) return <PageContainer><Alert severity="warning">Esta solicitação pertence a outro condomínio.</Alert><Button sx={{ mt: 2 }} onClick={() => navigate('/requests')}>Voltar para solicitações</Button></PageContainer>
+  if (error) return <PageContainer><Button startIcon={<ArrowBackRoundedIcon />} onClick={() => navigate(returnPath)}>Voltar</Button><Alert severity="error" sx={{ mt: 2 }} action={<Button color="inherit" onClick={() => void load()}>Tentar novamente</Button>}>{error}</Alert></PageContainer>
+  if (wrongContext) return <PageContainer><Alert severity="warning">Esta solicitação pertence a outro condomínio.</Alert><Button sx={{ mt: 2 }} onClick={() => navigate(returnPath)}>Voltar para solicitações</Button></PageContainer>
   if (!details) return null
-
-  const returnPath = (location.state as { fromManagement?: boolean } | null)?.fromManagement ? '/management/requests' : '/requests'
 
   const unit = details.targetUnit && `${details.targetUnit.block ? `Bloco ${details.targetUnit.block} · ` : ''}${details.targetUnit.identifier}`
   return (
@@ -58,7 +67,7 @@ export function RequestDetailsPage() {
             <Typography variant="h3" mb={1}>Descrição</Typography><Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{details.description}</Typography>
             {unit && <><Divider sx={{ my: 3 }} /><Typography variant="h3" mb={1}>Unidade relacionada</Typography><Typography>{unit}</Typography></>}
           </CardContent></Card>
-          {isManager && details.condominiumId === currentCondominium?.condominium.id && <RequestManagementActions requestId={details.id} status={details.status} priority={details.priority} onUpdated={load} />}
+          {(managementMode || (isManager && details.condominiumId === expectedCondominiumId)) && <RequestManagementActions requestId={details.id} status={details.status} priority={details.priority} onUpdated={load} />}
           <RequestAttachments requestId={details.id} cancelled={details.status === 'Cancelled'} />
           <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}><Typography variant="h2" mb={.5}>Atualizações</Typography><Typography color="text.secondary" mb={3}>Registre novas informações e acompanhe o atendimento.</Typography><RequestConversation requestId={details.id} status={details.status} messages={messages} onMessageCreated={(message) => setMessages((current) => [...current, message])} /></CardContent></Card>
         </Grid>
@@ -66,4 +75,8 @@ export function RequestDetailsPage() {
       </Grid>
     </PageContainer>
   )
+}
+
+export function ManagementRequestDetailsPage() {
+  return <RequestDetailsPage managementMode />
 }

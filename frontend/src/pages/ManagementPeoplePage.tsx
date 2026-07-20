@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Skeleton, Stack, TextField, Typography } from '@mui/material'
@@ -9,11 +9,17 @@ import { listCondominiumMembers, listUnits, onboardMember } from '../management/
 import { managementError } from '../management/errors'
 import type { CondominiumMember, OnboardResult, RelationshipType, Unit } from '../management/types'
 import { formatDateTime } from '../requests/presentation'
+import { hasInitialCredentials } from '../management/onboarding'
 
 const relationshipLabels:Record<RelationshipType,string>={Owner:'Proprietário',Tenant:'Inquilino',AuthorizedOccupant:'Ocupante autorizado'}
 const roleLabels:Record<string,string>={Manager:'Síndico / Gestão',Resident:'Morador'}
 export function ManagementPeoplePage(){const { activeCondominiumId } = useManagementContext();const[people,setPeople]=useState<CondominiumMember[]>([]);const[units,setUnits]=useState<Unit[]>([]);const[loading,setLoading]=useState(true);const[error,setError]=useState('');const[open,setOpen]=useState(false);const[result,setResult]=useState<OnboardResult|null>(null);const[copied,setCopied]=useState(false);const[fullName,setFullName]=useState('');const[email,setEmail]=useState('');const[phone,setPhone]=useState('');const[unitId,setUnitId]=useState('');const[type,setType]=useState<RelationshipType>('Owner');const[resident,setResident]=useState(false);const[primary,setPrimary]=useState(false);const[saving,setSaving]=useState(false)
+const loadVersion=useRef(0)
+const activeIdRef=useRef(activeCondominiumId)
+activeIdRef.current=activeCondominiumId
 const load = useCallback(async () => {
+  const version=++loadVersion.current
+  setOpen(false);setUnitId('');setError('');setSaving(false)
   if (!activeCondominiumId) {
     setPeople([])
     setUnits([])
@@ -32,18 +38,21 @@ const load = useCallback(async () => {
       listUnits(activeCondominiumId),
     ])
 
+    if(version!==loadVersion.current)return
     setPeople(peopleData)
     setUnits(unitData.filter((unit) => unit.isActive))
   } catch (requestError) {
-    setError(managementError(requestError))
+    if(version===loadVersion.current)setError(managementError(requestError))
   } finally {
-    setLoading(false)
+    if(version===loadVersion.current)setLoading(false)
   }
 }, [activeCondominiumId])
 
 useEffect(() => {
   void load()
 }, [load])
+
+useEffect(() => { setResult(null); setCopied(false) }, [activeCondominiumId])
 
 if (!activeCondominiumId && !loading) {
   return (
@@ -75,6 +84,7 @@ const submit = async (event: FormEvent) => {
   setSaving(true)
   setError('')
 
+  const operationId = activeCondominiumId
   try {
     const created = await onboardMember(activeCondominiumId, {
       fullName: fullName.trim(),
@@ -86,6 +96,8 @@ const submit = async (event: FormEvent) => {
       isPrimaryResidence: unitId ? primary : false,
     })
 
+    if (activeIdRef.current !== operationId) return
+
     setOpen(false)
     setFullName('')
     setEmail('')
@@ -93,19 +105,20 @@ const submit = async (event: FormEvent) => {
     setUnitId('')
     setResident(false)
     setPrimary(false)
-    setResult(created)
+    setResult(hasInitialCredentials(created) ? created : null)
 
     await load()
   } catch (requestError) {
-    setError(managementError(requestError))
+    if (activeIdRef.current === operationId) setError(managementError(requestError))
   } finally {
-    setSaving(false)
+    if (activeIdRef.current === operationId) setSaving(false)
   }
 }
 
 const copy = async () => {
   if (!result) return
 
+  if (!result.initialPassword) return
   await navigator.clipboard.writeText(
     `CondoLink\n\nE-mail: ${result.user.email}\nSenha inicial: ${result.initialPassword}`,
   )

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import {
   Alert,
@@ -34,11 +34,14 @@ export function CreateUnitPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const activeIdRef = useRef(activeCondominiumId)
+  activeIdRef.current = activeCondominiumId
 
   useEffect(() => {
     setBlock(null)
     setBlocks([])
     setError('')
+    setSaving(false)
 
     if (!activeCondominiumId) {
       setLoading(false)
@@ -86,6 +89,7 @@ export function CreateUnitPage() {
     setSaving(true)
     setError('')
 
+    const operationId = activeCondominiumId
     try {
       const unit = await createUnit(activeCondominiumId, {
         identifier: identifier.trim(),
@@ -94,15 +98,17 @@ export function CreateUnitPage() {
         description: description.trim() || null,
       })
 
+      if (activeIdRef.current !== operationId) return
+
       navigate(`/management/units/${unit.id}`, {
         state: {
           created: true,
         },
       })
     } catch (requestError) {
-      setError(managementError(requestError))
+      if (activeIdRef.current === operationId) setError(managementError(requestError))
     } finally {
-      setSaving(false)
+      if (activeIdRef.current === operationId) setSaving(false)
     }
   }
 

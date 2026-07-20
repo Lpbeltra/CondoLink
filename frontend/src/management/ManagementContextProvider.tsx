@@ -94,22 +94,29 @@ export function ManagementContextProvider({
 
   const selectCondominium = useCallback(
     async (condominiumId: string | null) => {
+      const version = ++requestVersion.current
+      const previousCondominiumId = activeCondominiumId
       setIsSwitching(true)
       setError(null)
+      setActiveCondominiumId(null)
 
       try {
         const context = await setManagementContext(condominiumId)
 
+        if (version !== requestVersion.current) return
+
         setCondominiums(context.availableCondominiums)
         setActiveCondominiumId(context.activeCondominiumId)
       } catch (requestError) {
+        if (version !== requestVersion.current) return
+        setActiveCondominiumId(previousCondominiumId)
         setError(getErrorMessage(requestError))
         throw requestError
       } finally {
-        setIsSwitching(false)
+        if (version === requestVersion.current) setIsSwitching(false)
       }
     },
-    []
+    [activeCondominiumId]
   )
 
   const value = useMemo<ManagementContextValue>(

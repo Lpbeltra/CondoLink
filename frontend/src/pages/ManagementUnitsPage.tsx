@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import { Alert, Box, Button, InputAdornment, List, ListItemButton, ListItemText, MenuItem, Skeleton, Stack, TextField, Typography } from '@mui/material'
@@ -20,7 +20,11 @@ export function ManagementUnitsPage() {
   const [blockId, setBlockId] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const loadVersion = useRef(0)
   const load = useCallback(async () => {
+    const version = ++loadVersion.current
+    setSearch('')
+    setBlockId('')
     if (!activeCondominiumId) {
       setUnits([])
       setBlocks([])
@@ -39,12 +43,13 @@ export function ManagementUnitsPage() {
         listBlocks(activeCondominiumId),
       ])
 
+      if (version !== loadVersion.current) return
       setUnits(unitData)
       setBlocks(sortBlocks(blockData))
     } catch (requestError) {
-      setError(managementError(requestError))
+      if (version === loadVersion.current) setError(managementError(requestError))
     } finally {
-      setLoading(false)
+      if (version === loadVersion.current) setLoading(false)
     }
   }, [activeCondominiumId])
   useEffect(() => { void load() }, [load])
@@ -65,5 +70,4 @@ export function ManagementUnitsPage() {
       {units.length === 0 ? <EmptyState title="Nenhuma unidade cadastrada." description="Cadastre a primeira unidade para organizar moradores e vínculos." /> : visible.length === 0 ? <EmptyState title="Nenhuma unidade encontrada com os filtros selecionados." description="Revise a busca ou o bloco selecionado." /> : <List sx={{ mt: 2, bgcolor: 'background.paper', borderRadius: 2 }}>{visible.map(unit => <ListItemButton key={unit.id} divider onClick={() => navigate(`/management/units/${unit.id}`)} sx={{ py: 1.5 }}><ListItemText primary={`${unit.identifier}${unit.block ? ` / Bloco ${unit.block}` : ''}`} secondary={`${unit.peopleCount ?? 0} ${(unit.peopleCount ?? 0) === 1 ? 'pessoa vinculada' : 'pessoas vinculadas'}`} primaryTypographyProps={{ fontWeight: 750 }} /></ListItemButton>)}</List>}</>}
   </PageContainer>
 }
-
 

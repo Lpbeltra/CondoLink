@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
@@ -13,12 +13,15 @@ import type { CondominiumBlock } from '../management/types'
 
 export function ManagementBlocksPage() {
   const { activeCondominiumId } = useManagementContext()
-  const [blocks,setBlocks]=useState<CondominiumBlock[]>([]); const [loading,setLoading]=useState(true); const [saving,setSaving]=useState(false); const [error,setError]=useState(''); const [success,setSuccess]=useState(''); const [editing,setEditing]=useState<CondominiumBlock|null|undefined>(undefined); const [identifier,setIdentifier]=useState(''); const [deleting,setDeleting]=useState<CondominiumBlock|null>(null)
   const condominiumId = activeCondominiumId
-  const load=useCallback(async()=>{if (!condominiumId) {
+  const [blocks,setBlocks]=useState<CondominiumBlock[]>([]); const [loading,setLoading]=useState(true); const [saving,setSaving]=useState(false); const [error,setError]=useState(''); const [success,setSuccess]=useState(''); const [editing,setEditing]=useState<CondominiumBlock|null|undefined>(undefined); const [identifier,setIdentifier]=useState(''); const [deleting,setDeleting]=useState<CondominiumBlock|null>(null)
+  const loadVersion=useRef(0)
+  const activeIdRef=useRef(condominiumId)
+  activeIdRef.current=condominiumId
+  const load=useCallback(async()=>{const version=++loadVersion.current;setBlocks([]);setEditing(undefined);setDeleting(null);setSuccess('');if (!condominiumId) {
   setBlocks([])
   setLoading(false)
-  return};setLoading(true);setError('');try{setBlocks(sortBlocks(await listBlocks(condominiumId)))}catch(e){setError(managementError(e))}finally{setLoading(false)}},[condominiumId])
+  return};setLoading(true);setError('');try{const result=await listBlocks(condominiumId);if(version===loadVersion.current)setBlocks(sortBlocks(result))}catch(e){if(version===loadVersion.current)setError(managementError(e))}finally{if(version===loadVersion.current)setLoading(false)}},[condominiumId])
   useEffect(()=>{void load()},[load])
   if (!activeCondominiumId && !loading) {
     return (
@@ -29,8 +32,8 @@ export function ManagementBlocksPage() {
       </PageContainer>
     )
   }
-  const save=async(e:FormEvent)=>{e.preventDefault();if(!condominiumId||!identifier.trim()||saving)return;setSaving(true);setError('');try{if(editing)await updateBlock(condominiumId,editing.id,identifier.trim());else await createBlock(condominiumId,identifier.trim());setEditing(undefined);setIdentifier('');setSuccess(editing?'Bloco atualizado com sucesso.':'Bloco cadastrado com sucesso.');await load()}catch(err){setError(managementError(err))}finally{setSaving(false)}}
-  const remove=async()=>{if(!condominiumId||!deleting||saving)return;setSaving(true);setError('');try{await deleteBlock(condominiumId,deleting.id);setDeleting(null);setSuccess('Bloco excluído com sucesso.');await load()}catch(err){setDeleting(null);setError(managementError(err))}finally{setSaving(false)}}
+  const save=async(e:FormEvent)=>{e.preventDefault();if(!condominiumId||!identifier.trim()||saving)return;const operationId=condominiumId;setSaving(true);setError('');try{if(editing)await updateBlock(condominiumId,editing.id,identifier.trim());else await createBlock(condominiumId,identifier.trim());if(activeIdRef.current!==operationId)return;setEditing(undefined);setIdentifier('');setSuccess(editing?'Bloco atualizado com sucesso.':'Bloco cadastrado com sucesso.');await load()}catch(err){if(activeIdRef.current===operationId)setError(managementError(err))}finally{if(activeIdRef.current===operationId)setSaving(false)}}
+  const remove=async()=>{if(!condominiumId||!deleting||saving)return;const operationId=condominiumId;setSaving(true);setError('');try{await deleteBlock(condominiumId,deleting.id);if(activeIdRef.current!==operationId)return;setDeleting(null);setSuccess('Bloco excluído com sucesso.');await load()}catch(err){if(activeIdRef.current===operationId){setDeleting(null);setError(managementError(err))}}finally{if(activeIdRef.current===operationId)setSaving(false)}}
   return <PageContainer>
     <Stack direction={{xs:'column',sm:'row'}} justifyContent="space-between" gap={2}><Box><Typography variant="h1">Blocos</Typography><Typography color="text.secondary">Organize os blocos ou torres do condomínio.</Typography></Box><Button variant="contained" startIcon={<AddRoundedIcon/>} onClick={()=>{setEditing(null);setIdentifier('')}}>Novo bloco</Button></Stack>
     {success&&<Alert severity="success" sx={{mt:2}}>{success}</Alert>}{error&&<Alert severity="error" sx={{mt:2}}>{error}</Alert>}
