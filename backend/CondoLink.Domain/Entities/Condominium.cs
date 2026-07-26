@@ -30,6 +30,12 @@ public sealed class Condominium
         UpdatedAt = DateTime.UtcNow;
     }
 
+    public void SetManagementCompany(Guid? managementCompanyId)
+    {
+        ManagementCompanyId = managementCompanyId;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public void Update(
         string name,
         string? email,
@@ -45,6 +51,8 @@ public sealed class Condominium
     public string Name { get; private set; } = null!;
     public string? Email { get; private set; }
     public string? PhoneNumber { get; private set; }
+    public Guid? ManagementCompanyId { get; private set; }
+    public ManagementCompany? ManagementCompany { get; private set; }
     public bool IsActive { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }

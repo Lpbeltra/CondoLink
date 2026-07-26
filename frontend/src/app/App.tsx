@@ -21,12 +21,25 @@ import { MorePage } from '../pages/MorePage'
 import { ManagementPeoplePage } from '../pages/ManagementPeoplePage'
 import { ManagementBlocksPage } from '../pages/ManagementBlocksPage'
 import { ManagementContextProvider } from '../management/ManagementContextProvider'
+import { OverwatchGuard } from '../overwatch/OverwatchGuard'
+import { OverwatchLayout } from '../overwatch/OverwatchLayout'
+import { OverwatchDashboardPage } from '../overwatch/pages/OverwatchDashboardPage'
+import { OverwatchCondominiumsPage } from '../overwatch/pages/OverwatchCondominiumsPage'
+import { OverwatchCondominiumDetailsPage } from '../overwatch/pages/OverwatchCondominiumDetailsPage'
+import { OverwatchManagementCompaniesPage } from '../overwatch/pages/OverwatchManagementCompaniesPage'
+import { OverwatchManagementCompanyDetailsPage } from '../overwatch/pages/OverwatchManagementCompanyDetailsPage'
+import { OverwatchManagersPage } from '../overwatch/pages/OverwatchManagersPage'
+import { OverwatchManagerDetailsPage } from '../overwatch/pages/OverwatchManagerDetailsPage'
+import { getProtectedRouteAccess } from '../auth/routeAccess'
 
 function ProtectedRoute() {
   const { user, isInitializing } = useAuth()
   const location = useLocation()
-  if (isInitializing) return <LoadingScreen />
-  return user ? <Outlet /> : <Navigate to="/login" replace state={{ from: location.pathname }} />
+  const access = getProtectedRouteAccess(isInitializing, user)
+  if (access === 'loading') return <LoadingScreen />
+  return access === 'authenticated'
+    ? <Outlet />
+    : <Navigate to="/login" replace state={{ from: location.pathname }} />
 }
 
 export function App() {
@@ -55,6 +68,17 @@ export function App() {
                     <Route path="blocks" element={<ManagementBlocksPage />} />
                     <Route path="categories" element={<ManagementCategoriesPage />} />
                     <Route path="people" element={<ManagementPeoplePage />} />
+                  </Route>
+                </Route>
+                <Route element={<OverwatchGuard />}>
+                  <Route path="overwatch" element={<OverwatchLayout />}>
+                    <Route index element={<OverwatchDashboardPage />} />
+                    <Route path="condominiums" element={<OverwatchCondominiumsPage />} />
+                    <Route path="condominiums/:condominiumId" element={<OverwatchCondominiumDetailsPage />} />
+                    <Route path="management-companies" element={<OverwatchManagementCompaniesPage />} />
+                    <Route path="management-companies/:managementCompanyId" element={<OverwatchManagementCompanyDetailsPage />} />
+                    <Route path="managers" element={<OverwatchManagersPage />} />
+                    <Route path="managers/:managerId" element={<OverwatchManagerDetailsPage />} />
                   </Route>
                 </Route>
               </Route>

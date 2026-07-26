@@ -17,6 +17,7 @@ using Microsoft.OpenApi;
 using CondoLink.Api;
 using CondoLink.Api.Features.Overwatch;
 using CondoLink.Api.Features.Overwatch.Managers;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -72,6 +73,10 @@ var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
+    await using var scope = app.Services.CreateAsyncScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await dbContext.Database.MigrateAsync();
+
     app.UseSwagger();
 
     app.UseSwaggerUI(options =>

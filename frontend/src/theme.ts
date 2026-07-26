@@ -34,5 +34,26 @@ export const theme = createTheme({
     MuiCard: { styleOverrides: { root: { border: '1px solid #e6eaf2', boxShadow: '0 16px 48px rgba(23,32,51,.09)' } } },
     MuiPaper: { styleOverrides: { rounded: { borderRadius: 18 } } },
     MuiIconButton: { styleOverrides: { root: { '&:focus-visible': { outline: `3px solid ${alpha(primary, .22)}` } } } },
+    MuiDialog: {
+      styleOverrides: {
+        paper: {
+          '@media (max-width:600px)': {
+            margin: 16,
+            width: 'calc(100% - 32px)',
+            maxHeight: 'calc(100% - 32px)',
+          },
+        },
+      },
+    },
+    MuiDialogActions: {
+      styleOverrides: {
+        root: {
+          gap: 8,
+          flexWrap: 'wrap',
+          padding: 16,
+          '& > :not(style) ~ :not(style)': { marginLeft: 0 },
+        },
+      },
+    },
   },
 })

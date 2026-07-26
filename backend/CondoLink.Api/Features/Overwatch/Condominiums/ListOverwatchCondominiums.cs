@@ -1,4 +1,5 @@
 using CondoLink.Infrastructure.Persistence;
+using CondoLink.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace CondoLink.Api.Features.Overwatch.Condominiums;
@@ -55,7 +56,20 @@ public static class ListOverwatchCondominiums
                 condominium.PhoneNumber,
                 condominium.IsActive,
                 condominium.CreatedAt,
-                condominium.UpdatedAt))
+                condominium.UpdatedAt,
+                condominium.ManagementCompanyId,
+                condominium.ManagementCompany == null
+                    ? null
+                    : condominium.ManagementCompany.Name,
+                dbContext.CondominiumMemberships.Count(membership =>
+                    membership.CondominiumId == condominium.Id &&
+                    membership.IsActive &&
+                    membership.EndedAt == null &&
+                    dbContext.CondominiumMembershipRoles.Any(role =>
+                        role.CondominiumMembershipId == membership.Id &&
+                        role.Role == CondominiumRole.Manager &&
+                        role.IsActive &&
+                        role.RevokedAt == null))))
             .ToListAsync(cancellationToken);
 
         return Results.Ok(condominiums);
@@ -68,5 +82,8 @@ public static class ListOverwatchCondominiums
         string? PhoneNumber,
         bool IsActive,
         DateTime CreatedAt,
-        DateTime UpdatedAt);
+        DateTime UpdatedAt,
+        Guid? ManagementCompanyId,
+        string? ManagementCompanyName,
+        int ManagerCount);
 }

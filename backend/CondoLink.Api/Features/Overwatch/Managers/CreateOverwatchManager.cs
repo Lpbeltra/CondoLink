@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using CondoLink.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
 
@@ -27,7 +28,24 @@ public static class CreateOverwatchManager
         RoleManager<IdentityRole<Guid>> roleManager,
         CancellationToken cancellationToken)
     {
-        var email = request.Email.Trim();
+        if (string.IsNullOrWhiteSpace(request.FullName) ||
+            string.IsNullOrWhiteSpace(request.Email))
+        {
+            return Results.BadRequest(new
+            {
+                message = "Full name and email are required."
+            });
+        }
+
+        var fullName = request.FullName.Trim();
+        var email = request.Email.Trim().ToLowerInvariant();
+        if (fullName.Length > 200 || email.Length > 254)
+        {
+            return Results.BadRequest(new
+            {
+                message = "Full name or email exceeds the allowed length."
+            });
+        }
 
         var existingUser = await userManager.FindByEmailAsync(email);
 
@@ -54,14 +72,12 @@ public static class CreateOverwatchManager
             }
         }
 
-        var user = new ApplicationUser(
-            request.FullName,
-            email,
-            request.PhoneNumber);
+        var temporaryPassword = GenerateTemporaryPassword();
+        var user = new ApplicationUser(fullName, email, null);
 
         var createResult = await userManager.CreateAsync(
             user,
-            request.Password);
+            temporaryPassword);
 
         if (!createResult.Succeeded)
         {
@@ -93,20 +109,33 @@ public static class CreateOverwatchManager
                 user.Id,
                 user.FullName,
                 user.Email!,
-                user.PhoneNumber,
-                user.IsActive));
+                user.IsActive,
+                0,
+                user.CreatedAt,
+                user.UpdatedAt,
+                temporaryPassword));
     }
 
-    public sealed record Request(
-        string FullName,
-        string Email,
-        string? PhoneNumber,
-        string Password);
+    private static string GenerateTemporaryPassword()
+    {
+        const string characters =
+            "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+        var bytes = RandomNumberGenerator.GetBytes(12);
+        var randomPart = new string(
+            bytes.Select(value => characters[value % characters.Length])
+                .ToArray());
+        return $"Aa1!{randomPart}";
+    }
+
+    public sealed record Request(string? FullName, string? Email);
 
     public sealed record ManagerCreatedResponse(
         Guid Id,
         string FullName,
         string Email,
-        string? PhoneNumber,
-        bool IsActive);
+        bool IsActive,
+        int CondominiumCount,
+        DateTime CreatedAt,
+        DateTime UpdatedAt,
+        string TemporaryPassword);
 }

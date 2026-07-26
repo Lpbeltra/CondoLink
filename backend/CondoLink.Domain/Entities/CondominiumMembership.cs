@@ -36,4 +36,10 @@ public sealed class CondominiumMembership
     public DateTime JoinedAt { get; private set; }
     public DateTime? EndedAt { get; private set; }
     public DateTime CreatedAt { get; private set; }
+
+    public void Activate()
+    {
+        IsActive = true;
+        EndedAt = null;
+    }
 }

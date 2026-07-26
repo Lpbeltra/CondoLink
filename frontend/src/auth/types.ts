@@ -6,6 +6,7 @@ export interface User {
   isActive: boolean
   createdAt?: string
   updatedAt?: string
+  roles?: string[]
 }
 
 export interface LoginResponse {

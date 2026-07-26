@@ -38,4 +38,17 @@ public sealed class CondominiumMembershipRole
     public bool IsActive { get; private set; }
     public DateTime GrantedAt { get; private set; }
     public DateTime? RevokedAt { get; private set; }
+
+    public void Activate()
+    {
+        IsActive = true;
+        GrantedAt = DateTime.UtcNow;
+        RevokedAt = null;
+    }
+
+    public void Deactivate()
+    {
+        IsActive = false;
+        RevokedAt = DateTime.UtcNow;
+    }
 }

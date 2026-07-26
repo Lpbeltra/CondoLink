@@ -22,7 +22,6 @@ public static class ListOverwatchManagers
 
     private static async Task<IResult> HandleAsync(
         string? search,
-        UserManager<ApplicationUser> userManager,
         AppDbContext dbContext,
         CancellationToken cancellationToken)
     {
@@ -34,7 +33,7 @@ public static class ListOverwatchManagers
 
         if (managerRole is null)
         {
-            return Results.Ok(Array.Empty<Response>());
+            return Results.Ok(Array.Empty<OverwatchManagerResponse>());
         }
 
         var query =
@@ -55,21 +54,25 @@ public static class ListOverwatchManagers
 
         var managers = await query
             .OrderBy(user => user.FullName)
-            .Select(user => new Response(
+            .Select(user => new OverwatchManagerResponse(
                 user.Id,
                 user.FullName,
                 user.Email!,
-                user.PhoneNumber,
-                user.IsActive))
+                user.IsActive,
+                dbContext.CondominiumMemberships.Count(membership =>
+                    membership.UserId == user.Id &&
+                    membership.IsActive &&
+                    membership.EndedAt == null &&
+                    dbContext.CondominiumMembershipRoles.Any(role =>
+                        role.CondominiumMembershipId == membership.Id &&
+                        role.Role == Domain.Enums.CondominiumRole.Manager &&
+                        role.IsActive &&
+                        role.RevokedAt == null)),
+                user.CreatedAt,
+                user.UpdatedAt))
             .ToListAsync(cancellationToken);
 
         return Results.Ok(managers);
     }
 
-    public sealed record Response(
-        Guid Id,
-        string FullName,
-        string Email,
-        string? PhoneNumber,
-        bool IsActive);
 }

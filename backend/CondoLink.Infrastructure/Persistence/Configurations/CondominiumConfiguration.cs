@@ -28,6 +28,17 @@ public sealed class CondominiumConfiguration : IEntityTypeConfiguration<Condomin
             .HasColumnName("phone_number")
             .HasMaxLength(30);
 
+        builder.Property(condominium => condominium.ManagementCompanyId)
+            .HasColumnName("management_company_id");
+
+        builder.HasIndex(condominium => condominium.ManagementCompanyId)
+            .HasDatabaseName("ix_condominiums_management_company_id");
+
+        builder.HasOne(condominium => condominium.ManagementCompany)
+            .WithMany(company => company.Condominiums)
+            .HasForeignKey(condominium => condominium.ManagementCompanyId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder.Property(condominium => condominium.IsActive)
             .HasColumnName("is_active")
             .IsRequired();

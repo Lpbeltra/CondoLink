@@ -1,0 +1,61 @@
+import { api } from '../../services/api'
+import type {
+  CreatedManagementCompanyEmployee,
+  EmployeeInput,
+  ManagementCompany,
+  ManagementCompanyEmployee,
+  ManagementCompanyInput,
+} from './types'
+
+export async function listManagementCompanies() {
+  return (await api.get<ManagementCompany[]>('/overwatch/management-companies')).data
+}
+
+export async function getManagementCompany(id: string) {
+  return (await api.get<ManagementCompany>(`/overwatch/management-companies/${id}`)).data
+}
+
+export async function createManagementCompany(input: ManagementCompanyInput) {
+  return (await api.post<ManagementCompany>('/overwatch/management-companies', input)).data
+}
+
+export async function updateManagementCompany(id: string, input: ManagementCompanyInput) {
+  return (await api.put<ManagementCompany>(`/overwatch/management-companies/${id}`, input)).data
+}
+
+export async function updateManagementCompanyStatus(id: string, isActive: boolean) {
+  return (await api.patch<{ id: string; name: string; isActive: boolean }>(
+    `/overwatch/management-companies/${id}/status`,
+    { isActive },
+  )).data
+}
+
+export async function listManagementCompanyEmployees(managementCompanyId: string) {
+  return (await api.get<ManagementCompanyEmployee[]>(
+    `/overwatch/management-companies/${managementCompanyId}/employees`,
+  )).data
+}
+
+export async function createManagementCompanyEmployee(
+  managementCompanyId: string,
+  input: EmployeeInput,
+) {
+  return (await api.post<CreatedManagementCompanyEmployee>(
+    `/overwatch/management-companies/${managementCompanyId}/employees`,
+    input,
+  )).data
+}
+
+export async function updateManagementCompanyEmployeeStatus(
+  employeeId: string,
+  isActive: boolean,
+) {
+  return (await api.patch<{ id: string; isActive: boolean; updatedAt: string }>(
+    `/employees/${employeeId}/status`,
+    { isActive },
+  )).data
+}
+
+export async function removeManagementCompanyEmployee(employeeId: string) {
+  await api.delete(`/employees/${employeeId}`)
+}

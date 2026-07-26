@@ -13,6 +13,13 @@ describe('role-based navigation', () => {
       .toEqual(['Início', 'Solicitações', 'Atendimento', 'Gestão'])
   })
 
+  it('shows Overwatch only to PlatformAdmin', () => {
+    expect(getNavigationItems(['Resident'], ['PlatformAdmin']).map((item) => item.label)).toContain('Overwatch')
+    expect(getMobileNavigationItems(['Resident'], ['PlatformAdmin']).map((item) => item.label)).toContain('Overwatch')
+    expect(getNavigationItems(['Resident']).map((item) => item.label)).not.toContain('Overwatch')
+    expect(getMobileNavigationItems(['Resident']).map((item) => item.label)).not.toContain('Overwatch')
+  })
+
   it('keeps manager mobile navigation compact', () => {
     expect(getMobileNavigationItems(['Manager']).map((item) => item.label))
       .toEqual(['Início', 'Solicitações', 'Mais'])
@@ -23,6 +30,7 @@ describe('role-based navigation', () => {
     expect(getMobileSelectedPath('/management/people')).toBe('/more')
     expect(getMobileSelectedPath('/more')).toBe('/more')
     expect(getMobileSelectedPath('/')).toBe('/')
+    expect(getMobileSelectedPath('/overwatch/managers')).toBe('/overwatch')
   })
 
   it('hides the general condominium switcher in management and for manager-only users', () => {
@@ -31,5 +39,6 @@ describe('role-based navigation', () => {
     expect(shouldShowGeneralCondominiumSwitcher('/', [resident])).toBe(true)
     expect(shouldShowGeneralCondominiumSwitcher('/', [manager])).toBe(false)
     expect(shouldShowGeneralCondominiumSwitcher('/management/units', [resident, manager])).toBe(false)
+    expect(shouldShowGeneralCondominiumSwitcher('/overwatch', [resident])).toBe(false)
   })
 })

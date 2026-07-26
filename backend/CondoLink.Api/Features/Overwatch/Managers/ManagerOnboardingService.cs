@@ -13,14 +13,16 @@ public sealed class ManagerOnboardingService(
         Guid condominiumId,
         CancellationToken cancellationToken)
     {
-        var manager = await dbContext.Users
-            .AsNoTracking()
-            .Where(user => user.Id == managerId)
-            .Select(user => new
+        var manager = await (
+            from user in dbContext.Users
+            join userRole in dbContext.UserRoles on user.Id equals userRole.UserId
+            join role in dbContext.Roles on userRole.RoleId equals role.Id
+            where user.Id == managerId && role.Name == "Manager"
+            select new
             {
                 user.IsActive
-            })
-            .SingleOrDefaultAsync(cancellationToken);
+            }
+            ).SingleOrDefaultAsync(cancellationToken);
 
         if (manager is null)
         {
@@ -70,27 +72,38 @@ public sealed class ManagerOnboardingService(
 
             dbContext.CondominiumMemberships.Add(membership);
 
-            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        else if (!membership.IsActive || membership.EndedAt is not null)
+        {
+            membership.Activate();
         }
 
-        var managerRoleExists =
+        var managerRole =
             await dbContext.CondominiumMembershipRoles
-                .AnyAsync(
+                .SingleOrDefaultAsync(
                     current =>
                         current.CondominiumMembershipId == membership.Id &&
                         current.Role == CondominiumRole.Manager,
                     cancellationToken);
 
-        if (!managerRoleExists)
+        if (managerRole is null)
         {
             dbContext.CondominiumMembershipRoles.Add(
                 new CondominiumMembershipRole(
                     membership.Id,
                     CondominiumRole.Manager));
-
-            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        else if (managerRole.IsActive && managerRole.RevokedAt is null)
+        {
+            return ManagerOnboardingResult.Conflict(
+                "Manager is already associated with this condominium.");
+        }
+        else
+        {
+            managerRole.Activate();
         }
 
+        await dbContext.SaveChangesAsync(cancellationToken);
         return ManagerOnboardingResult.Success(
             membership.Id);
     }

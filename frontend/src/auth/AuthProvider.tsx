@@ -3,6 +3,7 @@ import { api } from '../services/api'
 import { AuthContext } from './AuthContext'
 import type { LoginResponse, User } from './types'
 import { clearStoredToken, getStoredToken, storeToken } from './authStorage'
+import { hydrateSessionUser } from './session'
 
 function setAuthorization(token: string | null) {
   if (token) api.defaults.headers.common.Authorization = `Bearer ${token}`
@@ -36,7 +37,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setAuthorization(token)
       try {
         const { data } = await api.get<User>('/users/me')
-        setUser(data)
+        setUser(hydrateSessionUser(data, token))
       } catch {
         logout()
       } finally {
@@ -47,12 +48,22 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [logout])
 
   const login = useCallback(async (email: string, password: string) => {
-    const { data } = await api.post<LoginResponse>('/auth/login', { email, password })
-    storeToken(data.accessToken)
-    setAuthorization(data.accessToken)
-    const currentUser = await api.get<User>('/users/me')
-    setUser(currentUser.data)
-  }, [])
+    logout()
+    try {
+      const { data } = await api.post<LoginResponse>('/auth/login', { email, password })
+      storeToken(data.accessToken)
+      setAuthorization(data.accessToken)
+      const currentUser = await api.get<User>('/users/me')
+      setUser(hydrateSessionUser(
+        currentUser.data,
+        data.accessToken,
+        data.user.roles,
+      ))
+    } catch (error) {
+      logout()
+      throw error
+    }
+  }, [logout])
 
   const value = useMemo(() => ({ user, isInitializing, login, logout }), [isInitializing, login, logout, user])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

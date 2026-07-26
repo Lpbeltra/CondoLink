@@ -6,10 +6,14 @@ import { drawerWidth, Sidebar } from './Sidebar'
 import { useCondominium } from '../condominiums/CondominiumContext'
 import { EmptyState } from '../components/EmptyState'
 import { PageContainer } from '../components/PageContainer'
+import { useAuth } from '../auth/AuthContext'
+import { hasPlatformAdminAccess } from '../auth/permissions'
 
 export function AppShell() {
   const { currentCondominium, isLoading, error, refreshCondominiums } = useCondominium()
+  const { user } = useAuth()
   const hasContext = Boolean(currentCondominium)
+  const showNavigation = hasContext || hasPlatformAdminAccess(user)
 
   const content = isLoading ? (
     <PageContainer><Stack spacing={2}><Skeleton variant="rounded" height={180} /><Skeleton width="55%" /><Skeleton width="35%" /></Stack></PageContainer>
@@ -22,12 +26,12 @@ export function AppShell() {
   return (
     <Box minHeight="100dvh" display="flex">
       <AppHeader />
-      {hasContext && <Sidebar />}
-      <Box component="main" flex={1} minWidth={0} ml={{ md: hasContext ? `${drawerWidth}px` : 0 }} pb={{ xs: hasContext ? 9 : 2, md: 0 }} sx={{ overflowX: 'hidden' }}>
+      {showNavigation && <Sidebar />}
+      <Box component="main" flex={1} minWidth={0} ml={{ md: showNavigation ? `${drawerWidth}px` : 0 }} pb={{ xs: showNavigation ? 9 : 2, md: 0 }} sx={{ overflowX: 'hidden' }}>
         <Toolbar sx={{ minHeight: { xs: '64px !important', md: '72px !important' } }} />
         {content}
       </Box>
-      {hasContext && <MobileBottomNavigation />}
+      {showNavigation && <MobileBottomNavigation />}
     </Box>
   )
 }
