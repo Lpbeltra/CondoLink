@@ -18,6 +18,7 @@ import { UnitDetailsPage } from '../pages/UnitDetailsPage'
 import { ManagementCategoriesPage } from '../pages/ManagementCategoriesPage'
 import { MorePage } from '../pages/MorePage'
 import { ManagementPeoplePage } from '../pages/ManagementPeoplePage'
+import { ManagementReportsPage } from '../pages/ManagementReportsPage'
 import { ManagementBlocksPage } from '../pages/ManagementBlocksPage'
 import { ManagementContextProvider } from '../management/ManagementContextProvider'
 import { OverwatchGuard } from '../overwatch/OverwatchGuard'
@@ -70,6 +71,7 @@ export function App() {
                     <Route path="blocks" element={<ManagementBlocksPage />} />
                     <Route path="categories" element={<ManagementCategoriesPage />} />
                     <Route path="people" element={<ManagementPeoplePage />} />
+                    <Route path="reports" element={<ManagementReportsPage />} />
                   </Route>
                 </Route>
                 <Route element={<OverwatchGuard />}>

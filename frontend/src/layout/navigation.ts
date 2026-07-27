@@ -2,6 +2,7 @@ import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import ForumRoundedIcon from '@mui/icons-material/ForumRounded'
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded'
 import ApartmentRoundedIcon from '@mui/icons-material/ApartmentRounded'
+import AssessmentRoundedIcon from '@mui/icons-material/AssessmentRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded'
 import type { SvgIconComponent } from '@mui/icons-material'
@@ -23,6 +24,7 @@ const commonItems: NavigationItem[] = [
   { label: 'Solicitações', path: '/requests', icon: ForumRoundedIcon },
   { label: 'Atendimento', path: managementEntryPath, icon: SupportAgentRoundedIcon, requiredRole: 'Manager' },
   { label: 'Gestão', path: '/management/units', icon: ApartmentRoundedIcon, requiredRole: 'Manager' },
+  { label: 'Relatórios', path: '/management/reports', icon: AssessmentRoundedIcon, requiredRole: 'Manager' },
   { label: 'Overwatch', path: '/overwatch', icon: AdminPanelSettingsRoundedIcon, platformAdminOnly: true },
 ]
 

@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using CondoLink.Api.Features.Notifications;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
@@ -27,6 +28,8 @@ public static class CreateRequest
         RequestDto request,
         ClaimsPrincipal principal,
         AppDbContext dbContext,
+        NotificationService notifications,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         var authenticatedUserIdValue =
@@ -130,7 +133,8 @@ public static class CreateRequest
             .Select(category => new
             {
                 category.CondominiumId,
-                category.IsActive
+                category.IsActive,
+                category.Name
             })
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -229,6 +233,23 @@ public static class CreateRequest
         dbContext.Requests.Add(domainRequest);
         dbContext.RequestStatusHistories.Add(initialHistory);
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        // Notifying is a side effect: the request is already persisted, so a
+        // notification failure must not fail the creation the user just made.
+        try
+        {
+            await notifications.NotifyRequestCreatedAsync(
+                domainRequest, category.Name, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            loggerFactory
+                .CreateLogger(typeof(CreateRequest))
+                .LogError(
+                    exception,
+                    "Failed to create notifications for request {RequestId}.",
+                    domainRequest.Id);
+        }
 
         var response = new Response(
             domainRequest.Id,

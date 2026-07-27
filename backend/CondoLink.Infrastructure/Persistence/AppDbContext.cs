@@ -31,6 +31,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         Set<RequestStatusHistory>();
     public DbSet<RequestMessage> RequestMessages => Set<RequestMessage>();
     public DbSet<RequestAttachment> RequestAttachments => Set<RequestAttachment>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

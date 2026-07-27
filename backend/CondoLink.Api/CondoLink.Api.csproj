@@ -21,4 +21,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Lets the test project cover internal helpers without widening the API surface. -->
+    <InternalsVisibleTo Include="CondoLink.Tests" />
+  </ItemGroup>
+
 </Project>

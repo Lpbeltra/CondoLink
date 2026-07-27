@@ -4,6 +4,7 @@ import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSetting
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded'
 import { AppBar, Avatar, Box, IconButton, ListItemIcon, Menu, MenuItem, Toolbar, Tooltip, Typography, alpha } from '@mui/material'
 import { Brand } from '../components/Brand'
+import { NotificationBell } from '../notifications/NotificationBell'
 import { ThemeModeToggle } from '../theme/ThemeModeToggle'
 import { useAuth } from '../auth/AuthContext'
 import { CondominiumSwitcher } from './CondominiumSwitcher'
@@ -48,6 +49,7 @@ export function AppHeader() {
         <Box sx={{ display: { xs: 'none', sm: 'flex' }, flexShrink: 0 }}><Brand /></Box>
         <Box minWidth={0} flex="1 1 auto" overflow="hidden">{showSwitcher && <CondominiumSwitcher />}</Box>
         <Typography color="text.secondary" fontSize=".875rem" noWrap sx={{ display: { xs: 'none', xl: 'block' }, maxWidth: 180, flexShrink: 1 }}>{user?.fullName}</Typography>
+        <NotificationBell />
         <ThemeModeToggle />
         <Tooltip title="Conta e sair">
           <IconButton

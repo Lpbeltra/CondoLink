@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using CondoLink.Api.Features.Notifications;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
@@ -24,6 +25,8 @@ public static class UpdateRequestStatus
         RequestDto request,
         ClaimsPrincipal principal,
         AppDbContext dbContext,
+        NotificationService notifications,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         var authenticatedUserIdValue =
@@ -136,6 +139,23 @@ public static class UpdateRequestStatus
 
         dbContext.RequestStatusHistories.Add(history);
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        // Side effect: the status change is committed, so a notification failure
+        // must not turn a successful update into an error for the manager.
+        try
+        {
+            await notifications.NotifyStatusChangedAsync(
+                targetRequest, previousStatus, authenticatedUserId, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            loggerFactory
+                .CreateLogger(typeof(UpdateRequestStatus))
+                .LogError(
+                    exception,
+                    "Failed to notify status change for request {RequestId}.",
+                    targetRequest.Id);
+        }
 
         return Results.Ok(new Response(
             targetRequest.Id,
