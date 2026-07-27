@@ -26,6 +26,7 @@ import { EmptyState } from '../../components/EmptyState'
 import { PageContainer } from '../../components/PageContainer'
 import { TransientFeedback } from '../../components/TransientFeedback'
 import { formatDateTime } from '../../requests/presentation'
+import { formatCnpj } from '../registration'
 import {
   getManagementCompany,
   updateManagementCompany,
@@ -47,8 +48,10 @@ const overviewFields: Array<{
   value: (company: ManagementCompany) => string | number
 }> = [
   { label: 'Nome', value: (company) => company.name },
-  { label: 'Razão social', value: (company) => company.legalName || 'Não informada' },
-  { label: 'Documento', value: (company) => company.document || 'Não informado' },
+  { label: 'CNPJ', value: (company) => formatCnpj(company.cnpj) },
+  { label: 'Endereço', value: (company) => company.address || 'Não informado' },
+  { label: 'Cidade', value: (company) => company.city || 'Não informada' },
+  { label: 'Estado', value: (company) => company.state || 'Não informado' },
   { label: 'E-mail', value: (company) => company.email || 'Não informado' },
   { label: 'Telefone', value: (company) => company.phoneNumber || 'Não informado' },
   { label: 'Status', value: (company) => company.isActive ? 'Ativa' : 'Inativa' },
@@ -171,15 +174,6 @@ export function OverwatchManagementCompanyDetailsPage() {
               label={company.isActive ? 'Ativa' : 'Inativa'}
             />
           </Stack>
-          {company.legalName && (
-            <Typography
-              color="text.secondary"
-              mt={1}
-              sx={{ overflowWrap: 'anywhere' }}
-            >
-              {company.legalName}
-            </Typography>
-          )}
           <Typography color="text.secondary" mt={0.5}>
             {company.condominiumCount} {company.condominiumCount === 1 ? 'condomínio vinculado' : 'condomínios vinculados'}
           </Typography>

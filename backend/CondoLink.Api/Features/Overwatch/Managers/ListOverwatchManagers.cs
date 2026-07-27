@@ -58,6 +58,12 @@ public static class ListOverwatchManagers
                 user.Id,
                 user.FullName,
                 user.Email!,
+                user.PhoneNumber,
+                user.Cpf,
+                user.Cnpj,
+                user.Address,
+                user.City,
+                user.State,
                 user.IsActive,
                 dbContext.CondominiumMemberships.Count(membership =>
                     membership.UserId == user.Id &&

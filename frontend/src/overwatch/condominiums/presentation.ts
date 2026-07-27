@@ -2,7 +2,7 @@ import type { OverwatchCondominium } from './types'
 
 export const condominiumDetailTabs = [
   { value: 'overview', label: 'Visão geral' },
-  { value: 'managers', label: 'Síndicos' },
+  { value: 'managers', label: 'Síndico' },
   { value: 'settings', label: 'Configurações' },
 ] as const
 

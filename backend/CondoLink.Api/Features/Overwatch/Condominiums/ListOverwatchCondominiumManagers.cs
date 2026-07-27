@@ -1,4 +1,5 @@
 using CondoLink.Domain.Enums;
+using CondoLink.Api.Features.Overwatch.Managers;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -47,24 +48,19 @@ public static class ListOverwatchCondominiumManagers
                     && role.Role == CondominiumRole.Manager
                     && role.IsActive
                     && role.RevokedAt == null
+                    && user.IsActive
                 orderby user.FullName
-                select new Response(
+                select new CondominiumManagerResponse(
                     membership.Id,
                     user.Id,
                     user.FullName,
                     user.Email!,
+                    user.PhoneNumber,
                     user.IsActive,
                     membership.JoinedAt))
+            .Take(1)
             .ToListAsync(cancellationToken);
 
         return Results.Ok(managers);
     }
-
-    public sealed record Response(
-        Guid MembershipId,
-        Guid UserId,
-        string FullName,
-        string Email,
-        bool IsActive,
-        DateTime JoinedAt);
 }

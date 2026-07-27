@@ -89,18 +89,13 @@ public static class CreateCondominium
                 new { error = "Email must not exceed 254 characters." });
         }
 
-        var phoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber)
-            ? null
-            : request.PhoneNumber.Trim();
-
-        if (phoneNumber?.Length > 30)
-        {
-            return Results.BadRequest(
-                new
-                {
-                    error = "PhoneNumber must not exceed 30 characters."
-                });
-        }
+        var registrationRequest = new Features.Overwatch.Condominiums.CondominiumRequest(
+            request.Name, request.Email, request.Cnpj, request.Address, request.City,
+            request.State, request.HasDoorman, request.IsRemoteDoorman, request.DoormanContact);
+        var registrationError = Features.Overwatch.Condominiums.CondominiumValidation.Validate(
+            registrationRequest);
+        if (registrationError is not null)
+            return Results.BadRequest(new { error = registrationError });
 
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(
@@ -111,7 +106,13 @@ public static class CreateCondominium
             var condominium = new Condominium(
                 name,
                 email,
-                phoneNumber);
+                request.Cnpj,
+                request.Address,
+                request.City,
+                request.State,
+                request.HasDoorman,
+                request.IsRemoteDoorman,
+                request.DoormanContact);
 
             var membership = new CondominiumMembership(
                 authenticatedUserId,
@@ -132,7 +133,7 @@ public static class CreateCondominium
                 condominium.Id,
                 condominium.Name,
                 condominium.Email,
-                condominium.PhoneNumber,
+                condominium.Cnpj,
                 condominium.IsActive,
                 condominium.CreatedAt);
 
@@ -150,13 +151,19 @@ public static class CreateCondominium
     public sealed record Request(
         string? Name,
         string? Email,
-        string? PhoneNumber);
+        string? Cnpj,
+        string? Address,
+        string? City,
+        string? State,
+        bool HasDoorman,
+        bool IsRemoteDoorman,
+        string? DoormanContact);
 
     public sealed record Response(
         Guid Id,
         string Name,
         string? Email,
-        string? PhoneNumber,
+        string? Cnpj,
         bool IsActive,
         DateTime CreatedAt);
 }

@@ -15,7 +15,7 @@ describe('management company errors', () => {
   it('uses ProblemDetails detail when available', () => {
     expect(managementCompanyError(apiError(400, {
       title: 'Validation failed',
-      detail: 'O documento informado é inválido.',
-    }))).toBe('O documento informado é inválido.')
+      detail: 'O CNPJ informado é inválido.',
+    }))).toBe('Informe um CNPJ válido.')
   })
 })

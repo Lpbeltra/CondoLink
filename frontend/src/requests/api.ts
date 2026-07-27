@@ -25,8 +25,15 @@ export async function createRequestMessage(requestId: string, content: string) {
   return (await api.post<RequestMessage>(`/requests/${requestId}/messages`, { content })).data
 }
 
-export async function listManagementRequests(filters: { status?: RequestStatus; priority?: RequestPriority }) {
-  return (await api.get<ManagementRequestsResponse>('/management/requests', { params: filters })).data
+export async function listManagementRequests(filters: {
+  status?: RequestStatus
+  priority?: RequestPriority
+  condominiumId?: string
+}) {
+  return (await api.get<ManagementRequestsResponse>(
+    '/management/requests',
+    { params: filters },
+  )).data
 }
 
 export async function updateRequestStatus(requestId: string, status: RequestStatus, reason: string | null) {

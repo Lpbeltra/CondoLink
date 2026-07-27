@@ -42,21 +42,25 @@ public static class CreateManagementCompanyEmployee
         }
 
         if (string.IsNullOrWhiteSpace(request.FullName) ||
-            string.IsNullOrWhiteSpace(request.Email))
+            string.IsNullOrWhiteSpace(request.Email) ||
+            string.IsNullOrWhiteSpace(request.JobTitle))
         {
             return Results.BadRequest(new
             {
-                message = "Full name and email are required."
+                message = "Full name, email and job title are required."
             });
         }
 
         var fullName = request.FullName.Trim();
         var email = request.Email.Trim().ToLowerInvariant();
-        if (fullName.Length > 200 || email.Length > 254)
+        var contact = Domain.RegistrationData.Optional(request.Contact);
+        var jobTitle = request.JobTitle.Trim();
+        if (fullName.Length > 200 || email.Length > 254 ||
+            contact?.Length > 30 || jobTitle.Length > 100)
         {
             return Results.BadRequest(new
             {
-                message = "Full name or email exceeds the allowed length."
+                message = "Employee data exceeds the allowed length."
             });
         }
 
@@ -83,7 +87,7 @@ public static class CreateManagementCompanyEmployee
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        var user = new ApplicationUser(fullName, email, null);
+        var user = new ApplicationUser(fullName, email, contact);
         var createResult = await userManager.CreateAsync(
             user,
             temporaryPassword);
@@ -98,7 +102,8 @@ public static class CreateManagementCompanyEmployee
 
         var employee = new ManagementCompanyEmployee(
             managementCompanyId,
-            user.Id);
+            user.Id,
+            jobTitle);
         dbContext.ManagementCompanyEmployees.Add(employee);
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -111,6 +116,8 @@ public static class CreateManagementCompanyEmployee
                 user.Id,
                 user.FullName,
                 user.Email!,
+                user.PhoneNumber,
+                employee.JobTitle,
                 employee.IsActive,
                 temporaryPassword));
     }
@@ -126,7 +133,8 @@ public static class CreateManagementCompanyEmployee
         return $"Aa1!{randomPart}";
     }
 
-    public sealed record Request(string? FullName, string? Email);
+    public sealed record Request(
+        string? FullName, string? Email, string? Contact, string? JobTitle);
 
     public sealed record CreatedResponse(
         Guid Id,
@@ -134,6 +142,8 @@ public static class CreateManagementCompanyEmployee
         Guid UserId,
         string FullName,
         string Email,
+        string? Contact,
+        string JobTitle,
         bool IsActive,
         string TemporaryPassword);
 }

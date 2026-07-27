@@ -78,18 +78,46 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("Address")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("address");
+
+                    b.Property<string>("City")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("city");
+
+                    b.Property<string>("Cnpj")
+                        .HasMaxLength(14)
+                        .HasColumnType("character varying(14)")
+                        .HasColumnName("cnpj");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<string>("DoormanContact")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("doorman_contact");
 
                     b.Property<string>("Email")
                         .HasMaxLength(254)
                         .HasColumnType("character varying(254)")
                         .HasColumnName("email");
 
+                    b.Property<bool>("HasDoorman")
+                        .HasColumnType("boolean")
+                        .HasColumnName("has_doorman");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
+
+                    b.Property<bool>("IsRemoteDoorman")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_remote_doorman");
 
                     b.Property<Guid?>("ManagementCompanyId")
                         .HasColumnType("uuid")
@@ -101,16 +129,21 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
-                    b.Property<string>("PhoneNumber")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("phone_number");
+                    b.Property<string>("State")
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)")
+                        .HasColumnName("state");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Cnpj")
+                        .IsUnique()
+                        .HasDatabaseName("ux_condominiums_cnpj")
+                        .HasFilter("\"cnpj\" IS NOT NULL");
 
                     b.HasIndex("ManagementCompanyId")
                         .HasDatabaseName("ix_condominiums_management_company_id");
@@ -237,14 +270,24 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<string>("Address")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("address");
+
+                    b.Property<string>("City")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("city");
+
+                    b.Property<string>("Cnpj")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("cnpj");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
-
-                    b.Property<string>("Document")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("document");
 
                     b.Property<string>("Email")
                         .HasMaxLength(254)
@@ -254,11 +297,6 @@ namespace CondoLink.Infrastructure.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
-
-                    b.Property<string>("LegalName")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("legal_name");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -271,16 +309,21 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasColumnType("character varying(30)")
                         .HasColumnName("phone_number");
 
+                    b.Property<string>("State")
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)")
+                        .HasColumnName("state");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Document")
+                    b.HasIndex("Cnpj")
                         .IsUnique()
-                        .HasDatabaseName("ux_management_companies_document")
-                        .HasFilter("\"document\" IS NOT NULL");
+                        .HasDatabaseName("ux_management_companies_cnpj")
+                        .HasFilter("\"cnpj\" IS NOT NULL");
 
                     b.HasIndex("Email")
                         .IsUnique()
@@ -304,6 +347,12 @@ namespace CondoLink.Infrastructure.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
+
+                    b.Property<string>("JobTitle")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("job_title");
 
                     b.Property<Guid>("ManagementCompanyId")
                         .HasColumnType("uuid")
@@ -714,10 +763,30 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("active_management_condominium_id");
 
+                    b.Property<string>("Address")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("address");
+
+                    b.Property<string>("City")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("city");
+
+                    b.Property<string>("Cnpj")
+                        .HasMaxLength(14)
+                        .HasColumnType("character varying(14)")
+                        .HasColumnName("cnpj");
+
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("text")
                         .HasColumnName("concurrency_stamp");
+
+                    b.Property<string>("Cpf")
+                        .HasMaxLength(11)
+                        .HasColumnType("character varying(11)")
+                        .HasColumnName("cpf");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -780,6 +849,11 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("security_stamp");
 
+                    b.Property<string>("State")
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)")
+                        .HasColumnName("state");
+
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean")
                         .HasColumnName("two_factor_enabled");
@@ -795,6 +869,16 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasColumnName("user_name");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Cnpj")
+                        .IsUnique()
+                        .HasDatabaseName("ux_users_manager_cnpj")
+                        .HasFilter("\"cnpj\" IS NOT NULL");
+
+                    b.HasIndex("Cpf")
+                        .IsUnique()
+                        .HasDatabaseName("ux_users_manager_cpf")
+                        .HasFilter("\"cpf\" IS NOT NULL");
 
                     b.HasIndex("NormalizedEmail")
                         .IsUnique()

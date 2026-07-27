@@ -157,6 +157,14 @@ public static class AddCondominiumMemberRole
             return DuplicateRoleConflict();
         }
 
+        if (role == CondominiumRole.Manager)
+        {
+            return Results.Conflict(new
+            {
+                error = "Este condomínio já possui um síndico vinculado."
+            });
+        }
+
         var membershipRole = new CondominiumMembershipRole(membershipId, role);
         dbContext.CondominiumMembershipRoles.Add(membershipRole);
 

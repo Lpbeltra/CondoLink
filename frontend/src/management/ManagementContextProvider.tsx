@@ -17,6 +17,7 @@ import {
   type ManagementContextValue,
 } from './ManagementContext'
 import type { ManagementCondominium } from './types'
+import { isCurrentManagementRequest } from './contextState'
 
 export function ManagementContextProvider({
   children,
@@ -29,6 +30,8 @@ export function ManagementContextProvider({
   const [activeCondominiumId, setActiveCondominiumId] = useState<
     string | null
   >(null)
+  const [usesConsolidatedManagementScope, setUsesConsolidatedManagementScope] =
+    useState(false)
 
   // Apenas para o carregamento inicial do contexto
   const [isLoading, setIsLoading] = useState(false)
@@ -45,6 +48,7 @@ export function ManagementContextProvider({
 
     setCondominiums([])
     setActiveCondominiumId(null)
+    setUsesConsolidatedManagementScope(false)
 
     setIsLoading(false)
     setIsSwitching(false)
@@ -62,22 +66,28 @@ export function ManagementContextProvider({
 
     setIsLoading(true)
     setError(null)
+    setCondominiums([])
+    setActiveCondominiumId(null)
+    setUsesConsolidatedManagementScope(false)
 
     try {
       const context = await getManagementContext()
 
-      if (version !== requestVersion.current) return
+      if (!isCurrentManagementRequest(version, requestVersion.current)) return
 
       setCondominiums(context.availableCondominiums)
-      setActiveCondominiumId(context.activeCondominiumId)
+      setActiveCondominiumId(context.activeManagementCondominiumId)
+      setUsesConsolidatedManagementScope(
+        context.usesConsolidatedManagementScope,
+      )
     } catch (requestError) {
-      if (version !== requestVersion.current) return
+      if (!isCurrentManagementRequest(version, requestVersion.current)) return
 
       setError(getErrorMessage(requestError))
       setCondominiums([])
       setActiveCondominiumId(null)
     } finally {
-      if (version === requestVersion.current) {
+      if (isCurrentManagementRequest(version, requestVersion.current)) {
         setIsLoading(false)
       }
     }
@@ -96,39 +106,54 @@ export function ManagementContextProvider({
     async (condominiumId: string | null) => {
       const version = ++requestVersion.current
       const previousCondominiumId = activeCondominiumId
+      const previousConsolidatedScope = usesConsolidatedManagementScope
       setIsSwitching(true)
       setError(null)
       setActiveCondominiumId(null)
+      setUsesConsolidatedManagementScope(false)
 
       try {
         const context = await setManagementContext(condominiumId)
 
-        if (version !== requestVersion.current) return
+        if (!isCurrentManagementRequest(version, requestVersion.current)) return
 
         setCondominiums(context.availableCondominiums)
-        setActiveCondominiumId(context.activeCondominiumId)
+        setActiveCondominiumId(context.activeManagementCondominiumId)
+        setUsesConsolidatedManagementScope(
+          context.usesConsolidatedManagementScope,
+        )
       } catch (requestError) {
-        if (version !== requestVersion.current) return
+        if (!isCurrentManagementRequest(version, requestVersion.current)) return
         setActiveCondominiumId(previousCondominiumId)
+        setUsesConsolidatedManagementScope(previousConsolidatedScope)
         setError(getErrorMessage(requestError))
-        throw requestError
       } finally {
-        if (version === requestVersion.current) setIsSwitching(false)
+        if (isCurrentManagementRequest(version, requestVersion.current)) {
+          setIsSwitching(false)
+        }
       }
     },
-    [activeCondominiumId]
+    [activeCondominiumId, usesConsolidatedManagementScope]
   )
 
   const value = useMemo<ManagementContextValue>(
-    () => ({
-      condominiums,
-      activeCondominiumId,
-      isLoading,
-      isSwitching,
-      error,
-      refresh,
-      selectCondominium,
-    }),
+    () => {
+      const activeCondominium = condominiums.find(
+        item => item.id === activeCondominiumId,
+      ) ?? null
+      return {
+        condominiums,
+        activeCondominiumId,
+        activeCondominium,
+        condominiumCount: condominiums.length,
+        usesConsolidatedManagementScope,
+        isLoading,
+        isSwitching,
+        error,
+        refresh,
+        selectCondominium,
+      }
+    },
     [
       activeCondominiumId,
       condominiums,
@@ -137,6 +162,7 @@ export function ManagementContextProvider({
       error,
       refresh,
       selectCondominium,
+      usesConsolidatedManagementScope,
     ]
   )
 

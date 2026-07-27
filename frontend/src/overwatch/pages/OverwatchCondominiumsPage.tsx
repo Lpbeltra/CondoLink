@@ -7,7 +7,6 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -30,7 +29,6 @@ import { useNavigate } from 'react-router-dom'
 import { EmptyState } from '../../components/EmptyState'
 import { PageContainer } from '../../components/PageContainer'
 import { TransientFeedback } from '../../components/TransientFeedback'
-import { formatDateTime } from '../../requests/presentation'
 import {
   createOverwatchCondominium,
   getOverwatchCondominium,
@@ -193,10 +191,10 @@ export function OverwatchCondominiumsPage() {
           elevation={0}
           sx={{ mt: 3, border: '1px solid', borderColor: 'divider' }}
         >
-          <Table sx={{ minWidth: 980 }}>
+          <Table sx={{ minWidth: 700 }}>
             <TableHead>
               <TableRow>
-                {['Nome', 'Contato', 'Administradora', 'Síndicos', 'Status', 'Criado em', 'Ações'].map((column) => (
+                {['Nome', 'Administradora', 'Síndicos', 'Status e ações'].map((column) => (
                   <TableCell key={column} sx={{ fontWeight: 750 }}>{column}</TableCell>
                 ))}
               </TableRow>
@@ -205,22 +203,8 @@ export function OverwatchCondominiumsPage() {
               {condominiums.map((condominium) => (
                 <TableRow key={condominium.id} hover>
                   <TableCell sx={{ fontWeight: 750 }}>{condominium.name}</TableCell>
-                  <TableCell>
-                    <Typography fontSize=".85rem">{condominium.email || '—'}</Typography>
-                    <Typography color="text.secondary" fontSize=".8rem">
-                      {condominium.phoneNumber || '—'}
-                    </Typography>
-                  </TableCell>
                   <TableCell>{condominium.managementCompanyName || 'Sem administradora'}</TableCell>
                   <TableCell>{condominium.managerCount}</TableCell>
-                  <TableCell>
-                    <Chip
-                      size="small"
-                      color={condominium.isActive ? 'success' : 'default'}
-                      label={condominium.isActive ? 'Ativo' : 'Inativo'}
-                    />
-                  </TableCell>
-                  <TableCell>{formatDateTime(condominium.createdAt)}</TableCell>
                   <TableCell>
                     <Tooltip title="Editar">
                       <IconButton
@@ -233,14 +217,15 @@ export function OverwatchCondominiumsPage() {
                         <EditRoundedIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title={condominium.isActive ? 'Inativar' : 'Ativar'}>
-                      <IconButton
+                    <Button
+                        size="small"
+                        color={condominium.isActive ? 'error' : 'primary'}
+                        startIcon={<PowerSettingsNewRoundedIcon />}
                         aria-label={`${condominium.isActive ? 'Inativar' : 'Ativar'} ${condominium.name}`}
                         onClick={() => setStatusCondominium(condominium)}
                       >
-                        <PowerSettingsNewRoundedIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                        {condominium.isActive ? 'Inativar' : 'Ativar'}
+                      </Button>
                     <Button
                       size="small"
                       endIcon={<OpenInNewRoundedIcon />}

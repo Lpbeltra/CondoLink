@@ -1,6 +1,3 @@
-using CondoLink.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
-
 namespace CondoLink.Api.Features.Overwatch.Managers;
 
 public static class UpdateOverwatchManagerStatus
@@ -20,25 +17,23 @@ public static class UpdateOverwatchManagerStatus
     private static async Task<IResult> HandleAsync(
         Guid managerId,
         Request request,
-        AppDbContext dbContext,
+        ManagerOnboardingService onboardingService,
         CancellationToken cancellationToken)
     {
-        var manager = await (
-            from user in dbContext.Users
-            join userRole in dbContext.UserRoles on user.Id equals userRole.UserId
-            join role in dbContext.Roles on userRole.RoleId equals role.Id
-            where user.Id == managerId && role.Name == "Manager"
-            select user)
-            .SingleOrDefaultAsync(cancellationToken);
-
-        if (manager is null)
+        var result = await onboardingService.SetStatusAsync(
+            managerId, request.IsActive, cancellationToken);
+        if (!result.Succeeded)
         {
-            return Results.NotFound(new { message = "Manager not found." });
+            return result.IsConflict
+                ? Results.Conflict(new { error = result.Error })
+                : Results.NotFound(new { error = result.Error });
         }
-
-        manager.SetActiveStatus(request.IsActive);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return Results.Ok(new { manager.Id, manager.IsActive, manager.UpdatedAt });
+        return Results.Ok(new
+        {
+            Id = managerId,
+            request.IsActive,
+            UpdatedAt = DateTime.UtcNow
+        });
     }
 
     public sealed record Request(bool IsActive);

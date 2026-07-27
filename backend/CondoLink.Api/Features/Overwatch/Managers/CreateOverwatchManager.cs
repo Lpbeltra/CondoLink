@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using CondoLink.Infrastructure.Identity;
+using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 
 namespace CondoLink.Api.Features.Overwatch.Managers;
 
@@ -26,6 +28,7 @@ public static class CreateOverwatchManager
         Request request,
         UserManager<ApplicationUser> userManager,
         RoleManager<IdentityRole<Guid>> roleManager,
+        AppDbContext dbContext,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.FullName) ||
@@ -39,13 +42,16 @@ public static class CreateOverwatchManager
 
         var fullName = request.FullName.Trim();
         var email = request.Email.Trim().ToLowerInvariant();
-        if (fullName.Length > 200 || email.Length > 254)
+        var validationError = ManagerValidation.Validate(request);
+        if (validationError is not null)
         {
-            return Results.BadRequest(new
-            {
-                message = "Full name or email exceeds the allowed length."
-            });
+            return Results.BadRequest(new { message = validationError });
         }
+        var cpf = Domain.RegistrationData.Digits(request.Cpf);
+        var cnpj = Domain.RegistrationData.Digits(request.Cnpj);
+        var conflict = await ManagerValidation.FindConflictAsync(
+            dbContext, cpf, cnpj, null, cancellationToken);
+        if (conflict is not null) return Results.Conflict(new { message = conflict });
 
         var existingUser = await userManager.FindByEmailAsync(email);
 
@@ -73,7 +79,9 @@ public static class CreateOverwatchManager
         }
 
         var temporaryPassword = GenerateTemporaryPassword();
-        var user = new ApplicationUser(fullName, email, null);
+        var user = new ApplicationUser(fullName, email, request.PhoneNumber);
+        user.UpdateManagerProfile(fullName, request.PhoneNumber, cpf, cnpj,
+            request.Address, request.City, request.State);
 
         var createResult = await userManager.CreateAsync(
             user,
@@ -109,6 +117,12 @@ public static class CreateOverwatchManager
                 user.Id,
                 user.FullName,
                 user.Email!,
+                user.PhoneNumber,
+                user.Cpf,
+                user.Cnpj,
+                user.Address,
+                user.City,
+                user.State,
                 user.IsActive,
                 0,
                 user.CreatedAt,
@@ -127,15 +141,53 @@ public static class CreateOverwatchManager
         return $"Aa1!{randomPart}";
     }
 
-    public sealed record Request(string? FullName, string? Email);
+    public sealed record Request(
+        string? FullName, string? Email, string? PhoneNumber, string? Cpf,
+        string? Cnpj, string? Address, string? City, string? State);
 
     public sealed record ManagerCreatedResponse(
         Guid Id,
         string FullName,
         string Email,
+        string? PhoneNumber,
+        string? Cpf,
+        string? Cnpj,
+        string? Address,
+        string? City,
+        string? State,
         bool IsActive,
         int CondominiumCount,
         DateTime CreatedAt,
         DateTime UpdatedAt,
         string TemporaryPassword);
+}
+
+internal static class ManagerValidation
+{
+    public static string? Validate(CreateOverwatchManager.Request request)
+    {
+        if (request.FullName!.Trim().Length > 200 || request.Email!.Trim().Length > 254)
+            return "Full name or email exceeds the allowed length.";
+        if (request.PhoneNumber?.Trim().Length > 30) return "Phone number must not exceed 30 characters.";
+        if (request.Cpf is not null && !Domain.RegistrationData.IsValidCpf(request.Cpf)) return "CPF is invalid.";
+        if (request.Cnpj is not null && !Domain.RegistrationData.IsValidCnpj(request.Cnpj)) return "CNPJ is invalid.";
+        if (request.Address?.Trim().Length > 200) return "Address must not exceed 200 characters.";
+        if (request.City?.Trim().Length > 100) return "City must not exceed 100 characters.";
+        var state = Domain.RegistrationData.State(request.State);
+        if (state is not null && !Domain.RegistrationData.IsValidState(state)) return "State is invalid.";
+        return null;
+    }
+
+    public static async Task<string?> FindConflictAsync(
+        AppDbContext db, string? cpf, string? cnpj, Guid? excludedId,
+        CancellationToken cancellationToken)
+    {
+        if (cpf is not null && await db.Users.AnyAsync(x =>
+            (!excludedId.HasValue || x.Id != excludedId) && x.Cpf == cpf, cancellationToken))
+            return "A manager with this CPF already exists.";
+        if (cnpj is not null && await db.Users.AnyAsync(x =>
+            (!excludedId.HasValue || x.Id != excludedId) && x.Cnpj == cnpj, cancellationToken))
+            return "A manager with this CNPJ already exists.";
+        return null;
+    }
 }

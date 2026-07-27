@@ -29,11 +29,17 @@ public static class GetOverwatchCondominium
         var condominium = await dbContext.Condominiums
             .AsNoTracking()
             .Where(condominium => condominium.Id == id)
-            .Select(condominium => new CondominiumDetailsResponse(
+            .Select(condominium => new CondominiumResponse(
                 condominium.Id,
                 condominium.Name,
                 condominium.Email,
-                condominium.PhoneNumber,
+                condominium.Cnpj,
+                condominium.Address,
+                condominium.City,
+                condominium.State,
+                condominium.HasDoorman,
+                condominium.IsRemoteDoorman,
+                condominium.DoormanContact,
                 condominium.IsActive,
                 condominium.CreatedAt,
                 condominium.UpdatedAt,
@@ -45,6 +51,9 @@ public static class GetOverwatchCondominium
                     membership.CondominiumId == condominium.Id &&
                     membership.IsActive &&
                     membership.EndedAt == null &&
+                    dbContext.Users.Any(user =>
+                        user.Id == membership.UserId &&
+                        user.IsActive) &&
                     dbContext.CondominiumMembershipRoles.Any(role =>
                         role.CondominiumMembershipId == membership.Id &&
                         role.Role == CondominiumRole.Manager &&
@@ -63,15 +72,4 @@ public static class GetOverwatchCondominium
         return Results.Ok(condominium);
     }
 
-    public sealed record CondominiumDetailsResponse(
-        Guid Id,
-        string Name,
-        string? Email,
-        string? PhoneNumber,
-        bool IsActive,
-        DateTime CreatedAt,
-        DateTime UpdatedAt,
-        Guid? ManagementCompanyId,
-        string? ManagementCompanyName,
-        int ManagerCount);
 }

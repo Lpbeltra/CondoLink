@@ -23,7 +23,7 @@ function managementCompanyValidationMessage(message: string | null) {
   if (message.includes('Name is required')) return 'Informe o nome da administradora.'
   if (message.includes('Name must not exceed')) return 'O nome deve possuir no máximo 150 caracteres.'
   if (message.includes('Legal name')) return 'A razão social deve possuir no máximo 200 caracteres.'
-  if (message.includes('Document')) return 'O documento deve possuir no máximo 20 caracteres.'
+  if (message.includes('CNPJ')) return 'Informe um CNPJ válido.'
   if (message.includes('Email')) return 'O e-mail deve possuir no máximo 254 caracteres.'
   if (message.includes('Phone number')) return 'O telefone deve possuir no máximo 30 caracteres.'
   return message
@@ -44,9 +44,9 @@ export function managementCompanyError(error: unknown) {
       return 'A administradora solicitada não foi encontrada.'
     case 409: {
       const message = getResponseMessage(error)
-      if (message?.includes('document')) return 'Já existe uma administradora com este documento.'
+      if (message?.toLowerCase().includes('cnpj')) return 'Já existe uma administradora com este CNPJ.'
       if (message?.includes('email')) return 'Já existe uma administradora com este e-mail.'
-      return 'Já existe um cadastro utilizando este e-mail ou documento.'
+      return 'Já existe um cadastro utilizando este e-mail ou CNPJ.'
     }
     default:
       return 'Não foi possível concluir a operação. Tente novamente.'

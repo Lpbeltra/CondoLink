@@ -24,8 +24,8 @@ public static class GetManagementCompany
             .AsNoTracking()
             .Where(company => company.Id == id)
             .Select(company => new ManagementCompanyResponse(
-                company.Id, company.Name, company.LegalName, company.Document,
-                company.Email, company.PhoneNumber, company.IsActive,
+                company.Id, company.Name, company.Cnpj, company.Address,
+                company.City, company.State, company.Email, company.PhoneNumber, company.IsActive,
                 company.CreatedAt, company.UpdatedAt,
                 company.Condominiums.Count,
                 company.Employees.Count))

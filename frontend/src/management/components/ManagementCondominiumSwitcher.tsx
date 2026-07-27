@@ -52,17 +52,12 @@ export function ManagementCondominiumSwitcher() {
     return <Alert severity="error">{error}</Alert>
   }
 
-  if (!activeCondominium) {
-    return (
-      <Alert severity="info">
-        Nenhum condomínio administrativo selecionado.
-      </Alert>
-    )
+  const hasMultiple = condominiums.length > 1
+  if (condominiums.length === 0) {
+    return null
   }
 
-  const hasMultiple = condominiums.length > 1
-
-  const closeAndSelect = async (id: string) => {
+  const closeAndSelect = async (id: string | null) => {
     setAnchor(null)
 
     if (id === activeCondominiumId) return
@@ -118,7 +113,7 @@ export function ManagementCondominiumSwitcher() {
             fontSize=".85rem"
             noWrap
           >
-            {activeCondominium.name}
+            {activeCondominium?.name ?? 'Todos os condomínios'}
           </Typography>
         </Box>
 
@@ -161,6 +156,28 @@ export function ManagementCondominiumSwitcher() {
         >
           CONDOMÍNIOS ADMINISTRADOS
         </Typography>
+
+        {hasMultiple && (
+          <MenuItem
+            selected={!activeCondominiumId}
+            onClick={() => void closeAndSelect(null)}
+            sx={{ minHeight: 52, mx: 1, borderRadius: 2 }}
+          >
+            <ListItemText
+              primary="Todos os condomínios"
+              primaryTypographyProps={{
+                fontWeight: !activeCondominiumId ? 750 : 600,
+              }}
+            />
+            {!activeCondominiumId && (
+              <ListItemIcon
+                sx={{ minWidth: 'auto', ml: 2, color: 'primary.main' }}
+              >
+                <CheckRoundedIcon />
+              </ListItemIcon>
+            )}
+          </MenuItem>
+        )}
 
         {condominiums.map((condominium) => {
           const selected =

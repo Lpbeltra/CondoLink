@@ -22,7 +22,10 @@ public static class ListCondominiums
                 condominium.Id,
                 condominium.Name,
                 condominium.Email,
-                condominium.PhoneNumber,
+                condominium.Cnpj,
+                condominium.Address,
+                condominium.City,
+                condominium.State,
                 condominium.IsActive,
                 condominium.CreatedAt,
                 condominium.UpdatedAt))
@@ -35,7 +38,10 @@ public static class ListCondominiums
         Guid Id,
         string Name,
         string? Email,
-        string? PhoneNumber,
+        string? Cnpj,
+        string? Address,
+        string? City,
+        string? State,
         bool IsActive,
         DateTime CreatedAt,
         DateTime UpdatedAt);

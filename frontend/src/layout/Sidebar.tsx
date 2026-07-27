@@ -4,13 +4,21 @@ import { Brand } from '../components/Brand'
 import { useCondominium } from '../condominiums/CondominiumContext'
 import { getNavigationItems } from './navigation'
 import { useAuth } from '../auth/AuthContext'
+import { useManagementContext } from '../management/ManagementContext'
 
 export const drawerWidth = 248
 
 export function Sidebar() {
   const { currentCondominium } = useCondominium()
   const { user } = useAuth()
-  const navigationItems = getNavigationItems(currentCondominium?.roles ?? [], user?.roles ?? [])
+  const { condominiumCount } = useManagementContext()
+  const roles = currentCondominium?.roles ?? []
+  const navigationItems = getNavigationItems(
+    condominiumCount > 0 && !roles.includes('Manager')
+      ? [...roles, 'Manager']
+      : roles,
+    user?.roles ?? [],
+  )
   return (
     <Drawer variant="permanent" sx={{ display: { xs: 'none', md: 'block' }, width: drawerWidth, '& .MuiDrawer-paper': { width: drawerWidth, borderRight: '1px solid', borderColor: 'divider', bgcolor: '#fbfcfe' } }}>
       <Toolbar sx={{ minHeight: '72px !important', px: 3 }}><Brand /></Toolbar>

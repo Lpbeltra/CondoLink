@@ -6,6 +6,8 @@ public sealed record ManagementCompanyEmployeeResponse(
     Guid UserId,
     string FullName,
     string Email,
+    string? Contact,
+    string JobTitle,
     bool IsActive,
     DateTime CreatedAt,
     DateTime UpdatedAt);

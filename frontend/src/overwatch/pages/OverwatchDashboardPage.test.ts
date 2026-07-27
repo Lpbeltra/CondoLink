@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   overwatchMetricLabels,
+  overwatchMetricKeys,
   overwatchShortcuts,
 } from '../dashboard'
 
@@ -19,6 +20,15 @@ describe('Overwatch dashboard', () => {
       '/overwatch/management-companies',
       '/overwatch/condominiums',
       '/overwatch/managers',
+    ])
+  })
+
+  it('maps the four cards to the real aggregate response', () => {
+    expect(overwatchMetricKeys).toEqual([
+      'condominiumCount',
+      'managementCompanyCount',
+      'managerCount',
+      'employeeCount',
     ])
   })
 })

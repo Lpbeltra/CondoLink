@@ -30,16 +30,17 @@ public static class UpdateManagementCompany
         if (validationError is not null)
             return Results.BadRequest(new { message = validationError });
 
-        var document = CreateManagementCompany.NormalizeOptional(request.Document);
-        var email = CreateManagementCompany.NormalizeOptional(request.Email)
+        var cnpj = Domain.RegistrationData.Digits(request.Cnpj)!;
+        var email = Domain.RegistrationData.Optional(request.Email)
             ?.ToLowerInvariant();
         var conflict = await CreateManagementCompany.FindConflictAsync(
-            dbContext, document, email, id, cancellationToken);
+            dbContext, cnpj, email, id, cancellationToken);
         if (conflict is not null)
             return Results.Conflict(new { message = conflict });
 
         company.Update(
-            request.Name!, request.LegalName, document, email, request.PhoneNumber);
+            request.Name!, cnpj, request.Address, request.City, request.State,
+            email, request.PhoneNumber);
         await dbContext.SaveChangesAsync(cancellationToken);
         var condominiumCount = await dbContext.Condominiums.CountAsync(
             condominium => condominium.ManagementCompanyId == company.Id,

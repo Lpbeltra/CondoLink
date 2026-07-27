@@ -34,6 +34,11 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     }
 
     public string FullName { get; private set; }
+    public string? Cpf { get; private set; }
+    public string? Cnpj { get; private set; }
+    public string? Address { get; private set; }
+    public string? City { get; private set; }
+    public string? State { get; private set; }
     public bool IsActive { get; private set; }
     public Guid? ActiveManagementCondominiumId { get; private set; }
     public DateTime CreatedAt { get; private set; }
@@ -53,6 +58,23 @@ public sealed class ApplicationUser : IdentityUser<Guid>
         FullName = fullName.Trim();
         PhoneNumber = NormalizeOptional(phoneNumber);
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void UpdateManagerProfile(
+        string fullName,
+        string? phoneNumber,
+        string? cpf,
+        string? cnpj,
+        string? address,
+        string? city,
+        string? state)
+    {
+        Update(fullName, phoneNumber);
+        Cpf = Domain.RegistrationData.Digits(cpf);
+        Cnpj = Domain.RegistrationData.Digits(cnpj);
+        Address = Domain.RegistrationData.Optional(address);
+        City = Domain.RegistrationData.Optional(city);
+        State = Domain.RegistrationData.State(state);
     }
 
     public void SetActiveStatus(bool isActive)

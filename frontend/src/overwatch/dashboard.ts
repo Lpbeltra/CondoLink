@@ -10,3 +10,17 @@ export const overwatchShortcuts = [
   { label: 'Condomínios', path: '/overwatch/condominiums' },
   { label: 'Síndicos', path: '/overwatch/managers' },
 ] as const
+
+export interface OverwatchDashboardMetrics {
+  managementCompanyCount: number
+  condominiumCount: number
+  managerCount: number
+  employeeCount: number
+}
+
+export const overwatchMetricKeys: (keyof OverwatchDashboardMetrics)[] = [
+  'condominiumCount',
+  'managementCompanyCount',
+  'managerCount',
+  'employeeCount',
+]

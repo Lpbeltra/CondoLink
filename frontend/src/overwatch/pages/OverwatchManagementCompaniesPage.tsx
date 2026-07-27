@@ -39,6 +39,7 @@ import type {
   ManagementCompany,
   ManagementCompanyInput,
 } from '../managementCompanies/types'
+import { formatCnpj } from '../registration'
 
 export function OverwatchManagementCompaniesPage() {
   const navigate = useNavigate()
@@ -154,11 +155,10 @@ export function OverwatchManagementCompaniesPage() {
                 >
                   <TableCell>
                     <Typography fontWeight={750}>{company.name}</Typography>
-                    {company.legalName && (
-                      <Typography color="text.secondary" fontSize=".82rem">
-                        {company.legalName}
-                      </Typography>
-                    )}
+                    <Typography color="text.secondary" fontSize=".82rem">
+                      {formatCnpj(company.cnpj)}
+                      {company.city && company.state ? ` · ${company.city}/${company.state}` : ''}
+                    </Typography>
                   </TableCell>
                   <TableCell>{company.condominiumCount}</TableCell>
                   <TableCell>{company.employeeCount}</TableCell>

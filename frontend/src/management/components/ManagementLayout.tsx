@@ -6,7 +6,11 @@ import { useManagementContext } from '../ManagementContext'
 import { ManagementCondominiumSwitcher } from './ManagementCondominiumSwitcher'
 
 export function ManagementLayout() {
-  const { condominiums, isLoading } = useManagementContext()
+  const {
+    condominiums,
+    activeCondominiumId,
+    isLoading,
+  } = useManagementContext()
 
   const navigate = useNavigate()
   const location = useLocation()
@@ -78,9 +82,17 @@ export function ManagementLayout() {
         </Tabs>
       </PageContainer>
 
-      <Box mt={{ xs: -2, md: -4 }}>
-        <Outlet />
-      </Box>
+      {activeCondominiumId ? (
+        <Box mt={{ xs: -2, md: -4 }}>
+          <Outlet />
+        </Box>
+      ) : (
+        <PageContainer maxWidth={1440}>
+          <Alert severity="info">
+            Selecione um condomínio para acessar esta área.
+          </Alert>
+        </PageContainer>
+      )}
     </>
   )
 }

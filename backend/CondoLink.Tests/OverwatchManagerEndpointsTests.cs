@@ -54,11 +54,14 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
         _application.MapCreateOverwatchManager();
         _application.MapListOverwatchManagers();
         _application.MapGetOverwatchManager();
+        _application.MapUpdateOverwatchManager();
         _application.MapUpdateOverwatchManagerStatus();
         _application.MapCreateOverwatchManagementMembership();
         _application.MapListManagerCondominiums();
         _application.MapRemoveManagerCondominium();
         _application.MapListOverwatchCondominiumManagers();
+        _application.MapGetOverwatchCondominiumManager();
+        _application.MapReplaceOverwatchCondominiumManager();
         await _application.StartAsync();
 
         _admin = _application.GetTestClient();
@@ -128,6 +131,53 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Creates_and_updates_global_manager_profile()
+    {
+        var response = await _admin.PostAsJsonAsync(
+            "/overwatch/managers",
+            new {
+                fullName = "Profile Manager", email = "profile@example.com",
+                phoneNumber = "  WhatsApp  ", cpf = "529.982.247-25",
+                cnpj = "04.252.011/0001-10", address = "  Rua A  ",
+                city = "  São Paulo  ", state = "sp"
+            });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = await response.Content.ReadFromJsonAsync<CreatedManagerResponse>();
+        var details = await _admin.GetFromJsonAsync<ProfileResponse>(
+            $"/overwatch/managers/{created!.Id}");
+        Assert.Equal("52998224725", details!.Cpf);
+        Assert.Equal("04252011000110", details.Cnpj);
+        Assert.Equal("SP", details.State);
+
+        var update = await _admin.PutAsJsonAsync(
+            $"/overwatch/managers/{created.Id}",
+            new {
+                fullName = "Updated Manager", email = created.Email,
+                phoneNumber = (string?)null, cpf = (string?)null,
+                cnpj = (string?)null, address = (string?)null,
+                city = (string?)null, state = (string?)null
+            });
+        Assert.Equal(HttpStatusCode.NoContent, update.StatusCode);
+    }
+
+    [Fact]
+    public async Task Rejects_invalid_or_duplicate_manager_documents()
+    {
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await _admin.PostAsJsonAsync("/overwatch/managers",
+                new { fullName = "Invalid", email = "invalid-doc@example.com",
+                    cpf = "123" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created,
+            (await _admin.PostAsJsonAsync("/overwatch/managers",
+                new { fullName = "First CPF", email = "first-cpf@example.com",
+                    cpf = "529.982.247-25" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict,
+            (await _admin.PostAsJsonAsync("/overwatch/managers",
+                new { fullName = "Second CPF", email = "second-cpf@example.com",
+                    cpf = "52998224725" })).StatusCode);
+    }
+
+    [Fact]
     public async Task Link_rejects_missing_condominium_and_user_without_manager_role()
     {
         var manager = await CreateManagerAsync("Valid", "valid@example.com");
@@ -151,7 +201,7 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Links_from_both_perspectives_counts_and_rejects_duplicate()
+    public async Task Links_one_manager_to_many_condominiums_and_rejects_second_manager()
     {
         var manager = await CreateManagerAsync("Linked", "linked@example.com");
         var other = await CreateManagerAsync("Other", "other@example.com");
@@ -161,7 +211,13 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
             (await LinkAsync(manager.Id, firstId)).StatusCode);
         Assert.Equal(HttpStatusCode.Created,
             (await LinkAsync(manager.Id, secondId)).StatusCode);
-        Assert.Equal(HttpStatusCode.Created,
+        var occupied = await LinkAsync(other.Id, firstId);
+        Assert.Equal(HttpStatusCode.Conflict,
+            occupied.StatusCode);
+        Assert.Contains(
+            "já possui um síndico",
+            await occupied.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Conflict,
             (await LinkAsync(other.Id, firstId)).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict,
             (await LinkAsync(manager.Id, firstId)).StatusCode);
@@ -170,12 +226,165 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
             $"/overwatch/managers/{manager.Id}");
         var condominiums = await _admin.GetFromJsonAsync<List<CondominiumResponse>>(
             $"/overwatch/managers/{manager.Id}/condominiums");
-        var managers = await _admin.GetFromJsonAsync<List<CondominiumManagerResponse>>(
-            $"/overwatch/condominiums/{firstId}/managers");
+        var linkedManager = await _admin.GetFromJsonAsync<CondominiumManagerResponse>(
+            $"/overwatch/condominiums/{firstId}/manager");
 
         Assert.Equal(2, details!.CondominiumCount);
         Assert.Equal(2, condominiums!.Count);
-        Assert.Equal(2, managers!.Count);
+        Assert.Equal(manager.Id, linkedManager!.UserId);
+    }
+
+    [Fact]
+    public async Task Rejects_inactive_manager_and_reactivates_previous_link()
+    {
+        var manager = await CreateManagerAsync("Reactivation", "reactivation@example.com");
+        var other = await CreateManagerAsync("Replacement", "replacement@example.com");
+        var (condominiumId, _) = await CreateCondominiumsAsync();
+
+        Assert.Equal(HttpStatusCode.Created,
+            (await LinkAsync(manager.Id, condominiumId)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await _admin.DeleteAsync(
+                $"/overwatch/managers/{manager.Id}/condominiums/{condominiumId}"))
+            .StatusCode);
+        Assert.Equal(HttpStatusCode.Created,
+            (await LinkAsync(manager.Id, condominiumId)).StatusCode);
+
+        await _admin.DeleteAsync(
+            $"/overwatch/managers/{manager.Id}/condominiums/{condominiumId}");
+        Assert.Equal(HttpStatusCode.Created,
+            (await LinkAsync(other.Id, condominiumId)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict,
+            (await LinkAsync(manager.Id, condominiumId)).StatusCode);
+
+        await _admin.PatchAsJsonAsync(
+            $"/overwatch/managers/{manager.Id}/status",
+            new { isActive = false });
+        var inactive = await LinkAsync(manager.Id, condominiumId);
+        Assert.Equal(HttpStatusCode.Conflict, inactive.StatusCode);
+        Assert.Contains("inativo", await inactive.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Reactivation_is_blocked_when_preserved_link_would_restore_conflict()
+    {
+        var previous = await CreateManagerAsync("Previous", "previous@example.com");
+        var replacement = await CreateManagerAsync("New Active", "new-active@example.com");
+        var (condominiumId, _) = await CreateCondominiumsAsync();
+        await LinkAsync(previous.Id, condominiumId);
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await _admin.PatchAsJsonAsync(
+                $"/overwatch/managers/{previous.Id}/status",
+                new { isActive = false })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created,
+            (await LinkAsync(replacement.Id, condominiumId)).StatusCode);
+
+        var reactivate = await _admin.PatchAsJsonAsync(
+            $"/overwatch/managers/{previous.Id}/status",
+            new { isActive = true });
+        Assert.Equal(HttpStatusCode.Conflict, reactivate.StatusCode);
+
+        await using var scope = _application!.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.False((await db.Users.SingleAsync(
+            item => item.Id == previous.Id)).IsActive);
+    }
+
+    [Fact]
+    public async Task Transactionally_replaces_manager_and_preserves_other_relationships()
+    {
+        var current = await CreateManagerAsync("Current", "current@example.com");
+        var next = await CreateManagerAsync("Next", "next@example.com");
+        var (firstId, secondId) = await CreateCondominiumsAsync();
+        await LinkAsync(next.Id, firstId);
+        await _admin.DeleteAsync(
+            $"/overwatch/managers/{next.Id}/condominiums/{firstId}");
+        await LinkAsync(current.Id, firstId);
+        await LinkAsync(current.Id, secondId);
+
+        await using (var scope = _application!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var user = await db.Users.SingleAsync(item => item.Id == current.Id);
+            user.SetActiveManagementCondominium(firstId);
+            var membership = await db.CondominiumMemberships.SingleAsync(item =>
+                item.UserId == current.Id && item.CondominiumId == firstId);
+            db.CondominiumMembershipRoles.Add(new CondominiumMembershipRole(
+                membership.Id, CondominiumRole.Resident));
+            await db.SaveChangesAsync();
+        }
+
+        var response = await _admin.PutAsJsonAsync(
+            $"/overwatch/condominiums/{firstId}/manager",
+            new { managerId = next.Id });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        await using var verifyScope = _application!.Services.CreateAsyncScope();
+        var verify = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var currentUser = await verify.Users.SingleAsync(item => item.Id == current.Id);
+        var currentMembership = await verify.CondominiumMemberships.SingleAsync(item =>
+            item.UserId == current.Id && item.CondominiumId == firstId);
+        var currentRoles = await verify.CondominiumMembershipRoles
+            .Where(item => item.CondominiumMembershipId == currentMembership.Id)
+            .ToListAsync();
+        var remaining = await _admin.GetFromJsonAsync<List<CondominiumResponse>>(
+            $"/overwatch/managers/{current.Id}/condominiums");
+
+        Assert.Equal(secondId, currentUser.ActiveManagementCondominiumId);
+        Assert.Contains(currentRoles, item =>
+            item.Role == CondominiumRole.Manager && !item.IsActive);
+        Assert.Contains(currentRoles, item =>
+            item.Role == CondominiumRole.Resident && item.IsActive);
+        Assert.Equal(secondId, Assert.Single(remaining!).CondominiumId);
+        Assert.Equal(next.Id,
+            (await response.Content.ReadFromJsonAsync<CondominiumManagerResponse>())!.UserId);
+
+        var idempotent = await _admin.PutAsJsonAsync(
+            $"/overwatch/condominiums/{firstId}/manager",
+            new { managerId = next.Id });
+        Assert.Equal(HttpStatusCode.OK, idempotent.StatusCode);
+
+        var invalid = await _admin.PutAsJsonAsync(
+            $"/overwatch/condominiums/{firstId}/manager",
+            new { managerId = Guid.NewGuid() });
+        Assert.Equal(HttpStatusCode.NotFound, invalid.StatusCode);
+        Assert.Equal(next.Id,
+            (await _admin.GetFromJsonAsync<CondominiumManagerResponse>(
+                $"/overwatch/condominiums/{firstId}/manager"))!.UserId);
+    }
+
+    [Fact]
+    public async Task Concurrent_links_finish_with_exactly_one_manager()
+    {
+        var first = await CreateManagerAsync("Concurrent One", "concurrent-one@example.com");
+        var second = await CreateManagerAsync("Concurrent Two", "concurrent-two@example.com");
+        var (condominiumId, _) = await CreateCondominiumsAsync();
+
+        var responses = await Task.WhenAll(
+            LinkAsync(first.Id, condominiumId),
+            LinkAsync(second.Id, condominiumId));
+
+        Assert.Single(responses, item => item.StatusCode == HttpStatusCode.Created);
+        Assert.Single(responses, item => item.StatusCode == HttpStatusCode.Conflict);
+
+        await using var scope = _application!.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var count = await (
+                from membership in db.CondominiumMemberships
+                join role in db.CondominiumMembershipRoles
+                    on membership.Id equals role.CondominiumMembershipId
+                join user in db.Users on membership.UserId equals user.Id
+                where membership.CondominiumId == condominiumId
+                    && membership.IsActive
+                    && membership.EndedAt == null
+                    && role.Role == CondominiumRole.Manager
+                    && role.IsActive
+                    && role.RevokedAt == null
+                    && user.IsActive
+                select membership.Id)
+            .CountAsync();
+        Assert.Equal(1, count);
     }
 
     [Fact]
@@ -215,7 +424,7 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
         var remaining = await _admin.GetFromJsonAsync<List<CondominiumResponse>>(
             $"/overwatch/managers/{manager.Id}/condominiums");
 
-        Assert.Null(savedUser.ActiveManagementCondominiumId);
+        Assert.Equal(secondId, savedUser.ActiveManagementCondominiumId);
         Assert.Contains(roles, role =>
             role.Role == CondominiumRole.Manager && !role.IsActive);
         Assert.Contains(roles, role =>
@@ -254,4 +463,5 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
     private sealed record StatusResponse(bool IsActive);
     private sealed record CondominiumResponse(Guid CondominiumId);
     private sealed record CondominiumManagerResponse(Guid UserId);
+    private sealed record ProfileResponse(string? Cpf, string? Cnpj, string? State);
 }

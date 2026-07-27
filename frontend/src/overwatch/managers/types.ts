@@ -2,6 +2,12 @@ export interface OverwatchManager {
   id: string
   fullName: string
   email: string
+  phoneNumber: string | null
+  cpf: string | null
+  cnpj: string | null
+  address: string | null
+  city: string | null
+  state: string | null
   isActive: boolean
   condominiumCount: number
   createdAt: string
@@ -15,6 +21,12 @@ export interface CreatedManager extends OverwatchManager {
 export interface ManagerInput {
   fullName: string
   email: string
+  phoneNumber: string | null
+  cpf: string | null
+  cnpj: string | null
+  address: string | null
+  city: string | null
+  state: string | null
 }
 
 export interface ManagerCondominium {
@@ -31,6 +43,7 @@ export interface CondominiumManager {
   userId: string
   fullName: string
   email: string
+  phoneNumber: string | null
   isActive: boolean
   joinedAt: string
 }

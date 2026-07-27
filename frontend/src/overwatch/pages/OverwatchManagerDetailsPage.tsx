@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import PowerSettingsNewRoundedIcon from '@mui/icons-material/PowerSettingsNewRounded'
+import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog,
   DialogActions, DialogContent, DialogTitle, Divider, Skeleton, Stack,
@@ -11,11 +12,13 @@ import { EmptyState } from '../../components/EmptyState'
 import { PageContainer } from '../../components/PageContainer'
 import { TransientFeedback } from '../../components/TransientFeedback'
 import { formatDateTime } from '../../requests/presentation'
-import { getManager, updateManagerStatus } from '../managers/api'
+import { getManager, updateManager, updateManagerStatus } from '../managers/api'
 import { managerError } from '../managers/errors'
 import { ManagerRelationships } from '../managers/ManagerRelationships'
 import { managerDetailTabs } from '../managers/presentation'
-import type { OverwatchManager } from '../managers/types'
+import type { ManagerInput, OverwatchManager } from '../managers/types'
+import { ManagerFormDialog } from '../managers/ManagerFormDialog'
+import { formatCnpj, formatCpf } from '../registration'
 
 type DetailTab = 'overview' | 'condominiums' | 'settings'
 
@@ -28,6 +31,7 @@ export function OverwatchManagerDetailsPage() {
   const [error, setError] = useState('')
   const [tab, setTab] = useState<DetailTab>('overview')
   const [statusOpen, setStatusOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
 
   const load = useCallback(async () => {
@@ -68,6 +72,20 @@ export function OverwatchManagerDetailsPage() {
     }
   }
 
+  const save = async (input: ManagerInput) => {
+    if (!manager || isSaving) return
+    setIsSaving(true)
+    try {
+      setManager(await updateManager(manager.id, input))
+      setEditOpen(false)
+      setFeedback('Síndico atualizado.')
+    } catch (requestError) {
+      setError(managerError(requestError))
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   if (isLoading) {
     return <PageContainer><Skeleton variant="rounded" height={280} /></PageContainer>
   }
@@ -86,6 +104,12 @@ export function OverwatchManagerDetailsPage() {
   const overview = [
     ['Nome', manager.fullName],
     ['E-mail', manager.email],
+    ['Telefone / WhatsApp', manager.phoneNumber || 'Não informado'],
+    ['CPF', formatCpf(manager.cpf)],
+    ['CNPJ', formatCnpj(manager.cnpj)],
+    ['Endereço', manager.address || 'Não informado'],
+    ['Cidade', manager.city || 'Não informada'],
+    ['Estado', manager.state || 'Não informado'],
     ['Status', manager.isActive ? 'Ativo' : 'Inativo'],
     ['Condomínios', manager.condominiumCount],
     ['Criado em', formatDateTime(manager.createdAt)],
@@ -114,10 +138,14 @@ export function OverwatchManagerDetailsPage() {
             {manager.email}
           </Typography>
         </Box>
-        <Button variant="contained" color={manager.isActive ? 'error' : 'primary'}
-          startIcon={<PowerSettingsNewRoundedIcon />} onClick={() => setStatusOpen(true)}>
-          {manager.isActive ? 'Inativar' : 'Ativar'}
-        </Button>
+        <Stack direction="row" gap={1}>
+          <Button variant="outlined" startIcon={<EditRoundedIcon />}
+            onClick={() => setEditOpen(true)}>Editar</Button>
+          <Button variant="contained" color={manager.isActive ? 'error' : 'primary'}
+            startIcon={<PowerSettingsNewRoundedIcon />} onClick={() => setStatusOpen(true)}>
+            {manager.isActive ? 'Inativar' : 'Ativar'}
+          </Button>
+        </Stack>
       </Stack>
       {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
       <Card elevation={0} sx={{ mt: 3 }}>
@@ -175,6 +203,8 @@ export function OverwatchManagerDetailsPage() {
       </Dialog>
       <TransientFeedback message={feedback} severity="success"
         onClose={() => setFeedback('')} />
+      <ManagerFormDialog open={editOpen} manager={manager} isSaving={isSaving}
+        error={error} onClose={() => setEditOpen(false)} onSubmit={save} />
     </PageContainer>
   )
 }

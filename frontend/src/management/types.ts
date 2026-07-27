@@ -12,6 +12,9 @@ export interface ManagementCondominium {
 }
 
 export interface ManagementContextResponse {
-  activeCondominiumId: string | null
+  activeManagementCondominiumId: string | null
+  usesConsolidatedManagementScope: boolean
+  condominiumCount: number
+  activeCondominium: ManagementCondominium | null
   availableCondominiums: ManagementCondominium[]
 }

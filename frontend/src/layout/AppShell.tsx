@@ -8,14 +8,20 @@ import { EmptyState } from '../components/EmptyState'
 import { PageContainer } from '../components/PageContainer'
 import { useAuth } from '../auth/AuthContext'
 import { hasPlatformAdminAccess } from '../auth/permissions'
+import { useManagementContext } from '../management/ManagementContext'
 
 export function AppShell() {
   const { currentCondominium, isLoading, error, refreshCondominiums } = useCondominium()
   const { user } = useAuth()
-  const hasContext = Boolean(currentCondominium)
+  const {
+    condominiumCount,
+    isLoading: isManagementLoading,
+  } = useManagementContext()
+  const hasManagementContext = condominiumCount > 0
+  const hasContext = Boolean(currentCondominium) || hasManagementContext
   const showNavigation = hasContext || hasPlatformAdminAccess(user)
 
-  const content = isLoading ? (
+  const content = isLoading || isManagementLoading ? (
     <PageContainer><Stack spacing={2}><Skeleton variant="rounded" height={180} /><Skeleton width="55%" /><Skeleton width="35%" /></Stack></PageContainer>
   ) : error ? (
     <PageContainer><EmptyState title="Não foi possível carregar seus condomínios" description={error} action={<Button variant="contained" onClick={() => void refreshCondominiums()}>Tentar novamente</Button>} /></PageContainer>

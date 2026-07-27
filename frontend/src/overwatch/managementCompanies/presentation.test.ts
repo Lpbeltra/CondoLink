@@ -10,8 +10,7 @@ function company(id: string, name: string): ManagementCompany {
   return {
     id,
     name,
-    legalName: null,
-    document: null,
+    cnpj: null, address: null, city: null, state: null,
     email: null,
     phoneNumber: null,
     isActive: true,

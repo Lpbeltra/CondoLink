@@ -2,7 +2,13 @@ export interface OverwatchCondominium {
   id: string
   name: string
   email: string | null
-  phoneNumber: string | null
+  cnpj: string | null
+  address: string | null
+  city: string | null
+  state: string | null
+  hasDoorman: boolean
+  isRemoteDoorman: boolean
+  doormanContact: string | null
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -14,7 +20,13 @@ export interface OverwatchCondominium {
 export interface CondominiumInput {
   name: string
   email: string | null
-  phoneNumber: string | null
+  cnpj: string
+  address: string
+  city: string
+  state: string
+  hasDoorman: boolean
+  isRemoteDoorman: boolean
+  doormanContact: string | null
 }
 
 export interface ManagementCompanyOption {

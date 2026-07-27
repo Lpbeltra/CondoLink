@@ -27,6 +27,7 @@ public static class ListCondominiumRequests
         Guid? categoryId,
         Guid? targetUnitId,
         Guid? authorUserId,
+        Guid? condominiumId,
         ClaimsPrincipal principal,
         AppDbContext dbContext,
         CancellationToken cancellationToken)
@@ -88,6 +89,42 @@ public static class ListCondominiumRequests
         }
 
         var condominiumRequests = AuthorizedRequests(dbContext, authenticatedUserId);
+
+        if (condominiumId.HasValue)
+        {
+            var canManageCondominium = await condominiumRequests
+                .AnyAsync(
+                    request => request.CondominiumId == condominiumId.Value,
+                    cancellationToken);
+            if (!canManageCondominium)
+            {
+                var hasManagerAccess = await (
+                        from membership in dbContext.CondominiumMemberships
+                            .AsNoTracking()
+                        join role in dbContext.CondominiumMembershipRoles
+                            .AsNoTracking()
+                            on membership.Id equals role.CondominiumMembershipId
+                        join condominium in dbContext.Condominiums.AsNoTracking()
+                            on membership.CondominiumId equals condominium.Id
+                        where membership.UserId == authenticatedUserId
+                            && membership.CondominiumId == condominiumId.Value
+                            && membership.IsActive
+                            && membership.EndedAt == null
+                            && role.Role == CondominiumRole.Manager
+                            && role.IsActive
+                            && role.RevokedAt == null
+                            && condominium.IsActive
+                        select membership.Id)
+                    .AnyAsync(cancellationToken);
+                if (!hasManagerAccess)
+                {
+                    return Results.Forbid();
+                }
+            }
+
+            condominiumRequests = condominiumRequests.Where(
+                request => request.CondominiumId == condominiumId.Value);
+        }
 
         var counts = new CountsResponse(
             await condominiumRequests.CountAsync(item => item.Status == RequestStatus.Open, cancellationToken),
@@ -194,6 +231,12 @@ public static class ListCondominiumRequests
                     role.Role == CondominiumRole.Manager && role.IsActive && role.RevokedAt == null),
                 membership => membership.Id, role => role.CondominiumMembershipId,
                 (membership, _) => membership.CondominiumId)
+            .Join(
+                dbContext.Condominiums.AsNoTracking().Where(
+                    condominium => condominium.IsActive),
+                condominiumId => condominiumId,
+                condominium => condominium.Id,
+                (condominiumId, _) => condominiumId)
             .Distinct();
         return dbContext.Requests.AsNoTracking().Where(request => managedCondominiumIds.Contains(request.CondominiumId));
     }

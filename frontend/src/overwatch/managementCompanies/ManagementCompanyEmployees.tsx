@@ -9,7 +9,6 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -31,7 +30,6 @@ import {
 } from '@mui/material'
 import { EmptyState } from '../../components/EmptyState'
 import { TransientFeedback } from '../../components/TransientFeedback'
-import { formatDateTime } from '../../requests/presentation'
 import {
   createManagementCompanyEmployee,
   listManagementCompanyEmployees,
@@ -62,6 +60,8 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
   const [formOpen, setFormOpen] = useState(false)
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
+  const [contact, setContact] = useState('')
+  const [jobTitle, setJobTitle] = useState('')
   const [formError, setFormError] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [credentials, setCredentials] =
@@ -88,6 +88,8 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
   const openForm = () => {
     setFullName('')
     setEmail('')
+    setContact('')
+    setJobTitle('')
     setFormError('')
     setFormOpen(true)
   }
@@ -96,7 +98,10 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
     event.preventDefault()
     if (isSaving) return
 
-    const input = { fullName: fullName.trim(), email: email.trim() }
+    const input = {
+      fullName: fullName.trim(), email: email.trim(),
+      contact: contact.trim() || null, jobTitle: jobTitle.trim(),
+    }
     const validationError = validateEmployee(input)
     if (validationError) {
       setFormError(validationError)
@@ -215,10 +220,10 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
           elevation={0}
           sx={{ mt: 3, border: '1px solid', borderColor: 'divider' }}
         >
-          <Table sx={{ minWidth: 760 }}>
+          <Table sx={{ minWidth: 620 }}>
             <TableHead>
               <TableRow>
-                {['Nome', 'E-mail', 'Status', 'Criado em', 'Ações'].map((column) => (
+                {['Nome', 'Contato', 'Função', 'Ações'].map((column) => (
                   <TableCell key={column} sx={{ fontWeight: 750 }}>{column}</TableCell>
                 ))}
               </TableRow>
@@ -227,24 +232,18 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
               {employees.map((employee) => (
                 <TableRow key={employee.id} hover>
                   <TableCell sx={{ fontWeight: 700 }}>{employee.fullName}</TableCell>
-                  <TableCell>{employee.email}</TableCell>
+                  <TableCell>{employee.contact || 'Não informado'}</TableCell>
+                  <TableCell sx={{ overflowWrap: 'anywhere' }}>{employee.jobTitle}</TableCell>
                   <TableCell>
-                    <Chip
-                      size="small"
-                      color={employee.isActive ? 'success' : 'default'}
-                      label={employee.isActive ? 'Ativo' : 'Inativo'}
-                    />
-                  </TableCell>
-                  <TableCell>{formatDateTime(employee.createdAt)}</TableCell>
-                  <TableCell>
-                    <Tooltip title={employee.isActive ? 'Inativar' : 'Ativar'}>
-                      <IconButton
+                    <Button
+                        size="small"
+                        color={employee.isActive ? 'error' : 'primary'}
+                        startIcon={<PowerSettingsNewRoundedIcon />}
                         aria-label={employee.isActive ? 'Inativar funcionário' : 'Ativar funcionário'}
                         onClick={() => setPendingAction({ type: 'status', employee })}
                       >
-                        <PowerSettingsNewRoundedIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                        {employee.isActive ? 'Inativar' : 'Ativar'}
+                      </Button>
                     <Tooltip title="Remover vínculo">
                       <IconButton
                         color="error"
@@ -283,6 +282,19 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
                 slotProps={{ htmlInput: { maxLength: 200 } }}
               />
               <TextField
+                label="Contato"
+                value={contact}
+                onChange={(event) => setContact(event.target.value)}
+                slotProps={{ htmlInput: { maxLength: 30 } }}
+              />
+              <TextField
+                required
+                label="Função"
+                value={jobTitle}
+                onChange={(event) => setJobTitle(event.target.value)}
+                slotProps={{ htmlInput: { maxLength: 100 } }}
+              />
+              <TextField
                 required
                 type="email"
                 label="E-mail"
@@ -299,7 +311,7 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
             <Button
               type="submit"
               variant="contained"
-              disabled={isSaving || !fullName.trim() || !email.trim()}
+              disabled={isSaving || !fullName.trim() || !email.trim() || !jobTitle.trim()}
             >
               {isSaving ? <CircularProgress size={20} color="inherit" /> : 'Criar funcionário'}
             </Button>

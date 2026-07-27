@@ -47,6 +47,8 @@ public static class ListManagementCompanyEmployees
                 employee.UserId,
                 user.FullName,
                 user.Email!,
+                user.PhoneNumber,
+                employee.JobTitle,
                 employee.IsActive,
                 employee.CreatedAt,
                 employee.UpdatedAt))

@@ -36,7 +36,11 @@ describe('Overwatch condominium API', () => {
   })
 
   it('sends the exact creation payload with empty optional fields normalized', async () => {
-    const input = { name: 'Condomínio', email: null, phoneNumber: null }
+    const input = {
+      name: 'Condomínio', email: null, cnpj: '11222333000181',
+      address: 'Rua A', city: 'São Paulo', state: 'SP', hasDoorman: false,
+      isRemoteDoorman: false, doormanContact: null,
+    }
     http.post.mockResolvedValue({ data: { id: 'condominium-id' } })
 
     await createOverwatchCondominium(input)
@@ -48,7 +52,8 @@ describe('Overwatch condominium API', () => {
     const input = {
       name: 'Condomínio atualizado',
       email: 'contact@example.com',
-      phoneNumber: null,
+      cnpj: '11222333000181', address: 'Rua A', city: 'São Paulo', state: 'SP',
+      hasDoorman: false, isRemoteDoorman: false, doormanContact: null,
     }
     http.put.mockResolvedValue({ data: {} })
     http.patch.mockResolvedValue({ data: {} })

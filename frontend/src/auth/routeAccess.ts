@@ -3,6 +3,7 @@ import type { User } from './types'
 
 export type ProtectedRouteAccess = 'loading' | 'authenticated' | 'login'
 export type OverwatchRouteAccess = 'loading' | 'allowed' | 'home'
+export const authenticatedEntryPath = '/'
 
 export function getProtectedRouteAccess(
   isInitializing: boolean,

@@ -6,9 +6,13 @@ public sealed class ManagementCompanyEmployee
     {
     }
 
+    public ManagementCompanyEmployee(Guid managementCompanyId, Guid userId)
+        : this(managementCompanyId, userId, "Não informado") { }
+
     public ManagementCompanyEmployee(
         Guid managementCompanyId,
-        Guid userId)
+        Guid userId,
+        string jobTitle)
     {
         if (managementCompanyId == Guid.Empty)
         {
@@ -24,10 +28,13 @@ public sealed class ManagementCompanyEmployee
                 nameof(userId));
         }
 
+        if (string.IsNullOrWhiteSpace(jobTitle))
+            throw new ArgumentException("Job title is required.", nameof(jobTitle));
         var now = DateTime.UtcNow;
         Id = Guid.NewGuid();
         ManagementCompanyId = managementCompanyId;
         UserId = userId;
+        JobTitle = jobTitle.Trim();
         IsActive = true;
         CreatedAt = now;
         UpdatedAt = now;
@@ -37,6 +44,7 @@ public sealed class ManagementCompanyEmployee
     public Guid ManagementCompanyId { get; private set; }
     public ManagementCompany ManagementCompany { get; private set; } = null!;
     public Guid UserId { get; private set; }
+    public string JobTitle { get; private set; } = null!;
     public bool IsActive { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }

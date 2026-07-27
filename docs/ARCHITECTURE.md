@@ -1240,3 +1240,91 @@ Esses recursos não devem influenciar excessivamente a implementação do MVP.
 19. Testes priorizarão regras de domínio e autorização entre condomínios.
 
 20. A arquitetura deverá permanecer simples, explícita e pragmática.
+## Sessão de autenticação no frontend
+
+O token JWT é persistido em `localStorage` com a chave
+`condolink.accessToken`. O `AuthProvider` restaura a sessão lendo esse token,
+configurando o cabeçalho `Authorization` e consultando `/users/me`. Não há
+persistência separada do usuário, cookie de autenticação ou listener do evento
+`storage`; login e logout alteram o armazenamento compartilhado pela mesma
+origem, e as outras abas observam a conta mais recente ao serem recarregadas.
+
+Para testar usuários simultâneos, utilizar perfis de navegador, janela anônima
+ou navegadores diferentes.
+
+## Ampliação cadastral do Lote 2
+
+- O contato pessoal de funcionários e síndicos é persistido em
+  `ApplicationUser.PhoneNumber`; a função do funcionário pertence ao vínculo
+  `ManagementCompanyEmployee.JobTitle`.
+- CPF, CNPJ e endereço do síndico são dados globais de `ApplicationUser` e não
+  são repetidos em vínculos com condomínios.
+- CPF/CNPJ são normalizados para somente dígitos e validados pelos dígitos
+  verificadores. UF é persistida em maiúsculas e limitada às siglas brasileiras.
+- A migration `ExpandRegistrationLot2` renomeia o documento da administradora
+  para CNPJ, remove Razão Social e remove o telefone antigo do condomínio.
+  A remoção de Razão Social descarta os dados históricos dessa coluna.
+- CNPJ/endereço/cidade/UF novos permanecem nullable no banco para não inventar
+  dados de registros históricos. Cadastro e edição completos exigem esses campos.
+- A coluna `management_companies.cnpj` mantém capacidade de 20 caracteres para
+  preservar documentos históricos não normalizáveis. Novos cadastros e edições
+  continuam aceitando somente CNPJ válido, normalizado para 14 dígitos.
+- Índices únicos filtrados protegem CNPJ de administradora e condomínio e
+  CPF/CNPJ de síndico, permitindo múltiplos valores nulos históricos.
+
+## Síndico único por condomínio — Lote 3
+
+- Um condomínio possui no máximo um síndico ativo; um mesmo síndico pode
+  administrar vários condomínios. Subsíndicos não fazem parte deste lote.
+- Um vínculo de síndico é considerado ativo quando a `CondominiumMembership`
+  está ativa e sem `EndedAt`, a `CondominiumMembershipRole` de tipo `Manager`
+  está ativa e sem `RevokedAt`, e o `ApplicationUser` está ativo.
+- A role condominial continua sendo uma entidade dependente separada. Não foi
+  criada coluna redundante nem constraint que represente apenas parte da regra.
+- Vínculo, reativação, troca e desvinculação são serializados por condomínio.
+  Em PostgreSQL, uma transação adquire `pg_advisory_xact_lock` derivado do ID do
+  condomínio; a validação é repetida depois do lock. Um lock local equivalente
+  mantém o comportamento determinístico nos testes SQLite.
+- A troca usa `PUT /overwatch/condominiums/{condominiumId}/manager` e revoga a
+  role `Manager` anterior e ativa/cria a nova dentro da mesma transação. A
+  operação pelo mesmo síndico é idempotente.
+- `GET /overwatch/condominiums/{id}/manager` retorna um objeto resumido ou
+  `null`. O endpoint plural anterior permanece temporariamente para
+  compatibilidade, mas retorna no máximo um item; o frontend utiliza o singular.
+- Desvincular revoga somente a role `Manager`. Membership, usuário,
+  `UnitMemberships`, outros papéis e vínculos com outros condomínios são
+  preservados. `ActiveManagementCondominiumId` é limpo quando aponta para o
+  condomínio removido ou trocado.
+- Inativar um síndico preserva seus vínculos, mas ele deixa de ser considerado
+  síndico ativo e seu contexto administrativo é limpo. Sua reativação é
+  bloqueada com conflito caso algum condomínio preservado já possua outro
+  síndico ativo.
+- Não há migration no Lote 3: o modelo relacional existente não permite um
+  índice parcial correto envolvendo simultaneamente membership, role e usuário,
+  e a auditoria do banco local não encontrou conflitos históricos.
+
+## Reconciliação do contexto administrativo
+
+- A fonte de verdade do contexto de Gestão é `GET /management/context`, baseada
+  somente em membership ativa, role `Manager` ativa, usuário ativo e condomínio
+  ativo. O contexto residencial continua separado.
+- Com zero condomínios disponíveis, `ActiveManagementCondominiumId` é limpo.
+  Com exatamente um, esse condomínio é selecionado e persistido
+  automaticamente. Com vários, uma seleção válida é preservada; sem seleção
+  válida, o escopo consolidado é usado sem escolher o primeiro item.
+- `UsesConsolidatedManagementScope` é derivado da lista atual e do ID ativo:
+  ele é verdadeiro quando existem vários condomínios e nenhum condomínio
+  específico está selecionado. Não foi criada coluna adicional.
+- `PUT /management/context` aceita um condomínio autorizado ou `null`. Para um
+  único condomínio, `null` é reconciliado novamente para esse condomínio; para
+  vários, `null` seleciona “Todos os condomínios”.
+- Vínculo, troca, desvinculação, inativação de síndico e mudança de status do
+  condomínio reconciliam o contexto persistido. Referências removidas ou
+  inativas não permanecem em `ActiveManagementCondominiumId`.
+- `GET /management/requests` aceita `condominiumId` opcional. Sem o parâmetro,
+  retorna o consolidado autorizado e mantém o nome do condomínio em cada item;
+  com o parâmetro, valida o acesso e restringe a consulta ao condomínio.
+- Home, navegação e páginas de Gestão usam o mesmo
+  `ManagementContextProvider`. O frontend não persiste nome ou ID administrativo
+  em `localStorage` e descarta respostas de contexto que perderam a corrida para
+  uma seleção mais recente.

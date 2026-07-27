@@ -26,6 +26,7 @@ import { EmptyState } from '../../components/EmptyState'
 import { PageContainer } from '../../components/PageContainer'
 import { TransientFeedback } from '../../components/TransientFeedback'
 import { formatDateTime } from '../../requests/presentation'
+import { formatCnpj } from '../registration'
 import {
   getOverwatchCondominium,
   listManagementCompanyOptions,
@@ -163,9 +164,17 @@ export function OverwatchCondominiumDetailsPage() {
   const overview = [
     ['Nome', condominium.name],
     ['E-mail', condominium.email || 'Não informado'],
-    ['Telefone', condominium.phoneNumber || 'Não informado'],
+    ['CNPJ', formatCnpj(condominium.cnpj)],
+    ['Endereço', condominium.address || 'Não informado'],
+    ['Cidade', condominium.city || 'Não informada'],
+    ['Estado', condominium.state || 'Não informado'],
+    ['Possui portaria', condominium.hasDoorman ? 'Sim' : 'Não'],
+    ...(condominium.hasDoorman ? [
+      ['Tipo', condominium.isRemoteDoorman ? 'Remota' : 'Presencial'],
+      ['Contato da portaria', condominium.doormanContact || 'Não informado'],
+    ] : []),
     ['Administradora', condominium.managementCompanyName || 'Sem administradora'],
-    ['Síndicos ativos', condominium.managerCount],
+    ['Síndico ativo', condominium.managerCount ? 'Sim' : 'Não'],
     ['Status', condominium.isActive ? 'Ativo' : 'Inativo'],
     ['Criado em', formatDateTime(condominium.createdAt)],
     ['Última atualização', formatDateTime(condominium.updatedAt)],

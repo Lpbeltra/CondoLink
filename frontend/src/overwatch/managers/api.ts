@@ -20,6 +20,11 @@ export async function createManager(input: ManagerInput) {
   return (await api.post<CreatedManager>('/overwatch/managers', input)).data
 }
 
+export async function updateManager(id: string, input: ManagerInput) {
+  await api.put(`/overwatch/managers/${id}`, input)
+  return getManager(id)
+}
+
 export async function updateManagerStatus(id: string, isActive: boolean) {
   return (await api.patch<{ id: string; isActive: boolean; updatedAt: string }>(
     `/overwatch/managers/${id}/status`,
@@ -33,6 +38,13 @@ export async function listManagerCondominiums(managerId: string) {
   )).data
 }
 
+export async function getCondominiumManager(condominiumId: string) {
+  return (await api.get<CondominiumManager | null>(
+    `/overwatch/condominiums/${condominiumId}/manager`,
+  )).data
+}
+
+// Compatibilidade temporária para consumidores ainda não migrados.
 export async function listCondominiumManagers(condominiumId: string) {
   return (await api.get<CondominiumManager[]>(
     `/overwatch/condominiums/${condominiumId}/managers`,
@@ -44,9 +56,19 @@ export async function listAvailableCondominiums() {
 }
 
 export async function linkManager(managerId: string, condominiumId: string) {
-  return (await api.post<{ membershipId: string }>(
+  return (await api.post<CondominiumManager>(
     '/overwatch/management-memberships',
     { managerId, condominiumId },
+  )).data
+}
+
+export async function replaceCondominiumManager(
+  condominiumId: string,
+  managerId: string,
+) {
+  return (await api.put<CondominiumManager>(
+    `/overwatch/condominiums/${condominiumId}/manager`,
+    { managerId },
   )).data
 }
 

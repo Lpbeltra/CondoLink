@@ -9,6 +9,8 @@ describe('employee temporary credentials', () => {
       userId: 'user-id',
       fullName: 'Maria da Silva',
       email: 'maria@example.com',
+      contact: null,
+      jobTitle: 'Financeiro',
       isActive: true,
       temporaryPassword: 'Temporary1!',
     })

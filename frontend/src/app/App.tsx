@@ -52,13 +52,17 @@ export function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route element={<ProtectedRoute />}>
-                <Route element={<AppShell />}>
+                <Route element={
+                  <ManagementContextProvider>
+                    <AppShell />
+                  </ManagementContextProvider>
+                }>
                   <Route index element={<HomePage />} />
                   <Route path="requests" element={<MyRequestsPage />} />
                   <Route path="requests/new" element={<CreateRequestPage />} />
                   <Route path="requests/:requestId" element={<RequestDetailsPage />} />
                   <Route path="more" element={<MorePage />} />
-                  <Route path="management" element={ <ManagementContextProvider> <ManagementLayout /> </ManagementContextProvider> }>
+                  <Route path="management" element={<ManagementLayout />}>
                     <Route index element={<Navigate to="units" replace />} />
                     <Route path="requests" element={<ManagementRequestsPage />} />
                     <Route path="requests/:requestId" element={<ManagementRequestDetailsPage />} />

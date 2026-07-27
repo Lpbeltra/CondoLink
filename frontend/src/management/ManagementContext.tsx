@@ -4,6 +4,9 @@ import type { ManagementCondominium } from './types'
 export interface ManagementContextValue {
   condominiums: ManagementCondominium[]
   activeCondominiumId: string | null
+  activeCondominium: ManagementCondominium | null
+  condominiumCount: number
+  usesConsolidatedManagementScope: boolean
 
   isLoading: boolean
   isSwitching: boolean

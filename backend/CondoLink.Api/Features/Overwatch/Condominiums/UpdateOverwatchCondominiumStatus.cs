@@ -1,3 +1,5 @@
+using CondoLink.Api.Features.Management;
+using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -38,9 +40,38 @@ public static class UpdateOverwatchCondominiumStatus
             });
         }
 
-        condominium.SetActiveStatus(request.IsActive);
+        await using var transaction =
+            await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var managerIds = await (
+                from membership in dbContext.CondominiumMemberships
+                join role in dbContext.CondominiumMembershipRoles
+                    on membership.Id equals role.CondominiumMembershipId
+                where membership.CondominiumId == id
+                    && membership.IsActive
+                    && membership.EndedAt == null
+                    && role.Role == CondominiumRole.Manager
+                    && role.IsActive
+                    && role.RevokedAt == null
+                select membership.UserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
 
+        condominium.SetActiveStatus(request.IsActive);
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        var managers = await dbContext.Users
+            .Where(user => managerIds.Contains(user.Id))
+            .ToListAsync(cancellationToken);
+        foreach (var manager in managers)
+        {
+            await ManagementContextReconciler.ReconcileAsync(
+                manager, dbContext, cancellationToken);
+        }
+        if (dbContext.ChangeTracker.HasChanges())
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        await transaction.CommitAsync(cancellationToken);
 
         return Results.Ok(new Response(
             condominium.Id,

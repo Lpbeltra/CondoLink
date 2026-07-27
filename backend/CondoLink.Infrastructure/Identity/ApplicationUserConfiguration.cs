@@ -31,6 +31,11 @@ public sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Appl
             .HasColumnName("full_name")
             .HasMaxLength(200)
             .IsRequired();
+        builder.Property(user => user.Cpf).HasColumnName("cpf").HasMaxLength(11);
+        builder.Property(user => user.Cnpj).HasColumnName("cnpj").HasMaxLength(14);
+        builder.Property(user => user.Address).HasColumnName("address").HasMaxLength(200);
+        builder.Property(user => user.City).HasColumnName("city").HasMaxLength(100);
+        builder.Property(user => user.State).HasColumnName("state").HasMaxLength(2);
 
         builder.Property(user => user.IsActive)
             .HasColumnName("is_active")
@@ -50,5 +55,13 @@ public sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Appl
         builder.HasIndex(user => user.NormalizedEmail)
             .HasDatabaseName(UniqueNormalizedEmailIndex)
             .IsUnique();
+        builder.HasIndex(user => user.Cpf)
+            .HasDatabaseName("ux_users_manager_cpf")
+            .IsUnique()
+            .HasFilter("\"cpf\" IS NOT NULL");
+        builder.HasIndex(user => user.Cnpj)
+            .HasDatabaseName("ux_users_manager_cnpj")
+            .IsUnique()
+            .HasFilter("\"cnpj\" IS NOT NULL");
     }
 }

@@ -37,7 +37,9 @@ export function condominiumError(error: unknown) {
         ? 'A administradora selecionada não foi encontrada.'
         : 'O condomínio solicitado não foi encontrado.'
     case 409:
-      return 'Já existe um condomínio com este nome.'
+      return responseMessage(error)?.toLowerCase().includes('cnpj')
+        ? 'Já existe um condomínio com este CNPJ.'
+        : 'Já existe um condomínio com este nome.'
     default:
       return 'Não foi possível concluir a operação. Tente novamente.'
   }

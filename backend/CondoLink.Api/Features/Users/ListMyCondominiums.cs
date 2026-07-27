@@ -63,8 +63,7 @@ public static class ListMyCondominiums
                 join condominium in dbContext.Condominiums.AsNoTracking()
                     on membership.CondominiumId equals condominium.Id
                 join role in activeRoles
-                    on membership.Id equals role.CondominiumMembershipId into roles
-                from role in roles.DefaultIfEmpty()
+                    on membership.Id equals role.CondominiumMembershipId
                 where membership.UserId == authenticatedUserId
                     && membership.IsActive
                     && membership.EndedAt == null
@@ -78,7 +77,7 @@ public static class ListMyCondominiums
                     CondominiumActive = condominium.IsActive,
                     membership.JoinedAt,
                     MembershipActive = membership.IsActive,
-                    Role = role == null ? (CondominiumRole?)null : role.Role
+                    Role = role.Role
                 })
             .ToListAsync(cancellationToken);
 
@@ -99,9 +98,8 @@ public static class ListMyCondominiums
                     group.Key.CondominiumName,
                     group.Key.CondominiumActive),
                 group
-                    .Where(row => row.Role.HasValue)
                     .OrderBy(row => row.Role)
-                    .Select(row => row.Role!.Value.ToString())
+                    .Select(row => row.Role.ToString())
                     .ToArray(),
                 group.Key.JoinedAt,
                 group.Key.MembershipActive))

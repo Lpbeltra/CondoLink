@@ -13,6 +13,7 @@ describe('manager presentation', () => {
       id: '1', fullName: 'Manager', email: 'manager@example.com',
       temporaryPassword: 'Temporary1!', isActive: true,
       condominiumCount: 0, createdAt: '', updatedAt: '',
+      phoneNumber: null, cpf: null, cnpj: null, address: null, city: null, state: null,
     })
     expect(text).toContain('manager@example.com')
     expect(text).toContain('Temporary1!')
@@ -22,6 +23,7 @@ describe('manager presentation', () => {
     const base = {
       email: 'x@example.com', isActive: true, condominiumCount: 0,
       createdAt: '', updatedAt: '',
+      phoneNumber: null, cpf: null, cnpj: null, address: null, city: null, state: null,
     }
     const result = upsertManager(
       [{ ...base, id: '2', fullName: 'Zulu' }],

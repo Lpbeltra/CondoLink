@@ -25,7 +25,14 @@ export function managerError(error: unknown) {
     case 404:
       return message || 'O síndico ou condomínio não foi encontrado.'
     case 409:
-      return message?.includes('already associated')
+      if (message?.includes('já possui um síndico')) {
+        return 'Este condomínio já possui um síndico vinculado.'
+      }
+      if (message?.includes('está inativo')) {
+        return 'O síndico selecionado está inativo.'
+      }
+      return message?.includes('already associated') ||
+        message?.includes('já está vinculado')
         ? 'Este síndico já está vinculado ao condomínio.'
         : message || 'Já existe um usuário cadastrado com este e-mail.'
     default:

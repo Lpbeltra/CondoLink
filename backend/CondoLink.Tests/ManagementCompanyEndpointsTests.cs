@@ -86,8 +86,9 @@ public sealed class ManagementCompanyEndpointsTests : IAsyncLifetime
         var body = await response.Content.ReadFromJsonAsync<CompanyResponse>();
         Assert.NotNull(body);
         Assert.Equal("Alpha Admin", body.Name);
-        Assert.Equal("Alpha Legal", body.LegalName);
-        Assert.Equal("123", body.Document);
+        Assert.Equal("Rua Teste, 1", body.Address);
+        Assert.Equal("São Paulo", body.City);
+        Assert.Equal("SP", body.State);
         Assert.Equal("admin@example.com", body.Email);
         Assert.Equal("555", body.PhoneNumber);
         Assert.True(body.IsActive);
@@ -129,6 +130,19 @@ public sealed class ManagementCompanyEndpointsTests : IAsyncLifetime
             (await CreateAsync("First", email: "admin@example.com")).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict,
             (await CreateAsync("Second", email: " ADMIN@EXAMPLE.COM ")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Invalid_cnpj_or_state_returns_400()
+    {
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await _admin.PostAsJsonAsync("/overwatch/management-companies",
+                new { name = "Invalid CNPJ", cnpj = "123", address = "Rua A",
+                    city = "São Paulo", state = "SP" })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await _admin.PostAsJsonAsync("/overwatch/management-companies",
+                new { name = "Invalid state", cnpj = "04.252.011/0001-10",
+                    address = "Rua A", city = "São Paulo", state = "XX" })).StatusCode);
     }
 
     [Fact]
@@ -341,13 +355,39 @@ public sealed class ManagementCompanyEndpointsTests : IAsyncLifetime
         string? document = null,
         string? email = null,
         string? phoneNumber = null) =>
-        new { name, legalName, document, email, phoneNumber };
+        new
+        {
+            name,
+            cnpj = TestCnpj(document ?? name),
+            address = "Rua Teste, 1",
+            city = "São Paulo",
+            state = "SP",
+            email,
+            phoneNumber
+        };
+
+    private static string TestCnpj(string seed)
+    {
+        var root = Math.Abs(seed.Trim().ToUpperInvariant().GetHashCode())
+            .ToString().PadLeft(8, '0')[..8] + "0001";
+        static int Digit(string value, int[] weights)
+        {
+            var remainder = value.Select((current, index) =>
+                (current - '0') * weights[index]).Sum() % 11;
+            return remainder < 2 ? 0 : 11 - remainder;
+        }
+        var first = Digit(root, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+        var second = Digit(root + first, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+        return root + first + second;
+    }
 
     private sealed record CompanyResponse(
         Guid Id,
         string Name,
-        string? LegalName,
-        string? Document,
+        string? Cnpj,
+        string? Address,
+        string? City,
+        string? State,
         string? Email,
         string? PhoneNumber,
         bool IsActive,
@@ -374,9 +414,13 @@ internal sealed class TestAuthHandler(
         if (!Request.Headers.TryGetValue("X-Test-Role", out var role))
             return Task.FromResult(AuthenticateResult.NoResult());
 
+        var userId = Request.Headers.TryGetValue("X-Test-UserId", out var value)
+            && Guid.TryParse(value.ToString(), out var parsedUserId)
+                ? parsedUserId
+                : Guid.NewGuid();
         var identity = new ClaimsIdentity(
             [
-                new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()),
+                new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
                 new Claim(ClaimTypes.Name, "Test User"),
                 new Claim(ClaimTypes.Role, role.ToString())
             ],

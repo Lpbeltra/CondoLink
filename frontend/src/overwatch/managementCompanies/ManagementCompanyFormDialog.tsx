@@ -1,21 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Stack,
-  TextField,
+  Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent,
+  DialogTitle, MenuItem, Stack, TextField,
 } from '@mui/material'
+import { brazilianStates, formatCnpj } from '../registration'
 import type { ManagementCompany, ManagementCompanyInput } from './types'
-import {
-  normalizeOptional,
-  validateManagementCompany,
-} from './validation'
+import { normalizeCnpj, normalizeOptional, validateManagementCompany } from './validation'
 
 interface Props {
   open: boolean
@@ -27,106 +17,68 @@ interface Props {
 }
 
 export function ManagementCompanyFormDialog({
-  open,
-  company,
-  isSaving,
-  error,
-  onClose,
-  onSubmit,
+  open, company, isSaving, error, onClose, onSubmit,
 }: Props) {
-  const [name, setName] = useState('')
-  const [legalName, setLegalName] = useState('')
-  const [document, setDocument] = useState('')
-  const [email, setEmail] = useState('')
-  const [phoneNumber, setPhoneNumber] = useState('')
+  const [values, setValues] = useState({
+    name: '', cnpj: '', address: '', city: '', state: '', email: '', phoneNumber: '',
+  })
   const [validationError, setValidationError] = useState('')
 
   useEffect(() => {
     if (!open) return
-    setName(company?.name ?? '')
-    setLegalName(company?.legalName ?? '')
-    setDocument(company?.document ?? '')
-    setEmail(company?.email ?? '')
-    setPhoneNumber(company?.phoneNumber ?? '')
+    setValues({
+      name: company?.name ?? '', cnpj: company?.cnpj ? formatCnpj(company.cnpj) : '',
+      address: company?.address ?? '', city: company?.city ?? '',
+      state: company?.state ?? '', email: company?.email ?? '',
+      phoneNumber: company?.phoneNumber ?? '',
+    })
     setValidationError('')
   }, [company, open])
+
+  const set = (field: keyof typeof values, value: string) =>
+    setValues(current => ({ ...current, [field]: value }))
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (isSaving) return
-
     const input: ManagementCompanyInput = {
-      name: name.trim(),
-      legalName: normalizeOptional(legalName),
-      document: normalizeOptional(document),
-      email: normalizeOptional(email),
-      phoneNumber: normalizeOptional(phoneNumber),
+      name: values.name.trim(), cnpj: normalizeCnpj(values.cnpj),
+      address: values.address.trim(), city: values.city.trim(), state: values.state,
+      email: normalizeOptional(values.email), phoneNumber: normalizeOptional(values.phoneNumber),
     }
     const message = validateManagementCompany(input)
-    if (message) {
-      setValidationError(message)
-      return
-    }
+    if (message) { setValidationError(message); return }
     await onSubmit(input)
   }
 
   return (
-    <Dialog
-      open={open}
-      onClose={() => undefined}
-      disableEscapeKeyDown
-      fullWidth
-      maxWidth="sm"
-    >
+    <Dialog open={open} onClose={() => undefined} disableEscapeKeyDown fullWidth maxWidth="sm">
       <Box component="form" onSubmit={(event) => void submit(event)}>
         <DialogTitle>{company ? 'Editar administradora' : 'Nova administradora'}</DialogTitle>
         <DialogContent>
           <Stack gap={2} pt={1}>
-            {(validationError || error) && (
-              <Alert severity="error">{validationError || error}</Alert>
-            )}
-            <TextField
-              autoFocus
-              required
-              label="Nome"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              slotProps={{ htmlInput: { maxLength: 150 } }}
-            />
-            <TextField
-              label="Razão social"
-              value={legalName}
-              onChange={(event) => setLegalName(event.target.value)}
-              slotProps={{ htmlInput: { maxLength: 200 } }}
-            />
-            <TextField
-              label="Documento"
-              value={document}
-              onChange={(event) => setDocument(event.target.value)}
-              slotProps={{ htmlInput: { maxLength: 20 } }}
-            />
-            <TextField
-              type="email"
-              label="E-mail"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              slotProps={{ htmlInput: { maxLength: 254 } }}
-            />
-            <TextField
-              label="Telefone"
-              value={phoneNumber}
-              onChange={(event) => setPhoneNumber(event.target.value)}
-              slotProps={{ htmlInput: { maxLength: 30 } }}
-            />
+            {(validationError || error) && <Alert severity="error">{validationError || error}</Alert>}
+            <TextField autoFocus required label="Nome" value={values.name}
+              onChange={e => set('name', e.target.value)} slotProps={{ htmlInput: { maxLength: 150 } }} />
+            <TextField required label="CNPJ" value={values.cnpj}
+              onChange={e => set('cnpj', e.target.value)} slotProps={{ htmlInput: { maxLength: 18 } }} />
+            <TextField required label="Endereço" value={values.address}
+              onChange={e => set('address', e.target.value)} slotProps={{ htmlInput: { maxLength: 200 } }} />
+            <TextField required label="Cidade" value={values.city}
+              onChange={e => set('city', e.target.value)} slotProps={{ htmlInput: { maxLength: 100 } }} />
+            <TextField select required label="Estado" value={values.state}
+              onChange={e => set('state', e.target.value)}>
+              {brazilianStates.map(state => <MenuItem key={state} value={state}>{state}</MenuItem>)}
+            </TextField>
+            <TextField type="email" label="E-mail" value={values.email}
+              onChange={e => set('email', e.target.value)} slotProps={{ htmlInput: { maxLength: 254 } }} />
+            <TextField label="Telefone" value={values.phoneNumber}
+              onChange={e => set('phoneNumber', e.target.value)} slotProps={{ htmlInput: { maxLength: 30 } }} />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={onClose} disabled={isSaving}>Cancelar</Button>
-          <Button
-            type="submit"
-            variant="contained"
-            disabled={isSaving || !name.trim()}
-          >
+          <Button type="submit" variant="contained" disabled={isSaving}>
             {isSaving ? <CircularProgress size={20} color="inherit" /> : 'Salvar'}
           </Button>
         </DialogActions>

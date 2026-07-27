@@ -11,7 +11,8 @@ function condominium(id: string, name: string): OverwatchCondominium {
     id,
     name,
     email: null,
-    phoneNumber: null,
+    cnpj: null, address: null, city: null, state: null,
+    hasDoorman: false, isRemoteDoorman: false, doormanContact: null,
     isActive: true,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
@@ -33,6 +34,6 @@ describe('Overwatch condominium presentation', () => {
     expect(condominiumDetailsPath('condominium-id'))
       .toBe('/overwatch/condominiums/condominium-id')
     expect(condominiumDetailTabs.map((item) => item.label))
-      .toEqual(['Visão geral', 'Síndicos', 'Configurações'])
+      .toEqual(['Visão geral', 'Síndico', 'Configurações'])
   })
 })

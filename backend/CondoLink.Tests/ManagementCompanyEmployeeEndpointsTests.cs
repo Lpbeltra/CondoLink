@@ -94,8 +94,26 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
         Assert.Equal(companyId, employee!.ManagementCompanyId);
         Assert.Equal("Employee One", employee.FullName);
         Assert.Equal("employee@example.com", employee.Email);
+        Assert.Equal("WhatsApp", employee.Contact);
+        Assert.Equal("Atendimento", employee.JobTitle);
         Assert.True(employee.IsActive);
         Assert.False(string.IsNullOrWhiteSpace(employee.TemporaryPassword));
+    }
+
+    [Fact]
+    public async Task Job_title_is_required_and_field_limits_are_validated()
+    {
+        var companyId = await CreateCompanyAsync();
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await _admin.PostAsJsonAsync(
+                $"/overwatch/management-companies/{companyId}/employees",
+                new { fullName = "Employee", email = "missing-job@example.com",
+                    contact = "WhatsApp", jobTitle = " " })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await _admin.PostAsJsonAsync(
+                $"/overwatch/management-companies/{companyId}/employees",
+                new { fullName = "Employee", email = "long-job@example.com",
+                    contact = new string('1', 31), jobTitle = new string('A', 101) })).StatusCode);
     }
 
     [Fact]
@@ -111,6 +129,10 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
         Assert.Equal(
             ["Alpha", "Zulu"],
             employees!.Select(employee => employee.FullName));
+        Assert.All(employees!, employee => {
+            Assert.Equal("WhatsApp", employee.Contact);
+            Assert.Equal("Atendimento", employee.JobTitle);
+        });
     }
 
     [Fact]
@@ -216,7 +238,8 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
 
         var response = await client.PostAsJsonAsync(
             $"/overwatch/management-companies/{companyId}/employees",
-            new { fullName = "Employee", email = "employee@example.com" });
+            new { fullName = "Employee", email = "employee@example.com",
+                contact = (string?)null, jobTitle = "Atendimento" });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
@@ -329,7 +352,7 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
         string email) =>
         _admin.PostAsJsonAsync(
             $"/overwatch/management-companies/{companyId}/employees",
-            new { fullName, email });
+            new { fullName, email, contact = "  WhatsApp  ", jobTitle = "  Atendimento  " });
 
     private Task<HttpResponseMessage> SetStatusAsync(
         Guid employeeId,
@@ -344,12 +367,16 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
         Guid UserId,
         string FullName,
         string Email,
+        string? Contact,
+        string JobTitle,
         bool IsActive,
         string TemporaryPassword);
 
     private sealed record EmployeeResponse(
         Guid Id,
-        string FullName);
+        string FullName,
+        string? Contact,
+        string JobTitle);
 
     private sealed record StatusResponse(bool IsActive);
     private sealed record CompanyCountResponse(

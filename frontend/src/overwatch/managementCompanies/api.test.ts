@@ -26,8 +26,7 @@ describe('management company API', () => {
   it('creates a management company with the exact payload', async () => {
     const input = {
       name: 'Admin',
-      legalName: null,
-      document: null,
+      cnpj: '11222333000181', address: 'Rua A', city: 'São Paulo', state: 'SP',
       email: 'admin@example.com',
       phoneNumber: null,
     }
@@ -49,6 +48,8 @@ describe('management company API', () => {
     await createManagementCompanyEmployee('company-id', {
       fullName: 'Employee',
       email: 'employee@example.com',
+      contact: null,
+      jobTitle: 'Atendimento',
     })
 
     expect(http.get).toHaveBeenCalledWith(
@@ -56,7 +57,10 @@ describe('management company API', () => {
     )
     expect(http.post).toHaveBeenCalledWith(
       '/overwatch/management-companies/company-id/employees',
-      { fullName: 'Employee', email: 'employee@example.com' },
+      {
+        fullName: 'Employee', email: 'employee@example.com',
+        contact: null, jobTitle: 'Atendimento',
+      },
     )
   })
 

@@ -3,7 +3,7 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import PowerSettingsNewRoundedIcon from '@mui/icons-material/PowerSettingsNewRounded'
 import {
-  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
+  Alert, Box, Button, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, Paper, Skeleton, Stack, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, Typography,
 } from '@mui/material'
@@ -11,7 +11,6 @@ import { useNavigate } from 'react-router-dom'
 import { EmptyState } from '../../components/EmptyState'
 import { PageContainer } from '../../components/PageContainer'
 import { TransientFeedback } from '../../components/TransientFeedback'
-import { formatDateTime } from '../../requests/presentation'
 import { createManager, listManagers, updateManagerStatus } from '../managers/api'
 import { managerError } from '../managers/errors'
 import { ManagerCredentialsDialog } from '../managers/ManagerCredentialsDialog'
@@ -115,10 +114,10 @@ export function OverwatchManagersPage() {
       ) : (
         <TableContainer component={Paper} elevation={0}
           sx={{ mt: 3, border: '1px solid', borderColor: 'divider' }}>
-          <Table sx={{ minWidth: 850 }}>
+          <Table sx={{ minWidth: 580 }}>
             <TableHead>
               <TableRow>
-                {['Nome', 'E-mail', 'Status', 'Condomínios', 'Criado em', 'Ações']
+                {['Nome', 'Condomínios', 'Status e ações']
                   .map((column) => (
                     <TableCell key={column} sx={{ fontWeight: 750 }}>{column}</TableCell>
                   ))}
@@ -128,13 +127,7 @@ export function OverwatchManagersPage() {
               {managers.map((manager) => (
                 <TableRow key={manager.id} hover>
                   <TableCell sx={{ fontWeight: 700 }}>{manager.fullName}</TableCell>
-                  <TableCell>{manager.email}</TableCell>
-                  <TableCell>
-                    <Chip size="small" color={manager.isActive ? 'success' : 'default'}
-                      label={manager.isActive ? 'Ativo' : 'Inativo'} />
-                  </TableCell>
                   <TableCell>{manager.condominiumCount}</TableCell>
-                  <TableCell>{formatDateTime(manager.createdAt)}</TableCell>
                   <TableCell>
                     <Stack direction="row" gap={1}>
                       <Button size="small" endIcon={<OpenInNewRoundedIcon />}

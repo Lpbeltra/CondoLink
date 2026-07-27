@@ -50,6 +50,9 @@ public sealed class OverwatchCondominiumEndpointsTests : IAsyncLifetime
         _application.UseAuthorization();
         _application.MapListOverwatchCondominiums();
         _application.MapGetOverwatchCondominium();
+        _application.MapCreateOverwatchCondominium();
+        _application.MapUpdateOverwatchCondominium();
+        _application.MapUpdateOverwatchCondominiumStatus();
         _application.MapListOverwatchCondominiumManagers();
         _application.MapSetCondominiumManagementCompany();
         await _application.StartAsync();
@@ -120,6 +123,34 @@ public sealed class OverwatchCondominiumEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Inactivating_condominium_reconciles_manager_context()
+    {
+        var (condominiumId, _, _) = await SeedRelationshipsAsync();
+        Guid managerId;
+        await using (var scope = _application!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            managerId = await db.CondominiumMemberships
+                .Where(item => item.CondominiumId == condominiumId)
+                .Select(item => item.UserId)
+                .SingleAsync();
+            var manager = await db.Users.SingleAsync(item => item.Id == managerId);
+            manager.SetActiveManagementCondominium(condominiumId);
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await _admin.PatchAsJsonAsync(
+                $"/overwatch/condominiums/{condominiumId}/status",
+                new { isActive = false })).StatusCode);
+
+        await using var verifyScope = _application!.Services.CreateAsyncScope();
+        var verify = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Null((await verify.Users.SingleAsync(
+            item => item.Id == managerId)).ActiveManagementCondominiumId);
+    }
+
+    [Fact]
     public async Task Invalid_company_returns_404_and_null_unlinks()
     {
         var (condominiumId, _, _) = await SeedRelationshipsAsync();
@@ -149,6 +180,57 @@ public sealed class OverwatchCondominiumEndpointsTests : IAsyncLifetime
             HttpStatusCode.Forbidden,
             (await client.GetAsync("/overwatch/condominiums")).StatusCode);
     }
+
+    [Fact]
+    public async Task Creates_and_updates_complete_registration()
+    {
+        var response = await _admin.PostAsJsonAsync(
+            "/overwatch/condominiums",
+            Registration("Registered", "04.252.011/0001-10", true, true, "Central"));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = await response.Content.ReadFromJsonAsync<CreatedResponse>();
+
+        var update = await _admin.PutAsJsonAsync(
+            $"/overwatch/condominiums/{created!.Id}",
+            Registration("Updated", "04.252.011/0001-10", false, true, "Ignored"));
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var details = await _admin.GetFromJsonAsync<RegistrationResponse>(
+            $"/overwatch/condominiums/{created.Id}");
+        Assert.False(details!.HasDoorman);
+        Assert.False(details.IsRemoteDoorman);
+        Assert.Null(details.DoormanContact);
+        Assert.Equal("04252011000110", details.Cnpj);
+    }
+
+    [Fact]
+    public async Task Rejects_invalid_and_duplicate_cnpj_or_state()
+    {
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await _admin.PostAsJsonAsync("/overwatch/condominiums",
+                Registration("Invalid", "123", false, false, null))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await _admin.PostAsJsonAsync("/overwatch/condominiums",
+                new {
+                    name = "State", email = (string?)null, cnpj = "04.252.011/0001-10",
+                    address = "Rua A", city = "São Paulo", state = "XX",
+                    hasDoorman = false, isRemoteDoorman = false,
+                    doormanContact = (string?)null
+                })).StatusCode);
+        Assert.Equal(HttpStatusCode.Created,
+            (await _admin.PostAsJsonAsync("/overwatch/condominiums",
+                Registration("First CNPJ", "04.252.011/0001-10", false, false, null))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict,
+            (await _admin.PostAsJsonAsync("/overwatch/condominiums",
+                Registration("Second CNPJ", "04252011000110", false, false, null))).StatusCode);
+    }
+
+    private static object Registration(
+        string name, string cnpj, bool hasDoorman, bool isRemote, string? contact) =>
+        new {
+            name, email = (string?)null, cnpj, address = "Rua A",
+            city = "São Paulo", state = "SP", hasDoorman,
+            isRemoteDoorman = isRemote, doormanContact = contact
+        };
 
     private async Task<(Guid FirstId, Guid SecondId, string CompanyName)>
         SeedRelationshipsAsync()
@@ -189,4 +271,7 @@ public sealed class OverwatchCondominiumEndpointsTests : IAsyncLifetime
 
     private sealed record ManagerResponse(string FullName);
     private sealed record LinkResponse(Guid? ManagementCompanyId);
+    private sealed record CreatedResponse(Guid Id);
+    private sealed record RegistrationResponse(
+        string? Cnpj, bool HasDoorman, bool IsRemoteDoorman, string? DoormanContact);
 }

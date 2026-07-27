@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { getProtectedRouteAccess, getOverwatchRouteAccess } from './routeAccess'
+import {
+  authenticatedEntryPath,
+  getProtectedRouteAccess,
+  getOverwatchRouteAccess,
+} from './routeAccess'
 import { hydrateSessionUser } from './session'
 import type { User } from './types'
 import { getNavigationItems } from '../layout/navigation'
@@ -68,5 +72,9 @@ describe('real session restoration flow', () => {
   it('keeps the normal login flow when there is no stored session', () => {
     expect(getProtectedRouteAccess(true, null)).toBe('loading')
     expect(getProtectedRouteAccess(false, null)).toBe('login')
+  })
+
+  it('always starts a new login at the normal home, including PlatformAdmin', () => {
+    expect(authenticatedEntryPath).toBe('/')
   })
 })

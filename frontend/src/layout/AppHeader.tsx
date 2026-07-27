@@ -13,17 +13,19 @@ import {
   getUserMenuAreaAction,
   runUserMenuAreaAction,
 } from './userMenu'
+import { useManagementContext } from '../management/ManagementContext'
 
 export function AppHeader() {
   const { user, logout } = useAuth()
   const { condominiums } = useCondominium()
   const location = useLocation()
   const navigate = useNavigate()
+  const { condominiumCount } = useManagementContext()
   const showSwitcher = shouldShowGeneralCondominiumSwitcher(location.pathname, condominiums)
   const areaAction = getUserMenuAreaAction(
     user,
     location.pathname,
-    condominiums.some((item) => item.roles.includes('Manager')),
+    condominiumCount > 0,
   )
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const initials = user?.fullName.split(' ').slice(0, 2).map((part) => part[0]).join('').toUpperCase()

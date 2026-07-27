@@ -11,12 +11,14 @@ describe('Overwatch condominium validation', () => {
     expect(validateCondominium({
       name: '',
       email: null,
-      phoneNumber: null,
+      cnpj: '', address: '', city: '', state: '',
+      hasDoorman: false, isRemoteDoorman: false, doormanContact: null,
     })).toBe('Informe o nome do condomínio.')
     expect(validateCondominium({
       name: 'Condomínio',
       email: 'invalid',
-      phoneNumber: null,
+      cnpj: '11222333000181', address: 'Rua A', city: 'São Paulo', state: 'SP',
+      hasDoorman: false, isRemoteDoorman: false, doormanContact: null,
     })).toBe('Informe um e-mail válido.')
   })
 })

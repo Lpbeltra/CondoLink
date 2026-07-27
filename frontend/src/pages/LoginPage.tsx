@@ -1,15 +1,15 @@
 import { useState, type FormEvent } from 'react'
 import { Alert, Box, Button, Card, CardContent, CircularProgress, Container, Stack, TextField, Typography } from '@mui/material'
 import LoginRoundedIcon from '@mui/icons-material/LoginRounded'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { Brand } from '../components/Brand'
 import { useAuth } from '../auth/AuthContext'
 import { getErrorMessage } from '../services/api'
+import { authenticatedEntryPath } from '../auth/routeAccess'
 
 export function LoginPage() {
   const { user, login } = useAuth()
   const navigate = useNavigate()
-  const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -23,8 +23,7 @@ export function LoginPage() {
     setIsSubmitting(true)
     try {
       await login(email.trim(), password)
-      const destination = (location.state as { from?: string } | null)?.from || '/'
-      navigate(destination, { replace: true })
+      navigate(authenticatedEntryPath, { replace: true })
     } catch (requestError) {
       setError(getErrorMessage(requestError))
     } finally {

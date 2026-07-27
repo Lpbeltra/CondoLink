@@ -1,13 +1,16 @@
 import type { ReactNode } from 'react'
-import { Box, Card, CardContent, Typography } from '@mui/material'
+import { Box, Card, CardContent, Skeleton, Typography } from '@mui/material'
 
 interface OverwatchMetricCardProps {
   label: string
   value: string | number
   icon: ReactNode
+  isLoading?: boolean
 }
 
-export function OverwatchMetricCard({ label, value, icon }: OverwatchMetricCardProps) {
+export function OverwatchMetricCard({
+  label, value, icon, isLoading = false,
+}: OverwatchMetricCardProps) {
   return (
     <Card elevation={0} sx={{ height: '100%' }}>
       <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
@@ -16,7 +19,9 @@ export function OverwatchMetricCard({ label, value, icon }: OverwatchMetricCardP
             <Typography color="text.secondary" fontSize=".85rem" fontWeight={700}>
               {label}
             </Typography>
-            <Typography variant="h2" mt={.5}>{value}</Typography>
+            {isLoading
+              ? <Skeleton width={52} height={38} aria-label={`Carregando ${label}`} />
+              : <Typography variant="h2" mt={.5}>{value}</Typography>}
           </Box>
           <Box
             display="grid"

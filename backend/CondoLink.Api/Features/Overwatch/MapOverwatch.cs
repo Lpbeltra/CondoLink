@@ -20,15 +20,19 @@ public static class MapOverwatch
             }))
             .RequireAuthorization("PlatformAdmin");
 
+            endpoints.MapGetOverwatchDashboard();
             endpoints.MapListOverwatchCondominiums();
             endpoints.MapGetOverwatchCondominium();
             endpoints.MapCreateOverwatchCondominium();
             endpoints.MapUpdateOverwatchCondominium();
             endpoints.MapUpdateOverwatchCondominiumStatus();
             endpoints.MapListOverwatchCondominiumManagers();
+            endpoints.MapGetOverwatchCondominiumManager();
+            endpoints.MapReplaceOverwatchCondominiumManager();
             endpoints.MapListOverwatchManagers();
             endpoints.MapCreateOverwatchManager();
             endpoints.MapGetOverwatchManager();
+            endpoints.MapUpdateOverwatchManager();
             endpoints.MapUpdateOverwatchManagerStatus();
             endpoints.MapListManagerCondominiums();
             endpoints.MapCreateOverwatchManagementMembership();
