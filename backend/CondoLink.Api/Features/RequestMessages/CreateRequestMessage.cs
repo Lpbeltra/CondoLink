@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using CondoLink.Api.Features.Notifications;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
@@ -24,6 +25,8 @@ public static class CreateRequestMessage
         RequestDto request,
         ClaimsPrincipal principal,
         AppDbContext dbContext,
+        NotificationService notifications,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         var authenticatedUserIdValue =
@@ -64,7 +67,8 @@ public static class CreateRequestMessage
             {
                 item.AuthorUserId,
                 item.CondominiumId,
-                item.Status
+                item.Status,
+                item.Title
             })
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -124,6 +128,29 @@ public static class CreateRequestMessage
         var message = new RequestMessage(requestId, authenticatedUserId, content);
         dbContext.RequestMessages.Add(message);
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        // Side effect: the message is committed, so a notification failure must
+        // not report the message as failed.
+        try
+        {
+            await notifications.NotifyMessageAsync(
+                requestId,
+                targetRequest.CondominiumId,
+                targetRequest.AuthorUserId,
+                targetRequest.Title,
+                authenticatedUserId,
+                content,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            loggerFactory
+                .CreateLogger(typeof(CreateRequestMessage))
+                .LogError(
+                    exception,
+                    "Failed to notify message on request {RequestId}.",
+                    requestId);
+        }
 
         var authorIsManager = await dbContext.CondominiumMemberships
             .AsNoTracking()

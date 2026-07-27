@@ -433,6 +433,62 @@ namespace CondoLink.Infrastructure.Migrations
                     b.ToTable("management_company_request_categories", (string)null);
                 });
 
+            modelBuilder.Entity("CondoLink.Domain.Entities.Notification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("body");
+
+                    b.Property<Guid>("CondominiumId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("condominium_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("read_at");
+
+                    b.Property<Guid>("RecipientUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recipient_user_id");
+
+                    b.Property<Guid?>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("title");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer")
+                        .HasColumnName("type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CondominiumId");
+
+                    b.HasIndex("RequestId");
+
+                    b.HasIndex("RecipientUserId", "ReadAt");
+
+                    b.HasIndex("RecipientUserId", "CondominiumId", "CreatedAt");
+
+                    b.ToTable("notifications", (string)null);
+                });
+
             modelBuilder.Entity("CondoLink.Domain.Entities.Request", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1099,6 +1155,26 @@ namespace CondoLink.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("ManagementCompany");
+                });
+
+            modelBuilder.Entity("CondoLink.Domain.Entities.Notification", b =>
+                {
+                    b.HasOne("CondoLink.Domain.Entities.Condominium", null)
+                        .WithMany()
+                        .HasForeignKey("CondominiumId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CondoLink.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("RecipientUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CondoLink.Domain.Entities.Request", null)
+                        .WithMany()
+                        .HasForeignKey("RequestId")
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 
             modelBuilder.Entity("CondoLink.Domain.Entities.Request", b =>

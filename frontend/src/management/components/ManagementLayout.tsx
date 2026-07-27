@@ -14,7 +14,10 @@ export function ManagementLayout() {
 
   const navigate = useNavigate()
   const location = useLocation()
-  const isRequestsPage = location.pathname.startsWith('/management/requests')
+  // These pages render their own heading and switcher, so they opt out of the
+  // shared tab chrome instead of showing it twice.
+  const isStandalonePage = location.pathname.startsWith('/management/requests')
+    || location.pathname.startsWith('/management/reports')
 
   if (isLoading) {
     return <PageContainer><Skeleton variant="rounded" height={160} /></PageContainer>
@@ -34,7 +37,7 @@ export function ManagementLayout() {
     )
   }
 
-  if (isRequestsPage) return <Outlet />
+  if (isStandalonePage) return <Outlet />
 
   const value = location.pathname.startsWith('/management/blocks')
     ? '/management/blocks'

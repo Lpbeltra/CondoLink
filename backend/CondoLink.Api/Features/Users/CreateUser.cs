@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +11,12 @@ public static class CreateUser
 {
     public static IEndpointRouteBuilder MapCreateUser(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapPost("/users", HandleAsync);
+        // There is no self-registration flow: residents are provisioned by a
+        // manager via /condominiums/{id}/members/onboard and managers by a
+        // platform admin via Overwatch. Leaving this open allowed anonymous
+        // account creation, so it is restricted to platform administrators.
+        endpoints.MapPost("/users", HandleAsync)
+            .RequireAuthorization(DependencyInjection.PlatformAdminPolicy);
         return endpoints;
     }
 

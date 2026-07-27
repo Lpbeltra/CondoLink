@@ -1,4 +1,3 @@
-import { CssBaseline, ThemeProvider } from '@mui/material'
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthProvider } from '../auth/AuthProvider'
 import { useAuth } from '../auth/AuthContext'
@@ -6,7 +5,7 @@ import { LoadingScreen } from '../components/LoadingScreen'
 import { AppShell } from '../layout/AppShell'
 import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
-import { theme } from '../theme'
+import { AppThemeProvider } from '../theme/AppThemeProvider'
 import { CondominiumProvider } from '../condominiums/CondominiumProvider'
 import { MyRequestsPage } from '../pages/MyRequestsPage'
 import { CreateRequestPage } from '../pages/CreateRequestPage'
@@ -19,6 +18,7 @@ import { UnitDetailsPage } from '../pages/UnitDetailsPage'
 import { ManagementCategoriesPage } from '../pages/ManagementCategoriesPage'
 import { MorePage } from '../pages/MorePage'
 import { ManagementPeoplePage } from '../pages/ManagementPeoplePage'
+import { ManagementReportsPage } from '../pages/ManagementReportsPage'
 import { ManagementBlocksPage } from '../pages/ManagementBlocksPage'
 import { ManagementContextProvider } from '../management/ManagementContextProvider'
 import { OverwatchGuard } from '../overwatch/OverwatchGuard'
@@ -44,8 +44,7 @@ function ProtectedRoute() {
 
 export function App() {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
+    <AppThemeProvider>
       <BrowserRouter>
         <AuthProvider>
           <CondominiumProvider>
@@ -72,6 +71,7 @@ export function App() {
                     <Route path="blocks" element={<ManagementBlocksPage />} />
                     <Route path="categories" element={<ManagementCategoriesPage />} />
                     <Route path="people" element={<ManagementPeoplePage />} />
+                    <Route path="reports" element={<ManagementReportsPage />} />
                   </Route>
                 </Route>
                 <Route element={<OverwatchGuard />}>
@@ -91,6 +91,6 @@ export function App() {
           </CondominiumProvider>
         </AuthProvider>
       </BrowserRouter>
-    </ThemeProvider>
+    </AppThemeProvider>
   )
 }

@@ -1,7 +1,7 @@
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import ForumRoundedIcon from '@mui/icons-material/ForumRounded'
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded'
-import { Box, Button, Chip, Paper, Skeleton, Stack, Typography } from '@mui/material'
+import { Box, Button, Chip, Paper, Skeleton, Stack, Typography, alpha } from '@mui/material'
 import WavingHandRoundedIcon from '@mui/icons-material/WavingHandRounded'
 import { useAuth } from '../auth/AuthContext'
 import { PageContainer } from '../components/PageContainer'
@@ -39,7 +39,15 @@ export function HomePage() {
   }
   return (
     <PageContainer>
-      <Paper elevation={0} sx={{ p: { xs: 3, sm: 4 }, border: '1px solid', borderColor: 'divider', background: 'linear-gradient(135deg, #fff 58%, rgba(31,94,255,.055))' }}>
+      <Paper
+        elevation={0}
+        sx={(theme) => ({
+          p: { xs: 3, sm: 4 },
+          border: '1px solid',
+          borderColor: 'divider',
+          background: `linear-gradient(135deg, ${theme.palette.background.paper} 58%, ${alpha(theme.palette.primary.main, 0.055)})`,
+        })}
+      >
         <Box display="flex" alignItems="center" gap={1} color="primary.main" mb={1.5}><WavingHandRoundedIcon /><Typography fontWeight={750}>Início</Typography></Box>
         <Typography variant="h1">Olá, {firstName}</Typography>
         {managementState.kind === 'single' && (

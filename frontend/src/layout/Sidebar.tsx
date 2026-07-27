@@ -20,7 +20,7 @@ export function Sidebar() {
     user?.roles ?? [],
   )
   return (
-    <Drawer variant="permanent" sx={{ display: { xs: 'none', md: 'block' }, width: drawerWidth, '& .MuiDrawer-paper': { width: drawerWidth, borderRight: '1px solid', borderColor: 'divider', bgcolor: '#fbfcfe' } }}>
+    <Drawer variant="permanent" sx={{ display: { xs: 'none', md: 'block' }, width: drawerWidth, '& .MuiDrawer-paper': { width: drawerWidth, borderRight: '1px solid', borderColor: 'divider', bgcolor: 'background.default' } }}>
       <Toolbar sx={{ minHeight: '72px !important', px: 3 }}><Brand /></Toolbar>
       <List component="nav" aria-label="Navegação principal" sx={{ px: 1.5, pt: 2 }}>
         {navigationItems.map(({ label, path, icon: Icon }) => (

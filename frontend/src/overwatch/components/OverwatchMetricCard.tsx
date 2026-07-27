@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Box, Card, CardContent, Skeleton, Typography } from '@mui/material'
+import { Box, Card, CardContent, Skeleton, Typography, alpha } from '@mui/material'
 
 interface OverwatchMetricCardProps {
   label: string
@@ -25,12 +25,14 @@ export function OverwatchMetricCard({
           </Box>
           <Box
             display="grid"
-            sx={{ placeItems: 'center' }}
             width={44}
             height={44}
             borderRadius={2.5}
-            bgcolor="rgba(31,94,255,.09)"
             color="primary.main"
+            sx={(theme) => ({
+              placeItems: 'center',
+              bgcolor: alpha(theme.palette.primary.main, 0.09),
+            })}
           >
             {icon}
           </Box>

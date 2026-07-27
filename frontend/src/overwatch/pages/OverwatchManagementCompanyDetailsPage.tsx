@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import PowerSettingsNewRoundedIcon from '@mui/icons-material/PowerSettingsNewRounded'
@@ -25,6 +25,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { EmptyState } from '../../components/EmptyState'
 import { PageContainer } from '../../components/PageContainer'
 import { TransientFeedback } from '../../components/TransientFeedback'
+import { useGuardedLoad } from '../../components/useGuardedLoad'
 import { formatDateTime } from '../../requests/presentation'
 import { formatCnpj } from '../registration'
 import {
@@ -64,9 +65,6 @@ const overviewFields: Array<{
 export function OverwatchManagementCompanyDetailsPage() {
   const { managementCompanyId = '' } = useParams()
   const navigate = useNavigate()
-  const [company, setCompany] = useState<ManagementCompany | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState('')
   const [tab, setTab] = useState<DetailTab>('overview')
   const [editOpen, setEditOpen] = useState(false)
   const [statusOpen, setStatusOpen] = useState(false)
@@ -74,21 +72,18 @@ export function OverwatchManagementCompanyDetailsPage() {
   const [operationError, setOperationError] = useState('')
   const [feedback, setFeedback] = useState('')
 
-  const load = useCallback(async () => {
-    setIsLoading(true)
-    setError('')
-    try {
-      setCompany(await getManagementCompany(managementCompanyId))
-    } catch (requestError) {
-      setError(managementCompanyError(requestError))
-    } finally {
-      setIsLoading(false)
-    }
-  }, [managementCompanyId])
-
-  useEffect(() => {
-    void load()
-  }, [load])
+  // Guarded so a slow response for a previous managementCompanyId cannot land
+  // in state and have a later save write to the wrong record.
+  const fetchCompany = useCallback(
+    () => getManagementCompany(managementCompanyId),
+    [managementCompanyId],
+  )
+  const {
+    data: company,
+    isLoading,
+    error,
+    setData: setCompany,
+  } = useGuardedLoad(fetchCompany, managementCompanyError)
 
   const save = async (input: ManagementCompanyInput) => {
     if (!company || isSaving) return

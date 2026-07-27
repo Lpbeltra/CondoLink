@@ -6,6 +6,7 @@ import { Brand } from '../components/Brand'
 import { useAuth } from '../auth/AuthContext'
 import { getErrorMessage } from '../services/api'
 import { authenticatedEntryPath } from '../auth/routeAccess'
+import { ThemeModeToggle } from '../theme/ThemeModeToggle'
 
 export function LoginPage() {
   const { user, login } = useAuth()
@@ -33,6 +34,7 @@ export function LoginPage() {
 
   return (
     <Box minHeight="100dvh" display="grid" sx={{ placeItems: 'center', py: 4, background: 'radial-gradient(circle at 15% 15%, rgba(31,94,255,.12), transparent 28%), radial-gradient(circle at 90% 85%, rgba(114,89,217,.09), transparent 32%)' }}>
+      <Box sx={{ position: 'fixed', top: 12, right: 12 }}><ThemeModeToggle /></Box>
       <Container maxWidth="xs">
         <Stack alignItems="center" mb={4}><Brand /></Stack>
         <Card>

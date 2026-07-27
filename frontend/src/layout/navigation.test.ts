@@ -10,7 +10,7 @@ describe('role-based navigation', () => {
 
   it('shows management resources to managers', () => {
     expect(getNavigationItems(['Manager', 'Resident']).map((item) => item.label))
-      .toEqual(['Início', 'Solicitações', 'Atendimento', 'Gestão'])
+      .toEqual(['Início', 'Solicitações', 'Atendimento', 'Gestão', 'Relatórios'])
   })
 
   it('shows Overwatch only to PlatformAdmin', () => {

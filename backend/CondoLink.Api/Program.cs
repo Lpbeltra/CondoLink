@@ -5,6 +5,8 @@ using CondoLink.Api.Features.CondominiumMemberRoles;
 using CondoLink.Api.Features.CondominiumMembers;
 using CondoLink.Api.Features.Condominiums;
 using CondoLink.Api.Features.Management;
+using CondoLink.Api.Features.Notifications;
+using CondoLink.Api.Features.Reports;
 using CondoLink.Api.Features.RequestAttachments;
 using CondoLink.Api.Features.RequestMessages;
 using CondoLink.Api.Features.Requests;
@@ -25,6 +27,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 builder.Services.AddScoped<CondominiumMembershipService>();
 builder.Services.AddScoped<ManagerOnboardingService>();
+builder.Services.AddScoped<NotificationService>();
 
 builder.Services.AddSwaggerGen(options =>
 {
@@ -176,6 +179,12 @@ app.MapListMyRequests();
 app.MapListCondominiumRequests();
 app.MapUpdateRequestStatus();
 app.MapUpdateRequestPriority();
+
+// Reports
+app.MapGetRequestReport();
+
+// Notifications
+app.MapNotifications();
 
 // Request messages and attachments
 app.MapCreateRequestMessage();
