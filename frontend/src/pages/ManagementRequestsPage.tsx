@@ -13,8 +13,6 @@ import { ManagementRequestCard } from '../requests/components/ManagementRequestC
 import { applySummaryFilter, selectManagementRequests, sortManagementRequests, type ManagementRequestSort, type SortDirection } from '../requests/managementRequests'
 import { getRequestError, priorityPresentation, statusPresentation } from '../requests/presentation'
 import type { ManagementRequestsResponse, RequestPriority, RequestStatus } from '../requests/types'
-import { useManagementContext } from '../management/ManagementContext'
-import { ManagementCondominiumSwitcher } from '../management/components/ManagementCondominiumSwitcher'
 
 const summaries = [
   ['Abertas', 'open', 'Open'], ['Em andamento', 'inProgress', 'InProgress'], ['Aguardando morador', 'waitingForResident', 'WaitingForResident'], ['Aguardando terceiro', 'waitingForThirdParty', 'WaitingForThirdParty'], ['Resolvidas', 'resolved', 'Resolved'], ['Canceladas', 'cancelled', 'Cancelled'],
