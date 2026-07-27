@@ -170,18 +170,16 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Manager_can_grant_the_manager_role_to_an_existing_membership()
+    public async Task Granting_a_second_manager_role_is_rejected()
     {
+        // A condominium may only have one síndico, so promoting a second member
+        // is refused even though the membership itself is valid.
         var response = await _host.ClientFor(_managerId).PostAsJsonAsync(
             $"/condominium-memberships/{_residentMembershipId}/roles",
             new { role = "manager" });
 
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var body = await response.Content
-            .ReadFromJsonAsync<AddCondominiumMemberRole.Response>();
-        Assert.Equal("Manager", body!.Role);
-        Assert.True(body.IsActive);
-        Assert.True(await _host.WithDbAsync(db => db.CondominiumMembershipRoles
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.False(await _host.WithDbAsync(db => db.CondominiumMembershipRoles
             .AnyAsync(role =>
                 role.CondominiumMembershipId == _residentMembershipId
                 && role.Role == CondominiumRole.Manager)));
@@ -497,9 +495,17 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task Roster_shows_every_active_role_of_a_membership()
     {
-        await _host.ClientFor(_managerId).PostAsJsonAsync(
-            $"/condominium-memberships/{_residentMembershipId}/roles",
-            new { role = "Manager" });
+        // Seeded directly rather than via the endpoint: a condominium may only
+        // have one síndico, so the API refuses a second Manager. This test is
+        // about the roster aggregating multiple roles, not about that rule.
+        await _host.WithDbAsync(async db =>
+        {
+            db.CondominiumMembershipRoles.Add(
+                new CondominiumMembershipRole(
+                    _residentMembershipId, CondominiumRole.Manager));
+            await db.SaveChangesAsync();
+            return true;
+        });
 
         var members = await _host.ClientFor(_managerId)
             .GetFromJsonAsync<List<ListCondominiumMembers.Response>>(
