@@ -38,7 +38,11 @@ function ProtectedRoute() {
   const access = getProtectedRouteAccess(isInitializing, user)
   if (access === 'loading') return <LoadingScreen />
   return access === 'authenticated'
-    ? <Outlet />
+    ? (
+        <ManagementContextProvider>
+          <Outlet />
+        </ManagementContextProvider>
+      )
     : <Navigate to="/login" replace state={{ from: location.pathname }} />
 }
 
@@ -51,11 +55,7 @@ export function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route element={<ProtectedRoute />}>
-                <Route element={
-                  <ManagementContextProvider>
-                    <AppShell />
-                  </ManagementContextProvider>
-                }>
+                <Route element={<AppShell />}>
                   <Route index element={<HomePage />} />
                   <Route path="requests" element={<MyRequestsPage />} />
                   <Route path="requests/new" element={<CreateRequestPage />} />
