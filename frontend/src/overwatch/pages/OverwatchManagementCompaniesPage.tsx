@@ -8,6 +8,7 @@ import {
   Button,
   Chip,
   IconButton,
+  Link,
   Paper,
   Skeleton,
   Stack,
@@ -146,15 +147,26 @@ export function OverwatchManagementCompaniesPage() {
               </TableRow>
             </TableHead>
             <TableBody>
+              {/* Rows are deliberately not clickable: an onClick on <tr> is not
+                  keyboard reachable. The name link and the "Gerenciar" button
+                  are both focusable and perform the same navigation. */}
               {companies.map((company) => (
-                <TableRow
-                  key={company.id}
-                  hover
-                  onClick={() => manage(company.id)}
-                  sx={{ cursor: 'pointer' }}
-                >
+                <TableRow key={company.id} hover>
                   <TableCell>
-                    <Typography fontWeight={750}>{company.name}</Typography>
+                    <Link
+                      component="button"
+                      type="button"
+                      underline="hover"
+                      onClick={() => manage(company.id)}
+                      sx={{
+                        fontWeight: 750,
+                        textAlign: 'left',
+                        color: 'text.primary',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {company.name}
+                    </Link>
                     <Typography color="text.secondary" fontSize=".82rem">
                       {formatCnpj(company.cnpj)}
                       {company.city && company.state ? ` · ${company.city}/${company.state}` : ''}
@@ -169,7 +181,7 @@ export function OverwatchManagementCompaniesPage() {
                       label={company.isActive ? 'Ativa' : 'Inativa'}
                     />
                   </TableCell>
-                  <TableCell onClick={(event) => event.stopPropagation()}>
+                  <TableCell>
                     <Tooltip title="Editar">
                       <IconButton
                         aria-label={`Editar ${company.name}`}

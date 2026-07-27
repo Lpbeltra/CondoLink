@@ -38,8 +38,12 @@ export function RequestAttachments({ requestId, cancelled }: { requestId: string
     const urls: string[] = []
     void Promise.all(items.filter((item) => item.contentType.startsWith('image/')).map(async (item) => {
       const blob = await getRequestAttachmentBlob(item.contentUrl)
-      const url = URL.createObjectURL(blob); urls.push(url)
-      if (active) setPreviews((current) => ({ ...current, [item.id]: url }))
+      const url = URL.createObjectURL(blob)
+      // A blob resolved after cleanup would otherwise leak: nothing holds the
+      // url, so revoke it here instead of pushing it to the (already read) list.
+      if (!active) { URL.revokeObjectURL(url); return }
+      urls.push(url)
+      setPreviews((current) => ({ ...current, [item.id]: url }))
     })).catch(() => { if (active) setError('Não foi possível carregar uma das miniaturas.') })
     return () => { active = false; urls.forEach(URL.revokeObjectURL); setPreviews({}) }
   }, [items])
@@ -81,7 +85,28 @@ export function RequestAttachments({ requestId, cancelled }: { requestId: string
       <Box display="grid" gridTemplateColumns={{ xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }} gap={1.5}>
         {items.map((item) => <Box key={item.id} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1.5, minWidth: 0 }}>
           <Stack direction="row" gap={1.5} alignItems="center">
-            {item.contentType.startsWith('image/') && previews[item.id] ? <Box component="img" src={previews[item.id]} alt="" sx={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 1, cursor: 'pointer' }} onClick={() => setDialogUrl(previews[item.id])} /> : <DescriptionRoundedIcon color="action" sx={{ fontSize: 42 }} />}
+            {item.contentType.startsWith('image/') && previews[item.id]
+              // A real button: the thumbnail opens the lightbox, so it must be
+              // focusable and keyboard-activatable, with a descriptive name.
+              ? <Box
+                  component="button"
+                  type="button"
+                  aria-label={`Ampliar ${item.originalFileName}`}
+                  onClick={() => setDialogUrl(previews[item.id])}
+                  sx={{
+                    p: 0, border: 0, background: 'none', cursor: 'pointer',
+                    width: 64, height: 64, borderRadius: 1, flexShrink: 0,
+                    '&:focus-visible': { outline: '3px solid', outlineColor: 'primary.light', outlineOffset: 2 },
+                  }}
+                >
+                  <Box
+                    component="img"
+                    src={previews[item.id]}
+                    alt={`Miniatura de ${item.originalFileName}`}
+                    sx={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 1, display: 'block' }}
+                  />
+                </Box>
+              : <DescriptionRoundedIcon color="action" sx={{ fontSize: 42 }} />}
             <Box minWidth={0} flex={1}><Typography fontWeight={700} noWrap title={item.originalFileName}>{item.originalFileName}</Typography><Typography color="text.secondary" fontSize=".78rem">{formatSize(item.fileSize)} · {item.uploadedBy.fullName}</Typography><Typography color="text.secondary" fontSize=".75rem">{formatDateTime(item.createdAt)}</Typography></Box>
             <Button aria-label={`Abrir ${item.originalFileName}`} onClick={() => item.contentType.startsWith('image/') ? setDialogUrl(previews[item.id]) : void openPdf(item)}><OpenInNewRoundedIcon /></Button>
           </Stack>
