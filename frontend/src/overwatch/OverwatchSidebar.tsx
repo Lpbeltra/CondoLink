@@ -15,7 +15,7 @@ export function OverwatchSidebar() {
           width: drawerWidth,
           borderRight: '1px solid',
           borderColor: 'divider',
-          bgcolor: '#fbfcfe',
+          bgcolor: 'background.default',
         },
       }}
     >

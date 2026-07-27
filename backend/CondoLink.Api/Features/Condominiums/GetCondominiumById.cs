@@ -8,7 +8,8 @@ public static class GetCondominiumById
     public static IEndpointRouteBuilder MapGetCondominiumById(
         this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/condominiums/{id:guid}", HandleAsync);
+        endpoints.MapGet("/condominiums/{id:guid}", HandleAsync)
+            .RequireAuthorization();
         return endpoints;
     }
 

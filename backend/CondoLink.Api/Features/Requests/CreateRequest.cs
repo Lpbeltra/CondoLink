@@ -187,6 +187,27 @@ public static class CreateRequest
                     error = "Target unit must belong to the request condominium."
                 });
             }
+
+            // A resident may only open requests for a unit they actually occupy.
+            // Managers act on behalf of the whole condominium, so they are exempt.
+            var occupiesTargetUnit = await dbContext.UnitMemberships
+                .AsNoTracking()
+                .AnyAsync(
+                    membership =>
+                        membership.UserId == authenticatedUserId
+                        && membership.UnitId == targetUnitId
+                        && membership.IsActive
+                        && membership.EndedAt == null,
+                    cancellationToken);
+
+            if (!occupiesTargetUnit
+                && !await IsCondominiumManagerAsync(
+                    dbContext, authenticatedUserId, condominiumId, cancellationToken))
+            {
+                return Results.Json(
+                    new { error = "You can only open requests for your own unit." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
         }
 
         var domainRequest = new DomainRequest(
@@ -232,6 +253,30 @@ public static class CreateRequest
          where membership.UserId == userId && membership.IsActive && membership.EndedAt == null
                && unit.CondominiumId == condominiumId && unit.IsActive
          select unit.Id).Distinct().Take(2).ToArrayAsync(cancellationToken);
+
+    public static Task<bool> IsCondominiumManagerAsync(
+        AppDbContext dbContext,
+        Guid userId,
+        Guid condominiumId,
+        CancellationToken cancellationToken = default) =>
+        dbContext.CondominiumMemberships
+            .AsNoTracking()
+            .Where(membership =>
+                membership.UserId == userId
+                && membership.CondominiumId == condominiumId
+                && membership.IsActive
+                && membership.EndedAt == null)
+            .Join(
+                dbContext.CondominiumMembershipRoles
+                    .AsNoTracking()
+                    .Where(role =>
+                        role.Role == CondominiumRole.Manager
+                        && role.IsActive
+                        && role.RevokedAt == null),
+                membership => membership.Id,
+                role => role.CondominiumMembershipId,
+                (_, _) => true)
+            .AnyAsync(cancellationToken);
 
     public sealed record RequestDto(
         Guid CategoryId,

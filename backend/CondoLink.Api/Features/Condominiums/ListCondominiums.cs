@@ -7,7 +7,8 @@ public static class ListCondominiums
 {
     public static IEndpointRouteBuilder MapListCondominiums(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/condominiums", HandleAsync);
+        endpoints.MapGet("/condominiums", HandleAsync)
+            .RequireAuthorization();
         return endpoints;
     }
 

@@ -4,6 +4,7 @@ import { AuthContext } from './AuthContext'
 import type { LoginResponse, User } from './types'
 import { clearStoredToken, getStoredToken, storeToken } from './authStorage'
 import { hydrateSessionUser } from './session'
+import { getMillisecondsUntilExpiry, isTokenExpired } from './tokenExpiry'
 
 function setAuthorization(token: string | null) {
   if (token) api.defaults.headers.common.Authorization = `Bearer ${token}`
@@ -34,6 +35,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
         return
       }
 
+      // Don't render an authenticated shell around an already-dead token.
+      if (isTokenExpired(token)) {
+        logout()
+        setIsInitializing(false)
+        return
+      }
+
       setAuthorization(token)
       try {
         const { data } = await api.get<User>('/users/me')
@@ -46,6 +54,22 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
     void restoreSession()
   }, [logout])
+
+  // Expire the session in place, so a tab left open doesn't keep showing a
+  // logged-in UI backed by a token the API will now reject.
+  useEffect(() => {
+    if (!user) return
+    const token = getStoredToken()
+    if (!token) return
+    const remaining = getMillisecondsUntilExpiry(token)
+    if (remaining === null) return
+    if (remaining === 0) {
+      logout()
+      return
+    }
+    const timer = window.setTimeout(logout, remaining)
+    return () => window.clearTimeout(timer)
+  }, [logout, user])
 
   const login = useCallback(async (email: string, password: string) => {
     logout()

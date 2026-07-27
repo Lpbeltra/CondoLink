@@ -6,6 +6,8 @@ import { Alert, Box, Button, Card, CardActionArea, CardContent, FormControl, Gri
 import { useSearchParams } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
 import { PageContainer } from '../components/PageContainer'
+import { useManagementContext } from '../management/ManagementContext'
+import { ManagementCondominiumSwitcher } from '../management/components/ManagementCondominiumSwitcher'
 import { listManagementRequests } from '../requests/api'
 import { ManagementRequestCard } from '../requests/components/ManagementRequestCard'
 import { applySummaryFilter, selectManagementRequests, sortManagementRequests, type ManagementRequestSort, type SortDirection } from '../requests/managementRequests'
@@ -38,6 +40,8 @@ export function ManagementRequestsPage() {
   const [direction, setDirection] = useState<SortDirection>('desc')
   const loadVersion = useRef(0)
 
+  // The active condominium is both sent to the API and kept as a dependency:
+  // without it, switching condominium left another tenant's requests on screen.
   const load = useCallback(async () => {
     const version = ++loadVersion.current
     setIsLoading(true); setError(''); setData(null)
@@ -72,6 +76,7 @@ export function ManagementRequestsPage() {
         ? 'Acompanhe solicitações de todos os condomínios administrados.'
         : `Acompanhe e organize as solicitações de ${activeCondominium?.name ?? 'seu condomínio'}.`}
     </Typography>
+    {/* This page bypasses ManagementLayout, so it carries its own switcher. */}
     <Box mt={2} maxWidth={360}>
       <ManagementCondominiumSwitcher />
     </Box>

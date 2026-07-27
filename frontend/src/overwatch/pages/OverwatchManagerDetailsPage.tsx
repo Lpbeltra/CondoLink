@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import PowerSettingsNewRoundedIcon from '@mui/icons-material/PowerSettingsNewRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
@@ -11,12 +11,13 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { EmptyState } from '../../components/EmptyState'
 import { PageContainer } from '../../components/PageContainer'
 import { TransientFeedback } from '../../components/TransientFeedback'
+import { useGuardedLoad } from '../../components/useGuardedLoad'
 import { formatDateTime } from '../../requests/presentation'
 import { getManager, updateManager, updateManagerStatus } from '../managers/api'
 import { managerError } from '../managers/errors'
 import { ManagerRelationships } from '../managers/ManagerRelationships'
 import { managerDetailTabs } from '../managers/presentation'
-import type { ManagerInput, OverwatchManager } from '../managers/types'
+import type { ManagerInput } from '../managers/types'
 import { ManagerFormDialog } from '../managers/ManagerFormDialog'
 import { formatCnpj, formatCpf } from '../registration'
 
@@ -25,28 +26,22 @@ type DetailTab = 'overview' | 'condominiums' | 'settings'
 export function OverwatchManagerDetailsPage() {
   const { managerId = '' } = useParams()
   const navigate = useNavigate()
-  const [manager, setManager] = useState<OverwatchManager | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  const [error, setError] = useState('')
   const [tab, setTab] = useState<DetailTab>('overview')
   const [statusOpen, setStatusOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
 
-  const load = useCallback(async () => {
-    setIsLoading(true)
-    setError('')
-    try {
-      setManager(await getManager(managerId))
-    } catch (requestError) {
-      setError(managerError(requestError))
-    } finally {
-      setIsLoading(false)
-    }
-  }, [managerId])
-
-  useEffect(() => { void load() }, [load])
+  // Guarded so a slow response for a previous managerId cannot land in state
+  // and have a later save write to the wrong record.
+  const fetchManager = useCallback(() => getManager(managerId), [managerId])
+  const {
+    data: manager,
+    isLoading,
+    error,
+    setData: setManager,
+    setError,
+  } = useGuardedLoad(fetchManager, managerError)
 
   const refreshDetails = useCallback(async () => {
     try {
@@ -54,7 +49,7 @@ export function OverwatchManagerDetailsPage() {
     } catch (requestError) {
       setError(managerError(requestError))
     }
-  }, [managerId])
+  }, [managerId, setError, setManager])
 
   const changeStatus = async () => {
     if (!manager || isSaving) return

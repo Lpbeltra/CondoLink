@@ -1,4 +1,3 @@
-import { CssBaseline, ThemeProvider } from '@mui/material'
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthProvider } from '../auth/AuthProvider'
 import { useAuth } from '../auth/AuthContext'
@@ -6,7 +5,7 @@ import { LoadingScreen } from '../components/LoadingScreen'
 import { AppShell } from '../layout/AppShell'
 import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
-import { theme } from '../theme'
+import { AppThemeProvider } from '../theme/AppThemeProvider'
 import { CondominiumProvider } from '../condominiums/CondominiumProvider'
 import { MyRequestsPage } from '../pages/MyRequestsPage'
 import { CreateRequestPage } from '../pages/CreateRequestPage'
@@ -44,8 +43,7 @@ function ProtectedRoute() {
 
 export function App() {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
+    <AppThemeProvider>
       <BrowserRouter>
         <AuthProvider>
           <CondominiumProvider>
@@ -91,6 +89,6 @@ export function App() {
           </CondominiumProvider>
         </AuthProvider>
       </BrowserRouter>
-    </ThemeProvider>
+    </AppThemeProvider>
   )
 }
