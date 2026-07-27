@@ -19,8 +19,12 @@ export interface ManagementContextValue {
 export const ManagementReactContext =
   createContext<ManagementContextValue | null>(null)
 
+export function useOptionalManagementContext() {
+  return useContext(ManagementReactContext)
+}
+
 export function useManagementContext() {
-  const context = useContext(ManagementReactContext)
+  const context = useOptionalManagementContext()
 
   if (!context) {
     throw new Error(
