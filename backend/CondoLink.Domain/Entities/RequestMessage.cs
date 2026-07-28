@@ -1,3 +1,5 @@
+using CondoLink.Domain.Enums;
+
 namespace CondoLink.Domain.Entities;
 
 public sealed class RequestMessage
@@ -6,7 +8,11 @@ public sealed class RequestMessage
     {
     }
 
-    public RequestMessage(Guid requestId, Guid authorUserId, string content)
+    public RequestMessage(
+        Guid requestId,
+        Guid authorUserId,
+        string content,
+        MessageChannel channel = MessageChannel.Portal)
     {
         if (requestId == Guid.Empty)
         {
@@ -27,6 +33,7 @@ public sealed class RequestMessage
         RequestId = requestId;
         AuthorUserId = authorUserId;
         Content = content.Trim();
+        Channel = channel;
         CreatedAt = DateTime.UtcNow;
     }
 
@@ -34,5 +41,6 @@ public sealed class RequestMessage
     public Guid RequestId { get; private set; }
     public Guid AuthorUserId { get; private set; }
     public string Content { get; private set; } = null!;
+    public MessageChannel Channel { get; private set; }
     public DateTime CreatedAt { get; private set; }
 }

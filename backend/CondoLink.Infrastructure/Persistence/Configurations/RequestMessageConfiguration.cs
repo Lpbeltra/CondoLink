@@ -29,6 +29,9 @@ public sealed class RequestMessageConfiguration
             .HasColumnName("content")
             .HasMaxLength(4000)
             .IsRequired();
+        builder.Property(message => message.Channel)
+            .HasColumnName("channel").HasConversion<int>()
+            .HasDefaultValue(CondoLink.Domain.Enums.MessageChannel.Portal).IsRequired();
 
         builder.Property(message => message.CreatedAt)
             .HasColumnName("created_at")

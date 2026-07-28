@@ -20,6 +20,8 @@ public sealed class RequestConfiguration : IEntityTypeConfiguration<DomainReques
         builder.Property(request => request.CategoryId).HasColumnName("category_id").IsRequired();
         builder.Property(request => request.Title).HasColumnName("title").HasMaxLength(200).IsRequired();
         builder.Property(request => request.Description).HasColumnName("description").HasMaxLength(4000).IsRequired();
+        builder.Property(request => request.Source).HasColumnName("source").HasConversion<int>()
+            .HasDefaultValue(CondoLink.Domain.Enums.RequestSource.Portal).IsRequired();
         builder.Property(request => request.Status).HasColumnName("status").HasConversion<int>().IsRequired();
         builder.Property(request => request.Priority).HasColumnName("priority").HasConversion<int>().IsRequired();
         builder.Property(request => request.CreatedAt).HasColumnName("created_at").IsRequired();

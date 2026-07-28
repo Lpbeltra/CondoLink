@@ -14,7 +14,8 @@ public sealed class Request
         Guid? targetUnitId,
         Guid categoryId,
         string title,
-        string description)
+        string description,
+        RequestSource source = RequestSource.Portal)
     {
         if (condominiumId == Guid.Empty)
         {
@@ -55,6 +56,7 @@ public sealed class Request
         CategoryId = categoryId;
         Title = title.Trim();
         Description = description.Trim();
+        Source = source;
         Status = RequestStatus.Open;
         Priority = RequestPriority.Normal;
         CreatedAt = now;
@@ -69,6 +71,7 @@ public sealed class Request
     public Guid CategoryId { get; private set; }
     public string Title { get; private set; } = null!;
     public string Description { get; private set; } = null!;
+    public RequestSource Source { get; private set; }
     public RequestStatus Status { get; private set; }
     public RequestPriority Priority { get; private set; }
     public DateTime CreatedAt { get; private set; }

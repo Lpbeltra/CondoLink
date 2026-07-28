@@ -42,6 +42,7 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     public string? State { get; private set; }
     public bool IsActive { get; private set; }
     public bool MustChangePassword { get; private set; }
+    public bool ReceiveWhatsAppUpdates { get; private set; }
     public DateTime? LastLoginAt { get; private set; }
     public DateTime? PasswordChangedAt { get; private set; }
     public Guid? ActiveManagementCondominiumId { get; private set; }
@@ -122,6 +123,12 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     public void ClearActiveManagementCondominium()
     {
         ActiveManagementCondominiumId = null;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetReceiveWhatsAppUpdates(bool enabled)
+    {
+        ReceiveWhatsAppUpdates = enabled;
         UpdatedAt = DateTime.UtcNow;
     }
 

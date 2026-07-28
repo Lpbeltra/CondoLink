@@ -25,4 +25,8 @@
     <ProjectReference Include="..\CondoLink.Api\CondoLink.Api.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Fixtures\WhatsApp\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

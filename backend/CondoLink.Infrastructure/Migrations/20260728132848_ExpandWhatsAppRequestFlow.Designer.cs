@@ -3,6 +3,7 @@ using System;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CondoLink.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260728132848_ExpandWhatsAppRequestFlow")]
+    partial class ExpandWhatsAppRequestFlow
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -137,17 +140,6 @@ namespace CondoLink.Infrastructure.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
-
-                    b.Property<string>("WhatsAppDisplayName")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("whatsapp_display_name");
-
-                    b.Property<bool>("WhatsAppUpdatesEnabled")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("whatsapp_updates_enabled");
 
                     b.HasKey("Id");
 
@@ -943,145 +935,6 @@ namespace CondoLink.Infrastructure.Migrations
                     b.ToTable("whatsapp_inbound_messages", (string)null);
                 });
 
-            modelBuilder.Entity("CondoLink.Domain.Entities.WhatsAppOutboundMessage", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<int>("AttemptCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("attempt_count");
-
-                    b.Property<Guid>("CondominiumId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("condominium_id");
-
-                    b.Property<string>("Content")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
-                        .HasColumnName("content");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<DateTime?>("DeliveredAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("delivered_at");
-
-                    b.Property<string>("DestinationPhone")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("destination_phone");
-
-                    b.Property<string>("ExternalMessageId")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("external_message_id");
-
-                    b.Property<DateTime?>("FailedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("failed_at");
-
-                    b.Property<string>("IdempotencyKey")
-                        .IsRequired()
-                        .HasMaxLength(250)
-                        .HasColumnType("character varying(250)")
-                        .HasColumnName("idempotency_key");
-
-                    b.Property<string>("LastErrorCode")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("last_error_code");
-
-                    b.Property<string>("LastErrorDescription")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("last_error_description");
-
-                    b.Property<int>("ManualRetryCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("manual_retry_count");
-
-                    b.Property<DateTime?>("NextAttemptAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("next_attempt_at");
-
-                    b.Property<int>("NotificationType")
-                        .HasColumnType("integer")
-                        .HasColumnName("notification_type");
-
-                    b.Property<DateTime?>("ReadAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("read_at");
-
-                    b.Property<Guid>("RequestId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("request_id");
-
-                    b.Property<Guid?>("RequestMessageId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("request_message_id");
-
-                    b.Property<int>("SendMode")
-                        .HasColumnType("integer")
-                        .HasColumnName("send_mode");
-
-                    b.Property<DateTime?>("SentAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("sent_at");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer")
-                        .HasColumnName("status");
-
-                    b.Property<string>("TemplateLanguage")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("template_language");
-
-                    b.Property<string>("TemplateName")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("template_name");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.Property<Guid>("Version")
-                        .IsConcurrencyToken()
-                        .HasColumnType("uuid")
-                        .HasColumnName("version");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ExternalMessageId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_whatsapp_outbound_external_message_id")
-                        .HasFilter("\"external_message_id\" IS NOT NULL");
-
-                    b.HasIndex("IdempotencyKey")
-                        .IsUnique()
-                        .HasDatabaseName("ux_whatsapp_outbound_idempotency_key");
-
-                    b.HasIndex("RequestId");
-
-                    b.HasIndex("RequestMessageId");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("CondominiumId", "CreatedAt");
-
-                    b.HasIndex("Status", "NextAttemptAt");
-
-                    b.ToTable("whatsapp_outbound_messages", (string)null);
-                });
-
             modelBuilder.Entity("CondoLink.Domain.Entities.WhatsAppSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1272,12 +1125,6 @@ namespace CondoLink.Infrastructure.Migrations
                     b.Property<bool>("PhoneNumberConfirmed")
                         .HasColumnType("boolean")
                         .HasColumnName("phone_number_confirmed");
-
-                    b.Property<bool>("ReceiveWhatsAppUpdates")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("receive_whatsapp_updates");
 
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("text")
@@ -1675,32 +1522,6 @@ namespace CondoLink.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("IdentifiedUserId")
                         .OnDelete(DeleteBehavior.SetNull);
-                });
-
-            modelBuilder.Entity("CondoLink.Domain.Entities.WhatsAppOutboundMessage", b =>
-                {
-                    b.HasOne("CondoLink.Domain.Entities.Condominium", null)
-                        .WithMany()
-                        .HasForeignKey("CondominiumId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CondoLink.Domain.Entities.Request", null)
-                        .WithMany()
-                        .HasForeignKey("RequestId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CondoLink.Domain.Entities.RequestMessage", null)
-                        .WithMany()
-                        .HasForeignKey("RequestMessageId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("CondoLink.Infrastructure.Identity.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("CondoLink.Domain.Entities.WhatsAppSession", b =>

@@ -32,6 +32,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RequestMessage> RequestMessages => Set<RequestMessage>();
     public DbSet<RequestAttachment> RequestAttachments => Set<RequestAttachment>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<WhatsAppInboundMessage> WhatsAppInboundMessages =>
+        Set<WhatsAppInboundMessage>();
+    public DbSet<WhatsAppSession> WhatsAppSessions => Set<WhatsAppSession>();
+    public DbSet<WhatsAppDraftAttachment> WhatsAppDraftAttachments =>
+        Set<WhatsAppDraftAttachment>();
+    public DbSet<WhatsAppOutboundMessage> WhatsAppOutboundMessages =>
+        Set<WhatsAppOutboundMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

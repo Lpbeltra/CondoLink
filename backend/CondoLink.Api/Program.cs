@@ -14,6 +14,7 @@ using CondoLink.Api.Features.Requests;
 using CondoLink.Api.Features.UnitMemberships;
 using CondoLink.Api.Features.Units;
 using CondoLink.Api.Features.Users;
+using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.OpenApi;
@@ -29,6 +30,16 @@ builder.Services.AddOpenApi();
 builder.Services.AddScoped<CondominiumMembershipService>();
 builder.Services.AddScoped<ManagerOnboardingService>();
 builder.Services.AddScoped<NotificationService>();
+builder.Services.AddScoped<WhatsAppNotificationDispatcher>();
+builder.Services.Configure<WhatsAppOptions>(
+    builder.Configuration.GetSection(WhatsAppOptions.SectionName));
+builder.Services.AddScoped<WhatsAppConversationService>();
+builder.Services.AddHostedService<WhatsAppOutboundWorker>();
+builder.Services.AddHttpClient<IWhatsAppClient, MetaWhatsAppClient>(client =>
+{
+    client.BaseAddress = new Uri("https://graph.facebook.com/");
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
 
 builder.Services.AddSwaggerGen(options =>
 {
@@ -196,6 +207,10 @@ app.MapNotifications();
 app.MapCreateRequestMessage();
 app.MapListRequestMessages();
 app.MapRequestAttachments();
+
+// External integrations
+app.MapWhatsAppWebhook();
+app.MapWhatsAppAdministration();
 
 // Overwatch
 app.MapOverwatchEndpoints();

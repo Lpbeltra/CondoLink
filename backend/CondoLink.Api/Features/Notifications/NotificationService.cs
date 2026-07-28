@@ -3,6 +3,7 @@ using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using DomainRequest = CondoLink.Domain.Entities.Request;
+using CondoLink.Api.Features.WhatsApp;
 
 namespace CondoLink.Api.Features.Notifications;
 
@@ -12,7 +13,9 @@ namespace CondoLink.Api.Features.Notifications;
 /// Fan-out rules live here rather than in the endpoints so the "who should be
 /// told" decision is in one place and directly testable.
 /// </summary>
-public sealed class NotificationService(AppDbContext dbContext)
+public sealed class NotificationService(
+    AppDbContext dbContext,
+    WhatsAppNotificationDispatcher? whatsApp = null)
 {
     /// <summary>
     /// Notifies the managers of a condominium that a new request was opened.
@@ -45,7 +48,8 @@ public sealed class NotificationService(AppDbContext dbContext)
         DomainRequest request,
         RequestStatus previousStatus,
         Guid changedByUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? statusHistoryId = null)
     {
         if (changedByUserId == request.AuthorUserId) return;
 
@@ -58,6 +62,24 @@ public sealed class NotificationService(AppDbContext dbContext)
             request.Id));
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        if (whatsApp is not null && statusHistoryId.HasValue)
+        {
+            var type = request.Status switch
+            {
+                RequestStatus.WaitingForResident =>
+                    WhatsAppNotificationType.InformationRequested,
+                RequestStatus.Resolved => WhatsAppNotificationType.RequestResolved,
+                RequestStatus.Cancelled => WhatsAppNotificationType.RequestCancelled,
+                RequestStatus.Open when previousStatus is RequestStatus.Resolved
+                    or RequestStatus.Cancelled => WhatsAppNotificationType.RequestReopened,
+                _ => WhatsAppNotificationType.StatusChanged
+            };
+            await whatsApp.EnqueueAsync(
+                request.Id, type, $"request-status:{statusHistoryId}",
+                $"A solicitação #{request.Id.ToString("N")[..8].ToUpperInvariant()} "
+                + $"foi atualizada: {Describe(previousStatus)} → {Describe(request.Status)}.",
+                null, cancellationToken);
+        }
     }
 
     /// <summary>
@@ -71,7 +93,9 @@ public sealed class NotificationService(AppDbContext dbContext)
         string requestTitle,
         Guid messageAuthorUserId,
         string content,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? requestMessageId = null,
+        MessageChannel channel = MessageChannel.Portal)
     {
         Guid[] recipients = messageAuthorUserId == requestAuthorUserId
             ? await ManagerIdsAsync(condominiumId, messageAuthorUserId, cancellationToken)
@@ -88,6 +112,21 @@ public sealed class NotificationService(AppDbContext dbContext)
                 requestId)));
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        if (whatsApp is not null
+            && requestMessageId.HasValue
+            && messageAuthorUserId != requestAuthorUserId
+            && channel != MessageChannel.WhatsApp)
+        {
+            await whatsApp.EnqueueAsync(
+                requestId,
+                WhatsAppNotificationType.AdministrationMessage,
+                $"request-message:{requestMessageId}",
+                $"A administração enviou uma mensagem na solicitação "
+                + $"#{requestId.ToString("N")[..8].ToUpperInvariant()}: "
+                + Shorten(content, 300),
+                requestMessageId,
+                cancellationToken);
+        }
     }
 
     /// <summary>Active managers of a condominium, excluding one user.</summary>

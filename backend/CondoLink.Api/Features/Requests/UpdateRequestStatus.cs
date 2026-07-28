@@ -145,7 +145,8 @@ public static class UpdateRequestStatus
         try
         {
             await notifications.NotifyStatusChangedAsync(
-                targetRequest, previousStatus, authenticatedUserId, cancellationToken);
+                targetRequest, previousStatus, authenticatedUserId,
+                cancellationToken, history.Id);
         }
         catch (Exception exception)
         {

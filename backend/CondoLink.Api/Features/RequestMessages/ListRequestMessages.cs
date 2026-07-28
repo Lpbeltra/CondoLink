@@ -109,6 +109,7 @@ public static class ListRequestMessages
                     AuthorUserId = user.Id,
                     AuthorFullName = user.FullName,
                     message.Content,
+                    message.Channel,
                     message.CreatedAt
                 })
             .OrderBy(message => message.CreatedAt)
@@ -141,6 +142,7 @@ public static class ListRequestMessages
                     message.AuthorFullName,
                     managerUserIds.Contains(message.AuthorUserId)),
                 message.Content,
+                message.Channel.ToString(),
                 message.CreatedAt))
             .ToArray();
 
@@ -154,5 +156,6 @@ public static class ListRequestMessages
         Guid RequestId,
         AuthorResponse Author,
         string Content,
+        string Channel,
         DateTime CreatedAt);
 }

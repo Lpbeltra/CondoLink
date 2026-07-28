@@ -18,6 +18,7 @@ using CondoLink.Api.Features.UnitMemberships;
 using CondoLink.Api.Features.Units;
 using CondoLink.Api.Features.Overwatch.Managers;
 using CondoLink.Api.Features.Users;
+using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -55,6 +56,9 @@ public sealed class EndpointAuthorizationCoverageTests
         "/auth/change-temporary-password",
         // Liveness probe: reports only reachability, no tenant data.
         "/health",
+        // Meta verifies and delivers the webhook without a CondoLink JWT.
+        // Authenticity of POST deliveries is enforced by HMAC-SHA256.
+        "/integrations/whatsapp/webhook",
     };
 
     [Fact]
@@ -259,6 +263,8 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapCreateRequestMessage();
         app.MapListRequestMessages();
         app.MapRequestAttachments();
+        app.MapWhatsAppWebhook();
+        app.MapWhatsAppAdministration();
 
         app.MapOverwatchEndpoints();
     }

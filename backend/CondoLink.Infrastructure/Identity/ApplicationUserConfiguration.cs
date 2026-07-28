@@ -44,6 +44,8 @@ public sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Appl
         builder.Property(user => user.MustChangePassword)
             .HasColumnName("must_change_password")
             .IsRequired();
+        builder.Property(user => user.ReceiveWhatsAppUpdates)
+            .HasColumnName("receive_whatsapp_updates").HasDefaultValue(false).IsRequired();
 
         builder.Property(user => user.LastLoginAt)
             .HasColumnName("last_login_at");

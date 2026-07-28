@@ -33,11 +33,20 @@ public sealed class Condominium
     public Guid? ManagementCompanyId { get; private set; }
     public ManagementCompany? ManagementCompany { get; private set; }
     public bool IsActive { get; private set; }
+    public bool WhatsAppUpdatesEnabled { get; private set; }
+    public string? WhatsAppDisplayName { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
 
     public void SetActiveStatus(bool isActive) { IsActive = isActive; UpdatedAt = DateTime.UtcNow; }
     public void SetManagementCompany(Guid? id) { ManagementCompanyId = id; UpdatedAt = DateTime.UtcNow; }
+    public void ConfigureWhatsAppUpdates(bool enabled, string? displayName)
+    {
+        WhatsAppUpdatesEnabled = enabled;
+        WhatsAppDisplayName = string.IsNullOrWhiteSpace(displayName)
+            ? null : displayName.Trim();
+        UpdatedAt = DateTime.UtcNow;
+    }
 
     public void Update(
         string name, string? email, string? cnpj, string? address, string? city,

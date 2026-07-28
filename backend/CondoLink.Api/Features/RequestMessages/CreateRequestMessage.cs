@@ -143,7 +143,9 @@ public static class CreateRequestMessage
                 targetRequest.Title,
                 authenticatedUserId,
                 content,
-                cancellationToken);
+                cancellationToken,
+                message.Id,
+                message.Channel);
         }
         catch (Exception exception)
         {
@@ -177,6 +179,7 @@ public static class CreateRequestMessage
             message.RequestId,
             new AuthorResponse(message.AuthorUserId, authenticatedUser.FullName, authorIsManager),
             message.Content,
+            message.Channel.ToString(),
             message.CreatedAt);
 
         return Results.Created($"/request-messages/{message.Id}", response);
@@ -196,5 +199,6 @@ public static class CreateRequestMessage
         Guid RequestId,
         AuthorResponse Author,
         string Content,
+        string Channel,
         DateTime CreatedAt);
 }

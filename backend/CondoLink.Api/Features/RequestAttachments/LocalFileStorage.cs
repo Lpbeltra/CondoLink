@@ -26,6 +26,39 @@ public sealed class LocalFileStorage
         return storageKey;
     }
 
+    public async Task<string> SaveWhatsAppDraftAsync(
+        Guid sessionId,
+        ReadOnlyMemory<byte> content,
+        string extension,
+        CancellationToken cancellationToken)
+    {
+        var storageKey = Path.Combine(
+                "whatsapp-drafts", sessionId.ToString(), $"{Guid.NewGuid():N}{extension}")
+            .Replace('\\', '/');
+        var fullPath = Resolve(storageKey);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        await using var output = new FileStream(
+            fullPath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+            81920, FileOptions.Asynchronous);
+        await output.WriteAsync(content, cancellationToken);
+        return storageKey;
+    }
+
+    public string PromoteWhatsAppDraft(
+        Guid requestId,
+        string temporaryStorageKey,
+        string extension)
+    {
+        var source = Resolve(temporaryStorageKey);
+        var destinationKey = Path.Combine(
+                "requests", requestId.ToString(), $"{Guid.NewGuid():N}{extension}")
+            .Replace('\\', '/');
+        var destination = Resolve(destinationKey);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        File.Copy(source, destination);
+        return destinationKey;
+    }
+
     public FileStream? OpenRead(string storageKey)
     {
         var fullPath = Resolve(storageKey);
