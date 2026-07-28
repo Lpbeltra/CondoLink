@@ -17,33 +17,46 @@ interface NavigationItem {
   platformAdminOnly?: boolean
 }
 
-export const managementEntryPath = '/management/requests'
+export const managementEntryPath = '/management/dashboard'
 
 const commonItems: NavigationItem[] = [
   { label: 'Início', path: '/', icon: HomeRoundedIcon },
   { label: 'Solicitações', path: '/requests', icon: ForumRoundedIcon },
-  { label: 'Atendimento', path: managementEntryPath, icon: SupportAgentRoundedIcon, requiredRole: 'Manager' },
+  { label: 'Atendimento', path: '/management/requests', icon: SupportAgentRoundedIcon, requiredRole: 'Manager' },
   { label: 'Gestão', path: '/management/units', icon: ApartmentRoundedIcon, requiredRole: 'Manager' },
-  { label: 'Relatórios', path: '/management/reports', icon: AssessmentRoundedIcon, requiredRole: 'Manager' },
+  { label: 'Dashboard', path: '/management/dashboard', icon: AssessmentRoundedIcon, requiredRole: 'Manager' },
   { label: 'Overwatch', path: '/overwatch', icon: AdminPanelSettingsRoundedIcon, platformAdminOnly: true },
 ]
 
 // Roles shape the visible UI only. Every real operation must still be authorized by the API.
 export function getNavigationItems(roles: CondominiumRole[], userRoles: string[] = []) {
+  const managerOnly = roles.includes('Manager')
+    && !userRoles.includes('PlatformAdmin')
   return commonItems.filter((item) =>
     (!item.requiredRole || roles.includes(item.requiredRole))
-    && (!item.platformAdminOnly || userRoles.includes('PlatformAdmin')))
+    && (!item.platformAdminOnly || userRoles.includes('PlatformAdmin'))
+    && !(managerOnly && item.path === '/'))
 }
 
 export function getMobileNavigationItems(roles: CondominiumRole[], userRoles: string[] = []) {
   const items = getNavigationItems(roles, userRoles)
   if (!roles.includes('Manager')) return items
-  const overwatch = items.find((item) => item.path === '/overwatch')
-  return [items[0], items[1], ...(overwatch ? [overwatch] : []), { label: 'Mais', path: '/more', icon: MoreHorizRoundedIcon }]
+  const primary = items.filter(item =>
+    item.path === '/management/dashboard'
+    || item.path === '/requests'
+    || item.path === '/overwatch')
+  return [...primary.slice(0, 3), {
+    label: 'Mais',
+    path: '/more',
+    icon: MoreHorizRoundedIcon,
+  }]
 }
 
 export function getMobileSelectedPath(pathname: string) {
   if (pathname.startsWith('/overwatch')) return '/overwatch'
+  if (pathname.startsWith('/management/dashboard')
+    || pathname.startsWith('/management/reports'))
+    return '/management/dashboard'
   if (pathname === '/more' || pathname.startsWith('/management')) return '/more'
   if (pathname.startsWith('/requests')) return '/requests'
   return '/'

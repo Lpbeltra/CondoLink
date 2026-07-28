@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import NotificationsNoneRoundedIcon from '@mui/icons-material/NotificationsNoneRounded'
 import DoneAllRoundedIcon from '@mui/icons-material/DoneAllRounded'
 import {
-  Badge, Box, Button, CircularProgress, Divider, IconButton, List, ListItemButton,
+  Alert, Badge, Box, Button, CircularProgress, Divider, IconButton, List, ListItemButton,
   Menu, Tooltip, Typography, alpha,
 } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
@@ -26,6 +26,7 @@ export function NotificationBell() {
   const [items, setItems] = useState<AppNotification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
+  const [feedback, setFeedback] = useState('')
   const loadVersion = useRef(0)
 
   const refresh = useCallback(async () => {
@@ -79,7 +80,9 @@ export function NotificationBell() {
     setUnreadCount(0)
     try {
       await markAllNotificationsRead()
+      setFeedback('Todas as notificações foram marcadas como lidas.')
     } catch {
+      setFeedback('')
       void refresh()
     }
   }
@@ -124,17 +127,21 @@ export function NotificationBell() {
           gap={1}
         >
           <Typography fontWeight={750}>Notificações</Typography>
-          {countUnread(items) > 0 && (
-            <Button
-              size="small"
-              startIcon={<DoneAllRoundedIcon />}
-              onClick={handleMarkAll}
-            >
-              Marcar todas
-            </Button>
-          )}
+          <Button
+            size="small"
+            startIcon={<DoneAllRoundedIcon />}
+            onClick={handleMarkAll}
+            disabled={countUnread(items) === 0}
+          >
+            Limpar todas
+          </Button>
         </Box>
         <Divider />
+        {feedback && (
+          <Alert severity="success" sx={{ m: 1 }}>
+            {feedback}
+          </Alert>
+        )}
 
         {isLoading && items.length === 0 ? (
           <Box display="grid" sx={{ placeItems: 'center' }} py={4}>

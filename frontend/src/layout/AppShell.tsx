@@ -25,7 +25,7 @@ export function AppShell() {
     <PageContainer><Stack spacing={2}><Skeleton variant="rounded" height={180} /><Skeleton width="55%" /><Skeleton width="35%" /></Stack></PageContainer>
   ) : error ? (
     <PageContainer><EmptyState title="Não foi possível carregar seus condomínios" description={error} action={<Button variant="contained" onClick={() => void refreshCondominiums()}>Tentar novamente</Button>} /></PageContainer>
-  ) : !currentCondominium ? (
+  ) : !hasContext && !hasPlatformAdminAccess(user) ? (
     <PageContainer><EmptyState title="Nenhum condomínio disponível" description="Sua conta ainda não possui acesso a um condomínio. Entre em contato com o responsável pela administração." /></PageContainer>
   ) : <Outlet />
 

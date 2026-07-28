@@ -77,9 +77,7 @@ public static class CreateRequestMessage
             return Results.NotFound(new { error = "Request not found." });
         }
 
-        if (targetRequest.AuthorUserId != authenticatedUserId)
-        {
-            var isCondominiumManager = await dbContext.CondominiumMemberships
+        var isCondominiumManager = await dbContext.CondominiumMemberships
                 .AsNoTracking()
                 .Where(membership =>
                     membership.UserId == authenticatedUserId
@@ -98,13 +96,18 @@ public static class CreateRequestMessage
                     (_, _) => true)
                 .AnyAsync(cancellationToken);
 
-            if (!isCondominiumManager)
-            {
-                return Results.Json(
-                    new { error = "You do not have access to this request." },
-                    statusCode: StatusCodes.Status403Forbidden);
-            }
+        if (targetRequest.AuthorUserId != authenticatedUserId
+            && !isCondominiumManager)
+        {
+            return Results.Json(
+                new { error = "You do not have access to this request." },
+                statusCode: StatusCodes.Status403Forbidden);
         }
+
+        if (!isCondominiumManager
+            && targetRequest.Status is RequestStatus.Resolved
+                or RequestStatus.Cancelled)
+            return ClosedForResident();
 
         if (targetRequest.Status == RequestStatus.Cancelled)
         {
@@ -178,6 +181,12 @@ public static class CreateRequestMessage
 
         return Results.Created($"/request-messages/{message.Id}", response);
     }
+
+    private static IResult ClosedForResident() => Results.Conflict(new
+    {
+        error =
+            "Esta solicitação está encerrada e disponível somente para consulta."
+    });
 
     public sealed record RequestDto(string? Content);
     public sealed record AuthorResponse(Guid Id, string FullName, bool IsManager);

@@ -7,10 +7,11 @@ import { useAuth } from '../auth/AuthContext'
 import { PageContainer } from '../components/PageContainer'
 import { useCondominium } from '../condominiums/CondominiumContext'
 import { getAccessMessage } from '../condominiums/presentation'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useManagementContext } from '../management/ManagementContext'
 import { ManagementCondominiumSwitcher } from '../management/components/ManagementCondominiumSwitcher'
 import { managementHomeState } from '../management/contextState'
+import { hasPlatformAdminAccess } from '../auth/permissions'
 
 export function HomePage() {
   const { user } = useAuth()
@@ -40,6 +41,9 @@ export function HomePage() {
         <Skeleton variant="rounded" height={280} />
       </PageContainer>
     )
+  }
+  if (condominiumCount > 0 && !hasPlatformAdminAccess(user)) {
+    return <Navigate to="/management/dashboard" replace />
   }
   return (
     <PageContainer>

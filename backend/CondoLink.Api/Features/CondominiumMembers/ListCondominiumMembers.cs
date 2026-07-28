@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CondoLink.Domain.Enums;
+using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -87,7 +88,9 @@ public static class ListCondominiumMembers
                 (_, _) => true)
             .AnyAsync(cancellationToken);
 
-        if (!isCondominiumManager)
+        if (!isCondominiumManager
+            && !principal.IsInRole(
+                DependencyInjection.PlatformAdminRole))
         {
             return Results.Json(
                 new { error = "Only condominium managers can view members." },
@@ -114,6 +117,11 @@ public static class ListCondominiumMembers
                     user.FullName,
                     user.Email,
                     user.PhoneNumber,
+                    user.Cpf,
+                    user.Cnpj,
+                    user.Address,
+                    user.City,
+                    user.State,
                     UserActive = user.IsActive,
                     user.MustChangePassword,
                     user.LastLoginAt,
@@ -124,6 +132,39 @@ public static class ListCondominiumMembers
                 })
             .ToListAsync(cancellationToken);
 
+        var unitLinks = await (
+                from link in dbContext.UnitMemberships.AsNoTracking()
+                join unit in dbContext.Units.AsNoTracking()
+                    on link.UnitId equals unit.Id
+                join block in dbContext.CondominiumBlocks.AsNoTracking()
+                    on unit.BlockId equals block.Id into blocks
+                from block in blocks.DefaultIfEmpty()
+                where unit.CondominiumId == condominiumId
+                    && link.IsActive
+                    && link.EndedAt == null
+                select new
+                {
+                    link.UserId,
+                    Link = new UnitLinkResponse(
+                        link.Id,
+                        unit.Id,
+                        unit.Identifier,
+                        block == null ? null : block.Identifier,
+                        link.RelationshipType.ToString(),
+                        link.IsResident,
+                        link.IsPrimaryResidence)
+                })
+            .ToListAsync(cancellationToken);
+        var linksByUser = unitLinks
+            .GroupBy(item => item.UserId)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<UnitLinkResponse>)group
+                    .Select(item => item.Link)
+                    .OrderBy(item => item.Block)
+                    .ThenBy(item => item.UnitIdentifier)
+                    .ToArray());
+
         var response = rows
             .GroupBy(row => new
             {
@@ -132,6 +173,11 @@ public static class ListCondominiumMembers
                 row.FullName,
                 row.Email,
                 row.PhoneNumber,
+                row.Cpf,
+                row.Cnpj,
+                row.Address,
+                row.City,
+                row.State,
                 row.UserActive,
                 row.MustChangePassword,
                 row.LastLoginAt,
@@ -145,6 +191,11 @@ public static class ListCondominiumMembers
                 group.Key.FullName,
                 group.Key.Email!,
                 group.Key.PhoneNumber,
+                group.Key.Cpf,
+                group.Key.Cnpj,
+                group.Key.Address,
+                group.Key.City,
+                group.Key.State,
                 group.Key.UserActive,
                 group.Key.MustChangePassword,
                 group.Key.LastLoginAt,
@@ -155,7 +206,10 @@ public static class ListCondominiumMembers
                     .Where(row => row.Role.HasValue)
                     .OrderBy(row => row.Role)
                     .Select(row => row.Role!.Value.ToString())
-                    .ToArray()))
+                    .ToArray(),
+                linksByUser.GetValueOrDefault(
+                    group.Key.UserId,
+                    [])))
             .OrderBy(member => member.FullName)
             .ToArray();
 
@@ -168,11 +222,26 @@ public static class ListCondominiumMembers
         string FullName,
         string Email,
         string? PhoneNumber,
+        string? Cpf,
+        string? Cnpj,
+        string? Address,
+        string? City,
+        string? State,
         bool UserActive,
         bool MustChangePassword,
         DateTime? LastLoginAt,
         bool MembershipActive,
         DateTime JoinedAt,
         DateTime? EndedAt,
-        IReadOnlyList<string> Roles);
+        IReadOnlyList<string> Roles,
+        IReadOnlyList<UnitLinkResponse> UnitLinks);
+
+    public sealed record UnitLinkResponse(
+        Guid UnitMembershipId,
+        Guid UnitId,
+        string UnitIdentifier,
+        string? Block,
+        string RelationshipType,
+        bool IsResident,
+        bool IsPrimaryResidence);
 }

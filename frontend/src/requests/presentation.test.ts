@@ -20,9 +20,10 @@ describe('request presentation', () => {
     expect(formatRelativeDate('2026-07-16T11:55:00Z', new Date('2026-07-16T12:00:00Z'))).toBe('Atualizada há 5 min')
   })
 
-  it('blocks messages only for cancelled requests', () => {
+  it('blocks messages for both closed request states', () => {
     expect(canSendMessage('Cancelled')).toBe(false)
-    expect(canSendMessage('Resolved')).toBe(true)
+    expect(canSendMessage('Resolved')).toBe(false)
+    expect(canSendMessage('Open')).toBe(true)
   })
 
   it('maps a network failure without exposing technical details', () => {

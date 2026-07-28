@@ -1,4 +1,4 @@
-import { Drawer, List, ListItemButton, ListItemIcon, ListItemText, Toolbar } from '@mui/material'
+import { Box, Drawer, List, ListItemButton, ListItemIcon, ListItemText, Toolbar } from '@mui/material'
 import { NavLink } from 'react-router-dom'
 import { Brand } from '../components/Brand'
 import { useCondominium } from '../condominiums/CondominiumContext'
@@ -21,7 +21,7 @@ export function Sidebar() {
   )
   return (
     <Drawer variant="permanent" sx={{ display: { xs: 'none', md: 'block' }, width: drawerWidth, '& .MuiDrawer-paper': { width: drawerWidth, borderRight: '1px solid', borderColor: 'divider', bgcolor: 'background.default' } }}>
-      <Toolbar sx={{ minHeight: '72px !important', px: 3 }}><Brand /></Toolbar>
+      <Toolbar sx={{ minHeight: '72px !important', px: 3 }}><Box component={NavLink} to={condominiumCount > 0 ? '/management/dashboard' : '/'} aria-label="Ir para a página principal" sx={{ color:'inherit',textDecoration:'none' }}><Brand /></Box></Toolbar>
       <List component="nav" aria-label="Navegação principal" sx={{ px: 1.5, pt: 2 }}>
         {navigationItems.map(({ label, path, icon: Icon }) => (
           <ListItemButton key={path} component={NavLink} to={path} sx={{ borderRadius: 2.5, mb: .5, color: 'text.secondary', '&.active': { bgcolor: 'rgba(31,94,255,.09)', color: 'primary.main' }, '&:hover': { bgcolor: 'rgba(31,94,255,.06)' } }}>

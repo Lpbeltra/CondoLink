@@ -8,8 +8,10 @@ const http = vi.hoisted(() => ({
 vi.mock('../services/api', () => ({ api: http }))
 
 import {
+  createRequest,
   deleteRequestAttachment,
   getRequestAttachmentBlob,
+  listMyRequestUnits,
   listManagementRequests,
   uploadRequestAttachments,
 } from './api'
@@ -42,6 +44,33 @@ describe('management requests API', () => {
           condominiumId: 'condominium-id',
         },
       },
+    )
+  })
+})
+
+describe('request target unit API', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('loads only the current resident units and sends the selected unit', async () => {
+    http.get.mockResolvedValueOnce({ data: [] })
+    http.post.mockResolvedValueOnce({ data: { id: 'request-id' } })
+
+    await listMyRequestUnits('condominium-id')
+    await createRequest('condominium-id', {
+      categoryId: 'category-id',
+      targetUnitId: 'unit-id',
+      title: 'Vazamento',
+      description: 'Descrição',
+    })
+
+    expect(http.get).toHaveBeenCalledWith(
+      '/condominiums/condominium-id/units/mine',
+    )
+    expect(http.post).toHaveBeenCalledWith(
+      '/condominiums/condominium-id/requests',
+      expect.objectContaining({ targetUnitId: 'unit-id' }),
     )
   })
 })

@@ -7,6 +7,7 @@ import type {
   OnboardResult,
   RelationshipType,
   TemporaryPasswordResult,
+  UpdatedCondominiumMember,
   Unit,
   UnitMembership,
 } from './types'
@@ -34,6 +35,29 @@ export const resetMemberTemporaryPassword = async (condominiumId: string, userId
   (await api.post<TemporaryPasswordResult>(
     `/condominiums/${condominiumId}/members/${userId}/reset-temporary-password`,
   )).data
+export const updateCondominiumMember = async (
+  condominiumId: string,
+  userId: string,
+  payload: {
+    fullName: string
+    email: string
+    phoneNumber: string | null
+    cpf: string | null
+    cnpj: string | null
+    address: string | null
+    city: string | null
+    state: string | null
+    membershipActive: boolean
+    unitMembershipId: string | null
+    unitId: string | null
+    relationshipType: RelationshipType | null
+    isResident: boolean
+    isPrimaryResidence: boolean
+  },
+) => (await api.put<UpdatedCondominiumMember>(
+  `/condominiums/${condominiumId}/members/${userId}`,
+  payload,
+)).data
 export const getManagementContext = async () =>
   (await api.get<ManagementContextResponse>('/management/context')).data
 

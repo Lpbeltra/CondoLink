@@ -36,7 +36,7 @@ describe('RequestAttachments', () => {
   it('selects multiple files and removes one before upload', async () => {
     const user = userEvent.setup()
     const { container } = render(
-      <RequestAttachments requestId="request-id" cancelled={false} />,
+      <RequestAttachments requestId="request-id" readOnly={false} />,
     )
     const input = container.querySelector<HTMLInputElement>(
       'input[type="file"]',
@@ -76,7 +76,7 @@ describe('RequestAttachments', () => {
 
     const user = userEvent.setup()
     const { container } = render(
-      <RequestAttachments requestId="request-id" cancelled={false} />,
+      <RequestAttachments requestId="request-id" readOnly={false} />,
     )
     const input = container.querySelector<HTMLInputElement>(
       'input[type="file"]',
@@ -108,7 +108,7 @@ describe('RequestAttachments', () => {
     attachmentApi.listRequestAttachments.mockResolvedValue([attachment()])
     const user = userEvent.setup()
     render(
-      <RequestAttachments requestId="request-id" cancelled={false} />,
+      <RequestAttachments requestId="request-id" readOnly={false} />,
     )
 
     await user.click(await screen.findByRole('button', {
@@ -125,5 +125,21 @@ describe('RequestAttachments', () => {
       'attachment-id',
     )
     expect(attachmentApi.listRequestAttachments).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps existing downloads visible but hides mutations in read-only mode', async () => {
+    attachmentApi.listRequestAttachments.mockResolvedValue([attachment()])
+
+    render(<RequestAttachments requestId="request-id" readOnly />)
+
+    expect(await screen.findByRole('button', {
+      name: 'Baixar documento.pdf',
+    })).toBeInTheDocument()
+    expect(screen.queryByRole('button', {
+      name: 'Excluir documento.pdf',
+    })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', {
+      name: 'Adicionar anexos',
+    })).not.toBeInTheDocument()
   })
 })

@@ -33,7 +33,7 @@ describe('user profile area switcher', () => {
 
     expect(action).toEqual({
       label: 'Voltar ao acesso de síndico',
-      path: '/management/requests',
+      path: '/management/dashboard',
       kind: 'management',
     })
     expect(action?.label).not.toBe('Ir para Overwatch')

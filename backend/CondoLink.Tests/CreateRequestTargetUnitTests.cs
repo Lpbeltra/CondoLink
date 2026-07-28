@@ -67,6 +67,47 @@ public sealed class CreateRequestTargetUnitTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Automatic_resolution_returns_the_only_active_unit()
+    {
+        var units = await CreateRequest.ActiveUnitIdsAsync(
+            _db, _resident.Id, _condominium.Id);
+
+        Assert.Equal([_ownUnit.Id], units);
+    }
+
+    [Fact]
+    public async Task Automatic_resolution_detects_multiple_units_and_requires_selection()
+    {
+        _db.UnitMemberships.Add(new UnitMembership(
+            _resident.Id, _otherUnit.Id, UnitRelationshipType.Tenant, true, false));
+        await _db.SaveChangesAsync();
+
+        var units = await CreateRequest.ActiveUnitIdsAsync(
+            _db, _resident.Id, _condominium.Id);
+
+        Assert.Equal(2, units.Length);
+    }
+
+    [Fact]
+    public async Task Automatic_resolution_allows_no_unit_without_using_another_condominium()
+    {
+        var membership = await _db.UnitMemberships.SingleAsync();
+        membership.End(DateTime.UtcNow);
+        var otherCondominium = new Condominium("Residencial Beta", null, null);
+        var foreignUnit = new Unit(
+            otherCondominium.Id, "201", null, null, null);
+        _db.AddRange(otherCondominium, foreignUnit);
+        _db.UnitMemberships.Add(new UnitMembership(
+            _resident.Id, foreignUnit.Id, UnitRelationshipType.Owner, true, true));
+        await _db.SaveChangesAsync();
+
+        var units = await CreateRequest.ActiveUnitIdsAsync(
+            _db, _resident.Id, _condominium.Id);
+
+        Assert.Empty(units);
+    }
+
+    [Fact]
     public async Task Resident_is_not_a_manager_so_cannot_target_another_unit()
     {
         var occupies = await OccupiesAsync(_resident.Id, _otherUnit.Id);

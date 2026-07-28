@@ -145,7 +145,7 @@ describe('NotificationBell', () => {
     expect(navigate).toHaveBeenCalledWith('/requests/r1')
   })
 
-  it('offers "mark all" only while something is unread', async () => {
+  it('disables "clear all" when nothing is unread', async () => {
     const user = userEvent.setup()
     listNotifications.mockResolvedValue({
       items: [notification({ readAt: new Date().toISOString() })],
@@ -157,7 +157,7 @@ describe('NotificationBell', () => {
     await user.click(screen.getByRole('button'))
     await screen.findByText('Notificações')
 
-    expect(screen.queryByRole('button', { name: /Marcar todas/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Limpar todas/ })).toBeDisabled()
   })
 
   it('marks every notification read from the header action', async () => {
@@ -170,9 +170,10 @@ describe('NotificationBell', () => {
     await waitFor(() => expect(listNotifications).toHaveBeenCalled())
 
     await user.click(screen.getByRole('button', { name: /Notificações/ }))
-    await user.click(await screen.findByRole('button', { name: /Marcar todas/ }))
+    await user.click(await screen.findByRole('button', { name: /Limpar todas/ }))
 
     await waitFor(() => expect(markAllNotificationsRead).toHaveBeenCalled())
+    expect(await screen.findByText('Todas as notificações foram marcadas como lidas.')).toBeInTheDocument()
   })
 
   it('survives a failed poll without crashing the shell', async () => {

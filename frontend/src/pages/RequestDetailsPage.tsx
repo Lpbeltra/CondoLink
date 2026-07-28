@@ -9,7 +9,7 @@ import { RequestConversation } from '../requests/components/RequestConversation'
 import { RequestPriorityChip } from '../requests/components/RequestPriorityChip'
 import { RequestStatusChip } from '../requests/components/RequestStatusChip'
 import { RequestTimeline } from '../requests/components/RequestTimeline'
-import { formatDateTime, getRequestError } from '../requests/presentation'
+import { formatDateTime, getRequestError, isClosedRequest } from '../requests/presentation'
 import type { RequestDetails, RequestMessage } from '../requests/types'
 import { RequestManagementActions } from '../requests/components/RequestManagementActions'
 import { RequestAttachments } from '../requests/components/RequestAttachments'
@@ -53,10 +53,12 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
   if (!details) return null
 
   const unit = details.targetUnit && `${details.targetUnit.block ? `Bloco ${details.targetUnit.block} · ` : ''}${details.targetUnit.identifier}`
+  const residentReadOnly = !managementMode && isClosedRequest(details.status)
   return (
     <PageContainer>
       <Button startIcon={<ArrowBackRoundedIcon />} color="inherit" onClick={() => navigate(returnPath)} sx={{ mb: 2 }}>Voltar</Button>
       {(location.state as { created?: boolean } | null)?.created && <Alert severity="success" sx={{ mb: 2 }}>Solicitação aberta com sucesso.</Alert>}
+      {residentReadOnly && <Alert severity="info" sx={{ mb: 2 }}>Esta solicitação está encerrada e disponível somente para consulta.</Alert>}
       <Grid container spacing={3}>
         <Grid size={{ xs: 12, lg: 8 }}>
           <Card elevation={0}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}>
@@ -68,8 +70,8 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
             {unit && <><Divider sx={{ my: 3 }} /><Typography variant="h3" mb={1}>Unidade relacionada</Typography><Typography>{unit}</Typography></>}
           </CardContent></Card>
           {(managementMode || (isManager && details.condominiumId === expectedCondominiumId)) && <RequestManagementActions requestId={details.id} status={details.status} priority={details.priority} onUpdated={load} />}
-          <RequestAttachments requestId={details.id} cancelled={details.status === 'Cancelled'} />
-          <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}><Typography variant="h2" mb={.5}>Atualizações</Typography><Typography color="text.secondary" mb={3}>Registre novas informações e acompanhe o atendimento.</Typography><RequestConversation requestId={details.id} status={details.status} messages={messages} onMessageCreated={(message) => setMessages((current) => [...current, message])} /></CardContent></Card>
+          <RequestAttachments requestId={details.id} readOnly={residentReadOnly} />
+          <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}><Typography variant="h2" mb={.5}>Atualizações</Typography><Typography color="text.secondary" mb={3}>{residentReadOnly ? 'Consulte o histórico de mensagens do atendimento.' : 'Registre novas informações e acompanhe o atendimento.'}</Typography><RequestConversation requestId={details.id} status={details.status} messages={messages} readOnly={residentReadOnly} onMessageCreated={(message) => setMessages((current) => [...current, message])} /></CardContent></Card>
         </Grid>
         <Grid size={{ xs: 12, lg: 4 }}><Card elevation={0}><CardContent sx={{ p: { xs: 2.5, sm: 3 } }}><Typography variant="h2" mb={3}>Histórico de status</Typography><RequestTimeline history={details.statusHistory} /></CardContent></Card></Grid>
       </Grid>

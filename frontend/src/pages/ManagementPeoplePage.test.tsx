@@ -8,6 +8,7 @@ const managementApi = vi.hoisted(() => ({
   listUnits: vi.fn(),
   onboardMember: vi.fn(),
   resetMemberTemporaryPassword: vi.fn(),
+  updateCondominiumMember: vi.fn(),
 }))
 
 vi.mock('../management/api', () => managementApi)
@@ -32,6 +33,7 @@ const member: CondominiumMember = {
   joinedAt: '2026-07-28T10:00:00Z',
   endedAt: null,
   roles: ['Resident'],
+  unitLinks: [],
 }
 
 describe('ManagementPeoplePage password reset', () => {
@@ -43,6 +45,19 @@ describe('ManagementPeoplePage password reset', () => {
       fullName: member.fullName,
       email: member.email,
       temporaryPassword: 'NovaTemporaria1',
+    })
+    managementApi.updateCondominiumMember.mockResolvedValue({
+      userId: member.userId,
+      fullName: 'Maria Atualizada',
+      email: member.email,
+      phoneNumber: null,
+      cpf: null,
+      cnpj: null,
+      address: null,
+      city: null,
+      state: null,
+      membershipActive: true,
+      unitLink: null,
     })
   })
 
@@ -72,5 +87,33 @@ describe('ManagementPeoplePage password reset', () => {
     await waitFor(() => {
       expect(screen.getByText('Senha temporária')).toBeInTheDocument()
     })
+  })
+
+  it('opens the populated edit form and updates the list locally', async () => {
+    const user = userEvent.setup()
+    render(<ManagementPeoplePage />)
+
+    await user.click(await screen.findByRole('button', { name: 'Editar' }))
+    expect(screen.getByRole('heading', {
+      name: 'Editar pessoa',
+    })).toBeInTheDocument()
+    const name = screen.getByRole('textbox', { name: 'Nome completo' })
+    expect(name).toHaveValue('Maria Silva')
+
+    await user.clear(name)
+    await user.type(name, 'Maria Atualizada')
+    await user.click(screen.getByRole('button', {
+      name: 'Salvar alterações',
+    }))
+
+    expect(await screen.findByText(
+      'Pessoa atualizada com sucesso.',
+    )).toBeInTheDocument()
+    expect(screen.getByText('Maria Atualizada')).toBeInTheDocument()
+    expect(managementApi.updateCondominiumMember).toHaveBeenCalledWith(
+      'condominium-id',
+      'user-id',
+      expect.objectContaining({ fullName: 'Maria Atualizada' }),
+    )
   })
 })

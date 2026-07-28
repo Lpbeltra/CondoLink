@@ -18,6 +18,7 @@ function person(
     joinedAt: '2026-07-28T09:00:00Z',
     endedAt: null,
     roles: ['Resident'],
+    unitLinks: [],
     ...overrides,
   }
 }

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using CondoLink.Api.Features.RequestAttachments;
+using CondoLink.Api.Features.RequestMessages;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -23,7 +24,11 @@ public sealed class RequestAttachmentEndpointsTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         _host = await CoreEndpointTestHost.StartAsync(
-            application => application.MapRequestAttachments(),
+            application =>
+            {
+                application.MapRequestAttachments();
+                application.MapCreateRequestMessage();
+            },
             builder =>
             {
                 builder.Configuration["FileStorage:RootPath"] = _storageRoot;
@@ -255,6 +260,48 @@ public sealed class RequestAttachmentEndpointsTests : IAsyncLifetime
         Assert.Contains(
             "multipart/form-data",
             await response.Content.ReadAsStringAsync());
+    }
+
+    [Theory]
+    [InlineData(RequestStatus.Resolved)]
+    [InlineData(RequestStatus.Cancelled)]
+    public async Task Closed_request_is_read_only_for_resident_but_attachment_remains_downloadable(
+        RequestStatus status)
+    {
+        var attachment = await UploadOneAsync();
+        await _host.WithDbAsync(async db =>
+        {
+            var request = await db.Requests.SingleAsync(item => item.Id == _requestId);
+            request.ChangeStatus(status, DateTime.UtcNow);
+            await db.SaveChangesAsync();
+        });
+
+        var client = _host.ClientFor(_authorId);
+        var message = await client.PostAsJsonAsync(
+            $"/requests/{_requestId}/messages",
+            new { content = "Tentativa depois do encerramento" });
+        var upload = await UploadAsync(
+            client, _requestId,
+            File("nova.pdf", "application/pdf", "%PDF-test"u8.ToArray()));
+        var delete = await client.DeleteAsync(
+            $"/request-attachments/{attachment.Id}");
+        var download = await client.GetAsync(attachment.ContentUrl);
+
+        Assert.Equal(HttpStatusCode.Conflict, message.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, upload.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, delete.StatusCode);
+        Assert.Contains(
+            "somente para consulta",
+            await message.Content.ReadAsStringAsync());
+        Assert.Contains(
+            "somente para consulta",
+            await upload.Content.ReadAsStringAsync());
+        Assert.Contains(
+            "somente para consulta",
+            await delete.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+        Assert.True(await _host.WithDbAsync(db => db.RequestAttachments
+            .AnyAsync(item => item.Id == attachment.Id)));
     }
 
     private async Task<RequestAttachmentEndpoints.Response> UploadOneAsync()

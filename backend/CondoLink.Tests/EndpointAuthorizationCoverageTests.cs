@@ -226,6 +226,7 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapListCondominiumMembers();
         app.MapOnboardCondominiumMember();
         app.MapResetMemberTemporaryPassword();
+        app.MapUpdateCondominiumMember();
         app.MapCondominiumSetup();
 
         app.MapManagementContext();
@@ -234,6 +235,7 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapCreateUnit();
         app.MapGetUnitById();
         app.MapListCondominiumUnits();
+        app.MapListMyRequestUnits();
         app.MapManageUnit();
 
         app.MapCreateUnitMembership();

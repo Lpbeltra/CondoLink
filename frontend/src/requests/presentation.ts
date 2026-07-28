@@ -36,7 +36,11 @@ export function filterRequestsByCondominium(requests: RequestListItem[], condomi
 }
 
 export function canSendMessage(status: RequestStatus) {
-  return status !== 'Cancelled'
+  return status !== 'Cancelled' && status !== 'Resolved'
+}
+
+export function isClosedRequest(status: RequestStatus) {
+  return status === 'Resolved' || status === 'Cancelled'
 }
 
 export const allowedStatusTransitions: Record<RequestStatus, RequestStatus[]> = {

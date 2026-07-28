@@ -7,7 +7,7 @@ import { useManagementContext } from '../management/ManagementContext'
 const managementLinks = [
   { label: 'Atendimento', path: '/management/requests' },
   { label: 'Gestão', path: '/management/units' },
-  { label: 'Relatórios', path: '/management/reports' },
+  { label: 'Dashboard', path: '/management/dashboard' },
 ]
 
 export function MorePage() {

@@ -26,6 +26,7 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
     private Guid _residentId;
     private Guid _unlinkedUserId;
     private Guid _unitId;
+    private Guid _secondUnitId;
     private Guid _foreignUnitId;
     private Guid _residentMembershipId;
 
@@ -37,6 +38,7 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
             application.MapAddCondominiumMemberRole();
             application.MapOnboardCondominiumMember();
             application.MapListCondominiumMembers();
+            application.MapUpdateCondominiumMember();
         });
 
         await _host.WithDbAsync(async db =>
@@ -44,6 +46,7 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
             var condominium = new Condominium("Residencial Alfa", null, null);
             var otherCondominium = new Condominium("Residencial Beta", null, null);
             var unit = new Unit(condominium.Id, "101", null, null, null);
+            var secondUnit = new Unit(condominium.Id, "102", null, null, null);
             var foreignUnit = new Unit(otherCondominium.Id, "999", null, null, null);
             var manager = CoreTestSeed.User("Sindico Alfa", "alfa@example.com");
             var otherManager = CoreTestSeed.User("Sindico Beta", "beta@example.com");
@@ -51,7 +54,7 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
             var unlinked = CoreTestSeed.User("Sem Vinculo", "sem@example.com");
 
             db.AddRange(
-                condominium, otherCondominium, unit, foreignUnit,
+                condominium, otherCondominium, unit, secondUnit, foreignUnit,
                 manager, otherManager, resident, unlinked);
             CoreTestSeed.AddMember(
                 db, manager.Id, condominium.Id, CondominiumRole.Manager);
@@ -67,12 +70,79 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
             _residentId = resident.Id;
             _unlinkedUserId = unlinked.Id;
             _unitId = unit.Id;
+            _secondUnitId = secondUnit.Id;
             _foreignUnitId = foreignUnit.Id;
             _residentMembershipId = residentMembership.Id;
         });
     }
 
     public async Task DisposeAsync() => await _host.DisposeAsync();
+
+    [Fact]
+    public async Task Manager_can_update_profile_and_create_unit_link()
+    {
+        var response = await UpdateMemberAsync(
+            _managerId, _residentId, null, _unitId,
+            fullName: "Maria Atualizada",
+            email: "maria.atualizada@example.com");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content
+            .ReadFromJsonAsync<UpdateCondominiumMember.Response>();
+        Assert.Equal("Maria Atualizada", body!.FullName);
+        Assert.Equal("maria.atualizada@example.com", body.Email);
+        Assert.Equal(_unitId, body.UnitLink!.UnitId);
+        Assert.True(await _host.WithDbAsync(db => db.UnitMemberships
+            .AnyAsync(item =>
+                item.UserId == _residentId
+                && item.UnitId == _unitId
+                && item.IsActive)));
+    }
+
+    [Fact]
+    public async Task Manager_of_another_condominium_cannot_edit_person()
+    {
+        var response = await UpdateMemberAsync(
+            _otherManagerId, _residentId, null, _unitId);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Duplicate_email_is_rejected()
+    {
+        var response = await UpdateMemberAsync(
+            _managerId, _residentId, null, null,
+            email: "alfa@example.com");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Moving_unit_ends_previous_link_without_deleting_history()
+    {
+        var previousLinkId = await _host.WithDbAsync(async db =>
+        {
+            var link = new UnitMembership(
+                _residentId, _unitId, UnitRelationshipType.Owner, true, true);
+            db.UnitMemberships.Add(link);
+            await db.SaveChangesAsync();
+            return link.Id;
+        });
+
+        var response = await UpdateMemberAsync(
+            _managerId, _residentId, previousLinkId, _secondUnitId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var links = await _host.WithDbAsync(db => db.UnitMemberships
+            .Where(item => item.UserId == _residentId)
+            .OrderBy(item => item.CreatedAt)
+            .ToListAsync());
+        Assert.Equal(2, links.Count);
+        Assert.False(links.Single(item => item.Id == previousLinkId).IsActive);
+        Assert.NotNull(links.Single(item => item.Id == previousLinkId).EndedAt);
+        Assert.True(links.Single(item => item.UnitId == _secondUnitId).IsActive);
+    }
 
     [Fact]
     public async Task Manager_can_add_an_existing_user_as_a_member()
@@ -582,6 +652,33 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
     private Task<HttpResponseMessage> AddMemberAsync(Guid callerId, Guid userId) =>
         _host.ClientFor(callerId).PostAsJsonAsync(
             $"/condominiums/{_condominiumId}/members", new { userId });
+
+    private Task<HttpResponseMessage> UpdateMemberAsync(
+        Guid callerId,
+        Guid userId,
+        Guid? unitMembershipId,
+        Guid? unitId,
+        string fullName = "Morador Atualizado",
+        string email = "morador@example.com") =>
+        _host.ClientFor(callerId).PutAsJsonAsync(
+            $"/condominiums/{_condominiumId}/members/{userId}",
+            new
+            {
+                fullName,
+                email,
+                phoneNumber = "11999990000",
+                cpf = (string?)null,
+                cnpj = (string?)null,
+                address = "Rua das Flores, 10",
+                city = "São Paulo",
+                state = "SP",
+                membershipActive = true,
+                unitMembershipId,
+                unitId,
+                relationshipType = unitId.HasValue ? "Owner" : null,
+                isResident = unitId.HasValue,
+                isPrimaryResidence = unitId.HasValue
+            });
 
     private Task<HttpResponseMessage> OnboardAsync(
         Guid callerId,

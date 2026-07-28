@@ -40,12 +40,12 @@ import type { RequestAttachment } from '../types'
 
 interface RequestAttachmentsProps {
   requestId: string
-  cancelled: boolean
+  readOnly?: boolean
 }
 
 export function RequestAttachments({
   requestId,
-  cancelled,
+  readOnly = false,
 }: RequestAttachmentsProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [items, setItems] = useState<RequestAttachment[]>([])
@@ -185,7 +185,7 @@ export function RequestAttachments({
               Imagens e PDFs. Até 6 arquivos por envio e 15 MB por arquivo.
             </Typography>
           </Box>
-          {!cancelled && (
+          {!readOnly && (
             <Button
               component="label"
               variant="outlined"
@@ -384,12 +384,14 @@ export function RequestAttachments({
                     >
                       <DownloadRoundedIcon />
                     </IconButton>
-                    <IconButton
-                      aria-label={`Excluir ${item.originalFileName}`}
-                      onClick={() => setDeleteTarget(item)}
-                    >
-                      <DeleteOutlineRoundedIcon />
-                    </IconButton>
+                    {!readOnly && (
+                      <IconButton
+                        aria-label={`Excluir ${item.originalFileName}`}
+                        onClick={() => setDeleteTarget(item)}
+                      >
+                        <DeleteOutlineRoundedIcon />
+                      </IconButton>
+                    )}
                   </Stack>
                 </Stack>
               </Box>

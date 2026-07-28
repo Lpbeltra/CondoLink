@@ -6,9 +6,9 @@ import { canSendMessage, formatDateTime, getRequestError } from '../presentation
 import { getUpdateMarkerColor } from '../requestUpdates'
 import type { RequestMessage, RequestStatus } from '../types'
 
-interface Props { requestId: string; status: RequestStatus; messages: RequestMessage[]; onMessageCreated: (message: RequestMessage) => void }
+interface Props { requestId: string; status: RequestStatus; messages: RequestMessage[]; onMessageCreated: (message: RequestMessage) => void; readOnly?: boolean }
 
-export function RequestConversation({ requestId, status, messages, onMessageCreated }: Props) {
+export function RequestConversation({ requestId, status, messages, onMessageCreated, readOnly = false }: Props) {
   const [content, setContent] = useState('')
   const [error, setError] = useState('')
   const [isSending, setIsSending] = useState(false)
@@ -45,7 +45,7 @@ export function RequestConversation({ requestId, status, messages, onMessageCrea
         ))}
         <div ref={endRef} />
       </Stack>
-      {!canSendMessage(status) ? <Alert severity="info">Esta solicitação foi cancelada e não aceita novas atualizações.</Alert> : (
+      {readOnly || !canSendMessage(status) ? <Alert severity="info">Esta solicitação está encerrada e disponível somente para consulta.</Alert> : (
         <Box component="form" onSubmit={send}>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
           <TextField fullWidth multiline minRows={3} maxRows={8} label="Descreva uma nova informação sobre a solicitação" value={content} onChange={(event) => setContent(event.target.value)} onKeyDown={handleKeyDown} inputProps={{ maxLength: 4000 }} helperText={`${content.length}/4000 · Ctrl + Enter para adicionar`} disabled={isSending} />

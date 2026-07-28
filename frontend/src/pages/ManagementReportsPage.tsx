@@ -21,9 +21,15 @@ import {
 import { reportWindows, type ReportWindow, type RequestReport } from '../reports/types'
 import { getRequestError } from '../requests/presentation'
 import { OverwatchMetricCard } from '../overwatch/components/OverwatchMetricCard'
+import { useAuth } from '../auth/AuthContext'
 
 export function ManagementReportsPage() {
-  const { activeCondominiumId } = useManagementContext()
+  const { user } = useAuth()
+  const {
+    activeCondominiumId,
+    activeCondominium,
+    usesConsolidatedManagementScope,
+  } = useManagementContext()
   const [days, setDays] = useState<ReportWindow>(30)
 
   // activeCondominiumId is not read here — it scopes the request server-side,
@@ -37,9 +43,11 @@ export function ManagementReportsPage() {
 
   return (
     <PageContainer maxWidth={1440}>
-      <Typography variant="h1">Relatórios</Typography>
+      <Typography variant="h1">Dashboard</Typography>
       <Typography color="text.secondary" mt={0.5}>
-        Indicadores de atendimento do condomínio.
+        {usesConsolidatedManagementScope
+          ? `Olá, ${user?.fullName.split(' ')[0] ?? ''}. Aqui está um resumo dos seus condomínios.`
+          : `Olá, ${user?.fullName.split(' ')[0] ?? ''}. Aqui está o resumo de ${activeCondominium?.name ?? 'seu condomínio'}.`}
       </Typography>
 
       <Box mt={2} maxWidth={520}><ManagementCondominiumSwitcher /></Box>

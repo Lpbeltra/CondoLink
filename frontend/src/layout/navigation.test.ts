@@ -10,7 +10,7 @@ describe('role-based navigation', () => {
 
   it('shows management resources to managers', () => {
     expect(getNavigationItems(['Manager', 'Resident']).map((item) => item.label))
-      .toEqual(['Início', 'Solicitações', 'Atendimento', 'Gestão', 'Relatórios'])
+      .toEqual(['Solicitações', 'Atendimento', 'Gestão', 'Dashboard'])
   })
 
   it('shows Overwatch only to PlatformAdmin', () => {
@@ -22,7 +22,7 @@ describe('role-based navigation', () => {
 
   it('keeps manager mobile navigation compact', () => {
     expect(getMobileNavigationItems(['Manager']).map((item) => item.label))
-      .toEqual(['Início', 'Solicitações', 'Mais'])
+      .toEqual(['Solicitações', 'Dashboard', 'Mais'])
   })
 
   it('marks the correct mobile destination for nested routes', () => {
@@ -31,6 +31,7 @@ describe('role-based navigation', () => {
     expect(getMobileSelectedPath('/more')).toBe('/more')
     expect(getMobileSelectedPath('/')).toBe('/')
     expect(getMobileSelectedPath('/overwatch/managers')).toBe('/overwatch')
+    expect(getMobileSelectedPath('/management/reports')).toBe('/management/dashboard')
   })
 
   it('hides the general condominium switcher in management and for manager-only users', () => {

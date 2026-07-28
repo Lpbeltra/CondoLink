@@ -152,6 +152,7 @@ app.MapAddCondominiumMemberRole();
 app.MapListCondominiumMembers();
 app.MapOnboardCondominiumMember();
 app.MapResetMemberTemporaryPassword();
+app.MapUpdateCondominiumMember();
 app.MapCondominiumSetup();
 
 // Management
@@ -164,6 +165,7 @@ app.MapCondominiumBlocks();
 app.MapCreateUnit();
 app.MapGetUnitById();
 app.MapListCondominiumUnits();
+app.MapListMyRequestUnits();
 app.MapManageUnit();
 
 // Unit memberships

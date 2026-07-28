@@ -42,6 +42,8 @@ public static class RequestAttachmentEndpoints
     {
         var access = await CheckAccessAsync(requestId, principal, dbContext, cancellationToken);
         if (access.Error is not null) return access.Error;
+        if (!access.IsManager && IsClosed(access.Status))
+            return ClosedForResident();
         if (access.Status == RequestStatus.Cancelled)
             return Results.Conflict(new { error = "Solicitações canceladas não podem receber anexos." });
         if (!request.HasFormContentType)
@@ -143,6 +145,8 @@ public static class RequestAttachmentEndpoints
 
         var access = await CheckAccessAsync(attachment.RequestId, principal, dbContext, cancellationToken);
         if (access.Error is not null) return access.Error;
+        if (!access.IsManager && IsClosed(access.Status))
+            return ClosedForResident();
 
         dbContext.RequestAttachments.Remove(attachment);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -160,30 +164,41 @@ public static class RequestAttachmentEndpoints
         var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
             ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (!Guid.TryParse(value, out var userId))
-            return new(Guid.Empty, "", default, Results.Json(new { error = "Invalid authenticated user." }, statusCode: 401));
+            return new(Guid.Empty, "", default, false, Results.Json(new { error = "Invalid authenticated user." }, statusCode: 401));
         var user = await dbContext.Set<ApplicationUser>().AsNoTracking().Where(x => x.Id == userId)
             .Select(x => new { x.IsActive, x.FullName }).SingleOrDefaultAsync(cancellationToken);
         if (user is null)
-            return new(userId, "", default, Results.Json(new { error = "Authenticated user was not found." }, statusCode: 401));
+            return new(userId, "", default, false, Results.Json(new { error = "Authenticated user was not found." }, statusCode: 401));
         if (!user.IsActive)
-            return new(userId, user.FullName, default, Results.Json(new { error = "User account is inactive." }, statusCode: 403));
+            return new(userId, user.FullName, default, false, Results.Json(new { error = "User account is inactive." }, statusCode: 403));
         var target = await dbContext.Requests.AsNoTracking().Where(x => x.Id == requestId)
             .Select(x => new { x.AuthorUserId, x.CondominiumId, x.Status }).SingleOrDefaultAsync(cancellationToken);
         if (target is null)
-            return new(userId, user.FullName, default, Results.NotFound(new { error = "Request not found." }));
-        if (target.AuthorUserId != userId)
-        {
-            var manager = await dbContext.CondominiumMemberships.AsNoTracking()
+            return new(userId, user.FullName, default, false, Results.NotFound(new { error = "Request not found." }));
+        var manager = await dbContext.CondominiumMemberships.AsNoTracking()
                 .Where(x => x.UserId == userId && x.CondominiumId == target.CondominiumId && x.IsActive && x.EndedAt == null)
                 .Join(dbContext.CondominiumMembershipRoles.AsNoTracking().Where(x => x.Role == CondominiumRole.Manager && x.IsActive && x.RevokedAt == null),
                     x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(cancellationToken);
-            if (!manager)
-                return new(userId, user.FullName, target.Status, Results.Json(new { error = "You do not have access to this request." }, statusCode: 403));
-        }
-        return new(userId, user.FullName, target.Status, null);
+        if (target.AuthorUserId != userId && !manager)
+            return new(userId, user.FullName, target.Status, false, Results.Json(new { error = "You do not have access to this request." }, statusCode: 403));
+        return new(userId, user.FullName, target.Status, manager, null);
     }
 
-    private sealed record AccessCheck(Guid UserId, string FullName, RequestStatus Status, IResult? Error);
+    private static bool IsClosed(RequestStatus status) =>
+        status is RequestStatus.Resolved or RequestStatus.Cancelled;
+
+    private static IResult ClosedForResident() => Results.Conflict(new
+    {
+        error =
+            "Esta solicitação está encerrada e disponível somente para consulta."
+    });
+
+    private sealed record AccessCheck(
+        Guid UserId,
+        string FullName,
+        RequestStatus Status,
+        bool IsManager,
+        IResult? Error);
     public sealed record UploadedByResponse(Guid Id, string FullName);
     public sealed record Response(Guid Id, Guid RequestId, string OriginalFileName, string ContentType,
         long FileSize, UploadedByResponse UploadedBy, DateTime CreatedAt, string ContentUrl);

@@ -75,7 +75,8 @@ export function App() {
                     <Route path="setup" element={<CondominiumSetupPage />} />
                     <Route path="categories" element={<ManagementCategoriesPage />} />
                     <Route path="people" element={<ManagementPeoplePage />} />
-                    <Route path="reports" element={<ManagementReportsPage />} />
+                    <Route path="dashboard" element={<ManagementReportsPage />} />
+                    <Route path="reports" element={<Navigate to="../dashboard" replace />} />
                   </Route>
                 </Route>
                 <Route element={<OverwatchGuard />}>

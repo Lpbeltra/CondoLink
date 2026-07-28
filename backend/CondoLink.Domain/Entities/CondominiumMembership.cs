@@ -42,4 +42,10 @@ public sealed class CondominiumMembership
         IsActive = true;
         EndedAt = null;
     }
+
+    public void Deactivate(DateTime endedAt)
+    {
+        IsActive = false;
+        EndedAt = endedAt;
+    }
 }
