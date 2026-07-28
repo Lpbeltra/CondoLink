@@ -91,6 +91,7 @@ public static class OnboardCondominiumMember
             var user = existingUser ?? new ApplicationUser(fullName, email, phone);
             if (isNewUser)
             {
+                user.RequirePasswordChange();
                 var identityResult = await userManager.CreateAsync(user, initialPassword!);
                 if (!identityResult.Succeeded)
                 {

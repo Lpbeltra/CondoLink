@@ -2,11 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const http = vi.hoisted(() => ({
   get: vi.fn(),
+  post: vi.fn(),
   put: vi.fn(),
 }))
 vi.mock('../services/api', () => ({ api: http }))
 
-import { getManagementContext, setManagementContext } from './api'
+import {
+  getManagementContext,
+  resetMemberTemporaryPassword,
+  setManagementContext,
+} from './api'
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -29,6 +34,18 @@ describe('management context API', () => {
       2,
       '/management/context',
       { condominiumId: null },
+    )
+  })
+})
+
+describe('member password API', () => {
+  it('resets through the selected condominium and member', async () => {
+    http.post.mockResolvedValue({ data: {} })
+
+    await resetMemberTemporaryPassword('condominium-id', 'user-id')
+
+    expect(http.post).toHaveBeenCalledWith(
+      '/condominiums/condominium-id/members/user-id/reset-temporary-password',
     )
   })
 })

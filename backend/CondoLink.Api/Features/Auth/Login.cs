@@ -64,6 +64,13 @@ public static class Login
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
+        if (user.MustChangePassword)
+        {
+            return Results.Ok(new PasswordChangeRequiredResponse(
+                true,
+                user.Email!));
+        }
+
         var issuer = configuration["Jwt:Issuer"]!;
         var audience = configuration["Jwt:Audience"]!;
         var key = configuration["Jwt:Key"]!;
@@ -73,6 +80,14 @@ public static class Login
 
         var now = DateTime.UtcNow;
         var expiresAt = now.AddMinutes(expirationMinutes);
+
+        user.MarkSuccessfulLogin(now);
+        var updateResult = await userManager.UpdateAsync(user);
+        if (!updateResult.Succeeded)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status500InternalServerError);
+        }
 
         var roles = await userManager.GetRolesAsync(user);
 
@@ -116,6 +131,7 @@ public static class Login
                 SecurityAlgorithms.HmacSha256));
 
         var response = new Response(
+            false,
             new JwtSecurityTokenHandler().WriteToken(token),
             "Bearer",
             checked(expirationMinutes * 60),
@@ -134,6 +150,7 @@ public static class Login
         string? Password);
 
     public sealed record Response(
+        bool RequiresPasswordChange,
         string AccessToken,
         string TokenType,
         int ExpiresIn,
@@ -145,4 +162,8 @@ public static class Login
         string Email,
         bool IsActive,
         IReadOnlyList<string> Roles);
+
+    public sealed record PasswordChangeRequiredResponse(
+        bool RequiresPasswordChange,
+        string Email);
 }

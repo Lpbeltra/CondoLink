@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type PropsWithChildren } from 'react'
 import { api } from '../services/api'
 import { AuthContext } from './AuthContext'
-import type { LoginResponse, User } from './types'
+import type {
+  LoginResponse,
+  PasswordChangeRequiredResponse,
+  User,
+} from './types'
 import { clearStoredToken, getStoredToken, storeToken } from './authStorage'
 import { hydrateSessionUser } from './session'
 import { getMillisecondsUntilExpiry, isTokenExpired } from './tokenExpiry'
@@ -74,7 +78,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const login = useCallback(async (email: string, password: string) => {
     logout()
     try {
-      const { data } = await api.post<LoginResponse>('/auth/login', { email, password })
+      const { data } = await api.post<
+        LoginResponse | PasswordChangeRequiredResponse
+      >('/auth/login', { email, password })
+      if (data.requiresPasswordChange) {
+        return {
+          requiresPasswordChange: true as const,
+          email: data.email,
+          temporaryPassword: password,
+        }
+      }
       storeToken(data.accessToken)
       setAuthorization(data.accessToken)
       const currentUser = await api.get<User>('/users/me')
@@ -83,6 +96,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         data.accessToken,
         data.user.roles,
       ))
+      return { requiresPasswordChange: false as const }
     } catch (error) {
       logout()
       throw error

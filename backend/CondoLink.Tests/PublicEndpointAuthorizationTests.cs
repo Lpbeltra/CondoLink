@@ -19,7 +19,7 @@ namespace CondoLink.Tests;
 
 /// <summary>
 /// Guards the pre-authentication attack surface: no endpoint other than
-/// /auth/login may be reachable without a token.
+/// Only authentication bootstrap endpoints may be reachable without a token.
 /// </summary>
 public sealed class PublicEndpointAuthorizationTests : IAsyncLifetime
 {

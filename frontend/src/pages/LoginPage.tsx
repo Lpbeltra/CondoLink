@@ -4,7 +4,7 @@ import LoginRoundedIcon from '@mui/icons-material/LoginRounded'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { Brand } from '../components/Brand'
 import { useAuth } from '../auth/AuthContext'
-import { getErrorMessage } from '../services/api'
+import { authError } from '../auth/errors'
 import { authenticatedEntryPath } from '../auth/routeAccess'
 import { ThemeModeToggle } from '../theme/ThemeModeToggle'
 
@@ -23,10 +23,20 @@ export function LoginPage() {
     setError('')
     setIsSubmitting(true)
     try {
-      await login(email.trim(), password)
+      const outcome = await login(email.trim(), password)
+      if (outcome.requiresPasswordChange) {
+        navigate('/change-password', {
+          replace: true,
+          state: {
+            email: outcome.email,
+            temporaryPassword: outcome.temporaryPassword,
+          },
+        })
+        return
+      }
       navigate(authenticatedEntryPath, { replace: true })
     } catch (requestError) {
-      setError(getErrorMessage(requestError))
+      setError(authError(requestError))
     } finally {
       setIsSubmitting(false)
     }

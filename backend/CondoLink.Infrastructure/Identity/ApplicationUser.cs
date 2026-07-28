@@ -29,6 +29,7 @@ public sealed class ApplicationUser : IdentityUser<Guid>
         Email = normalizedEmail;
         PhoneNumber = NormalizeOptional(phoneNumber);
         IsActive = true;
+        MustChangePassword = false;
         CreatedAt = now;
         UpdatedAt = now;
     }
@@ -40,6 +41,9 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     public string? City { get; private set; }
     public string? State { get; private set; }
     public bool IsActive { get; private set; }
+    public bool MustChangePassword { get; private set; }
+    public DateTime? LastLoginAt { get; private set; }
+    public DateTime? PasswordChangedAt { get; private set; }
     public Guid? ActiveManagementCondominiumId { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
@@ -81,6 +85,25 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     {
         IsActive = isActive;
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void RequirePasswordChange()
+    {
+        MustChangePassword = true;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void MarkPasswordChanged(DateTime changedAt)
+    {
+        MustChangePassword = false;
+        PasswordChangedAt = changedAt;
+        UpdatedAt = changedAt;
+    }
+
+    public void MarkSuccessfulLogin(DateTime loginAt)
+    {
+        LastLoginAt = loginAt;
+        UpdatedAt = loginAt;
     }
 
     public void SetActiveManagementCondominium(Guid condominiumId)

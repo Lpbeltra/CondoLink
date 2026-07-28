@@ -720,11 +720,28 @@ A implementação concreta ficará em `Infrastructure`.
 
 A implementação deverá validar:
 
-* tamanho máximo;
-* tipo de arquivo permitido;
+* no máximo 6 arquivos por envio;
+* no máximo 15 MB por arquivo;
+* apenas JPG/JPEG, PNG, WebP e PDF, validando extensão e MIME;
 * nome seguro;
 * autorização para acessar o anexo;
 * inexistência de exposição direta do caminho físico.
+
+O upload usa `multipart/form-data`, com todos os arquivos no campo `files`.
+O banco recebe os metadados somente depois de todo o lote ser validado; lotes
+inválidos não são parcialmente persistidos. Upload, listagem, download e
+exclusão reutilizam a autorização da solicitação (autor ou síndico ativo do
+condomínio). A exclusão exige confirmação no cliente e remove o metadado e o
+arquivo físico.
+
+Rotas atuais:
+
+```text
+POST   /requests/{requestId}/attachments
+GET    /requests/{requestId}/attachments
+GET    /request-attachments/{attachmentId}/content
+DELETE /request-attachments/{attachmentId}
+```
 
 ---
 
@@ -1328,3 +1345,46 @@ ou navegadores diferentes.
   `ManagementContextProvider`. O frontend não persiste nome ou ID administrativo
   em `localStorage` e descarta respostas de contexto que perderam a corrida para
   uma seleção mais recente.
+
+## Primeiro acesso e ciclo de senha
+
+- `ApplicationUser` armazena `MustChangePassword`, `LastLoginAt` e
+  `PasswordChangedAt`. Contas criadas pelos fluxos de onboarding recebem uma
+  senha temporária e ficam com troca obrigatória.
+- Um login com senha temporária válida retorna
+  `requiresPasswordChange = true`, sem emitir JWT. O frontend encaminha o
+  usuário para `/change-password`.
+- `POST /auth/change-temporary-password` permanece anônimo porque o usuário
+  ainda não possui token, mas valida e consome a credencial temporária no
+  backend. A troca limpa `MustChangePassword` e atualiza `PasswordChangedAt`.
+- A validação do JWT consulta o estado atual do usuário e rejeita contas
+  inativas ou com troca pendente. Assim, redefinir uma senha também bloqueia
+  imediatamente tokens emitidos anteriormente.
+- Gestores podem redefinir a senha somente de membros do condomínio que
+  administram. Platform Admin possui acesso global; moradores não possuem essa
+  ação. A nova senha temporária é exibida uma única vez pela mesma experiência
+  usada no onboarding.
+- Recuperação por e-mail ou WhatsApp não faz parte do MVP atual.
+
+## Configuração inicial do condomínio
+
+- O modelo atual já representa condomínios sem unidades, blocos opcionais,
+  identificadores e andares textuais e descrições opcionais. O módulo de
+  configuração não adiciona estado redundante e não exige migration.
+- Gestores acessam somente condomínios nos quais possuem membership e papel
+  `Manager` ativos. Platform Admin pode configurar qualquer condomínio ativo;
+  moradores não possuem acesso.
+- Importação e gerador convergem para o mesmo `SetupRequest`. A prévia valida o
+  lote completo contra os dados atuais, sem persistência. A confirmação repete
+  a validação e grava blocos, unidades, usuários e vínculos em uma única
+  transação.
+- A importação aceita CSV e XLSX, preserva células textuais e informa linha,
+  coluna e motivo de cada erro. Os modelos CSV de estrutura e moradores são
+  fornecidos pela própria API.
+- O gerador usa torres com segmentos independentes por faixa de andares,
+  quantidade por andar, número inicial, dígitos, inclusão opcional do andar,
+  prefixo e sufixo. Isso evita pressupor uma topologia ou numeração específica.
+- Usuários são localizados por e-mail. Contas existentes ativas são
+  reutilizadas; contas novas recebem senha temporária e seguem o fluxo
+  obrigatório de primeiro acesso. As credenciais novas são retornadas somente
+  na confirmação.

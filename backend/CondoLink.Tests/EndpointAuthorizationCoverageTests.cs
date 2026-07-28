@@ -6,6 +6,7 @@ using CondoLink.Api.Features.Categories;
 using CondoLink.Api.Features.CondominiumMemberRoles;
 using CondoLink.Api.Features.CondominiumMembers;
 using CondoLink.Api.Features.Condominiums;
+using CondoLink.Api.Features.CondominiumSetup;
 using CondoLink.Api.Features.Management;
 using CondoLink.Api.Features.Notifications;
 using CondoLink.Api.Features.Overwatch;
@@ -50,6 +51,8 @@ public sealed class EndpointAuthorizationCoverageTests
     {
         // Callers have no token yet by definition.
         "/auth/login",
+        // The temporary credential itself authenticates this one-time flow.
+        "/auth/change-temporary-password",
         // Liveness probe: reports only reachability, no tenant data.
         "/health",
     };
@@ -208,6 +211,7 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapGet("/health", () => Results.Ok());
 
         app.MapLogin();
+        app.MapChangeTemporaryPassword();
 
         app.MapCreateUser();
         app.MapGetCurrentUser();
@@ -221,6 +225,8 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapAddCondominiumMemberRole();
         app.MapListCondominiumMembers();
         app.MapOnboardCondominiumMember();
+        app.MapResetMemberTemporaryPassword();
+        app.MapCondominiumSetup();
 
         app.MapManagementContext();
         app.MapCondominiumBlocks();

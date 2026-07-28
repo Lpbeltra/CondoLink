@@ -41,6 +41,8 @@ export function ManagementLayout() {
 
   const value = location.pathname.startsWith('/management/blocks')
     ? '/management/blocks'
+    : location.pathname.startsWith('/management/setup')
+      ? '/management/setup'
     : location.pathname.startsWith('/management/categories')
       ? '/management/categories'
       : location.pathname.startsWith('/management/people')
@@ -71,6 +73,11 @@ export function ManagementLayout() {
           <Tab
             value="/management/blocks"
             label="Blocos"
+          />
+
+          <Tab
+            value="/management/setup"
+            label="Configuração"
           />
 
           <Tab

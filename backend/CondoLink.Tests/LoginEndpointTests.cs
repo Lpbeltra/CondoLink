@@ -34,7 +34,11 @@ public sealed class LoginEndpointTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         _host = await CoreEndpointTestHost.StartAsync(
-            application => application.MapLogin(),
+            application =>
+            {
+                application.MapLogin();
+                application.MapChangeTemporaryPassword();
+            },
             builder => builder.Configuration.AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
@@ -209,8 +213,116 @@ public sealed class LoginEndpointTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    [Fact]
+    public async Task First_login_requires_password_change_and_returns_no_token()
+    {
+        await CreateTemporaryUserAsync("primeiro-login@example.com");
+        var response = await LoginAsync(
+            "primeiro-login@example.com",
+            "Temporaria1");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content
+            .ReadFromJsonAsync<Login.PasswordChangeRequiredResponse>();
+        Assert.True(body!.RequiresPasswordChange);
+        Assert.Equal("primeiro-login@example.com", body.Email);
+        Assert.DoesNotContain("accessToken", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Temporary_password_can_be_changed_then_normal_login_succeeds()
+    {
+        var temporaryUserId = await CreateTemporaryUserAsync(
+            "primeiro-change@example.com");
+        var change = await _client.PostAsJsonAsync(
+            "/auth/change-temporary-password",
+            new
+            {
+                email = "primeiro-change@example.com",
+                temporaryPassword = "Temporaria1",
+                newPassword = "NovaSenha2",
+                confirmation = "NovaSenha2"
+            });
+
+        Assert.Equal(HttpStatusCode.OK, change.StatusCode);
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (await LoginAsync("primeiro-change@example.com", "Temporaria1")).StatusCode);
+
+        var login = await LoginAsync("primeiro-change@example.com", "NovaSenha2");
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        var body = await login.Content.ReadFromJsonAsync<Login.Response>();
+        Assert.False(body!.RequiresPasswordChange);
+        Assert.False(string.IsNullOrWhiteSpace(body.AccessToken));
+
+        await _host.WithDbAsync(async db =>
+        {
+            var user = await db.Set<ApplicationUser>()
+                .SingleAsync(item => item.Id == temporaryUserId);
+            Assert.False(user.MustChangePassword);
+            Assert.NotNull(user.PasswordChangedAt);
+            Assert.NotNull(user.LastLoginAt);
+        });
+    }
+
+    [Fact]
+    public async Task Invalid_temporary_password_is_rejected()
+    {
+        await CreateTemporaryUserAsync("primeiro-invalid@example.com");
+        var response = await _client.PostAsJsonAsync(
+            "/auth/change-temporary-password",
+            new
+            {
+                email = "primeiro-invalid@example.com",
+                temporaryPassword = "Errada123",
+                newPassword = "NovaSenha2",
+                confirmation = "NovaSenha2"
+            });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Inactive_user_cannot_change_a_temporary_password()
+    {
+        await CreateTemporaryUserAsync(
+            "primeiro-inactive@example.com",
+            isActive: false);
+        var response = await _client.PostAsJsonAsync(
+            "/auth/change-temporary-password",
+            new
+            {
+                email = "primeiro-inactive@example.com",
+                temporaryPassword = "Temporaria1",
+                newPassword = "NovaSenha2",
+                confirmation = "NovaSenha2"
+            });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
     private Task<HttpResponseMessage> LoginAsync(
         string? email,
         string? password) =>
         _client.PostAsJsonAsync("/auth/login", new { email, password });
+
+    private async Task<Guid> CreateTemporaryUserAsync(
+        string email,
+        bool isActive = true)
+    {
+        var id = Guid.Empty;
+        await _host.WithServicesAsync(async services =>
+        {
+            var userManager = services
+                .GetRequiredService<UserManager<ApplicationUser>>();
+            var user = new ApplicationUser("Primeiro Acesso", email, null);
+            user.RequirePasswordChange();
+            if (!isActive) user.SetActiveStatus(false);
+            Assert.True((await userManager.CreateAsync(
+                user,
+                "Temporaria1")).Succeeded);
+            id = user.Id;
+        });
+        return id;
+    }
 }

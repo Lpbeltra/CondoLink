@@ -4,6 +4,7 @@ using CondoLink.Api.Features.Categories;
 using CondoLink.Api.Features.CondominiumMemberRoles;
 using CondoLink.Api.Features.CondominiumMembers;
 using CondoLink.Api.Features.Condominiums;
+using CondoLink.Api.Features.CondominiumSetup;
 using CondoLink.Api.Features.Management;
 using CondoLink.Api.Features.Notifications;
 using CondoLink.Api.Features.Reports;
@@ -133,6 +134,7 @@ app.MapGet(
 
 // Authentication
 app.MapLogin();
+app.MapChangeTemporaryPassword();
 
 // Users
 app.MapCreateUser();
@@ -149,6 +151,8 @@ app.MapAddCondominiumMember();
 app.MapAddCondominiumMemberRole();
 app.MapListCondominiumMembers();
 app.MapOnboardCondominiumMember();
+app.MapResetMemberTemporaryPassword();
+app.MapCondominiumSetup();
 
 // Management
 app.MapManagementContext();

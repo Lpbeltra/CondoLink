@@ -41,6 +41,16 @@ public sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Appl
             .HasColumnName("is_active")
             .IsRequired();
 
+        builder.Property(user => user.MustChangePassword)
+            .HasColumnName("must_change_password")
+            .IsRequired();
+
+        builder.Property(user => user.LastLoginAt)
+            .HasColumnName("last_login_at");
+
+        builder.Property(user => user.PasswordChangedAt)
+            .HasColumnName("password_changed_at");
+
         builder.Property(user => user.ActiveManagementCondominiumId)
             .HasColumnName("active_management_condominium_id");    
 

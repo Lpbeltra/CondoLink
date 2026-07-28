@@ -88,6 +88,7 @@ public static class CreateManagementCompanyEmployee
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
         var user = new ApplicationUser(fullName, email, contact);
+        user.RequirePasswordChange();
         var createResult = await userManager.CreateAsync(
             user,
             temporaryPassword);

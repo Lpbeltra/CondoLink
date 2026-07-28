@@ -11,7 +11,9 @@ namespace CondoLink.Api.Features.RequestAttachments;
 
 public static class RequestAttachmentEndpoints
 {
-    private const long MaximumFileSize = 10 * 1024 * 1024;
+    private const int MaximumFileCount = 6;
+    private const long MaximumFileSize = 15 * 1024 * 1024;
+    private const long MaximumRequestSize = 96 * 1024 * 1024;
     private static readonly IReadOnlyDictionary<string, string[]> AllowedFiles =
         new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
@@ -27,9 +29,10 @@ public static class RequestAttachmentEndpoints
         endpoints.MapPost("/requests/{requestId:guid}/attachments", UploadAsync)
             .RequireAuthorization()
             .DisableAntiforgery()
-            .WithMetadata(new RequestSizeLimitAttribute(52 * 1024 * 1024));
+            .WithMetadata(new RequestSizeLimitAttribute(MaximumRequestSize));
         endpoints.MapGet("/requests/{requestId:guid}/attachments", ListAsync).RequireAuthorization();
         endpoints.MapGet("/request-attachments/{attachmentId:guid}/content", ContentAsync).RequireAuthorization();
+        endpoints.MapDelete("/request-attachments/{attachmentId:guid}", DeleteAsync).RequireAuthorization();
         return endpoints;
     }
 
@@ -40,34 +43,38 @@ public static class RequestAttachmentEndpoints
         var access = await CheckAccessAsync(requestId, principal, dbContext, cancellationToken);
         if (access.Error is not null) return access.Error;
         if (access.Status == RequestStatus.Cancelled)
-            return Results.Conflict(new { error = "Cancelled requests cannot receive attachments." });
+            return Results.Conflict(new { error = "Solicitações canceladas não podem receber anexos." });
         if (!request.HasFormContentType)
-            return Results.BadRequest(new { error = "At least one file is required." });
+            return Results.BadRequest(new { error = "Envie os arquivos usando o formato multipart/form-data." });
 
         IFormCollection form;
         try { form = await request.ReadFormAsync(cancellationToken); }
         catch (InvalidDataException)
         {
-            return Results.BadRequest(new { error = "At least one file is required." });
+            return Results.BadRequest(new { error = "Não foi possível ler os arquivos enviados." });
         }
         var files = form.Files.GetFiles("files");
-        if (files.Count == 0) return Results.BadRequest(new { error = "At least one file is required." });
-        if (files.Count > 5) return Results.BadRequest(new { error = "A maximum of five files is allowed." });
+        if (files.Count == 0)
+            return Results.BadRequest(new { error = "Selecione ao menos um arquivo." });
+        if (files.Count > MaximumFileCount)
+            return Results.BadRequest(new { error = "É permitido enviar no máximo 6 arquivos." });
 
-        var validated = new List<(IFormFile File, string Name, string Extension)>();
+        var validated = new List<(IFormFile File, string Name, string Extension, string ContentType)>();
         foreach (var file in files)
         {
             var name = Path.GetFileName(file.FileName);
             var extension = Path.GetExtension(name);
+            var contentType = file.ContentType.Split(';', 2)[0].Trim();
             if (string.IsNullOrWhiteSpace(name) || name.Length > 255)
-                return Results.BadRequest(new { error = "File name is invalid or exceeds 255 characters." });
-            if (file.Length <= 0) return Results.BadRequest(new { error = $"File '{name}' is empty." });
+                return Results.BadRequest(new { error = "O nome do arquivo é inválido ou possui mais de 255 caracteres." });
+            if (file.Length <= 0)
+                return Results.BadRequest(new { error = $"O arquivo “{name}” está vazio." });
             if (file.Length > MaximumFileSize)
-                return Results.BadRequest(new { error = $"File '{name}' exceeds the 10 MB limit." });
+                return Results.BadRequest(new { error = "Cada arquivo pode possuir no máximo 15 MB." });
             if (!AllowedFiles.TryGetValue(extension, out var contentTypes)
-                || !contentTypes.Contains(file.ContentType, StringComparer.OrdinalIgnoreCase))
-                return Results.BadRequest(new { error = $"File '{name}' has an invalid type or extension." });
-            validated.Add((file, name, extension.ToLowerInvariant()));
+                || !contentTypes.Contains(contentType, StringComparer.OrdinalIgnoreCase))
+                return Results.BadRequest(new { error = "Formato não suportado. Envie somente JPG, PNG, WebP ou PDF." });
+            validated.Add((file, name, extension.ToLowerInvariant(), contentType.ToLowerInvariant()));
         }
 
         var savedKeys = new List<string>();
@@ -79,7 +86,7 @@ public static class RequestAttachmentEndpoints
                 var key = await storage.SaveAsync(requestId, item.File, item.Extension, cancellationToken);
                 savedKeys.Add(key);
                 attachments.Add(new RequestAttachment(requestId, access.UserId, item.Name, key,
-                    item.File.ContentType.ToLowerInvariant(), item.File.Length));
+                    item.ContentType, item.File.Length));
             }
             dbContext.RequestAttachments.AddRange(attachments);
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -114,17 +121,33 @@ public static class RequestAttachmentEndpoints
     {
         var attachment = await dbContext.RequestAttachments.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == attachmentId, cancellationToken);
-        if (attachment is null) return Results.NotFound(new { error = "Attachment not found." });
+        if (attachment is null) return Results.NotFound(new { error = "Anexo não encontrado." });
         var access = await CheckAccessAsync(attachment.RequestId, principal, dbContext, cancellationToken);
         if (access.Error is not null) return access.Error;
 
         FileStream? stream;
         try { stream = storage.OpenRead(attachment.StorageKey); }
         catch (InvalidOperationException) { stream = null; }
-        if (stream is null) return Results.NotFound(new { error = "Attachment file was not found." });
-        response.Headers.ContentDisposition = $"inline; filename*=UTF-8''{Uri.EscapeDataString(attachment.OriginalFileName)}";
+        if (stream is null) return Results.NotFound(new { error = "O arquivo do anexo não foi encontrado." });
+        response.Headers.ContentDisposition = $"attachment; filename*=UTF-8''{Uri.EscapeDataString(attachment.OriginalFileName)}";
         response.Headers.CacheControl = "no-store";
         return Results.File(stream, attachment.ContentType, enableRangeProcessing: true);
+    }
+
+    private static async Task<IResult> DeleteAsync(Guid attachmentId, ClaimsPrincipal principal,
+        AppDbContext dbContext, LocalFileStorage storage, CancellationToken cancellationToken)
+    {
+        var attachment = await dbContext.RequestAttachments
+            .SingleOrDefaultAsync(x => x.Id == attachmentId, cancellationToken);
+        if (attachment is null) return Results.NotFound(new { error = "Anexo não encontrado." });
+
+        var access = await CheckAccessAsync(attachment.RequestId, principal, dbContext, cancellationToken);
+        if (access.Error is not null) return access.Error;
+
+        dbContext.RequestAttachments.Remove(attachment);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        storage.Delete(attachment.StorageKey);
+        return Results.NoContent();
     }
 
     private static Response ToResponse(RequestAttachment x, string fullName) => new(x.Id, x.RequestId,

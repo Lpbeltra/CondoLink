@@ -82,6 +82,7 @@ public static class CreateOverwatchManager
         var user = new ApplicationUser(fullName, email, request.PhoneNumber);
         user.UpdateManagerProfile(fullName, request.PhoneNumber, cpf, cnpj,
             request.Address, request.City, request.State);
+        user.RequirePasswordChange();
 
         var createResult = await userManager.CreateAsync(
             user,

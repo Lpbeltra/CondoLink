@@ -497,7 +497,8 @@ CreatedAt
 * O arquivo físico não será armazenado diretamente no PostgreSQL.
 * `StorageKey` representa a localização do arquivo no serviço de armazenamento.
 * Limites de tamanho e tipos permitidos serão definidos na implementação.
-* Anexos não devem ser removidos sem que exista uma política explícita de retenção.
+* Anexos podem ser removidos por usuários que possuam acesso à solicitação,
+  mediante confirmação explícita no cliente.
 
 ---
 

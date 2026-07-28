@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import PowerSettingsNewRoundedIcon from '@mui/icons-material/PowerSettingsNewRounded'
+import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
 import {
   Alert,
   Box,
@@ -215,6 +216,15 @@ export function OverwatchCondominiumDetailsPage() {
           </Typography>
         </Box>
         <Stack direction="row" gap={1} flexWrap="wrap">
+          <Button
+            variant="outlined"
+            startIcon={<TuneRoundedIcon />}
+            onClick={() => navigate(
+              `/overwatch/condominiums/${condominium.id}/setup`,
+            )}
+          >
+            Configurar estrutura
+          </Button>
           <Button
             variant="outlined"
             startIcon={<EditRoundedIcon />}

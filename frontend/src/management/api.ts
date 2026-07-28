@@ -6,6 +6,7 @@ import type {
   ManagementContextResponse,
   OnboardResult,
   RelationshipType,
+  TemporaryPasswordResult,
   Unit,
   UnitMembership,
 } from './types'
@@ -29,6 +30,10 @@ export const createCategory = async (condominiumId: string, payload: { name: str
 export const updateCategory = async (condominiumId: string, categoryId: string, name: string) => (await api.put<Category>(`/condominiums/${condominiumId}/categories/${categoryId}`, { name })).data
 export const deleteCategory = async (condominiumId: string, categoryId: string) => api.delete(`/condominiums/${condominiumId}/categories/${categoryId}`)
 export const onboardMember = async (condominiumId: string, payload: { fullName: string; email: string; phoneNumber: string | null; unitId: string | null; relationshipType: RelationshipType | null; isResident: boolean; isPrimaryResidence: boolean }) => (await api.post<OnboardResult>(`/condominiums/${condominiumId}/members/onboard`, payload)).data
+export const resetMemberTemporaryPassword = async (condominiumId: string, userId: string) =>
+  (await api.post<TemporaryPasswordResult>(
+    `/condominiums/${condominiumId}/members/${userId}/reset-temporary-password`,
+  )).data
 export const getManagementContext = async () =>
   (await api.get<ManagementContextResponse>('/management/context')).data
 

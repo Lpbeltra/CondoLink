@@ -5,6 +5,7 @@ import { LoadingScreen } from '../components/LoadingScreen'
 import { AppShell } from '../layout/AppShell'
 import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
+import { ChangePasswordPage } from '../pages/ChangePasswordPage'
 import { AppThemeProvider } from '../theme/AppThemeProvider'
 import { CondominiumProvider } from '../condominiums/CondominiumProvider'
 import { MyRequestsPage } from '../pages/MyRequestsPage'
@@ -20,6 +21,7 @@ import { MorePage } from '../pages/MorePage'
 import { ManagementPeoplePage } from '../pages/ManagementPeoplePage'
 import { ManagementReportsPage } from '../pages/ManagementReportsPage'
 import { ManagementBlocksPage } from '../pages/ManagementBlocksPage'
+import { CondominiumSetupPage } from '../pages/CondominiumSetupPage'
 import { ManagementContextProvider } from '../management/ManagementContextProvider'
 import { OverwatchGuard } from '../overwatch/OverwatchGuard'
 import { OverwatchLayout } from '../overwatch/OverwatchLayout'
@@ -54,6 +56,7 @@ export function App() {
           <CondominiumProvider>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/change-password" element={<ChangePasswordPage />} />
               <Route element={<ProtectedRoute />}>
                 <Route element={<AppShell />}>
                   <Route index element={<HomePage />} />
@@ -69,6 +72,7 @@ export function App() {
                     <Route path="units/new" element={<CreateUnitPage />} />
                     <Route path="units/:unitId" element={<UnitDetailsPage />} />
                     <Route path="blocks" element={<ManagementBlocksPage />} />
+                    <Route path="setup" element={<CondominiumSetupPage />} />
                     <Route path="categories" element={<ManagementCategoriesPage />} />
                     <Route path="people" element={<ManagementPeoplePage />} />
                     <Route path="reports" element={<ManagementReportsPage />} />
@@ -79,6 +83,7 @@ export function App() {
                     <Route index element={<OverwatchDashboardPage />} />
                     <Route path="condominiums" element={<OverwatchCondominiumsPage />} />
                     <Route path="condominiums/:condominiumId" element={<OverwatchCondominiumDetailsPage />} />
+                    <Route path="condominiums/:condominiumId/setup" element={<CondominiumSetupPage />} />
                     <Route path="management-companies" element={<OverwatchManagementCompaniesPage />} />
                     <Route path="management-companies/:managementCompanyId" element={<OverwatchManagementCompanyDetailsPage />} />
                     <Route path="managers" element={<OverwatchManagersPage />} />

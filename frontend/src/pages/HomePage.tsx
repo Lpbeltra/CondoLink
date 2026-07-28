@@ -1,13 +1,13 @@
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import ForumRoundedIcon from '@mui/icons-material/ForumRounded'
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded'
-import { Box, Button, Chip, Paper, Skeleton, Stack, Typography, alpha } from '@mui/material'
+import { Alert, Box, Button, Chip, Paper, Skeleton, Stack, Typography, alpha } from '@mui/material'
 import WavingHandRoundedIcon from '@mui/icons-material/WavingHandRounded'
 import { useAuth } from '../auth/AuthContext'
 import { PageContainer } from '../components/PageContainer'
 import { useCondominium } from '../condominiums/CondominiumContext'
 import { getAccessMessage } from '../condominiums/presentation'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useManagementContext } from '../management/ManagementContext'
 import { ManagementCondominiumSwitcher } from '../management/components/ManagementCondominiumSwitcher'
 import { managementHomeState } from '../management/contextState'
@@ -15,6 +15,10 @@ import { managementHomeState } from '../management/contextState'
 export function HomePage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const passwordChanged = Boolean(
+    (location.state as { passwordChanged?: boolean } | null)?.passwordChanged,
+  )
   const { currentCondominium, isResident } = useCondominium()
   const {
     activeCondominium,
@@ -39,6 +43,11 @@ export function HomePage() {
   }
   return (
     <PageContainer>
+      {passwordChanged && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          Senha atualizada com sucesso.
+        </Alert>
+      )}
       <Paper
         elevation={0}
         sx={(theme) => ({

@@ -268,6 +268,14 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
         Assert.Null(body.UnitMembership);
         Assert.Equal(_condominiumId, body.Membership.CondominiumId);
         Assert.True(await IsMemberAsync(body.User.Id, _condominiumId));
+        await _host.WithDbAsync(async db =>
+        {
+            var user = await db.Set<ApplicationUser>()
+                .SingleAsync(item => item.Id == body.User.Id);
+            Assert.True(user.MustChangePassword);
+            Assert.Null(user.LastLoginAt);
+            Assert.Null(user.PasswordChangedAt);
+        });
     }
 
     [Fact]

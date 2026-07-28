@@ -1,117 +1,455 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded'
-import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
-import { Alert, Box, Button, Card, CardContent, CircularProgress, Dialog, DialogContent, DialogTitle, Stack, Typography } from '@mui/material'
-import { getErrorMessage } from '../../services/api'
-import { getRequestAttachmentBlob, listRequestAttachments, uploadRequestAttachments } from '../api'
+import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded'
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  LinearProgress,
+  Stack,
+  Typography,
+} from '@mui/material'
+import {
+  deleteRequestAttachment,
+  getRequestAttachmentBlob,
+  listRequestAttachments,
+  uploadRequestAttachments,
+} from '../api'
+import {
+  appendUploadedAttachments,
+  calculateUploadProgress,
+  formatAttachmentSize,
+  getAttachmentErrorMessage,
+  removeSelectedAttachment,
+  removeUploadedAttachment,
+  selectAttachmentFiles,
+} from '../attachments'
 import { formatDateTime } from '../presentation'
 import type { RequestAttachment } from '../types'
 
-const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
-const maximumSize = 10 * 1024 * 1024
-
-function formatSize(bytes: number) {
-  return bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
+interface RequestAttachmentsProps {
+  requestId: string
+  cancelled: boolean
 }
 
-export function RequestAttachments({ requestId, cancelled }: { requestId: string; cancelled: boolean }) {
+export function RequestAttachments({
+  requestId,
+  cancelled,
+}: RequestAttachmentsProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [items, setItems] = useState<RequestAttachment[]>([])
   const [previews, setPreviews] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<File[]>([])
   const [dialogUrl, setDialogUrl] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<RequestAttachment | null>(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState('')
 
   const load = useCallback(async () => {
-    setLoading(true); setError('')
-    try { setItems(await listRequestAttachments(requestId)) }
-    catch (requestError) { setError(getErrorMessage(requestError)) }
-    finally { setLoading(false) }
+    setLoading(true)
+    setError('')
+    try {
+      setItems(await listRequestAttachments(requestId))
+    } catch (requestError) {
+      setError(getAttachmentErrorMessage(requestError))
+    } finally {
+      setLoading(false)
+    }
   }, [requestId])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    void load()
+  }, [load])
+
   useEffect(() => {
     let active = true
     const urls: string[] = []
-    void Promise.all(items.filter((item) => item.contentType.startsWith('image/')).map(async (item) => {
-      const blob = await getRequestAttachmentBlob(item.contentUrl)
-      const url = URL.createObjectURL(blob)
-      // A blob resolved after cleanup would otherwise leak: nothing holds the
-      // url, so revoke it here instead of pushing it to the (already read) list.
-      if (!active) { URL.revokeObjectURL(url); return }
-      urls.push(url)
-      setPreviews((current) => ({ ...current, [item.id]: url }))
-    })).catch(() => { if (active) setError('Não foi possível carregar uma das miniaturas.') })
-    return () => { active = false; urls.forEach(URL.revokeObjectURL); setPreviews({}) }
+    void Promise.all(
+      items
+        .filter(item => item.contentType.startsWith('image/'))
+        .map(async item => {
+          const blob = await getRequestAttachmentBlob(item.contentUrl)
+          const url = URL.createObjectURL(blob)
+          if (!active) {
+            URL.revokeObjectURL(url)
+            return
+          }
+          urls.push(url)
+          setPreviews(current => ({ ...current, [item.id]: url }))
+        }),
+    ).catch(() => {
+      if (active) setError('Não foi possível carregar uma das miniaturas.')
+    })
+
+    return () => {
+      active = false
+      if (typeof URL.revokeObjectURL === 'function') {
+        urls.forEach(url => URL.revokeObjectURL(url))
+      }
+      setPreviews({})
+    }
   }, [items])
 
   const chooseFiles = (files: File[]) => {
-    setError('')
-    if (files.length > 5) return setError('Selecione no máximo cinco arquivos.')
-    if (files.some((file) => !allowedTypes.includes(file.type))) return setError('Envie somente JPG, PNG, WebP ou PDF.')
-    if (files.some((file) => file.size > maximumSize)) return setError('Cada arquivo deve ter no máximo 10 MB.')
-    setSelected(files)
+    const result = selectAttachmentFiles(selected, files)
+    setError(result.error ?? '')
+    setSelected(result.files)
+    if (inputRef.current) inputRef.current.value = ''
   }
 
   const upload = async () => {
     if (!selected.length || uploading) return
-    setUploading(true); setError('')
-    try { await uploadRequestAttachments(requestId, selected); setSelected([]); if (inputRef.current) inputRef.current.value = ''; await load() }
-    catch (requestError) { setError(getErrorMessage(requestError)) }
-    finally { setUploading(false) }
-  }
 
-  const openPdf = async (item: RequestAttachment) => {
+    setUploading(true)
+    setUploadProgress(0)
+    setError('')
     try {
-      const url = URL.createObjectURL(await getRequestAttachmentBlob(item.contentUrl))
-      window.open(url, '_blank', 'noopener,noreferrer')
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
-    } catch (requestError) { setError(getErrorMessage(requestError)) }
+      const uploaded = await uploadRequestAttachments(
+        requestId,
+        selected,
+        (loaded, total) =>
+          setUploadProgress(calculateUploadProgress(loaded, total)),
+      )
+      setUploadProgress(100)
+      setItems(current => appendUploadedAttachments(current, uploaded))
+      setSelected([])
+      if (inputRef.current) inputRef.current.value = ''
+    } catch (requestError) {
+      setError(getAttachmentErrorMessage(requestError))
+    } finally {
+      setUploading(false)
+    }
   }
 
-  return <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}>
-    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2} mb={2}>
-      <Box><Typography variant="h2">Anexos</Typography><Typography color="text.secondary" fontSize=".875rem">Imagens e PDFs de até 10 MB.</Typography></Box>
-      {!cancelled && <Button component="label" variant="outlined" startIcon={<AttachFileRoundedIcon />} disabled={uploading} sx={{ minHeight: 44 }}>
-        Adicionar anexo<input ref={inputRef} hidden type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => chooseFiles(Array.from(event.target.files ?? []))} />
-      </Button>}
-    </Stack>
-    {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-    {!!selected.length && <Stack gap={1} mb={2}><Typography fontWeight={700}>{selected.map((file) => file.name).join(', ')}</Typography><Button variant="contained" onClick={() => void upload()} disabled={uploading}>{uploading ? <CircularProgress size={22} color="inherit" /> : `Enviar ${selected.length} arquivo(s)`}</Button></Stack>}
-    {loading ? <CircularProgress size={24} /> : items.length === 0 ? <Typography color="text.secondary">Nenhum anexo enviado.</Typography> :
-      <Box display="grid" gridTemplateColumns={{ xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }} gap={1.5}>
-        {items.map((item) => <Box key={item.id} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1.5, minWidth: 0 }}>
-          <Stack direction="row" gap={1.5} alignItems="center">
-            {item.contentType.startsWith('image/') && previews[item.id]
-              // A real button: the thumbnail opens the lightbox, so it must be
-              // focusable and keyboard-activatable, with a descriptive name.
-              ? <Box
-                  component="button"
-                  type="button"
-                  aria-label={`Ampliar ${item.originalFileName}`}
-                  onClick={() => setDialogUrl(previews[item.id])}
-                  sx={{
-                    p: 0, border: 0, background: 'none', cursor: 'pointer',
-                    width: 64, height: 64, borderRadius: 1, flexShrink: 0,
-                    '&:focus-visible': { outline: '3px solid', outlineColor: 'primary.light', outlineOffset: 2 },
-                  }}
+  const download = async (item: RequestAttachment) => {
+    try {
+      const url = URL.createObjectURL(
+        await getRequestAttachmentBlob(item.contentUrl),
+      )
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = item.originalFileName
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(url)
+    } catch (requestError) {
+      setError(getAttachmentErrorMessage(requestError))
+    }
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || deleting) return
+
+    setDeleting(true)
+    setError('')
+    try {
+      await deleteRequestAttachment(deleteTarget.id)
+      setItems(current =>
+        removeUploadedAttachment(current, deleteTarget.id),
+      )
+      setDeleteTarget(null)
+    } catch (requestError) {
+      setError(getAttachmentErrorMessage(requestError))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <Card elevation={0} sx={{ mt: 3 }}>
+      <CardContent sx={{ p: { xs: 2.5, sm: 4 } }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          justifyContent="space-between"
+          gap={2}
+          mb={2}
+        >
+          <Box>
+            <Typography variant="h2">Anexos</Typography>
+            <Typography color="text.secondary" fontSize=".875rem">
+              Imagens e PDFs. Até 6 arquivos por envio e 15 MB por arquivo.
+            </Typography>
+          </Box>
+          {!cancelled && (
+            <Button
+              component="label"
+              variant="outlined"
+              startIcon={<AttachFileRoundedIcon />}
+              disabled={uploading}
+              sx={{ minHeight: 44 }}
+            >
+              Adicionar anexos
+              <input
+                ref={inputRef}
+                hidden
+                type="file"
+                multiple
+                accept=".jpg,.jpeg,.png,.webp,.pdf,image/jpeg,image/png,image/webp,application/pdf"
+                onChange={event =>
+                  chooseFiles(Array.from(event.target.files ?? []))}
+              />
+            </Button>
+          )}
+        </Stack>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
+
+        {!!selected.length && (
+          <Box
+            sx={{
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 2,
+              p: 2,
+              mb: 2,
+            }}
+          >
+            <Typography fontWeight={700} mb={1}>
+              {selected.length}{' '}
+              {selected.length === 1
+                ? 'arquivo selecionado'
+                : 'arquivos selecionados'}
+            </Typography>
+            <Stack gap={0.5} mb={2}>
+              {selected.map((file, index) => (
+                <Stack
+                  key={`${file.name}-${file.size}-${index}`}
+                  direction="row"
+                  alignItems="center"
+                  gap={1}
                 >
-                  <Box
-                    component="img"
-                    src={previews[item.id]}
-                    alt={`Miniatura de ${item.originalFileName}`}
-                    sx={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 1, display: 'block' }}
-                  />
-                </Box>
-              : <DescriptionRoundedIcon color="action" sx={{ fontSize: 42 }} />}
-            <Box minWidth={0} flex={1}><Typography fontWeight={700} noWrap title={item.originalFileName}>{item.originalFileName}</Typography><Typography color="text.secondary" fontSize=".78rem">{formatSize(item.fileSize)} · {item.uploadedBy.fullName}</Typography><Typography color="text.secondary" fontSize=".75rem">{formatDateTime(item.createdAt)}</Typography></Box>
-            <Button aria-label={`Abrir ${item.originalFileName}`} onClick={() => item.contentType.startsWith('image/') ? setDialogUrl(previews[item.id]) : void openPdf(item)}><OpenInNewRoundedIcon /></Button>
-          </Stack>
-        </Box>)}
-      </Box>}
-    <Dialog open={Boolean(dialogUrl)} onClose={() => setDialogUrl(null)} maxWidth="lg" fullWidth><DialogTitle>Visualização do anexo</DialogTitle><DialogContent sx={{ textAlign: 'center', overflow: 'auto' }}>{dialogUrl && <Box component="img" src={dialogUrl} alt="Anexo ampliado" sx={{ maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain' }} />}</DialogContent></Dialog>
-  </CardContent></Card>
+                  <Box minWidth={0} flex={1}>
+                    <Typography noWrap title={file.name}>
+                      {file.name}
+                    </Typography>
+                    <Typography color="text.secondary" fontSize=".78rem">
+                      {formatAttachmentSize(file.size)}
+                    </Typography>
+                  </Box>
+                  <IconButton
+                    aria-label={`Remover ${file.name}`}
+                    disabled={uploading}
+                    onClick={() =>
+                      setSelected(current =>
+                        removeSelectedAttachment(current, index))}
+                  >
+                    <CloseRoundedIcon />
+                  </IconButton>
+                </Stack>
+              ))}
+            </Stack>
+
+            {uploading && (
+              <Box mb={2}>
+                <Stack direction="row" justifyContent="space-between" mb={0.5}>
+                  <Typography fontSize=".85rem">Enviando arquivos</Typography>
+                  <Typography fontSize=".85rem" fontWeight={700}>
+                    {uploadProgress}%
+                  </Typography>
+                </Stack>
+                <LinearProgress
+                  variant="determinate"
+                  value={uploadProgress}
+                  aria-label={`Progresso do upload: ${uploadProgress}%`}
+                />
+              </Box>
+            )}
+
+            <Stack direction={{ xs: 'column', sm: 'row' }} gap={1}>
+              <Button
+                variant="contained"
+                onClick={() => void upload()}
+                disabled={!selected.length || uploading}
+              >
+                {uploading ? 'Enviando…' : 'Enviar arquivos'}
+              </Button>
+              {!uploading && (
+                <Button variant="text" onClick={() => setSelected([])}>
+                  Cancelar seleção
+                </Button>
+              )}
+            </Stack>
+          </Box>
+        )}
+
+        {loading ? (
+          <CircularProgress size={24} />
+        ) : items.length === 0 ? (
+          <Typography color="text.secondary">
+            Nenhum anexo enviado.
+          </Typography>
+        ) : (
+          <Box
+            display="grid"
+            gridTemplateColumns={{
+              xs: '1fr',
+              sm: 'repeat(2, minmax(0, 1fr))',
+            }}
+            gap={1.5}
+          >
+            {items.map(item => (
+              <Box
+                key={item.id}
+                sx={{
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: 2,
+                  p: 1.5,
+                  minWidth: 0,
+                }}
+              >
+                <Stack direction="row" gap={1.5} alignItems="center">
+                  {item.contentType.startsWith('image/')
+                    && previews[item.id] ? (
+                      <Box
+                        component="button"
+                        type="button"
+                        aria-label={`Ampliar ${item.originalFileName}`}
+                        onClick={() => setDialogUrl(previews[item.id])}
+                        sx={{
+                          p: 0,
+                          border: 0,
+                          background: 'none',
+                          cursor: 'pointer',
+                          width: 64,
+                          height: 64,
+                          borderRadius: 1,
+                          flexShrink: 0,
+                          '&:focus-visible': {
+                            outline: '3px solid',
+                            outlineColor: 'primary.light',
+                            outlineOffset: 2,
+                          },
+                        }}
+                      >
+                        <Box
+                          component="img"
+                          src={previews[item.id]}
+                          alt={`Miniatura de ${item.originalFileName}`}
+                          sx={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            borderRadius: 1,
+                            display: 'block',
+                          }}
+                        />
+                      </Box>
+                    ) : (
+                      <DescriptionRoundedIcon
+                        color="action"
+                        sx={{ fontSize: 42 }}
+                      />
+                    )}
+                  <Box minWidth={0} flex={1}>
+                    <Typography
+                      fontWeight={700}
+                      noWrap
+                      title={item.originalFileName}
+                    >
+                      {item.originalFileName}
+                    </Typography>
+                    <Typography color="text.secondary" fontSize=".78rem">
+                      {formatAttachmentSize(item.fileSize)}
+                      {' · '}
+                      {item.uploadedBy.fullName}
+                    </Typography>
+                    <Typography color="text.secondary" fontSize=".75rem">
+                      {formatDateTime(item.createdAt)}
+                    </Typography>
+                  </Box>
+                  <Stack direction="row">
+                    <IconButton
+                      aria-label={`Baixar ${item.originalFileName}`}
+                      onClick={() => void download(item)}
+                    >
+                      <DownloadRoundedIcon />
+                    </IconButton>
+                    <IconButton
+                      aria-label={`Excluir ${item.originalFileName}`}
+                      onClick={() => setDeleteTarget(item)}
+                    >
+                      <DeleteOutlineRoundedIcon />
+                    </IconButton>
+                  </Stack>
+                </Stack>
+              </Box>
+            ))}
+          </Box>
+        )}
+      </CardContent>
+
+      <Dialog
+        open={Boolean(dialogUrl)}
+        onClose={() => setDialogUrl(null)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle>Visualização do anexo</DialogTitle>
+        <DialogContent sx={{ textAlign: 'center', overflow: 'auto' }}>
+          {dialogUrl && (
+            <Box
+              component="img"
+              src={dialogUrl}
+              alt="Anexo ampliado"
+              sx={{
+                maxWidth: '100%',
+                maxHeight: '75vh',
+                objectFit: 'contain',
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(deleteTarget)}
+        onClose={() => {
+          if (!deleting) setDeleteTarget(null)
+        }}
+      >
+        <DialogTitle>Excluir anexo?</DialogTitle>
+        <DialogContent>
+          <Typography>
+            O arquivo “{deleteTarget?.originalFileName}” será excluído.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setDeleteTarget(null)}
+            disabled={deleting}
+          >
+            Cancelar
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => void confirmDelete()}
+            disabled={deleting}
+          >
+            {deleting ? 'Excluindo…' : 'Excluir'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Card>
+  )
 }

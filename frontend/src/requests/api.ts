@@ -48,12 +48,27 @@ export async function listRequestAttachments(requestId: string) {
   return (await api.get<RequestAttachment[]>(`/requests/${requestId}/attachments`)).data
 }
 
-export async function uploadRequestAttachments(requestId: string, files: File[]) {
+export async function uploadRequestAttachments(
+  requestId: string,
+  files: File[],
+  onProgress?: (loaded: number, total?: number) => void,
+) {
   const form = new FormData()
   files.forEach((file) => form.append('files', file))
-  return (await api.post<RequestAttachment[]>(`/requests/${requestId}/attachments`, form)).data
+  return (await api.post<RequestAttachment[]>(
+    `/requests/${requestId}/attachments`,
+    form,
+    {
+      timeout: 5 * 60 * 1000,
+      onUploadProgress: event => onProgress?.(event.loaded, event.total),
+    },
+  )).data
 }
 
 export async function getRequestAttachmentBlob(contentUrl: string) {
   return (await api.get<Blob>(contentUrl, { responseType: 'blob' })).data
+}
+
+export async function deleteRequestAttachment(attachmentId: string) {
+  await api.delete(`/request-attachments/${attachmentId}`)
 }

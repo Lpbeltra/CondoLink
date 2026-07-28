@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using System.Security.Claims;
+using System.IdentityModel.Tokens.Jwt;
 
 namespace CondoLink.Infrastructure;
 
@@ -99,6 +100,36 @@ public static class DependencyInjection
                         NameClaimType = ClaimTypes.Name,
                         RoleClaimType = ClaimTypes.Role
                     };
+
+                options.Events = new JwtBearerEvents
+                {
+                    OnTokenValidated = async context =>
+                    {
+                        var subject = context.Principal?
+                            .FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+                        if (!Guid.TryParse(subject, out var userId))
+                        {
+                            context.Fail("Invalid user.");
+                            return;
+                        }
+
+                        var dbContext = context.HttpContext.RequestServices
+                            .GetRequiredService<AppDbContext>();
+                        var state = await dbContext.Users
+                            .AsNoTracking()
+                            .Where(user => user.Id == userId)
+                            .Select(user => new
+                            {
+                                user.IsActive,
+                                user.MustChangePassword
+                            })
+                            .SingleOrDefaultAsync(context.HttpContext.RequestAborted);
+
+                        if (state is null || !state.IsActive
+                            || state.MustChangePassword)
+                            context.Fail("User cannot access the application.");
+                    }
+                };
             });
 
         services.AddAuthorization(options =>
