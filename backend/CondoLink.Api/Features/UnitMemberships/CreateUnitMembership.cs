@@ -138,24 +138,6 @@ public static class CreateUnitMembership
                 new { error = "Inactive user cannot be linked to a unit." });
         }
 
-        var isActiveCondominiumMember = await dbContext.CondominiumMemberships
-            .AsNoTracking()
-            .AnyAsync(
-                membership =>
-                    membership.UserId == request.UserId
-                    && membership.CondominiumId == unit.CondominiumId
-                    && membership.IsActive
-                    && membership.EndedAt == null,
-                cancellationToken);
-
-        if (!isActiveCondominiumMember)
-        {
-            return Results.Conflict(new
-            {
-                error = "User must be an active condominium member before being linked to a unit."
-            });
-        }
-
         if (!TryParseRelationshipType(request.RelationshipType, out var relationshipType))
         {
             return Results.BadRequest(new
@@ -172,57 +154,101 @@ public static class CreateUnitMembership
             });
         }
 
-        var existingRelationship = await dbContext.UnitMemberships
-            .SingleOrDefaultAsync(
-                membership =>
-                    membership.UserId == request.UserId
-                    && membership.UnitId == unitId
-                    && membership.RelationshipType == relationshipType,
-                cancellationToken);
-
-        if (existingRelationship?.IsActive == true)
-        {
-            return DuplicateRelationshipConflict();
-        }
-
-        if (existingRelationship is not null)
-        {
-            existingRelationship.Reactivate(request.IsResident, request.IsPrimaryResidence, DateTime.UtcNow);
-            await dbContext.SaveChangesAsync(cancellationToken);
-            return Results.Ok(new Response(existingRelationship.Id, existingRelationship.UserId, existingRelationship.UnitId, existingRelationship.RelationshipType.ToString(), existingRelationship.IsResident, existingRelationship.IsPrimaryResidence, existingRelationship.IsActive, existingRelationship.StartedAt, existingRelationship.EndedAt, existingRelationship.CreatedAt));
-        }
-
-        var unitMembership = new UnitMembership(
-            request.UserId,
-            unitId,
-            relationshipType,
-            request.IsResident,
-            request.IsPrimaryResidence);
-
-        dbContext.UnitMemberships.Add(unitMembership);
-
+        await using var transaction =
+            await dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
+            var condominiumMembership = await dbContext.CondominiumMemberships
+                .SingleOrDefaultAsync(
+                    membership =>
+                        membership.UserId == request.UserId
+                        && membership.CondominiumId == unit.CondominiumId,
+                    cancellationToken);
+            if (condominiumMembership is null)
+            {
+                condominiumMembership = new CondominiumMembership(
+                    request.UserId, unit.CondominiumId);
+                dbContext.CondominiumMemberships.Add(condominiumMembership);
+            }
+            else if (!condominiumMembership.IsActive
+                || condominiumMembership.EndedAt is not null)
+            {
+                condominiumMembership.Activate();
+            }
+
+            var residentRole = await dbContext.CondominiumMembershipRoles
+                .SingleOrDefaultAsync(
+                    role =>
+                        role.CondominiumMembershipId == condominiumMembership.Id
+                        && role.Role == CondominiumRole.Resident,
+                    cancellationToken);
+            if (residentRole is null)
+            {
+                dbContext.CondominiumMembershipRoles.Add(
+                    new CondominiumMembershipRole(
+                        condominiumMembership.Id, CondominiumRole.Resident));
+            }
+            else if (!residentRole.IsActive || residentRole.RevokedAt is not null)
+            {
+                residentRole.Activate();
+            }
+
+            var unitMembership = await dbContext.UnitMemberships
+                .SingleOrDefaultAsync(
+                    membership =>
+                        membership.UserId == request.UserId
+                        && membership.UnitId == unitId
+                        && membership.RelationshipType == relationshipType,
+                    cancellationToken);
+            if (unitMembership?.IsActive == true)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return DuplicateRelationshipConflict();
+            }
+
+            var reactivated = unitMembership is not null;
+            if (unitMembership is null)
+            {
+                unitMembership = new UnitMembership(
+                    request.UserId,
+                    unitId,
+                    relationshipType,
+                    request.IsResident,
+                    request.IsPrimaryResidence);
+                dbContext.UnitMemberships.Add(unitMembership);
+            }
+            else
+            {
+                unitMembership.Reactivate(
+                    request.IsResident,
+                    request.IsPrimaryResidence,
+                    DateTime.UtcNow);
+            }
+
             await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            var response = new Response(
+                unitMembership.Id,
+                unitMembership.UserId,
+                unitMembership.UnitId,
+                unitMembership.RelationshipType.ToString(),
+                unitMembership.IsResident,
+                unitMembership.IsPrimaryResidence,
+                unitMembership.IsActive,
+                unitMembership.StartedAt,
+                unitMembership.EndedAt,
+                unitMembership.CreatedAt);
+
+            return reactivated
+                ? Results.Ok(response)
+                : Results.Created($"/unit-memberships/{unitMembership.Id}", response);
         }
         catch (DbUpdateException exception) when (IsDuplicateRelationshipViolation(exception))
         {
+            await transaction.RollbackAsync(cancellationToken);
             return DuplicateRelationshipConflict();
         }
-
-        var response = new Response(
-            unitMembership.Id,
-            unitMembership.UserId,
-            unitMembership.UnitId,
-            unitMembership.RelationshipType.ToString(),
-            unitMembership.IsResident,
-            unitMembership.IsPrimaryResidence,
-            unitMembership.IsActive,
-            unitMembership.StartedAt,
-            unitMembership.EndedAt,
-            unitMembership.CreatedAt);
-
-        return Results.Created($"/unit-memberships/{unitMembership.Id}", response);
     }
 
     private static bool TryParseRelationshipType(

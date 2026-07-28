@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using CondoLink.Api.Features.UnitMemberships;
+using CondoLink.Api.Features.Units;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -33,6 +34,7 @@ public sealed class UnitMembershipEndpointsTests : IAsyncLifetime
             application.MapCreateUnitMembership();
             application.MapManageUnitMembership();
             application.MapListUnitMemberships();
+            application.MapListMyRequestUnits();
         });
 
         await _host.WithDbAsync(async db =>
@@ -127,12 +129,74 @@ public sealed class UnitMembershipEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_user_who_is_not_a_member_of_the_condominium_cannot_be_linked()
+    public async Task Linking_a_user_from_another_condominium_creates_the_local_membership()
     {
         var response = await LinkAsync(_managerId, _outsiderId, "Owner");
 
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal(0, await MembershipCountAsync());
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(1, await MembershipCountAsync());
+        Assert.Equal(2, await _host.WithDbAsync(db =>
+            db.CondominiumMemberships.CountAsync(item =>
+                item.UserId == _outsiderId && item.IsActive)));
+        Assert.True(await _host.WithDbAsync(db =>
+            db.CondominiumMembershipRoles.AnyAsync(role =>
+                role.Role == CondominiumRole.Resident
+                && role.IsActive
+                && db.CondominiumMemberships.Any(membership =>
+                    membership.Id == role.CondominiumMembershipId
+                    && membership.UserId == _outsiderId
+                    && membership.CondominiumId == _condominiumId))));
+    }
+
+    [Fact]
+    public async Task Linking_reactivates_an_inactive_condominium_membership_and_resident_role()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var membership = await db.CondominiumMemberships.SingleAsync(item =>
+                item.UserId == _residentId
+                && item.CondominiumId == _condominiumId);
+            membership.Deactivate(DateTime.UtcNow);
+            var role = await db.CondominiumMembershipRoles.SingleAsync(item =>
+                item.CondominiumMembershipId == membership.Id
+                && item.Role == CondominiumRole.Resident);
+            role.Deactivate();
+            await db.SaveChangesAsync();
+        });
+
+        var response = await LinkAsync(_managerId, _residentId, "Tenant");
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.True(await _host.WithDbAsync(db =>
+            db.CondominiumMemberships.AnyAsync(item =>
+                item.UserId == _residentId
+                && item.CondominiumId == _condominiumId
+                && item.IsActive
+                && item.EndedAt == null)));
+        Assert.True(await _host.WithDbAsync(db =>
+            db.CondominiumMembershipRoles.AnyAsync(item =>
+                item.Role == CondominiumRole.Resident
+                && item.IsActive
+                && item.RevokedAt == null
+                && db.CondominiumMemberships.Any(membership =>
+                    membership.Id == item.CondominiumMembershipId
+                    && membership.UserId == _residentId
+                    && membership.CondominiumId == _condominiumId))));
+    }
+
+    [Fact]
+    public async Task Manually_linked_unit_is_returned_by_units_mine()
+    {
+        Assert.Equal(HttpStatusCode.Created,
+            (await LinkAsync(_managerId, _residentId, "Owner")).StatusCode);
+
+        var units = await _host.ClientFor(_residentId)
+            .GetFromJsonAsync<List<ListMyRequestUnits.Response>>(
+                $"/condominiums/{_condominiumId}/units/mine");
+
+        var unit = Assert.Single(units!);
+        Assert.Equal(_unitId, unit.Id);
+        Assert.Equal("101", unit.Identifier);
     }
 
     [Fact]

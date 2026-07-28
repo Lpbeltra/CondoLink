@@ -163,6 +163,11 @@ export function UnitDetailsPage() {
     unitId,
   ])
 
+  const refreshLinks = useCallback(async () => {
+    const loadedLinks = await listUnitMemberships(unitId)
+    setLinks(loadedLinks.filter((item) => item.membershipActive))
+  }, [unitId])
+
   useEffect(() => {
     void load()
   }, [load])
@@ -248,15 +253,14 @@ export function UnitDetailsPage() {
         })
       }
 
+      await refreshLinks()
       setDialogOpen(false)
-
       setSuccess(
         editing
           ? 'Vínculo atualizado com sucesso.'
           : 'Vínculo adicionado com sucesso.'
       )
 
-      await load()
     } catch (requestError) {
       setError(managementError(requestError))
     } finally {
@@ -467,18 +471,25 @@ export function UnitDetailsPage() {
 
         <Button
           variant="contained"
+          size="small"
           startIcon={<AddRoundedIcon />}
           onClick={openCreate}
+          sx={{
+            alignSelf: { xs: 'stretch', sm: 'flex-start' },
+            width: { xs: '100%', sm: 'auto' },
+          }}
         >
           Adicionar vínculo
         </Button>
       </Stack>
 
       {links.length === 0 ? (
-        <EmptyState
+        <Box mt={2}>
+          <EmptyState
           title="Nenhuma pessoa vinculada a esta unidade."
           description="Adicione um membro do condomínio para criar o primeiro vínculo."
-        />
+          />
+        </Box>
       ) : (
         <List
           sx={{
