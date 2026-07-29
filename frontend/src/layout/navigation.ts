@@ -1,4 +1,3 @@
-import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import ForumRoundedIcon from '@mui/icons-material/ForumRounded'
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded'
 import ApartmentRoundedIcon from '@mui/icons-material/ApartmentRounded'
@@ -20,22 +19,19 @@ interface NavigationItem {
 export const managementEntryPath = '/management/dashboard'
 
 const commonItems: NavigationItem[] = [
-  { label: 'Início', path: '/', icon: HomeRoundedIcon },
+  { label: 'Dashboard', path: '/management/dashboard', icon: AssessmentRoundedIcon, requiredRole: 'Manager' },
   { label: 'Solicitações', path: '/requests', icon: ForumRoundedIcon },
   { label: 'Atendimento', path: '/management/requests', icon: SupportAgentRoundedIcon, requiredRole: 'Manager' },
   { label: 'Gestão', path: '/management/units', icon: ApartmentRoundedIcon, requiredRole: 'Manager' },
-  { label: 'Dashboard', path: '/management/dashboard', icon: AssessmentRoundedIcon, requiredRole: 'Manager' },
   { label: 'Overwatch', path: '/overwatch', icon: AdminPanelSettingsRoundedIcon, platformAdminOnly: true },
 ]
 
 // Roles shape the visible UI only. Every real operation must still be authorized by the API.
 export function getNavigationItems(roles: CondominiumRole[], userRoles: string[] = []) {
-  const managerOnly = roles.includes('Manager')
-    && !userRoles.includes('PlatformAdmin')
   return commonItems.filter((item) =>
     (!item.requiredRole || roles.includes(item.requiredRole))
     && (!item.platformAdminOnly || userRoles.includes('PlatformAdmin'))
-    && !(managerOnly && item.path === '/'))
+  )
 }
 
 export function getMobileNavigationItems(roles: CondominiumRole[], userRoles: string[] = []) {

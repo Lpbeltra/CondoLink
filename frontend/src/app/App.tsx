@@ -65,7 +65,7 @@ export function App() {
                   <Route path="requests/:requestId" element={<RequestDetailsPage />} />
                   <Route path="more" element={<MorePage />} />
                   <Route path="management" element={<ManagementLayout />}>
-                    <Route index element={<Navigate to="units" replace />} />
+                    <Route index element={<Navigate to="dashboard" replace />} />
                     <Route path="requests" element={<ManagementRequestsPage />} />
                     <Route path="requests/:requestId" element={<ManagementRequestDetailsPage />} />
                     <Route path="units" element={<ManagementUnitsPage />} />

@@ -287,7 +287,7 @@ export function CondominiumSetupPage() {
         <Stack gap={2}>
           {noUnits ? (
             <Alert severity="info">
-              Nenhuma unidade será criada. O restante do CondoLink continuará
+              Nenhuma unidade será criada. O restante da Comvy continuará
               funcionando normalmente.
             </Alert>
           ) : method === 'import' ? (

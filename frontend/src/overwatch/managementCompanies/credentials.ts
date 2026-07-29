@@ -2,7 +2,7 @@ import type { CreatedManagementCompanyEmployee } from './types'
 
 export function employeeCredentialsText(employee: CreatedManagementCompanyEmployee) {
   return [
-    'CondoLink',
+    'Comvy',
     '',
     `Nome: ${employee.fullName}`,
     `E-mail: ${employee.email}`,

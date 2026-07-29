@@ -47,7 +47,7 @@ export function OverwatchDashboardPage() {
     <PageContainer>
       <Typography variant="h1">Overwatch</Typography>
       <Typography color="text.secondary" mt={1}>
-        Visão geral da operação do CondoLink.
+        Visão geral da operação da Comvy.
       </Typography>
 
       {error && (
@@ -74,7 +74,7 @@ export function OverwatchDashboardPage() {
         <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
           <Typography variant="h2">Bem-vindo ao Overwatch</Typography>
           <Typography color="text.secondary" mt={1}>
-            Este painel reúne a administração global das estruturas centrais do CondoLink.
+            Este painel reúne a administração global das estruturas centrais da Comvy.
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} gap={1.5} mt={3}>
             {overwatchShortcuts.map((shortcut) => (

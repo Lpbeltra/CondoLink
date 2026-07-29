@@ -1,10 +1,14 @@
-import { Drawer, List, ListItemButton, ListItemIcon, ListItemText, Toolbar } from '@mui/material'
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import { Box, Divider, Drawer, List, ListItemButton, ListItemIcon, ListItemText, Toolbar } from '@mui/material'
 import { NavLink } from 'react-router-dom'
 import { Brand } from '../components/Brand'
 import { drawerWidth } from '../layout/Sidebar'
 import { overwatchNavigationItems } from './overwatchNavigation'
+import { useManagementContext } from '../management/ManagementContext'
+import { managementEntryPath } from '../layout/navigation'
 
 export function OverwatchSidebar() {
+  const { condominiumCount } = useManagementContext()
   return (
     <Drawer
       variant="permanent"
@@ -20,6 +24,7 @@ export function OverwatchSidebar() {
       }}
     >
       <Toolbar sx={{ minHeight: '72px !important', px: 3 }}><Brand /></Toolbar>
+      <Box display="flex" flexDirection="column" flex={1}>
       <List
         component="nav"
         aria-label="Navegação da Overwatch"
@@ -50,6 +55,16 @@ export function OverwatchSidebar() {
           </ListItemButton>
         ))}
       </List>
+      {condominiumCount > 0 && (
+        <Box mt="auto" px={1.5} pb={2}>
+          <Divider sx={{ mb: 1.5 }} />
+          <ListItemButton component={NavLink} to={managementEntryPath} sx={{ borderRadius: 2.5, color: 'text.secondary' }}>
+            <ListItemIcon sx={{ minWidth: 40, color: 'inherit' }}><ArrowBackRoundedIcon /></ListItemIcon>
+            <ListItemText primary="Voltar para a gestão" primaryTypographyProps={{ fontWeight: 700, fontSize: '.875rem' }} />
+          </ListItemButton>
+        </Box>
+      )}
+      </Box>
     </Drawer>
   )
 }

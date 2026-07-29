@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],
       manifest: {
-        name: 'CondoLink',
-        short_name: 'CondoLink',
-        description: 'Seu condomínio mais conectado.',
+        name: 'Comvy',
+        short_name: 'Comvy',
+        description: 'Comunicação clara entre moradores, síndicos e administradoras.',
         theme_color: '#1f5eff',
         background_color: '#f6f8fc',
         display: 'standalone',

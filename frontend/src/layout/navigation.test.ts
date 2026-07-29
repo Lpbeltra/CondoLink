@@ -4,13 +4,13 @@ import type { CondominiumContext } from '../condominiums/types'
 
 describe('role-based navigation', () => {
   it('shows only common items to residents', () => {
-    expect(getNavigationItems(['Resident']).map((item) => item.label)).toEqual(['Início', 'Solicitações'])
-    expect(getMobileNavigationItems(['Resident']).map((item) => item.label)).toEqual(['Início', 'Solicitações'])
+    expect(getNavigationItems(['Resident']).map((item) => item.label)).toEqual(['Solicitações'])
+    expect(getMobileNavigationItems(['Resident']).map((item) => item.label)).toEqual(['Solicitações'])
   })
 
   it('shows management resources to managers', () => {
     expect(getNavigationItems(['Manager', 'Resident']).map((item) => item.label))
-      .toEqual(['Solicitações', 'Atendimento', 'Gestão', 'Dashboard'])
+      .toEqual(['Dashboard', 'Solicitações', 'Atendimento', 'Gestão'])
   })
 
   it('shows Overwatch only to PlatformAdmin', () => {
@@ -22,7 +22,7 @@ describe('role-based navigation', () => {
 
   it('keeps manager mobile navigation compact', () => {
     expect(getMobileNavigationItems(['Manager']).map((item) => item.label))
-      .toEqual(['Solicitações', 'Dashboard', 'Mais'])
+      .toEqual(['Dashboard', 'Solicitações', 'Mais'])
   })
 
   it('marks the correct mobile destination for nested routes', () => {

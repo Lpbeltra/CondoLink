@@ -1,10 +1,14 @@
 import { BottomNavigation, BottomNavigationAction, Paper } from '@mui/material'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { getOverwatchSelectedPath, overwatchNavigationItems } from './overwatchNavigation'
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import { useManagementContext } from '../management/ManagementContext'
+import { managementEntryPath } from '../layout/navigation'
 
 export function OverwatchMobileNavigation() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { condominiumCount } = useManagementContext()
   return (
     <Paper
       elevation={0}
@@ -35,6 +39,9 @@ export function OverwatchMobileNavigation() {
             icon={<Icon />}
           />
         ))}
+        {condominiumCount > 0 && (
+          <BottomNavigationAction label="Gestão" value={managementEntryPath} icon={<ArrowBackRoundedIcon />} />
+        )}
       </BottomNavigation>
     </Paper>
   )

@@ -1,7 +1,5 @@
 import { useState } from 'react'
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded'
-import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded'
-import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded'
 import { AppBar, Avatar, Box, ButtonBase, IconButton, ListItemIcon, Menu, MenuItem, Toolbar, Tooltip, Typography, alpha } from '@mui/material'
 import { Brand } from '../components/Brand'
 import { NotificationBell } from '../notifications/NotificationBell'
@@ -11,10 +9,6 @@ import { CondominiumSwitcher } from './CondominiumSwitcher'
 import { useCondominium } from '../condominiums/CondominiumContext'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { shouldShowGeneralCondominiumSwitcher } from './navigation'
-import {
-  getUserMenuAreaAction,
-  runUserMenuAreaAction,
-} from './userMenu'
 import { useOptionalManagementContext } from '../management/ManagementContext'
 
 export function AppHeader() {
@@ -24,11 +18,6 @@ export function AppHeader() {
   const navigate = useNavigate()
   const managementContext = useOptionalManagementContext()
   const showSwitcher = shouldShowGeneralCondominiumSwitcher(location.pathname, condominiums)
-  const areaAction = getUserMenuAreaAction(
-    user,
-    location.pathname,
-    (managementContext?.condominiumCount ?? 0) > 0,
-  )
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const brandPath = location.pathname.startsWith('/overwatch')
     ? '/overwatch'
@@ -74,24 +63,6 @@ export function AppHeader() {
           <Typography fontWeight={750} noWrap>{user?.fullName}</Typography>
           <Typography color="text.secondary" fontSize=".8rem" noWrap>{user?.email}</Typography>
         </Box>
-        {areaAction && (
-          <MenuItem
-            onClick={() =>
-              runUserMenuAreaAction(
-                areaAction,
-                () => setAnchor(null),
-                navigate,
-              )}
-            sx={{ minHeight: 44 }}
-          >
-            <ListItemIcon>
-              {areaAction.kind === 'overwatch'
-                ? <AdminPanelSettingsRoundedIcon fontSize="small" />
-                : <SupportAgentRoundedIcon fontSize="small" />}
-            </ListItemIcon>
-            {areaAction.label}
-          </MenuItem>
-        )}
         <MenuItem
           onClick={() => {
             setAnchor(null)

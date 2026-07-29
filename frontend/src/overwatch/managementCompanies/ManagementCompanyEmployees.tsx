@@ -392,7 +392,7 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
           {pendingAction?.type === 'remove' ? (
             <Alert severity="warning">
               O acesso de {pendingAction.employee.fullName} à administradora será removido.
-              O usuário do CondoLink não será excluído.
+              O usuário da Comvy não será excluído.
             </Alert>
           ) : (
             <Typography>

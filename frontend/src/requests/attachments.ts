@@ -101,7 +101,7 @@ export function formatAttachmentSize(bytes: number) {
 export function getAttachmentErrorMessage(error: unknown) {
   if (axios.isAxiosError<{ error?: string }>(error)) {
     if (!error.response) {
-      return 'Não foi possível conectar ao CondoLink. Tente novamente.'
+      return 'Não foi possível conectar ao servidor. Tente novamente.'
     }
 
     const serverMessage = error.response.data?.error

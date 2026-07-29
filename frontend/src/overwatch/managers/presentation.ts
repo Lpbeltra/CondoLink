@@ -11,7 +11,7 @@ export function managerDetailsPath(id: string) {
 }
 
 export function managerCredentialsText(manager: CreatedManager) {
-  return `CondoLink\nNome: ${manager.fullName}\nE-mail: ${manager.email}\nSenha temporária: ${manager.temporaryPassword}`
+  return `Comvy\nNome: ${manager.fullName}\nE-mail: ${manager.email}\nSenha temporária: ${manager.temporaryPassword}`
 }
 
 export function upsertManager(

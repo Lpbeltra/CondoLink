@@ -173,7 +173,26 @@ describe('NotificationBell', () => {
     await user.click(await screen.findByRole('button', { name: /Limpar todas/ }))
 
     await waitFor(() => expect(markAllNotificationsRead).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: 'Notificações', hidden: true })).toBeInTheDocument()
     expect(await screen.findByText('Todas as notificações foram marcadas como lidas.')).toBeInTheDocument()
+  })
+
+  it('does not restore the badge when an older refresh finishes after clear all', async () => {
+    const user = userEvent.setup()
+    let finishRefresh!: (value: { items: AppNotification[]; unreadCount: number }) => void
+    listNotifications
+      .mockResolvedValueOnce({ items: [notification()], unreadCount: 1 })
+      .mockImplementationOnce(() => new Promise(resolve => { finishRefresh = resolve }))
+    renderBell()
+    await screen.findByRole('button', { name: 'Notificações, 1 não lidas' })
+
+    await user.click(screen.getByRole('button', { name: /Notificações/ }))
+    await user.click(await screen.findByRole('button', { name: /Limpar todas/ }))
+    finishRefresh({ items: [notification()], unreadCount: 1 })
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Notificações', hidden: true }))
+        .toBeInTheDocument())
   })
 
   it('survives a failed poll without crashing the shell', async () => {

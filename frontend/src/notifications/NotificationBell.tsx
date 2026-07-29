@@ -76,6 +76,9 @@ export function NotificationBell() {
   }
 
   const handleMarkAll = async () => {
+    // Invalidate a refresh started while the menu was opening so its stale
+    // unread count cannot restore the badge after this optimistic update.
+    loadVersion.current += 1
     setItems((current) => markAllReadLocally(current, new Date().toISOString()))
     setUnreadCount(0)
     try {

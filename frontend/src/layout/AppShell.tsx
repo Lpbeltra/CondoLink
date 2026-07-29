@@ -33,7 +33,7 @@ export function AppShell() {
     <Box minHeight="100dvh" display="flex">
       <AppHeader />
       {showNavigation && <Sidebar />}
-      <Box component="main" flex={1} minWidth={0} ml={{ md: showNavigation ? `${drawerWidth}px` : 0 }} pb={{ xs: showNavigation ? 9 : 2, md: 0 }} sx={{ overflowX: 'hidden' }}>
+      <Box component="main" flex={1} minWidth={0} ml={{ md: 4 }} pb={{ xs: showNavigation ? 9 : 2, md: 0 }} sx={{ overflowX: 'hidden' }}>
         <Toolbar sx={{ minHeight: { xs: '64px !important', md: '72px !important' } }} />
         {content}
       </Box>

@@ -83,8 +83,8 @@ export const downloadSetupTemplate = async (
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = template === 'structure'
-    ? 'condolink-estrutura.csv'
-    : 'condolink-moradores.csv'
+    ? 'comvy-estrutura.csv'
+    : 'comvy-moradores.csv'
   anchor.click()
   URL.revokeObjectURL(url)
 }
