@@ -10,6 +10,7 @@ public static class PlatformAdminInitializer
         this WebApplication app)
     {
         var email = app.Configuration["PlatformAdmin:Email"];
+        var password = app.Configuration["PlatformAdmin:Password"];
 
         if (string.IsNullOrWhiteSpace(email))
         {
@@ -52,8 +53,45 @@ public static class PlatformAdminInitializer
 
         if (user is null)
         {
-            throw new InvalidOperationException(
-                $"Platform admin user '{email}' was not found.");
+            if (string.IsNullOrWhiteSpace(password))
+            {
+                throw new InvalidOperationException(
+                    "PlatformAdmin:Password is required to create the platform admin user.");
+            }
+
+            user = new ApplicationUser(
+                "Platform Administrator",
+                email,
+                phoneNumber: null);
+
+            var createResult = await userManager.CreateAsync(
+                user,
+                password);
+
+            if (!createResult.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    string.Join(
+                        " ",
+                        createResult.Errors.Select(
+                            error => error.Description)));
+            }
+        }
+
+        if (!user.IsActive)
+        {
+            user.SetActiveStatus(true);
+
+            var updateResult = await userManager.UpdateAsync(user);
+
+            if (!updateResult.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    string.Join(
+                        " ",
+                        updateResult.Errors.Select(
+                            error => error.Description)));
+            }
         }
 
         if (!await userManager.IsInRoleAsync(
