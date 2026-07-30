@@ -14,9 +14,9 @@ public static class WhatsAppWebhookEndpoints
     public static IEndpointRouteBuilder MapWhatsAppWebhook(
         this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/integrations/whatsapp/webhook", VerifyAsync)
+        endpoints.MapGet("/webhooks/whatsapp", VerifyAsync)
             .AllowAnonymous();
-        endpoints.MapPost("/integrations/whatsapp/webhook", ReceiveAsync)
+        endpoints.MapPost("/webhooks/whatsapp", ReceiveAsync)
             .AllowAnonymous();
         return endpoints;
     }
