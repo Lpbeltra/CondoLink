@@ -66,10 +66,10 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     {
         var client = _host.AnonymousClient();
         var accepted = await client.GetAsync(
-            "/integrations/whatsapp/webhook?hub.mode=subscribe"
+            "/webhooks/whatsapp?hub.mode=subscribe"
             + $"&hub.verify_token={VerifyToken}&hub.challenge=12345");
         var rejected = await client.GetAsync(
-            "/integrations/whatsapp/webhook?hub.mode=subscribe"
+            "/webhooks/whatsapp?hub.mode=subscribe"
             + "&hub.verify_token=wrong&hub.challenge=12345");
 
         Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
@@ -87,7 +87,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     {
         var body = TextPayload("wamid.invalid", "Menu");
         using var request = new HttpRequestMessage(
-            HttpMethod.Post, "/integrations/whatsapp/webhook")
+            HttpMethod.Post, "/webhooks/whatsapp")
         {
             Content = new StringContent(alterBody ? body + " " : body, Encoding.UTF8, "application/json")
         };
@@ -331,7 +331,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         string? signatureBody = null)
     {
         using var request = new HttpRequestMessage(
-            HttpMethod.Post, "/integrations/whatsapp/webhook")
+            HttpMethod.Post, "/webhooks/whatsapp")
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json")
         };

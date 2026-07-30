@@ -238,14 +238,6 @@ app.MapWhatsAppAdministration();
 // Overwatch
 app.MapOverwatchEndpoints();
 
-app.MapGet("/debug/webhook", () =>
-{
-    return Results.Ok(new
-    {
-        message = "Webhook route registration test"
-    });
-});
-
 await app.InitializePlatformAdminAsync();
 
 app.Run();

@@ -48,6 +48,13 @@ public static class WhatsAppWebhookEndpoints
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        var logger = loggerFactory.CreateLogger(
+            typeof(WhatsAppWebhookEndpoints));
+        logger.LogInformation(
+            "WhatsApp webhook POST received. ContentLength: {ContentLength}; SignatureHeaderPresent: {SignatureHeaderPresent}.",
+            request.ContentLength,
+            request.Headers.ContainsKey("X-Hub-Signature-256"));
+
         var settings = options.Value;
         if (!settings.Enabled) return Results.NotFound();
         if (string.IsNullOrWhiteSpace(settings.AppSecret))
@@ -71,14 +78,28 @@ public static class WhatsAppWebhookEndpoints
         }
         catch (IOException)
         {
+            logger.LogWarning("WhatsApp webhook payload could not be read.");
             return Results.BadRequest(new { error = "Could not read webhook payload." });
         }
 
-        if (!request.Headers.TryGetValue("X-Hub-Signature-256", out var signature)
-            || !ValidateSignature(body, signature.ToString(), settings.AppSecret))
+        if (body.Length == 0)
+            logger.LogWarning("WhatsApp webhook payload is empty.");
+
+        if (!request.Headers.TryGetValue("X-Hub-Signature-256", out var signature))
+        {
+            logger.LogWarning("WhatsApp webhook signature is missing.");
             return Results.Json(
                 new { error = "Invalid webhook signature." },
                 statusCode: StatusCodes.Status401Unauthorized);
+        }
+        if (!ValidateSignature(body, signature.ToString(), settings.AppSecret))
+        {
+            logger.LogWarning("WhatsApp webhook signature is invalid.");
+            return Results.Json(
+                new { error = "Invalid webhook signature." },
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+        logger.LogInformation("WhatsApp webhook signature validated successfully.");
 
         JsonDocument document;
         try
@@ -90,12 +111,16 @@ public static class WhatsAppWebhookEndpoints
         }
         catch (JsonException)
         {
+            logger.LogWarning("WhatsApp webhook payload contains invalid JSON.");
             return Results.BadRequest(new { error = "Invalid JSON payload." });
         }
 
         using (document)
         {
             var messages = WhatsAppWebhookParser.Parse(document.RootElement);
+            if (messages.Count == 0)
+                logger.LogInformation(
+                    "WhatsApp webhook event ignored because it contains no processable message.");
             foreach (var message in messages)
             {
                 try
@@ -104,11 +129,9 @@ public static class WhatsAppWebhookEndpoints
                 }
                 catch (Exception exception)
                 {
-                    loggerFactory.CreateLogger(typeof(WhatsAppWebhookEndpoints))
-                        .LogError(
-                            exception,
-                            "WhatsApp webhook processing failed for event {ExternalMessageId}.",
-                            message.ExternalMessageId);
+                    logger.LogError(
+                        exception,
+                        "WhatsApp webhook processing failed.");
                     return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
                 }
             }
@@ -126,6 +149,7 @@ public static class WhatsAppWebhookEndpoints
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
         }
+        logger.LogInformation("WhatsApp webhook processing completed.");
         return Results.Ok();
     }
 

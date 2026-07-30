@@ -33,7 +33,12 @@ public sealed class WhatsAppConversationService(
         var phone = PhoneNumberNormalizer.NormalizeBrazilian(message.PhoneNumber);
         if (phone is null || string.IsNullOrWhiteSpace(message.ExternalMessageId)) return;
         if (await db.WhatsAppInboundMessages.AsNoTracking()
-            .AnyAsync(x => x.ExternalMessageId == message.ExternalMessageId, ct)) return;
+            .AnyAsync(x => x.ExternalMessageId == message.ExternalMessageId, ct))
+        {
+            logger.LogInformation(
+                "Duplicate WhatsApp webhook message was acknowledged idempotently.");
+            return;
+        }
 
         var inbound = new WhatsAppInboundMessage(
             message.ExternalMessageId, phone, message.MessageType, message.Text,
@@ -44,7 +49,12 @@ public sealed class WhatsAppConversationService(
         {
             db.Entry(inbound).State = EntityState.Detached;
             if (await db.WhatsAppInboundMessages.AsNoTracking()
-                .AnyAsync(x => x.ExternalMessageId == message.ExternalMessageId, ct)) return;
+                .AnyAsync(x => x.ExternalMessageId == message.ExternalMessageId, ct))
+            {
+                logger.LogInformation(
+                    "Duplicate WhatsApp webhook message was acknowledged idempotently.");
+                return;
+            }
             throw;
         }
 
