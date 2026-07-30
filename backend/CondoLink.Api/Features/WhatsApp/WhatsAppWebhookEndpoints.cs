@@ -159,7 +159,10 @@ public static class WhatsAppWebhookEndpoints
         string appSecret)
     {
         const string prefix = "sha256=";
-        if (!signature.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        if (signature.Length != prefix.Length + 64
+            || !signature.StartsWith(prefix, StringComparison.Ordinal)
+            || signature.AsSpan(prefix.Length).ContainsAnyExcept(
+                "0123456789abcdef"))
             return false;
         byte[] provided;
         try

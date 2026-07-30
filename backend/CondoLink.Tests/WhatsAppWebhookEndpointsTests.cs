@@ -108,6 +108,29 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public void Signature_validation_uses_raw_utf8_payload_bytes()
+    {
+        var body = Encoding.UTF8.GetBytes("""{"text":"á"}""");
+        var signature = "sha256=" + Convert.ToHexString(
+            HMACSHA256.HashData(
+                Encoding.UTF8.GetBytes(AppSecret),
+                body)).ToLowerInvariant();
+
+        Assert.True(WhatsAppWebhookEndpoints.ValidateSignature(
+            body, signature, AppSecret));
+    }
+
+    [Theory]
+    [InlineData("SHA256=0000000000000000000000000000000000000000000000000000000000000000")]
+    [InlineData("sha256=ABCDEF0000000000000000000000000000000000000000000000000000000000")]
+    public void Signature_validation_rejects_non_Meta_header_format(
+        string signature)
+    {
+        Assert.False(WhatsAppWebhookEndpoints.ValidateSignature(
+            [], signature, AppSecret));
+    }
+
+    [Fact]
     public async Task Status_event_without_messages_is_acknowledged_and_ignored()
     {
         var body = """{"entry":[{"changes":[{"value":{"statuses":[{"id":"out-1"}]}}]}]}""";
