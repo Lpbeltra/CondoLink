@@ -93,6 +93,21 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+var whatsappOptions = app.Services
+    .GetRequiredService<
+        Microsoft.Extensions.Options.IOptions<WhatsAppOptions>>()
+    .Value;
+
+app.Logger.LogInformation(
+    "WhatsApp configuration loaded. Enabled: {Enabled}; " +
+    "VerifyTokenConfigured: {VerifyTokenConfigured}; " +
+    "PhoneNumberIdConfigured: {PhoneNumberIdConfigured}; " +
+    "AppSecretConfigured: {AppSecretConfigured}",
+    whatsappOptions.Enabled,
+    !string.IsNullOrWhiteSpace(whatsappOptions.VerifyToken),
+    !string.IsNullOrWhiteSpace(whatsappOptions.PhoneNumberId),
+    !string.IsNullOrWhiteSpace(whatsappOptions.AppSecret));
+
 if (app.Environment.IsDevelopment())
 {
     await using var scope = app.Services.CreateAsyncScope();
