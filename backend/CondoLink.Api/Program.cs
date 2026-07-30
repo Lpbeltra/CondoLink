@@ -238,9 +238,6 @@ app.MapWhatsAppAdministration();
 // Overwatch
 app.MapOverwatchEndpoints();
 
-await app.InitializePlatformAdminAsync();
-
-
 var endpointDataSource = app.Services
     .GetRequiredService<EndpointDataSource>();
 
@@ -253,6 +250,12 @@ foreach (var endpoint in endpointDataSource.Endpoints)
             routeEndpoint.RoutePattern.RawText);
     }
 }
+
+
+await app.InitializePlatformAdminAsync();
+
+
+
 
 
 
