@@ -240,4 +240,20 @@ app.MapOverwatchEndpoints();
 
 await app.InitializePlatformAdminAsync();
 
+
+var endpointDataSource = app.Services
+    .GetRequiredService<EndpointDataSource>();
+
+foreach (var endpoint in endpointDataSource.Endpoints)
+{
+    if (endpoint is RouteEndpoint routeEndpoint)
+    {
+        app.Logger.LogInformation(
+            "Registered route: {RoutePattern}",
+            routeEndpoint.RoutePattern.RawText);
+    }
+}
+
+
+
 app.Run();
