@@ -63,6 +63,13 @@ public static class CreateManagementCompanyEmployee
                 message = "Employee data exceeds the allowed length."
             });
         }
+        var normalizedContact =
+            Domain.BrazilianPhoneNumber.Normalize(contact);
+        if (contact is not null && normalizedContact is null)
+        {
+            return Results.BadRequest(new
+                { message = "Contact must be a valid Brazilian phone number." });
+        }
 
         var existingUser = await userManager.FindByEmailAsync(email);
         if (existingUser is not null)
@@ -81,6 +88,14 @@ public static class CreateManagementCompanyEmployee
                 {
                     message = "A user with this email already exists."
                 });
+        }
+        if (normalizedContact is not null
+            && await dbContext.Users.AsNoTracking().AnyAsync(
+                user => user.NormalizedPhoneNumber == normalizedContact,
+                cancellationToken))
+        {
+            return Results.Conflict(new
+                { message = "A user with this phone number already exists." });
         }
 
         var temporaryPassword = GenerateTemporaryPassword();

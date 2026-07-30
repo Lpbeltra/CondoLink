@@ -5,6 +5,7 @@
 
 # dotenv files
 .env
+**/data-protection-keys/
 
 # User-specific files
 *.rsuser

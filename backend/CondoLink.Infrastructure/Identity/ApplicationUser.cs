@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using CondoLink.Domain;
 
 namespace CondoLink.Infrastructure.Identity;
 
@@ -27,7 +28,7 @@ public sealed class ApplicationUser : IdentityUser<Guid>
         FullName = fullName.Trim();
         UserName = normalizedEmail;
         Email = normalizedEmail;
-        PhoneNumber = NormalizeOptional(phoneNumber);
+        SetPhoneNumber(phoneNumber);
         IsActive = true;
         MustChangePassword = false;
         CreatedAt = now;
@@ -35,6 +36,7 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     }
 
     public string FullName { get; private set; }
+    public string? NormalizedPhoneNumber { get; private set; }
     public string? Cpf { get; private set; }
     public string? Cnpj { get; private set; }
     public string? Address { get; private set; }
@@ -61,7 +63,7 @@ public sealed class ApplicationUser : IdentityUser<Guid>
         }
 
         FullName = fullName.Trim();
-        PhoneNumber = NormalizeOptional(phoneNumber);
+        SetPhoneNumber(phoneNumber);
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -130,6 +132,35 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     {
         ReceiveWhatsAppUpdates = enabled;
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void ConfirmPhoneNumber()
+    {
+        if (NormalizedPhoneNumber is null)
+            throw new InvalidOperationException("A phone number is required.");
+        PhoneNumberConfirmed = true;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    private void SetPhoneNumber(string? phoneNumber)
+    {
+        var previousNormalizedPhoneNumber = NormalizedPhoneNumber;
+        var displayPhoneNumber = NormalizeOptional(phoneNumber);
+        var normalizedPhoneNumber = BrazilianPhoneNumber.Normalize(displayPhoneNumber);
+        if (displayPhoneNumber is not null && normalizedPhoneNumber is null)
+        {
+            throw new ArgumentException(
+                "Brazilian phone number is invalid.",
+                nameof(phoneNumber));
+        }
+
+        PhoneNumber = displayPhoneNumber;
+        NormalizedPhoneNumber = normalizedPhoneNumber;
+        if (!string.Equals(
+                previousNormalizedPhoneNumber,
+                normalizedPhoneNumber,
+                StringComparison.Ordinal))
+            PhoneNumberConfirmed = false;
     }
 
     private static string? NormalizeOptional(string? value)

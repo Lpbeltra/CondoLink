@@ -6,6 +6,8 @@ namespace CondoLink.Infrastructure.Identity;
 public sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<ApplicationUser>
 {
     public const string UniqueNormalizedEmailIndex = "ux_users_normalized_email";
+    public const string UniqueNormalizedPhoneNumberIndex =
+        "ux_users_normalized_phone_number";
 
     public void Configure(EntityTypeBuilder<ApplicationUser> builder)
     {
@@ -21,6 +23,9 @@ public sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Appl
         builder.Property(user => user.SecurityStamp).HasColumnName("security_stamp");
         builder.Property(user => user.ConcurrencyStamp).HasColumnName("concurrency_stamp");
         builder.Property(user => user.PhoneNumber).HasColumnName("phone_number").HasMaxLength(30);
+        builder.Property(user => user.NormalizedPhoneNumber)
+            .HasColumnName("normalized_phone_number")
+            .HasMaxLength(14);
         builder.Property(user => user.PhoneNumberConfirmed).HasColumnName("phone_number_confirmed");
         builder.Property(user => user.TwoFactorEnabled).HasColumnName("two_factor_enabled");
         builder.Property(user => user.LockoutEnd).HasColumnName("lockout_end");
@@ -67,6 +72,10 @@ public sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Appl
         builder.HasIndex(user => user.NormalizedEmail)
             .HasDatabaseName(UniqueNormalizedEmailIndex)
             .IsUnique();
+        builder.HasIndex(user => user.NormalizedPhoneNumber)
+            .HasDatabaseName(UniqueNormalizedPhoneNumberIndex)
+            .IsUnique()
+            .HasFilter("\"normalized_phone_number\" IS NOT NULL");
         builder.HasIndex(user => user.Cpf)
             .HasDatabaseName("ux_users_manager_cpf")
             .IsUnique()

@@ -26,6 +26,7 @@ using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddComvyDataProtection(builder.Configuration);
 builder.Services.AddOpenApi();
 builder.Services.AddScoped<CondominiumMembershipService>();
 builder.Services.AddScoped<ManagerOnboardingService>();
@@ -34,6 +35,12 @@ builder.Services.AddScoped<WhatsAppNotificationDispatcher>();
 builder.Services.Configure<WhatsAppOptions>(
     builder.Configuration.GetSection(WhatsAppOptions.SectionName));
 builder.Services.AddScoped<WhatsAppConversationService>();
+builder.Services.AddScoped<WhatsAppPhoneVerificationService>();
+builder.Services.AddSingleton<IPhoneVerificationCodeGenerator,
+    PhoneVerificationCodeGenerator>();
+builder.Services.AddSingleton<IPhoneVerificationMessageProtector,
+    PhoneVerificationMessageProtector>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHostedService<WhatsAppOutboundWorker>();
 builder.Services.AddHttpClient<IWhatsAppClient, MetaWhatsAppClient>(client =>
 {
@@ -151,6 +158,7 @@ app.MapChangeTemporaryPassword();
 app.MapCreateUser();
 app.MapGetCurrentUser();
 app.MapListMyCondominiums();
+app.MapPhoneVerification();
 
 // Condominiums
 app.MapCreateCondominium();

@@ -31,6 +31,14 @@ Use variáveis de ambiente ou um secret store:
 | `WhatsApp__VerifyToken` | Token escolhido para verificar o webhook |
 | `WhatsApp__AppSecret` | App Secret usado no HMAC SHA-256 |
 | `WhatsApp__SessionExpirationMinutes` | Validade da sessão, padrão 30 minutos |
+| `WhatsApp__OutboundWorkerEnabled` | Processa a fila persistida; mantenha `false` até o teste |
+| `WhatsApp__OutboundBatchSize` | Quantidade por lote, padrão 10 |
+| `WhatsApp__OutboundPollingSeconds` | Intervalo de polling, padrão 10 segundos |
+| `WhatsApp__OutboundMaxAttempts` | Máximo de tentativas automáticas, padrão 5 |
+| `WhatsApp__OutboundInitialRetrySeconds` | Base do backoff, padrão 30 segundos |
+| `WhatsApp__Templates__<Evento>__Name` | Nome do template aprovado para notificações fora da janela |
+| `WhatsApp__Templates__<Evento>__Language` | Idioma do template, normalmente `pt_BR` |
+| `DataProtection__KeysPath` | Diretório persistente das chaves que protegem mensagens de verificação |
 
 Não coloque valores reais no repositório, frontend, logs ou imagens Docker.
 Com `WhatsApp__Enabled=false`, a API inicia normalmente e as rotas retornam 404.
@@ -40,6 +48,7 @@ Com `WhatsApp__Enabled=false`, a API inicia normalmente e as rotas retornam 404.
 - Verificação: `GET /integrations/whatsapp/webhook`
 - Recebimento: `POST /integrations/whatsapp/webhook`
 - URL pública geral: `https://<tunnel>/integrations/whatsapp/webhook`
+- URL no Coolify: `https://<domínio-público-da-api>/integrations/whatsapp/webhook`
 
 Na configuração do aplicativo Meta, informe a URL pública e o mesmo valor de
 `WhatsApp__VerifyToken`. Assine o campo `messages`. A Meta enviará
@@ -170,6 +179,15 @@ Configuração administrativa protegida:
 - `GET /management/condominiums/{id}/whatsapp/outbound`;
 - `POST /management/condominiums/{id}/whatsapp/outbound/{messageId}/retry`.
 
+Para diagnóstico global, inclusive das mensagens de confirmação que não
+pertencem a um condomínio, um `PlatformAdmin` pode usar:
+
+- `GET /overwatch/whatsapp/outbound?status=Pending&take=50`;
+- `POST /overwatch/whatsapp/outbound/{messageId}/retry`.
+
+As respostas mostram estado, tentativas, datas e último código/descrição de
+falha. Não retornam telefone, código de confirmação nem conteúdo protegido.
+
 O retry automático usa backoff exponencial, limite configurável e classificação
 de 408, 429 e 5xx como transitórios. Retry manual é limitado a três e não é
 permitido depois de `Sent`, `Delivered` ou `Read`. Itens interrompidos em
@@ -191,3 +209,90 @@ Referências oficiais consultadas em 2026-07-28:
   https://business.whatsapp.com/policy
 - Meta WhatsApp Cloud API, webhook payload reference:
   https://www.postman.com/meta/whatsapp-business-platform/folder/tduohwq/webhook-payload-reference
+
+## Teste real de confirmação no Coolify
+
+### 1. Variáveis
+
+Cadastre como variáveis/segredos do serviço da API, sem colocá-las no Git:
+
+```text
+WhatsApp__Enabled=true
+WhatsApp__OutboundWorkerEnabled=true
+WhatsApp__ApiVersion=v23.0
+WhatsApp__PhoneNumberId=<id do número temporário>
+WhatsApp__AccessToken=<segredo>
+WhatsApp__AppSecret=<segredo>
+WhatsApp__VerifyToken=<segredo escolhido por você>
+WhatsApp__OutboundPollingSeconds=10
+DataProtection__KeysPath=/app/data-protection-keys
+```
+
+`WhatsApp__BusinessAccountId` pode ser mantido para referência operacional,
+mas o envio e o webhook atuais não dependem dele. Os templates e seus idiomas
+são necessários para notificações de solicitações fora da janela de 24 horas.
+A confirmação de telefone deste lote usa somente texto de sessão e, portanto,
+não exige template: ela só pode ser iniciada após mensagem recebida nas últimas
+24 horas.
+
+As configurações versionadas continuam com integração e worker desativados.
+
+### 2. Volume do Data Protection
+
+Monte um volume persistente do Coolify em:
+
+```text
+/app/data-protection-keys
+```
+
+O valor deve coincidir com `DataProtection__KeysPath`. Não apague nem substitua
+as chaves durante redeploys. O `docker-compose.yml` local usa o volume nomeado
+`condolink_data_protection_keys`. Sem o volume, mensagens de confirmação já
+enfileiradas podem ficar impossíveis de descriptografar após recriar o
+container.
+
+### 3. Meta
+
+1. No app da Meta, configure a callback como
+   `https://<domínio-público-da-api>/integrations/whatsapp/webhook`.
+2. Informe exatamente o valor de `WhatsApp__VerifyToken`.
+3. Assine o evento `messages`.
+4. Confirme que o App Secret do ambiente pertence ao mesmo app; o POST exige
+   `X-Hub-Signature-256` válido e não possui bypass.
+5. No painel do número temporário, adicione e valide o telefone destinatário
+   usado pelo usuário do Comvy.
+
+### 4. Execução
+
+1. Cadastre no usuário o mesmo telefone autorizado na Meta.
+2. Do telefone, envie uma mensagem ao número temporário para abrir a janela de
+   24 horas.
+3. Entre no Comvy e abra **Mais → Telefone e WhatsApp**.
+4. Selecione **Confirmar pelo WhatsApp**.
+5. A API cria o desafio e enfileira uma mensagem protegida.
+6. Em até o intervalo de polling, o worker envia o código.
+7. Responda à conversa somente com o código de seis dígitos.
+8. Atualize/retorne à tela **Mais**; o status deve aparecer como
+   **Confirmado**.
+
+O desafio vale 10 minutos, aceita 5 tentativas, permite reenvio após 60
+segundos e limita novos desafios a 3 por hora.
+
+### 5. Diagnóstico e encerramento
+
+- Consulte `GET /overwatch/whatsapp/outbound` como `PlatformAdmin`, filtrando
+  por `Pending`, `Sent` ou `PermanentlyFailed`.
+- Verifique logs pelos IDs técnicos do desafio e da mensagem. Eles não contêm
+  código, hash, token, App Secret, telefone completo ou corpo protegido.
+- Para falha elegível, use o endpoint global de retry no máximo conforme o
+  limite já implementado.
+- Confirme que o volume contém arquivos de chave e permanece montado depois de
+  um redeploy.
+- Após o teste, se não quiser receber novos eventos/envios, volte
+  `WhatsApp__Enabled` e `WhatsApp__OutboundWorkerEnabled` para `false` no
+  Coolify. Não remova o volume de chaves enquanto houver mensagens pendentes.
+
+O webhook limita o corpo a 256 KiB, valida JSON e assinatura antes de
+processar, audita IDs externos para idempotência e retorna `200` após processar
+os eventos aceitos. Falhas internas retornam `503`, permitindo nova tentativa
+pela Meta.

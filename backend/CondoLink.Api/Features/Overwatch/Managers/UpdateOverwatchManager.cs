@@ -30,7 +30,9 @@ public static class UpdateOverwatchManager
         var cpf = Domain.RegistrationData.Digits(request.Cpf);
         var cnpj = Domain.RegistrationData.Digits(request.Cnpj);
         var conflict = await ManagerValidation.FindConflictAsync(
-            db, cpf, cnpj, managerId, cancellationToken);
+            db, cpf, cnpj,
+            Domain.BrazilianPhoneNumber.Normalize(request.PhoneNumber),
+            managerId, cancellationToken);
         if (conflict is not null) return Results.Conflict(new { message = conflict });
         user.UpdateManagerProfile(request.FullName, request.PhoneNumber, cpf, cnpj,
             request.Address, request.City, request.State);

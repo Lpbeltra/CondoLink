@@ -32,17 +32,16 @@ public sealed class WhatsAppNotificationDispatcher(
             .Where(x => x.Id == request.AuthorUserId)
             .Select(x => new
             {
-                x.IsActive, x.PhoneNumber, x.ReceiveWhatsAppUpdates
+                x.IsActive, x.NormalizedPhoneNumber, x.ReceiveWhatsAppUpdates
             }).SingleOrDefaultAsync(ct);
-        var phone = PhoneNumberNormalizer.NormalizeBrazilian(user?.PhoneNumber);
+        var phone = user?.NormalizedPhoneNumber;
         var activeMembership = user is not null && await db.CondominiumMemberships
             .AsNoTracking().AnyAsync(x => x.UserId == request.AuthorUserId
                 && x.CondominiumId == request.CondominiumId
                 && x.IsActive && x.EndedAt == null, ct);
-        var ambiguous = phone is not null && (await db.Set<ApplicationUser>()
-            .AsNoTracking().Where(x => x.IsActive && x.PhoneNumber != null)
-            .Select(x => x.PhoneNumber).ToArrayAsync(ct))
-            .Count(x => PhoneNumberNormalizer.NormalizeBrazilian(x) == phone) > 1;
+        var ambiguous = phone is not null && await db.Set<ApplicationUser>()
+            .AsNoTracking()
+            .CountAsync(x => x.IsActive && x.NormalizedPhoneNumber == phone, ct) > 1;
 
         var lastInboundAt = phone is null ? null : await db.WhatsAppInboundMessages
             .AsNoTracking().Where(x => x.PhoneNumber == phone)

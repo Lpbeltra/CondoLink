@@ -22,6 +22,7 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
         new("Data Source=:memory:");
     private WebApplication? _application;
     private HttpClient _admin = null!;
+    private int _phoneSequence;
 
     public async Task InitializeAsync()
     {
@@ -94,7 +95,7 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
         Assert.Equal(companyId, employee!.ManagementCompanyId);
         Assert.Equal("Employee One", employee.FullName);
         Assert.Equal("employee@example.com", employee.Email);
-        Assert.Equal("WhatsApp", employee.Contact);
+        Assert.Equal("+55 11 90000-0001", employee.Contact);
         Assert.Equal("Atendimento", employee.JobTitle);
         Assert.True(employee.IsActive);
         Assert.False(string.IsNullOrWhiteSpace(employee.TemporaryPassword));
@@ -130,7 +131,7 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
             ["Alpha", "Zulu"],
             employees!.Select(employee => employee.FullName));
         Assert.All(employees!, employee => {
-            Assert.Equal("WhatsApp", employee.Contact);
+            Assert.StartsWith("+55 11 9", employee.Contact);
             Assert.Equal("Atendimento", employee.JobTitle);
         });
     }
@@ -349,10 +350,13 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
     private Task<HttpResponseMessage> CreateEmployeeAsync(
         Guid companyId,
         string fullName,
-        string email) =>
-        _admin.PostAsJsonAsync(
+        string email)
+    {
+        var phone = $"+55 11 9{Interlocked.Increment(ref _phoneSequence):0000-0000}";
+        return _admin.PostAsJsonAsync(
             $"/overwatch/management-companies/{companyId}/employees",
-            new { fullName, email, contact = "  WhatsApp  ", jobTitle = "  Atendimento  " });
+            new { fullName, email, contact = $"  {phone}  ", jobTitle = "  Atendimento  " });
+    }
 
     private Task<HttpResponseMessage> SetStatusAsync(
         Guid employeeId,

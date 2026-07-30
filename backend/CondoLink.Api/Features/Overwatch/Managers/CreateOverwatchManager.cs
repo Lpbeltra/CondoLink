@@ -50,7 +50,9 @@ public static class CreateOverwatchManager
         var cpf = Domain.RegistrationData.Digits(request.Cpf);
         var cnpj = Domain.RegistrationData.Digits(request.Cnpj);
         var conflict = await ManagerValidation.FindConflictAsync(
-            dbContext, cpf, cnpj, null, cancellationToken);
+            dbContext, cpf, cnpj,
+            Domain.BrazilianPhoneNumber.Normalize(request.PhoneNumber),
+            null, cancellationToken);
         if (conflict is not null) return Results.Conflict(new { message = conflict });
 
         var existingUser = await userManager.FindByEmailAsync(email);
@@ -170,6 +172,8 @@ internal static class ManagerValidation
         if (request.FullName!.Trim().Length > 200 || request.Email!.Trim().Length > 254)
             return "Full name or email exceeds the allowed length.";
         if (request.PhoneNumber?.Trim().Length > 30) return "Phone number must not exceed 30 characters.";
+        if (!Domain.BrazilianPhoneNumber.IsValidOptional(request.PhoneNumber))
+            return "Phone number must be a valid Brazilian phone number.";
         if (request.Cpf is not null && !Domain.RegistrationData.IsValidCpf(request.Cpf)) return "CPF is invalid.";
         if (request.Cnpj is not null && !Domain.RegistrationData.IsValidCnpj(request.Cnpj)) return "CNPJ is invalid.";
         if (request.Address?.Trim().Length > 200) return "Address must not exceed 200 characters.";
@@ -180,7 +184,8 @@ internal static class ManagerValidation
     }
 
     public static async Task<string?> FindConflictAsync(
-        AppDbContext db, string? cpf, string? cnpj, Guid? excludedId,
+        AppDbContext db, string? cpf, string? cnpj,
+        string? normalizedPhoneNumber, Guid? excludedId,
         CancellationToken cancellationToken)
     {
         if (cpf is not null && await db.Users.AnyAsync(x =>
@@ -189,6 +194,11 @@ internal static class ManagerValidation
         if (cnpj is not null && await db.Users.AnyAsync(x =>
             (!excludedId.HasValue || x.Id != excludedId) && x.Cnpj == cnpj, cancellationToken))
             return "A manager with this CNPJ already exists.";
+        if (normalizedPhoneNumber is not null && await db.Users.AnyAsync(x =>
+            (!excludedId.HasValue || x.Id != excludedId)
+            && x.NormalizedPhoneNumber == normalizedPhoneNumber,
+            cancellationToken))
+            return "A user with this phone number already exists.";
         return null;
     }
 }

@@ -324,7 +324,8 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
     public async Task Onboarding_a_brand_new_user_creates_the_account_membership_and_resident_role()
     {
         var response = await OnboardAsync(
-            _managerId, "  Novo Morador  ", "  NOVO@EXAMPLE.COM  ", " 11999 ");
+            _managerId, "  Novo Morador  ", "  NOVO@EXAMPLE.COM  ",
+            "  (11) 99999-0001  ");
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = await response.Content
@@ -333,7 +334,7 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
         Assert.False(string.IsNullOrWhiteSpace(body.InitialPassword));
         Assert.Equal("Novo Morador", body.User.FullName);
         Assert.Equal("novo@example.com", body.User.Email);
-        Assert.Equal("11999", body.User.PhoneNumber);
+        Assert.Equal("(11) 99999-0001", body.User.PhoneNumber);
         Assert.Equal(["Resident"], body.Roles);
         Assert.Null(body.UnitMembership);
         Assert.Equal(_condominiumId, body.Membership.CondominiumId);

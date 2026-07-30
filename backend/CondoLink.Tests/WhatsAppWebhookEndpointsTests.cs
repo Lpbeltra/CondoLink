@@ -36,6 +36,13 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                     settings.SessionExpirationMinutes = 30;
                 });
                 builder.Services.AddSingleton<IWhatsAppClient>(_fake);
+                builder.Services.AddDataProtection();
+                builder.Services.AddSingleton(TimeProvider.System);
+                builder.Services.AddSingleton<IPhoneVerificationCodeGenerator,
+                    PhoneVerificationCodeGenerator>();
+                builder.Services.AddSingleton<IPhoneVerificationMessageProtector,
+                    PhoneVerificationMessageProtector>();
+                builder.Services.AddScoped<WhatsAppPhoneVerificationService>();
                 builder.Services.AddSingleton<LocalFileStorage>();
                 builder.Services.AddScoped<WhatsAppConversationService>();
             });
@@ -127,6 +134,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             var inbound = await db.WhatsAppInboundMessages.SingleAsync();
             Assert.Equal("main_menu", inbound.ProcessingResult);
             Assert.NotNull(inbound.ProcessedAt);
+            Assert.False((await db.Users.SingleAsync(
+                user => user.Id == _userId)).PhoneNumberConfirmed);
         });
     }
 
@@ -179,21 +188,33 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Ambiguous_phone_is_not_silently_assigned()
+    public async Task Duplicate_canonical_phone_is_rejected_by_the_database()
     {
         await _host.WithDbAsync(async db =>
         {
             var second = CoreTestSeed.User("Outra Pessoa", "outra@example.com");
             second.Update("Outra Pessoa", "+55 11 99999-0001");
             db.Users.Add(second);
-            CoreTestSeed.AddMember(db, second.Id, _condominiumId, CondominiumRole.Resident);
+            await Assert.ThrowsAsync<DbUpdateException>(
+                () => db.SaveChangesAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Inactive_user_is_not_identified()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var user = await db.Users.SingleAsync(x => x.Id == _userId);
+            user.SetActiveStatus(false);
             await db.SaveChangesAsync();
         });
 
-        await PostAsync(TextPayload("wamid.ambiguous", "Menu"));
+        await PostAsync(TextPayload("wamid.inactive", "Menu"));
 
-        Assert.Contains("mais de um cadastro", Assert.Single(_fake.Messages).Text);
-        Assert.Equal(WhatsAppConversationState.AmbiguousPhone,
+        Assert.Contains("não localizamos", Assert.Single(_fake.Messages).Text,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(WhatsAppConversationState.UnknownPhone,
             await _host.WithDbAsync(db => db.WhatsAppSessions
                 .Select(item => item.State).SingleAsync()));
     }

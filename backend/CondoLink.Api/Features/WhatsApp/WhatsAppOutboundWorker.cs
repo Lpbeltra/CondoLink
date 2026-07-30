@@ -36,6 +36,8 @@ public sealed class WhatsAppOutboundWorker(
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var client = scope.ServiceProvider.GetRequiredService<IWhatsAppClient>();
+        var verificationMessageProtector = scope.ServiceProvider
+            .GetRequiredService<IPhoneVerificationMessageProtector>();
         var now = DateTime.UtcNow;
         var interrupted = await db.WhatsAppOutboundMessages
             .Where(x => x.Status == WhatsAppOutboundStatus.Processing
@@ -53,6 +55,9 @@ public sealed class WhatsAppOutboundWorker(
             .ToArrayAsync(ct);
         foreach (var item in items)
         {
+            logger.LogInformation(
+                "WhatsApp outbound {OutboundId} processing type {NotificationType} attempt {Attempt}.",
+                item.Id, item.NotificationType, item.AttemptCount + 1);
             item.StartProcessing();
             try { await db.SaveChangesAsync(ct); }
             catch (DbUpdateConcurrencyException)
@@ -61,12 +66,38 @@ public sealed class WhatsAppOutboundWorker(
                 continue;
             }
 
+            string content;
+            try
+            {
+                content = item.NotificationType
+                    == WhatsAppNotificationType.PhoneVerification
+                    ? verificationMessageProtector.Unprotect(item.Content)
+                    : item.Content;
+            }
+            catch (System.Security.Cryptography.CryptographicException)
+            {
+                item.MarkFailure(
+                    "message_protection",
+                    "Protected verification message could not be read.",
+                    false,
+                    1,
+                    DateTime.UtcNow,
+                    TimeSpan.Zero);
+                await db.SaveChangesAsync(ct);
+                continue;
+            }
+
             var result = item.SendMode == WhatsAppSendMode.SessionText
-                ? await client.SendTextAsync(item.DestinationPhone, item.Content, ct)
+                ? await client.SendTextAsync(item.DestinationPhone, content, ct)
                 : await client.SendTemplateAsync(
                     item.DestinationPhone, item.TemplateName!, item.TemplateLanguage!, ct);
             if (result.Succeeded && !string.IsNullOrWhiteSpace(result.ExternalMessageId))
+            {
                 item.MarkSent(result.ExternalMessageId, DateTime.UtcNow);
+                logger.LogInformation(
+                    "WhatsApp outbound {OutboundId} accepted by provider.",
+                    item.Id);
+            }
             else
             {
                 var exponent = Math.Min(item.AttemptCount - 1, 6);
@@ -80,6 +111,11 @@ public sealed class WhatsAppOutboundWorker(
                     Math.Clamp(settings.OutboundMaxAttempts, 1, 10),
                     DateTime.UtcNow,
                     delay);
+                logger.Log(
+                    result.IsTransient
+                        ? LogLevel.Warning : LogLevel.Error,
+                    "WhatsApp outbound {OutboundId} failed transient {Transient} code {ErrorCode}.",
+                    item.Id, result.IsTransient, result.ErrorCode);
             }
             await db.SaveChangesAsync(ct);
         }

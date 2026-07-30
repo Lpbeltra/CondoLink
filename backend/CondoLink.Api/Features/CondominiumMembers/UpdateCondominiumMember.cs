@@ -80,9 +80,13 @@ public static class UpdateCondominiumMember
         var email = request.Email!.Trim().ToLowerInvariant();
         var cpf = RegistrationData.Digits(request.Cpf);
         var cnpj = RegistrationData.Digits(request.Cnpj);
+        var normalizedPhone =
+            BrazilianPhoneNumber.Normalize(request.PhoneNumber);
         if (await db.Users.AsNoTracking().AnyAsync(item =>
                 item.Id != userId
                 && (item.NormalizedEmail == email.ToUpperInvariant()
+                    || (normalizedPhone != null
+                        && item.NormalizedPhoneNumber == normalizedPhone)
                     || (cpf != null && item.Cpf == cpf)
                     || (cnpj != null && item.Cnpj == cnpj)),
                 cancellationToken))
@@ -90,7 +94,7 @@ public static class UpdateCondominiumMember
             return Results.Conflict(new
             {
                 error =
-                    "Já existe outro usuário com o e-mail, CPF ou CNPJ informado."
+                    "Já existe outro usuário com o e-mail, telefone, CPF ou CNPJ informado."
             });
         }
 
@@ -264,6 +268,8 @@ public static class UpdateCondominiumMember
             return "Informe um e-mail válido.";
         if (RegistrationData.Optional(request.PhoneNumber)?.Length > 30)
             return "O telefone deve possuir no máximo 30 caracteres.";
+        if (!BrazilianPhoneNumber.IsValidOptional(request.PhoneNumber))
+            return "Informe um telefone brasileiro válido.";
         if (request.Cpf is not null
             && !RegistrationData.IsValidCpf(request.Cpf))
             return "CPF inválido.";

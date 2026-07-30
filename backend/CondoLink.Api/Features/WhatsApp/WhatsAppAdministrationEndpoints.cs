@@ -17,7 +17,72 @@ public static class WhatsAppAdministrationEndpoints
         group.MapGet("/outbound", ListAsync);
         group.MapPost("/outbound/{messageId:guid}/retry", RetryAsync);
         group.MapPut("/settings", ConfigureAsync);
+        var platform = endpoints.MapGroup("/overwatch/whatsapp")
+            .RequireAuthorization("PlatformAdmin")
+            .WithTags("WhatsApp platform administration");
+        platform.MapGet("/outbound", ListPlatformAsync);
+        platform.MapPost("/outbound/{messageId:guid}/retry",
+            RetryPlatformAsync);
         return endpoints;
+    }
+
+    private static async Task<IResult> ListPlatformAsync(
+        string? status, int? take, AppDbContext db, CancellationToken ct)
+    {
+        WhatsAppOutboundStatus? parsed = null;
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            if (!Enum.TryParse<WhatsAppOutboundStatus>(
+                    status, true, out var value))
+                return Results.BadRequest(
+                    new { error = "Invalid outbound status." });
+            parsed = value;
+        }
+        var query = db.WhatsAppOutboundMessages.AsNoTracking();
+        if (parsed.HasValue)
+            query = query.Where(x => x.Status == parsed.Value);
+        var items = await query.OrderByDescending(x => x.CreatedAt)
+            .Take(Math.Clamp(take ?? 50, 1, 100))
+            .Select(x => new
+            {
+                x.Id,
+                x.RequestId,
+                x.RequestMessageId,
+                x.UserId,
+                x.CondominiumId,
+                x.NotificationType,
+                x.SendMode,
+                x.Status,
+                x.AttemptCount,
+                x.ManualRetryCount,
+                x.CreatedAt,
+                x.SentAt,
+                x.DeliveredAt,
+                x.ReadAt,
+                x.FailedAt,
+                x.NextAttemptAt,
+                x.LastErrorCode,
+                x.LastErrorDescription
+            })
+            .ToListAsync(ct);
+        return Results.Ok(items);
+    }
+
+    private static async Task<IResult> RetryPlatformAsync(
+        Guid messageId, AppDbContext db, CancellationToken ct)
+    {
+        var message = await db.WhatsAppOutboundMessages
+            .SingleOrDefaultAsync(x => x.Id == messageId, ct);
+        if (message is null) return Results.NotFound();
+        if (!message.RequestManualRetry(DateTime.UtcNow))
+            return Results.Conflict(new
+            {
+                error =
+                    "This message cannot be retried or reached the retry limit."
+            });
+        await db.SaveChangesAsync(ct);
+        return Results.Accepted(value: new
+            { message.Id, message.Status });
     }
 
     private static async Task<IResult> ListAsync(

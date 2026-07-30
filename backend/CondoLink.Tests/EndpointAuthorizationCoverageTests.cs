@@ -263,6 +263,7 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapCreateRequestMessage();
         app.MapListRequestMessages();
         app.MapRequestAttachments();
+        app.MapPhoneVerification();
         app.MapWhatsAppWebhook();
         app.MapWhatsAppAdministration();
 

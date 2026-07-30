@@ -137,7 +137,7 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
             "/overwatch/managers",
             new {
                 fullName = "Profile Manager", email = "profile@example.com",
-                phoneNumber = "  WhatsApp  ", cpf = "529.982.247-25",
+                phoneNumber = "  (11) 99999-0001  ", cpf = "529.982.247-25",
                 cnpj = "04.252.011/0001-10", address = "  Rua A  ",
                 city = "  São Paulo  ", state = "sp"
             });

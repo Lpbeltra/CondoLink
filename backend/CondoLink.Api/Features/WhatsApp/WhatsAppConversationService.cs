@@ -15,6 +15,7 @@ public sealed class WhatsAppConversationService(
     IWhatsAppClient client,
     LocalFileStorage storage,
     NotificationService notifications,
+    WhatsAppPhoneVerificationService phoneVerifications,
     IOptions<WhatsAppOptions> options,
     ILogger<WhatsAppConversationService> logger)
 {
@@ -47,11 +48,34 @@ public sealed class WhatsAppConversationService(
             throw;
         }
 
-        var candidates = (await db.Set<ApplicationUser>().AsNoTracking()
-            .Where(x => x.IsActive && x.PhoneNumber != null)
-            .Select(x => new { x.Id, x.FullName, x.PhoneNumber }).ToArrayAsync(ct))
-            .Where(x => PhoneNumberNormalizer.NormalizeBrazilian(x.PhoneNumber) == phone)
-            .ToArray();
+        var phoneVerification = await phoneVerifications.TryProcessAsync(
+            message, phone, ct);
+        if (phoneVerification.Handled)
+        {
+            inbound.Complete(
+                phoneVerification.UserId,
+                phoneVerification.Result!,
+                DateTime.UtcNow);
+            await db.SaveChangesAsync(ct);
+            var verificationSend = await client.SendTextAsync(
+                phone, phoneVerification.Response!, ct);
+            logger.Log(
+                verificationSend.Succeeded
+                    ? LogLevel.Information : LogLevel.Warning,
+                "WhatsApp phone verification event {EventId} result {Result} phone {Phone}.",
+                message.ExternalMessageId,
+                phoneVerification.Result,
+                PhoneNumberNormalizer.Mask(phone));
+            return;
+        }
+
+        // PhoneNumberConfirmed is intentionally not required until a real
+        // challenge succeeds. Receiving an ordinary message never confirms it.
+        var candidates = await db.Set<ApplicationUser>().AsNoTracking()
+            .Where(x => x.IsActive && x.NormalizedPhoneNumber == phone)
+            .Select(x => new { x.Id, x.FullName })
+            .Take(2)
+            .ToArrayAsync(ct);
         var now = DateTime.UtcNow;
         var expires = now.AddMinutes(Math.Clamp(options.Value.SessionExpirationMinutes, 5, 1440));
         var session = await db.WhatsAppSessions.SingleOrDefaultAsync(x => x.PhoneNumber == phone, ct);

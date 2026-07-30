@@ -59,9 +59,17 @@ public static class OnboardCondominiumMember
         if (email.Length > 254 || !new EmailAddressAttribute().IsValid(email)) return Results.BadRequest(new { error = "Email is invalid." });
         var phone = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
         if (phone?.Length > 30) return Results.BadRequest(new { error = "PhoneNumber must not exceed 30 characters." });
+        var normalizedPhone = Domain.BrazilianPhoneNumber.Normalize(phone);
+        if (phone is not null && normalizedPhone is null)
+            return Results.BadRequest(new { error = "PhoneNumber must be a valid Brazilian phone number." });
         var existingUser = await userManager.FindByEmailAsync(email);
         if (existingUser is { IsActive: false })
             return Results.Conflict(new { error = "Inactive user cannot be associated." });
+        if (existingUser is null && normalizedPhone is not null
+            && await dbContext.Users.AsNoTracking().AnyAsync(
+                x => x.NormalizedPhoneNumber == normalizedPhone,
+                cancellationToken))
+            return Results.Conflict(new { error = "A user with this phone number already exists." });
 
         UnitRelationshipType? relationship = null;
         if (request.UnitId is null)
@@ -153,6 +161,14 @@ public static class OnboardCondominiumMember
         {
             await transaction.RollbackAsync(cancellationToken);
             if (await userManager.FindByEmailAsync(email) is not null) return DuplicateEmail();
+            if (exception.InnerException is PostgresException
+                {
+                    ConstraintName:
+                        ApplicationUserConfiguration
+                            .UniqueNormalizedPhoneNumberIndex
+                })
+                return Results.Conflict(new
+                    { error = "A user with this phone number already exists." });
             throw;
         }
     }

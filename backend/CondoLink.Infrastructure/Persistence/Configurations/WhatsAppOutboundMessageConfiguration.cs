@@ -13,10 +13,10 @@ public sealed class WhatsAppOutboundMessageConfiguration
         b.ToTable("whatsapp_outbound_messages");
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).HasColumnName("id");
-        b.Property(x => x.RequestId).HasColumnName("request_id").IsRequired();
+        b.Property(x => x.RequestId).HasColumnName("request_id");
         b.Property(x => x.RequestMessageId).HasColumnName("request_message_id");
         b.Property(x => x.UserId).HasColumnName("user_id").IsRequired();
-        b.Property(x => x.CondominiumId).HasColumnName("condominium_id").IsRequired();
+        b.Property(x => x.CondominiumId).HasColumnName("condominium_id");
         b.Property(x => x.DestinationPhone).HasColumnName("destination_phone").HasMaxLength(20).IsRequired();
         b.Property(x => x.NotificationType).HasColumnName("notification_type").HasConversion<int>().IsRequired();
         b.Property(x => x.SendMode).HasColumnName("send_mode").HasConversion<int>().IsRequired();

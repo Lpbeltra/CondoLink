@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Identity;
+using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -22,7 +23,8 @@ public static class CreateUser
 
     private static async Task<IResult> HandleAsync(
         Request request,
-        UserManager<ApplicationUser> userManager)
+        UserManager<ApplicationUser> userManager,
+        AppDbContext db)
     {
         if (string.IsNullOrWhiteSpace(request.FullName))
         {
@@ -50,6 +52,14 @@ public static class CreateUser
         {
             return Results.BadRequest(new { error = "PhoneNumber must not exceed 30 characters." });
         }
+        var normalizedPhoneNumber =
+            Domain.BrazilianPhoneNumber.Normalize(request.PhoneNumber);
+        if (!string.IsNullOrWhiteSpace(request.PhoneNumber)
+            && normalizedPhoneNumber is null)
+        {
+            return Results.BadRequest(new
+                { error = "PhoneNumber must be a valid Brazilian phone number." });
+        }
 
         if (string.IsNullOrWhiteSpace(request.Password))
         {
@@ -60,6 +70,13 @@ public static class CreateUser
         {
             return DuplicateEmailConflict();
         }
+        if (normalizedPhoneNumber is not null
+            && await db.Users.AnyAsync(
+                x => x.NormalizedPhoneNumber == normalizedPhoneNumber))
+        {
+            return Results.Conflict(new
+                { error = "A user with this phone number already exists." });
+        }
 
         var user = new ApplicationUser(request.FullName, email, request.PhoneNumber);
         IdentityResult result;
@@ -67,6 +84,12 @@ public static class CreateUser
         try
         {
             result = await userManager.CreateAsync(user, request.Password);
+        }
+        catch (DbUpdateException exception) when (
+            IsDuplicatePhoneViolation(exception))
+        {
+            return Results.Conflict(new
+                { error = "A user with this phone number already exists." });
         }
         catch (DbUpdateException exception) when (IsDuplicateEmailViolation(exception))
         {
@@ -107,6 +130,15 @@ public static class CreateUser
                 or "UserNameIndex"
         };
     }
+
+    private static bool IsDuplicatePhoneViolation(
+        DbUpdateException exception) =>
+        exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName:
+                ApplicationUserConfiguration.UniqueNormalizedPhoneNumberIndex
+        };
 
     private static IResult DuplicateEmailConflict()
     {
