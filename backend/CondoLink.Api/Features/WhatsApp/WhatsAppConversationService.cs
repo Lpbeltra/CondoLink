@@ -15,7 +15,6 @@ public sealed class WhatsAppConversationService(
     IWhatsAppClient client,
     LocalFileStorage storage,
     NotificationService notifications,
-    WhatsAppPhoneVerificationService phoneVerifications,
     IOptions<WhatsAppOptions> options,
     ILogger<WhatsAppConversationService> logger)
 {
@@ -58,29 +57,6 @@ public sealed class WhatsAppConversationService(
             throw;
         }
 
-        var phoneVerification = await phoneVerifications.TryProcessAsync(
-            message, phone, ct);
-        if (phoneVerification.Handled)
-        {
-            inbound.Complete(
-                phoneVerification.UserId,
-                phoneVerification.Result!,
-                DateTime.UtcNow);
-            await db.SaveChangesAsync(ct);
-            var verificationSend = await client.SendTextAsync(
-                phone, phoneVerification.Response!, ct);
-            logger.Log(
-                verificationSend.Succeeded
-                    ? LogLevel.Information : LogLevel.Warning,
-                "WhatsApp phone verification event {EventId} result {Result} phone {Phone}.",
-                message.ExternalMessageId,
-                phoneVerification.Result,
-                PhoneNumberNormalizer.Mask(phone));
-            return;
-        }
-
-        // PhoneNumberConfirmed is intentionally not required until a real
-        // challenge succeeds. Receiving an ordinary message never confirms it.
         var candidates = await db.Set<ApplicationUser>().AsNoTracking()
             .Where(x => x.IsActive && x.NormalizedPhoneNumber == phone)
             .Select(x => new { x.Id, x.FullName })

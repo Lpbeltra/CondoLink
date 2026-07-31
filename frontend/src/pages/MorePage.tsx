@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
 import { PageContainer } from '../components/PageContainer'
 import { useManagementContext } from '../management/ManagementContext'
-import { PhoneVerificationCard } from '../phoneVerification/PhoneVerificationCard'
 
 const managementLinks = [
   { label: 'Atendimento', path: '/management/requests' },
@@ -19,8 +18,6 @@ export function MorePage() {
   return (
     <PageContainer>
       <Typography variant="h1">Mais</Typography>
-      <PhoneVerificationCard />
-
       {hasManagementAccess ? (
         <Card elevation={0} sx={{ mt: 2 }}>
           <CardContent>

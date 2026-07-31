@@ -36,13 +36,6 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                     settings.SessionExpirationMinutes = 30;
                 });
                 builder.Services.AddSingleton<IWhatsAppClient>(_fake);
-                builder.Services.AddDataProtection();
-                builder.Services.AddSingleton(TimeProvider.System);
-                builder.Services.AddSingleton<IPhoneVerificationCodeGenerator,
-                    PhoneVerificationCodeGenerator>();
-                builder.Services.AddSingleton<IPhoneVerificationMessageProtector,
-                    PhoneVerificationMessageProtector>();
-                builder.Services.AddScoped<WhatsAppPhoneVerificationService>();
                 builder.Services.AddSingleton<LocalFileStorage>();
                 builder.Services.AddScoped<WhatsAppConversationService>();
             });

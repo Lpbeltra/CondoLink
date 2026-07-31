@@ -52,8 +52,6 @@ public sealed class EndpointAuthorizationCoverageTests
     {
         // Callers have no token yet by definition.
         "/auth/login",
-        "/auth/whatsapp/request-code",
-        "/auth/whatsapp/confirm",
         // The temporary credential itself authenticates this one-time flow.
         "/auth/change-temporary-password",
         // Liveness probe: reports only reachability, no tenant data.
@@ -217,7 +215,6 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapGet("/health", () => Results.Ok());
 
         app.MapLogin();
-        app.MapWhatsAppLogin();
         app.MapChangeTemporaryPassword();
 
         app.MapCreateUser();
@@ -266,7 +263,6 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapCreateRequestMessage();
         app.MapListRequestMessages();
         app.MapRequestAttachments();
-        app.MapPhoneVerification();
         app.MapWhatsAppWebhook();
         app.MapWhatsAppAdministration();
 

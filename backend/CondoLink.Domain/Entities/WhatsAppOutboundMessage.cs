@@ -34,38 +34,6 @@ public sealed class WhatsAppOutboundMessage
         Version = Guid.NewGuid();
     }
 
-    public static WhatsAppOutboundMessage CreatePhoneVerification(
-        Guid userId, string destinationPhone, string idempotencyKey,
-        string content, DateTime now) =>
-        new(
-            userId, destinationPhone, WhatsAppNotificationType.PhoneVerification,
-            idempotencyKey, content, now);
-
-    private WhatsAppOutboundMessage(
-        Guid userId, string destinationPhone,
-        WhatsAppNotificationType notificationType,
-        string idempotencyKey, string content, DateTime now)
-    {
-        Id = Guid.NewGuid();
-        UserId = userId;
-        DestinationPhone = destinationPhone;
-        NotificationType = notificationType;
-        SendMode = WhatsAppSendMode.SessionText;
-        IdempotencyKey = idempotencyKey;
-        Content = content;
-        Status = WhatsAppOutboundStatus.Pending;
-        CreatedAt = now;
-        NextAttemptAt = now;
-        Version = Guid.NewGuid();
-    }
-
-    public static WhatsAppOutboundMessage CreateLoginCode(
-        Guid userId, string destinationPhone, string idempotencyKey,
-        string content, DateTime now) =>
-        new(
-            userId, destinationPhone, WhatsAppNotificationType.LoginCode,
-            idempotencyKey, content, now);
-
     public Guid Id { get; private set; }
     public Guid? RequestId { get; private set; }
     public Guid? RequestMessageId { get; private set; }

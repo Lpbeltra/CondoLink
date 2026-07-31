@@ -210,7 +210,7 @@ Referências oficiais consultadas em 2026-07-28:
 - Meta WhatsApp Cloud API, webhook payload reference:
   https://www.postman.com/meta/whatsapp-business-platform/folder/tduohwq/webhook-payload-reference
 
-## Teste real de confirmação no Coolify
+## Teste real da integração no Coolify
 
 ### 1. Variáveis
 
@@ -231,9 +231,6 @@ DataProtection__KeysPath=/app/data-protection-keys
 `WhatsApp__BusinessAccountId` pode ser mantido para referência operacional,
 mas o envio e o webhook atuais não dependem dele. Os templates e seus idiomas
 são necessários para notificações de solicitações fora da janela de 24 horas.
-A confirmação de telefone deste lote usa somente texto de sessão e, portanto,
-não exige template: ela só pode ser iniciada após mensagem recebida nas últimas
-24 horas.
 
 As configurações versionadas continuam com integração e worker desativados.
 
@@ -247,9 +244,8 @@ Monte um volume persistente do Coolify em:
 
 O valor deve coincidir com `DataProtection__KeysPath`. Não apague nem substitua
 as chaves durante redeploys. O `docker-compose.yml` local usa o volume nomeado
-`condolink_data_protection_keys`. Sem o volume, mensagens de confirmação já
-enfileiradas podem ficar impossíveis de descriptografar após recriar o
-container.
+`condolink_data_protection_keys`. Sem o volume, mensagens protegidas já
+enfileiradas podem ficar impossíveis de descriptografar após recriar o container.
 
 ### 3. Meta
 
@@ -267,23 +263,17 @@ container.
 1. Cadastre no usuário o mesmo telefone autorizado na Meta.
 2. Do telefone, envie uma mensagem ao número temporário para abrir a janela de
    24 horas.
-3. Entre no Comvy e abra **Mais → Telefone e WhatsApp**.
-4. Selecione **Confirmar pelo WhatsApp**.
-5. A API cria o desafio e enfileira uma mensagem protegida.
-6. Em até o intervalo de polling, o worker envia o código.
-7. Responda à conversa somente com o código de seis dígitos.
-8. Atualize/retorne à tela **Mais**; o status deve aparecer como
-   **Confirmado**.
-
-O desafio vale 10 minutos, aceita 5 tentativas, permite reenvio após 60
-segundos e limita novos desafios a 3 por hora.
+3. Confirme que o webhook recebeu a mensagem e identificou o usuário pelo
+   telefone cadastrado.
+4. Percorra o menu de atendimento e, se aplicável, crie uma solicitação.
+5. Confirme que respostas e notificações são enviadas pela fila e pelo worker.
 
 ### 5. Diagnóstico e encerramento
 
 - Consulte `GET /overwatch/whatsapp/outbound` como `PlatformAdmin`, filtrando
   por `Pending`, `Sent` ou `PermanentlyFailed`.
-- Verifique logs pelos IDs técnicos do desafio e da mensagem. Eles não contêm
-  código, hash, token, App Secret, telefone completo ou corpo protegido.
+- Verifique logs pelos IDs técnicos das mensagens. Eles não contêm token,
+  App Secret, telefone completo ou conteúdo sensível.
 - Para falha elegível, use o endpoint global de retry no máximo conforme o
   limite já implementado.
 - Confirme que o volume contém arquivos de chave e permanece montado depois de

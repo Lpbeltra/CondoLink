@@ -29,9 +29,3 @@ export type LoginOutcome =
       email: string
       temporaryPassword: string
     }
-
-export interface WhatsAppCodeRequestResult {
-  status: 'accepted'
-  message: string
-  retryAfterSeconds: number
-}

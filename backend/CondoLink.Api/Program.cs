@@ -35,11 +35,7 @@ builder.Services.AddScoped<WhatsAppNotificationDispatcher>();
 builder.Services.Configure<WhatsAppOptions>(
     builder.Configuration.GetSection(WhatsAppOptions.SectionName));
 builder.Services.AddScoped<WhatsAppConversationService>();
-builder.Services.AddScoped<WhatsAppPhoneVerificationService>();
-builder.Services.AddScoped<WhatsAppLoginService>();
 builder.Services.AddScoped<AuthenticationSessionService>();
-builder.Services.AddSingleton<IPhoneVerificationCodeGenerator,
-    PhoneVerificationCodeGenerator>();
 builder.Services.AddSingleton<IPhoneVerificationMessageProtector,
     PhoneVerificationMessageProtector>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -169,14 +165,12 @@ app.MapGet(
 
 // Authentication
 app.MapLogin();
-app.MapWhatsAppLogin();
 app.MapChangeTemporaryPassword();
 
 // Users
 app.MapCreateUser();
 app.MapGetCurrentUser();
 app.MapListMyCondominiums();
-app.MapPhoneVerification();
 
 // Condominiums
 app.MapCreateCondominium();

@@ -5,7 +5,6 @@ import type {
   LoginResponse,
   PasswordChangeRequiredResponse,
   User,
-  WhatsAppCodeRequestResult,
 } from './types'
 import { clearStoredToken, getStoredToken, storeToken } from './authStorage'
 import { hydrateSessionUser } from './session'
@@ -108,42 +107,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }, [completeLogin, logout])
 
-  const requestWhatsAppCode = useCallback(async (phoneNumber: string) =>
-    (await api.post<WhatsAppCodeRequestResult>(
-      '/auth/whatsapp/request-code',
-      { phoneNumber },
-    )).data, [])
-
-  const loginWithWhatsApp = useCallback(async (
-    phoneNumber: string,
-    code: string,
-  ) => {
-    logout()
-    try {
-      const { data } = await api.post<LoginResponse>(
-        '/auth/whatsapp/confirm',
-        { phoneNumber, code },
-      )
-      await completeLogin(data)
-    } catch (error) {
-      logout()
-      throw error
-    }
-  }, [completeLogin, logout])
-
   const value = useMemo(() => ({
     user,
     isInitializing,
     login,
-    requestWhatsAppCode,
-    loginWithWhatsApp,
     logout,
   }), [
     isInitializing,
     login,
-    loginWithWhatsApp,
     logout,
-    requestWhatsAppCode,
     user,
   ])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
