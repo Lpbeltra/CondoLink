@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using CondoLink.Api.Features.WhatsApp;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -9,6 +10,29 @@ namespace CondoLink.Tests;
 
 public sealed class RequestDraftAiServiceTests
 {
+    [Theory]
+    [InlineData(false, "test-key")]
+    [InlineData(true, null)]
+    public async Task Disabled_or_missing_api_key_returns_failure_without_calling_provider(
+        bool enabled, string? apiKey)
+    {
+        var called = false;
+        var service = Service((_, _) =>
+        {
+            called = true;
+            return Task.FromResult(Response("{}"));
+        }, enabled: enabled, apiKey: apiKey);
+
+        var result = await service.ProposeAsync("Relato", [], CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Proposal);
+        Assert.False(called);
+        Assert.Equal(enabled
+            ? RequestDraftAiOutcome.NotConfigured
+            : RequestDraftAiOutcome.Disabled, result.Outcome);
+    }
+
     [Fact]
     public async Task Sends_strict_json_schema_and_accepts_nullable_fields()
     {
@@ -25,6 +49,7 @@ public sealed class RequestDraftAiServiceTests
             "O portão não fecha.", ["Manutenção"], CancellationToken.None);
 
         Assert.True(result.Succeeded);
+        Assert.Equal(RequestDraftAiOutcome.Succeeded, result.Outcome);
         Assert.Null(result.Proposal!.SuggestedCategory);
         Assert.Empty(result.Proposal.MissingInformation);
         Assert.Null(result.Proposal.Confidence);
@@ -69,13 +94,14 @@ public sealed class RequestDraftAiServiceTests
 
         Assert.False(result.Succeeded);
         Assert.Null(result.Proposal);
+        Assert.Equal(RequestDraftAiOutcome.Refusal, result.Outcome);
     }
 
     [Theory]
     [InlineData("{\"title\":\"T\",\"description\":\"D\",\"suggestedCategory\":null,\"missingInformation\":[],\"confidence\":null,\"extra\":true}")]
     [InlineData("{\"title\":\"\",\"description\":\"D\",\"suggestedCategory\":null,\"missingInformation\":[],\"confidence\":null}")]
     [InlineData("not-json")]
-    public async Task Response_outside_schema_returns_failure_for_existing_fallback(string content)
+    public async Task Response_outside_schema_returns_safe_diagnostic_code(string content)
     {
         var service = Service((_, _) => Task.FromResult(Response(content)));
 
@@ -83,6 +109,9 @@ public sealed class RequestDraftAiServiceTests
 
         Assert.False(result.Succeeded);
         Assert.Null(result.Proposal);
+        Assert.Equal(content == "not-json"
+            ? RequestDraftAiOutcome.InvalidJson
+            : RequestDraftAiOutcome.SchemaValidationFailed, result.Outcome);
     }
 
     [Fact]
@@ -95,6 +124,7 @@ public sealed class RequestDraftAiServiceTests
         var result = await service.ProposeAsync("Relato", [], CancellationToken.None);
 
         Assert.False(result.Succeeded);
+        Assert.Equal(RequestDraftAiOutcome.EmptyResponse, result.Outcome);
     }
 
     [Fact]
@@ -108,24 +138,69 @@ public sealed class RequestDraftAiServiceTests
             return new HttpResponseMessage(HttpStatusCode.OK);
         }, timeoutSeconds: 1);
 
-        Assert.False((await httpError.ProposeAsync("Relato", [], CancellationToken.None)).Succeeded);
-        Assert.False((await timeout.ProposeAsync("Relato", [], CancellationToken.None)).Succeeded);
+        var httpResult = await httpError.ProposeAsync("Relato", [], CancellationToken.None);
+        var timeoutResult = await timeout.ProposeAsync("Relato", [], CancellationToken.None);
+
+        Assert.Equal(RequestDraftAiOutcome.HttpBadRequest, httpResult.Outcome);
+        Assert.Equal(RequestDraftAiOutcome.Timeout, timeoutResult.Outcome);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, RequestDraftAiOutcome.HttpUnauthorized)]
+    [InlineData(HttpStatusCode.TooManyRequests, RequestDraftAiOutcome.HttpRateLimited)]
+    [InlineData(HttpStatusCode.InternalServerError, RequestDraftAiOutcome.ProviderError)]
+    public async Task Http_failures_return_specific_safe_codes(
+        HttpStatusCode status, RequestDraftAiOutcome expected)
+    {
+        var service = Service((_, _) => Task.FromResult(new HttpResponseMessage(status)));
+
+        var result = await service.ProposeAsync("Relato", [], CancellationToken.None);
+
+        Assert.Equal(expected, result.Outcome);
+        Assert.Equal("AI proposal unavailable.", result.Error);
+    }
+
+    [Fact]
+    public async Task Operational_logs_include_safe_metadata_and_exclude_sensitive_content()
+    {
+        var logger = new RecordingLogger<RequestDraftAiService>();
+        const string sensitiveMessage = "request contained morador-secret";
+        var service = Service((_, _) => Task.FromResult(JsonResponse("""
+            {"error":{"message":"request contained morador-secret","type":"invalid_request_error","code":"bad_parameter","param":"response_format"}}
+            """, HttpStatusCode.BadRequest)), logger: logger,
+            baseUrl: "https://api.openai.com/v1/?tenant=secret-query");
+
+        await service.ProposeAsync("relato-morador-secret", ["categoria-secret"],
+            CancellationToken.None);
+
+        var logs = string.Join('\n', logger.Messages);
+        Assert.Contains("invalid_request_error", logs);
+        Assert.Contains("bad_parameter", logs);
+        Assert.Contains("response_format", logs);
+        Assert.Contains("https://api.openai.com/v1/", logs);
+        Assert.DoesNotContain("secret-query", logs);
+        Assert.DoesNotContain(sensitiveMessage, logs);
+        Assert.DoesNotContain("relato-morador-secret", logs);
+        Assert.DoesNotContain("categoria-secret", logs);
+        Assert.DoesNotContain("test-key", logs);
     }
 
     private static RequestDraftAiService Service(
         Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send,
-        int timeoutSeconds = 15)
+        int timeoutSeconds = 15, bool enabled = true, string? apiKey = "test-key",
+        ILogger<RequestDraftAiService>? logger = null,
+        string baseUrl = "https://api.openai.com/v1/")
     {
         var client = new HttpClient(new DelegateHandler(send))
         {
-            BaseAddress = new Uri("https://api.openai.com/v1/")
+            BaseAddress = new Uri(baseUrl)
         };
         return new RequestDraftAiService(client, Options.Create(new RequestDraftAiOptions
         {
-            Enabled = true,
-            ApiKey = "test-key",
+            Enabled = enabled,
+            ApiKey = apiKey,
             TimeoutSeconds = timeoutSeconds
-        }), NullLogger<RequestDraftAiService>.Instance);
+        }), logger ?? NullLogger<RequestDraftAiService>.Instance);
     }
 
     private static HttpResponseMessage Response(string content) => JsonResponse(
@@ -134,7 +209,8 @@ public sealed class RequestDraftAiServiceTests
             choices = new[] { new { message = new { content } } }
         }));
 
-    private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
+    private static HttpResponseMessage JsonResponse(
+        string json, HttpStatusCode status = HttpStatusCode.OK) => new(status)
     {
         Content = new StringContent(json, Encoding.UTF8, "application/json")
     };
@@ -146,5 +222,15 @@ public sealed class RequestDraftAiServiceTests
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken) =>
             send(request, cancellationToken);
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Messages.Add(formatter(state, exception));
     }
 }

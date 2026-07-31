@@ -22,6 +22,9 @@ public sealed class WhatsAppConversationService(
     IOptions<WhatsAppOptions> options,
     ILogger<WhatsAppConversationService> logger)
 {
+    private const string FallbackRequestTitle = "Solicitação recebida pelo WhatsApp";
+    private const string AiReviewSource = "ai";
+    private const string FallbackReviewSource = "fallback";
     private const string IdentificationFailure =
         "Não consegui identificar seu cadastro. Entre em contato com a administração do condomínio para verificar seu número.";
 
@@ -411,12 +414,12 @@ public sealed class WhatsAppConversationService(
             return ("Digite 1 para confirmar, 2 para corrigir a descrição ou 3 para cancelar.", "invalid_confirmation_choice");
         }
 
-        var proposal = Proposal(session);
-        if (proposal is null)
+        var review = Review(session);
+        if (review is null)
             return await GenerateAiProposal(session, now, expires, ct);
         var categories = await ActiveCategories(session.CondominiumId!.Value, ct);
         var suggested = categories.SingleOrDefault(x => string.Equals(
-            x.Name, proposal.SuggestedCategory, StringComparison.OrdinalIgnoreCase));
+            x.Name, review.Proposal?.SuggestedCategory, StringComparison.OrdinalIgnoreCase));
         if (suggested is not null)
         {
             session.ChooseCategory(suggested.Id, now, expires);
@@ -457,21 +460,25 @@ public sealed class WhatsAppConversationService(
         var identityStillValid = await ResolveIdentity(session.PhoneNumber, ct);
         var categoryValid = await db.Categories.AsNoTracking().AnyAsync(x =>
             x.Id == session.CategoryId && x.CondominiumId == session.CondominiumId && x.IsActive, ct);
-        var proposal = Proposal(session);
+        var review = Review(session);
         if (identityStillValid is null
             || identityStillValid.UserId != session.UserId
             || identityStillValid.CondominiumId != session.CondominiumId
             || identityStillValid.UnitId != session.UnitId
             || !categoryValid || string.IsNullOrWhiteSpace(session.DraftDescription)
-            || proposal is null)
+            || review is null)
         {
             session.InvalidateIdentity(now, expires);
             return (IdentificationFailure, "confirmation_revalidation_failed");
         }
 
         var originalReport = session.DraftDescription;
-        var description = proposal.Description;
-        var title = proposal.Title;
+        var description = review.Source == FallbackReviewSource
+            ? originalReport
+            : review.Proposal!.Description;
+        var title = review.Source == FallbackReviewSource
+            ? FallbackRequestTitle
+            : review.Proposal!.Title;
         var request = new DomainRequest(
             session.CondominiumId!.Value, session.UserId!.Value, session.UnitId,
             session.CategoryId!.Value, title, description, RequestSource.WhatsApp);
@@ -564,6 +571,12 @@ public sealed class WhatsAppConversationService(
             "3 - Cancelar e voltar ao início";
     }
 
+    private static string FallbackReviewPrompt(string originalReport) =>
+        $"Você descreveu:\n\n{originalReport}\n\n" +
+        "1 - Confirmar e continuar\n" +
+        "2 - Reescrever descrição\n" +
+        "3 - Cancelar e voltar ao início";
+
     private static string CategoryMenu(CategoryChoice[] categories) =>
         "Escolha a categoria da solicitação:\n\n" +
         string.Join('\n', categories.Select((x, i) => $"{i + 1} - {x.Name}"));
@@ -590,31 +603,48 @@ public sealed class WhatsAppConversationService(
         var categories = await ActiveCategories(session.CondominiumId!.Value, ct);
         var result = await requestDraftAi.ProposeAsync(
             session.DraftDescription!, categories.Select(x => x.Name).ToArray(), ct);
-        var proposal = result.Succeeded && result.Proposal is not null
-            ? result.Proposal
-            : FallbackProposal(session.DraftDescription!);
-        session.SetAiProposal(JsonSerializer.Serialize(proposal), now, expires);
+        var review = result.Succeeded && result.Proposal is not null
+            ? new RequestDraftReview(AiReviewSource, result.Proposal)
+            : new RequestDraftReview(FallbackReviewSource, null);
+        session.SetAiProposal(JsonSerializer.Serialize(review), now, expires);
         logger.LogInformation(result.Succeeded
             ? "Request draft AI proposal generated."
             : "Request draft AI unavailable; safe fallback proposal generated.");
-        return (ReviewPrompt(proposal), result.Succeeded
+        return (review.Source == AiReviewSource
+                ? ReviewPrompt(review.Proposal!)
+                : FallbackReviewPrompt(session.DraftDescription!), result.Succeeded
             ? "reviewing_ai_proposal" : "reviewing_fallback_proposal");
     }
 
-    private static RequestDraftAiProposal? Proposal(WhatsAppSession session)
+    private static RequestDraftReview? Review(WhatsAppSession session)
     {
         if (string.IsNullOrWhiteSpace(session.DraftAiProposalJson)) return null;
         try
         {
-            return JsonSerializer.Deserialize<RequestDraftAiProposal>(
+            using var document = JsonDocument.Parse(session.DraftAiProposalJson);
+            if (document.RootElement.TryGetProperty(nameof(RequestDraftReview.Source), out _))
+            {
+                var review = JsonSerializer.Deserialize<RequestDraftReview>(
+                    session.DraftAiProposalJson);
+                if (review?.Source == FallbackReviewSource && review.Proposal is null)
+                    return review;
+                if (review?.Source == AiReviewSource && review.Proposal is not null)
+                    return review;
+                return null;
+            }
+
+            // Propostas persistidas antes da inclusão da origem eram sempre revisões de IA.
+            var legacyProposal = JsonSerializer.Deserialize<RequestDraftAiProposal>(
                 session.DraftAiProposalJson);
+            return legacyProposal is null
+                || string.IsNullOrWhiteSpace(legacyProposal.Title)
+                || string.IsNullOrWhiteSpace(legacyProposal.Description)
+                || legacyProposal.MissingInformation is null
+                ? null
+                : new RequestDraftReview(AiReviewSource, legacyProposal);
         }
         catch (JsonException) { return null; }
     }
-
-    private static RequestDraftAiProposal FallbackProposal(string originalReport) =>
-        new(originalReport.Length <= 200 ? originalReport : originalReport[..200],
-            originalReport, null, [], null);
 
     private async Task DiscardDraftAttachments(WhatsAppSession session, CancellationToken ct)
     {
@@ -629,4 +659,5 @@ public sealed class WhatsAppConversationService(
     private sealed record ResolvedIdentity(Guid UserId, string FullName, Guid CondominiumId, Guid UnitId);
     private sealed record ResidentialContext(Guid CondominiumId, Guid UnitId, bool IsPrimaryResidence);
     private sealed record CategoryChoice(Guid Id, string Name);
+    private sealed record RequestDraftReview(string Source, RequestDraftAiProposal? Proposal);
 }

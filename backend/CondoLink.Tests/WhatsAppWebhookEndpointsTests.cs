@@ -696,7 +696,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Equal(4, await _host.WithDbAsync(db => db.WhatsAppDraftAttachments.CountAsync()));
 
         await PostAsync(TextPayload("wamid.mix-finished", "1"));
-        Assert.Contains("Confirmar solicitação", _fake.Messages.Last().Text);
+        Assert.Contains("Confirmar", _fake.Messages.Last().Text);
         await PostAsync(TextPayload("wamid.mix-confirmed", "1"));
 
         await _host.WithDbAsync(async db =>
@@ -719,7 +719,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload("wamid.no-more-files", "2"));
 
-        Assert.Contains("Confirmar solicitação", _fake.Messages.Last().Text);
+        Assert.Contains("Confirmar", _fake.Messages.Last().Text);
         Assert.Single(await _host.WithDbAsync(db => db.WhatsAppDraftAttachments.ToArrayAsync()));
     }
 
@@ -742,6 +742,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Contains("O portão da garagem está danificado", review);
         Assert.Contains("Categoria\n\nManutenção", review);
         Assert.Contains("talvez faltem estas informações", review);
+        Assert.Contains("\"Source\":\"ai\"", await _host.WithDbAsync(db =>
+            db.WhatsAppSessions.Select(x => x.DraftAiProposalJson).SingleAsync()));
         await PostAsync(TextPayload("wamid.ai-confirmed", "1"));
 
         await _host.WithDbAsync(async db =>
@@ -800,7 +802,12 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.ai-rewrite", "2"));
 
         Assert.Equal(1, _ai.Calls);
-        Assert.Single(await _host.WithDbAsync(db => db.WhatsAppDraftAttachments.ToArrayAsync()));
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Null(session.DraftAiProposalJson);
+            Assert.Single(await db.WhatsAppDraftAttachments.ToArrayAsync());
+        });
         _ai.Result = new(true, new RequestDraftAiProposal(
             "Título reescrito", "Descrição reescrita", null, [], null), null);
         await PostAsync(TextPayload("wamid.ai-new-report", "Novo relato original"));
@@ -811,19 +818,53 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("provider error")]
+    [InlineData("disabled")]
+    [InlineData("missing api key")]
     [InlineData("timeout")]
-    public async Task Ai_failure_or_timeout_uses_safe_fallback(string error)
+    [InlineData("http error")]
+    [InlineData("refusal")]
+    [InlineData("empty response")]
+    [InlineData("invalid json")]
+    [InlineData("outside schema")]
+    [InlineData("manual validation failure")]
+    public async Task Ai_failure_uses_traditional_review_and_manual_category(string error)
     {
         _ai.Result = new(false, null, error);
         await AddCategoryAndStartAttachmentFlow();
+        await _host.WithDbAsync(async db =>
+        {
+            db.Categories.Add(new Category(_condominiumId, "Segurança", null));
+            await db.SaveChangesAsync();
+        });
 
         await PostAsync(TextPayload($"wamid.ai-fallback-{error}", "2"));
 
-        Assert.Contains("Título\n\nPortão danificado", _fake.Messages.Last().Text);
-        Assert.Contains("Categoria\n\nNão identificada", _fake.Messages.Last().Text);
+        var review = _fake.Messages.Last().Text;
+        Assert.Equal("Você descreveu:\n\nPortão danificado\n\n" +
+            "1 - Confirmar e continuar\n" +
+            "2 - Reescrever descrição\n" +
+            "3 - Cancelar e voltar ao início", review);
+        Assert.DoesNotContain("Título", review);
+        Assert.DoesNotContain("Categoria", review);
+        Assert.DoesNotContain("MissingInformation", review);
+        Assert.DoesNotContain("Confidence", review);
+        Assert.DoesNotContain(error, review, StringComparison.OrdinalIgnoreCase);
+        var storedReview = await _host.WithDbAsync(db => db.WhatsAppSessions
+            .Select(x => x.DraftAiProposalJson).SingleAsync());
+        Assert.Contains("\"Source\":\"fallback\"", storedReview);
+
         await PostAsync(TextPayload($"wamid.ai-fallback-confirm-{error}", "1"));
-        Assert.Single(await _host.WithDbAsync(db => db.Requests.ToArrayAsync()));
+        Assert.Contains("Escolha a categoria", _fake.Messages.Last().Text);
+        await PostAsync(TextPayload($"wamid.ai-fallback-category-{error}", "1"));
+
+        await _host.WithDbAsync(async db =>
+        {
+            var request = await db.Requests.SingleAsync();
+            Assert.Equal("Solicitação recebida pelo WhatsApp", request.Title);
+            Assert.Equal("Portão danificado", request.Description);
+            Assert.Equal("Portão danificado", await db.RequestMessages
+                .Where(x => x.RequestId == request.Id).Select(x => x.Content).SingleAsync());
+        });
     }
 
     [Theory]
