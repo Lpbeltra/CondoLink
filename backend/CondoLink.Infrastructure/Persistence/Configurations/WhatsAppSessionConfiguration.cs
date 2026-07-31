@@ -19,6 +19,7 @@ public sealed class WhatsAppSessionConfiguration : IEntityTypeConfiguration<What
         builder.Property(item => item.RequestId).HasColumnName("request_id");
         builder.Property(item => item.CategoryId).HasColumnName("category_id");
         builder.Property(item => item.DraftDescription).HasColumnName("draft_description").HasMaxLength(4000);
+        builder.Property(item => item.DraftAiProposalJson).HasColumnName("draft_ai_proposal_json").HasMaxLength(12000);
         builder.Property(item => item.Page).HasColumnName("page").IsRequired();
         builder.Property(item => item.State).HasColumnName("state").HasConversion<int>().IsRequired();
         builder.Property(item => item.PreviousState).HasColumnName("previous_state").HasConversion<int?>();

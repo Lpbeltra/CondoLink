@@ -20,6 +20,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     private const string VerifyToken = "test-verify-token";
     private CoreEndpointTestHost _host = null!;
     private FakeWhatsAppClient _fake = null!;
+    private FakeRequestDraftAiService _ai = null!;
     private Guid _userId;
     private Guid _condominiumId;
     private Guid _unitId;
@@ -27,6 +28,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         _fake = new FakeWhatsAppClient();
+        _ai = new FakeRequestDraftAiService();
         _host = await CoreEndpointTestHost.StartAsync(
             app => app.MapWhatsAppWebhook(),
             builder =>
@@ -39,6 +41,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                     settings.SessionExpirationMinutes = 30;
                 });
                 builder.Services.AddSingleton<IWhatsAppClient>(_fake);
+                builder.Services.AddSingleton<IRequestDraftAiService>(_ai);
                 builder.Services.AddSingleton<LocalFileStorage>();
                 builder.Services.AddScoped<WhatsAppConversationService>();
             });
@@ -693,7 +696,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Equal(4, await _host.WithDbAsync(db => db.WhatsAppDraftAttachments.CountAsync()));
 
         await PostAsync(TextPayload("wamid.mix-finished", "1"));
-        Assert.Contains("Confirmar e criar", _fake.Messages.Last().Text);
+        Assert.Contains("Confirmar solicitação", _fake.Messages.Last().Text);
         await PostAsync(TextPayload("wamid.mix-confirmed", "1"));
 
         await _host.WithDbAsync(async db =>
@@ -716,8 +719,111 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload("wamid.no-more-files", "2"));
 
-        Assert.Contains("Confirmar e criar", _fake.Messages.Last().Text);
+        Assert.Contains("Confirmar solicitação", _fake.Messages.Last().Text);
         Assert.Single(await _host.WithDbAsync(db => db.WhatsAppDraftAttachments.ToArrayAsync()));
+    }
+
+    [Fact]
+    public async Task Ai_proposal_drives_review_and_preserves_original_report()
+    {
+        _ai.Result = new(true, new RequestDraftAiProposal(
+            "Portão da garagem danificado",
+            "O portão da garagem está danificado e não fecha corretamente.",
+            "Manutenção",
+            ["Informe desde quando o problema acontece."],
+            0.91), null);
+        await AddCategoryAndStartAttachmentFlow();
+
+        await PostAsync(TextPayload("wamid.ai-finished", "2"));
+
+        var review = _fake.Messages.Last().Text;
+        Assert.Contains("Título", review);
+        Assert.Contains("Portão da garagem danificado", review);
+        Assert.Contains("O portão da garagem está danificado", review);
+        Assert.Contains("Categoria\n\nManutenção", review);
+        Assert.Contains("talvez faltem estas informações", review);
+        await PostAsync(TextPayload("wamid.ai-confirmed", "1"));
+
+        await _host.WithDbAsync(async db =>
+        {
+            var request = await db.Requests.SingleAsync();
+            Assert.Equal("Portão da garagem danificado", request.Title);
+            Assert.Equal("O portão da garagem está danificado e não fecha corretamente.", request.Description);
+            Assert.Equal("Manutenção", await db.Categories.Where(x => x.Id == request.CategoryId)
+                .Select(x => x.Name).SingleAsync());
+            Assert.Equal("Portão danificado", await db.RequestMessages
+                .Where(x => x.RequestId == request.Id).Select(x => x.Content).SingleAsync());
+        });
+    }
+
+    [Theory]
+    [InlineData("Categoria inexistente")]
+    [InlineData("Categoria inativa")]
+    public async Task Invalid_ai_category_uses_existing_category_flow(string suggestedCategory)
+    {
+        _ai.Result = new(true, new RequestDraftAiProposal(
+            "Título organizado", "Descrição organizada", suggestedCategory, [], null), null);
+        await AddCategoryAndStartAttachmentFlow();
+        if (suggestedCategory == "Categoria inativa")
+        {
+            await _host.WithDbAsync(async db =>
+            {
+                var inactive = new Category(_condominiumId, suggestedCategory, null);
+                db.Categories.Add(inactive);
+                await db.SaveChangesAsync();
+                await db.Categories.Where(x => x.Id == inactive.Id).ExecuteUpdateAsync(
+                    setters => setters.SetProperty(x => x.IsActive, false));
+            });
+        }
+        await PostAsync(TextPayload($"wamid.invalid-ai-category-{suggestedCategory}", "2"));
+
+        await PostAsync(TextPayload($"wamid.confirm-invalid-category-{suggestedCategory}", "1"));
+
+        Assert.Single(await _host.WithDbAsync(db => db.Requests.ToArrayAsync()));
+        Assert.Equal("Manutenção", await _host.WithDbAsync(db => db.Requests
+            .Join(db.Categories, request => request.CategoryId, category => category.Id,
+                (_, category) => category.Name).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Rewriting_calls_ai_only_after_new_report_and_preserves_attachments()
+    {
+        _ai.Result = new(true, new RequestDraftAiProposal(
+            "Primeiro título", "Primeira descrição", null, [], null), null);
+        await AddCategoryAndStartAttachmentFlow();
+        _fake.Media = new WhatsAppMediaResult(true, [1], "image/jpeg", null);
+        await PostAsync(MediaPayload("wamid.ai-rewrite-file", "ai-rewrite-file",
+            "image", "image/jpeg", "foto.jpg"));
+        await PostAsync(TextPayload("wamid.ai-first-review", "1"));
+        Assert.Equal(1, _ai.Calls);
+
+        await PostAsync(TextPayload("wamid.ai-rewrite", "2"));
+
+        Assert.Equal(1, _ai.Calls);
+        Assert.Single(await _host.WithDbAsync(db => db.WhatsAppDraftAttachments.ToArrayAsync()));
+        _ai.Result = new(true, new RequestDraftAiProposal(
+            "Título reescrito", "Descrição reescrita", null, [], null), null);
+        await PostAsync(TextPayload("wamid.ai-new-report", "Novo relato original"));
+        await PostAsync(TextPayload("wamid.ai-second-review", "2"));
+        Assert.Equal(2, _ai.Calls);
+        Assert.Contains("Título reescrito", _fake.Messages.Last().Text);
+        Assert.Single(await _host.WithDbAsync(db => db.WhatsAppDraftAttachments.ToArrayAsync()));
+    }
+
+    [Theory]
+    [InlineData("provider error")]
+    [InlineData("timeout")]
+    public async Task Ai_failure_or_timeout_uses_safe_fallback(string error)
+    {
+        _ai.Result = new(false, null, error);
+        await AddCategoryAndStartAttachmentFlow();
+
+        await PostAsync(TextPayload($"wamid.ai-fallback-{error}", "2"));
+
+        Assert.Contains("Título\n\nPortão danificado", _fake.Messages.Last().Text);
+        Assert.Contains("Categoria\n\nNão identificada", _fake.Messages.Last().Text);
+        await PostAsync(TextPayload($"wamid.ai-fallback-confirm-{error}", "1"));
+        Assert.Single(await _host.WithDbAsync(db => db.Requests.ToArrayAsync()));
     }
 
     [Theory]
@@ -786,7 +892,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             await PostAsync(MediaPayload($"wamid.limit-{index}", $"limit-{index}", "image", "image/jpeg", $"foto-{index}.jpg"));
         }
         await PostAsync(MediaPayload("wamid.limit-extra", "limit-extra", "image", "image/jpeg", "extra.jpg"));
-        Assert.Contains("no máximo 6 arquivos", _fake.Messages.Last().Text);
+        Assert.Contains("no máximo 10 arquivos", _fake.Messages.Last().Text);
 
         await PostAsync(TextPayload("wamid.limit-menu", "menu"));
         await PostAsync(TextPayload("wamid.limit-open", "1"));
@@ -963,5 +1069,20 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             CancellationToken cancellationToken) =>
             SendTextAsync(phoneNumber, $"template:{templateName}:{language}",
                 cancellationToken);
+    }
+
+    private sealed class FakeRequestDraftAiService : IRequestDraftAiService
+    {
+        public RequestDraftAiResult Result { get; set; } =
+            new(false, null, "not configured");
+        public int Calls { get; private set; }
+
+        public Task<RequestDraftAiResult> ProposeAsync(string originalReport,
+            IReadOnlyCollection<string> activeCategories,
+            CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(Result);
+        }
     }
 }

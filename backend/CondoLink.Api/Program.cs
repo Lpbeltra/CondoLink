@@ -35,6 +35,14 @@ builder.Services.AddScoped<WhatsAppNotificationDispatcher>();
 builder.Services.Configure<WhatsAppOptions>(
     builder.Configuration.GetSection(WhatsAppOptions.SectionName));
 builder.Services.AddScoped<WhatsAppConversationService>();
+builder.Services.Configure<RequestDraftAiOptions>(
+    builder.Configuration.GetSection(RequestDraftAiOptions.SectionName));
+builder.Services.AddHttpClient<IRequestDraftAiService, RequestDraftAiService>((services, client) =>
+{
+    var settings = services.GetRequiredService<
+        Microsoft.Extensions.Options.IOptions<RequestDraftAiOptions>>().Value;
+    client.BaseAddress = new Uri(settings.BaseUrl);
+});
 builder.Services.AddScoped<AuthenticationSessionService>();
 builder.Services.AddSingleton<IPhoneVerificationMessageProtector,
     PhoneVerificationMessageProtector>();

@@ -46,7 +46,7 @@ public static class RequestAttachmentEndpoints
         if (files.Count == 0)
             return Results.BadRequest(new { error = "Selecione ao menos um arquivo." });
         if (files.Count > AttachmentPolicy.MaximumFileCount)
-            return Results.BadRequest(new { error = "É permitido enviar no máximo 6 arquivos." });
+            return Results.BadRequest(new { error = $"É permitido enviar no máximo {AttachmentPolicy.MaximumFileCount} arquivos." });
 
         var validated = new List<(IFormFile File, string Name, string Extension, string ContentType)>();
         foreach (var file in files)

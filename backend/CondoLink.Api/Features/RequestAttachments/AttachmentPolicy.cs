@@ -2,7 +2,7 @@ namespace CondoLink.Api.Features.RequestAttachments;
 
 public static class AttachmentPolicy
 {
-    public const int MaximumFileCount = 6;
+    public const int MaximumFileCount = 10;
     public const long MaximumFileSize = 15 * 1024 * 1024;
     public const long MaximumRequestSize = 96 * 1024 * 1024;
 

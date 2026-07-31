@@ -107,10 +107,10 @@ public sealed class RequestAttachmentEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Rejects_more_than_six_files_without_persisting_any()
+    public async Task Rejects_more_than_ten_files_without_persisting_any()
     {
         var before = await AttachmentCountAsync();
-        var files = Enumerable.Range(0, 7)
+        var files = Enumerable.Range(0, 11)
             .Select(index => File(
                 $"arquivo-{index}.pdf", "application/pdf", "%PDF-test"u8.ToArray()))
             .ToArray();
@@ -121,7 +121,7 @@ public sealed class RequestAttachmentEndpointsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(before, await AttachmentCountAsync());
         Assert.Contains(
-            "no máximo 6 arquivos",
+            "no máximo 10 arquivos",
             await response.Content.ReadAsStringAsync());
     }
 

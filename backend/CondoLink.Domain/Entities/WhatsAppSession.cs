@@ -26,6 +26,7 @@ public sealed class WhatsAppSession
     public Guid? RequestId { get; private set; }
     public Guid? CategoryId { get; private set; }
     public string? DraftDescription { get; private set; }
+    public string? DraftAiProposalJson { get; private set; }
     public int Page { get; private set; }
     public WhatsAppConversationState State { get; private set; }
     public WhatsAppConversationState? PreviousState { get; private set; }
@@ -55,6 +56,7 @@ public sealed class WhatsAppSession
         RequestId = null;
         CategoryId = null;
         DraftDescription = null;
+        DraftAiProposalJson = null;
         Page = 0;
         MoveTo(WhatsAppConversationState.MainMenu, now, expiresAt, condominiumId);
     }
@@ -67,6 +69,7 @@ public sealed class WhatsAppSession
         RequestId = null;
         CategoryId = null;
         DraftDescription = null;
+        DraftAiProposalJson = null;
         MoveTo(WhatsAppConversationState.UnknownPhone, now, expiresAt);
     }
 
@@ -84,6 +87,7 @@ public sealed class WhatsAppSession
         RequestId = null;
         CategoryId = null;
         DraftDescription = null;
+        DraftAiProposalJson = null;
         Page = 0;
         Touch(now, expiresAt);
     }
@@ -99,7 +103,20 @@ public sealed class WhatsAppSession
     public void SetDescriptionForReview(string description, DateTime now, DateTime expiresAt)
     {
         DraftDescription = description.Trim();
+        DraftAiProposalJson = null;
         MoveTo(WhatsAppConversationState.CollectingAttachments, now, expiresAt, CondominiumId);
+    }
+
+    public void SetAiProposal(string proposalJson, DateTime now, DateTime expiresAt)
+    {
+        DraftAiProposalJson = proposalJson;
+        MoveTo(WhatsAppConversationState.ReviewingNewRequest, now, expiresAt, CondominiumId);
+    }
+
+    public void RewriteDescription(DateTime now, DateTime expiresAt)
+    {
+        DraftAiProposalJson = null;
+        MoveTo(WhatsAppConversationState.CollectingDescription, now, expiresAt, CondominiumId);
     }
 
     public void FinishAttachments(DateTime now, DateTime expiresAt) =>
@@ -172,6 +189,7 @@ public sealed class WhatsAppSession
         UnitId = null;
         CategoryId = null;
         DraftDescription = null;
+        DraftAiProposalJson = null;
         RequestId = null;
         Page = 0;
         Version = Guid.NewGuid();
@@ -196,6 +214,7 @@ public sealed class WhatsAppSession
         RequestId = null;
         CategoryId = null;
         DraftDescription = null;
+        DraftAiProposalJson = null;
         Page = 0;
         LastInteractionAt = now;
         ExpiresAt = expiresAt;
@@ -211,6 +230,7 @@ public sealed class WhatsAppSession
         RequestId = null;
         CategoryId = null;
         DraftDescription = null;
+        DraftAiProposalJson = null;
         Page = 0;
         LastInteractionAt = now;
         ExpiresAt = now;
