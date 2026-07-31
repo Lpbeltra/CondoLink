@@ -35,6 +35,76 @@ public sealed class WhatsAppSession
 
     public void Identify(Guid userId) => UserId = userId;
 
+    public void ResolveContext(Guid userId, Guid condominiumId, Guid unitId)
+    {
+        UserId = userId;
+        CondominiumId = condominiumId;
+        UnitId = unitId;
+    }
+
+    public void InvalidateIdentity(DateTime now, DateTime expiresAt)
+    {
+        UserId = null;
+        CondominiumId = null;
+        UnitId = null;
+        RequestId = null;
+        CategoryId = null;
+        DraftDescription = null;
+        MoveTo(WhatsAppConversationState.UnknownPhone, now, expiresAt);
+    }
+
+    public void Touch(DateTime now, DateTime expiresAt)
+    {
+        LastInteractionAt = now;
+        ExpiresAt = expiresAt;
+        Version = Guid.NewGuid();
+    }
+
+    public void Restart(DateTime now, DateTime expiresAt)
+    {
+        PreviousState = State;
+        State = WhatsAppConversationState.MainMenu;
+        RequestId = null;
+        CategoryId = null;
+        DraftDescription = null;
+        Page = 0;
+        Touch(now, expiresAt);
+    }
+
+    public void BeginDescription(DateTime now, DateTime expiresAt, bool clearDescription = false)
+    {
+        CategoryId = null;
+        RequestId = null;
+        if (clearDescription) DraftDescription = null;
+        MoveTo(WhatsAppConversationState.CollectingDescription, now, expiresAt, CondominiumId);
+    }
+
+    public void SetDescriptionForReview(string description, DateTime now, DateTime expiresAt)
+    {
+        DraftDescription = description.Trim();
+        MoveTo(WhatsAppConversationState.ReviewingNewRequest, now, expiresAt, CondominiumId);
+    }
+
+    public void BeginCategorySelection(DateTime now, DateTime expiresAt) =>
+        MoveTo(WhatsAppConversationState.SelectingCategory, now, expiresAt, CondominiumId);
+
+    public void ChooseCategory(Guid categoryId, DateTime now, DateTime expiresAt)
+    {
+        CategoryId = categoryId;
+        Touch(now, expiresAt);
+    }
+
+    public void CompleteRequest(Guid requestId, DateTime now, DateTime expiresAt)
+    {
+        PreviousState = State;
+        State = WhatsAppConversationState.MainMenu;
+        RequestId = null;
+        CategoryId = null;
+        DraftDescription = null;
+        Page = 0;
+        Touch(now, expiresAt);
+    }
+
     public void MoveTo(
         WhatsAppConversationState state,
         DateTime now,

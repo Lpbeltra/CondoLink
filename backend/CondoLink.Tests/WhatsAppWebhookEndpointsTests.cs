@@ -20,6 +20,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     private FakeWhatsAppClient _fake = null!;
     private Guid _userId;
     private Guid _condominiumId;
+    private Guid _unitId;
 
     public async Task InitializeAsync()
     {
@@ -44,11 +45,15 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             var condominium = new Condominium("Residencial Teste", null, null);
             var user = CoreTestSeed.User("Maria Silva", "maria@example.com");
             user.Update("Maria Silva", "(11) 99999-0001");
-            db.AddRange(condominium, user);
+            var unit = new Unit(condominium.Id, "101", null, null, null);
+            var unitMembership = new UnitMembership(
+                user.Id, unit.Id, UnitRelationshipType.Owner, true, true);
+            db.AddRange(condominium, user, unit, unitMembership);
             CoreTestSeed.AddMember(db, user.Id, condominium.Id, CondominiumRole.Resident);
             await db.SaveChangesAsync();
             _userId = user.Id;
             _condominiumId = condominium.Id;
+            _unitId = unit.Id;
         });
     }
 
@@ -140,7 +145,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var sent = Assert.Single(_fake.Messages);
         Assert.Contains("Olá, Maria!", sent.Text);
-        Assert.Contains("1 — Abrir uma nova solicitação", sent.Text);
+        Assert.Contains("1 - Abrir uma solicitação", sent.Text);
         await _host.WithDbAsync(async db =>
         {
             var session = await db.WhatsAppSessions.SingleAsync();
@@ -170,24 +175,50 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task First_message_starts_at_the_menu_even_when_it_contains_free_text()
+    {
+        await PostAsync(TextPayload("wamid.first-free-text", "O portão quebrou"));
+
+        Assert.Contains("Como posso ajudar", Assert.Single(_fake.Messages).Text);
+        Assert.Equal(WhatsAppConversationState.MainMenu,
+            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
+    }
+
+    [Theory]
+    [InlineData("2")]
+    [InlineData("3")]
+    [InlineData("4")]
+    public async Task Unavailable_menu_options_do_not_advance_the_session(string option)
+    {
+        await PostAsync(TextPayload("wamid.unavailable-menu", "Menu"));
+        await PostAsync(TextPayload($"wamid.unavailable-{option}", option));
+
+        Assert.Contains("disponível em breve", _fake.Messages.Last().Text);
+        Assert.Equal(WhatsAppConversationState.MainMenu,
+            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
+    }
+
+    [Fact]
     public async Task Unknown_phone_gets_closed_guidance_without_creating_a_user()
     {
         var response = await PostAsync(
             TextPayload("wamid.unknown", "Menu", "5511988887777"));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("não localizamos", Assert.Single(_fake.Messages).Text,
+        Assert.Contains("Não consegui identificar", Assert.Single(_fake.Messages).Text,
             StringComparison.OrdinalIgnoreCase);
         Assert.Equal(1, await _host.WithDbAsync(db => db.Users.CountAsync()));
     }
 
     [Fact]
-    public async Task Multiple_condominiums_require_explicit_selection()
+    public async Task Multiple_residential_contexts_are_rejected_without_disclosure()
     {
         await _host.WithDbAsync(async db =>
         {
             var second = new Condominium("Condomínio B", null, null);
-            db.Condominiums.Add(second);
+            var unit = new Unit(second.Id, "202", null, null, null);
+            db.AddRange(second, unit, new UnitMembership(
+                _userId, unit.Id, UnitRelationshipType.Tenant, true, false));
             CoreTestSeed.AddMember(db, _userId, second.Id, CondominiumRole.Resident);
             await db.SaveChangesAsync();
         });
@@ -195,10 +226,10 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.multi", "Menu"));
 
         var text = Assert.Single(_fake.Messages).Text;
-        Assert.Contains("Escolha o condomínio", text);
-        Assert.Contains("Residencial Teste", text);
-        Assert.Contains("Condomínio B", text);
-        Assert.Equal(WhatsAppConversationState.SelectingCondominium,
+        Assert.Contains("Não consegui identificar seu cadastro", text);
+        Assert.DoesNotContain("Residencial Teste", text);
+        Assert.DoesNotContain("Condomínio B", text);
+        Assert.Equal(WhatsAppConversationState.UnknownPhone,
             await _host.WithDbAsync(db => db.WhatsAppSessions
                 .Select(item => item.State).SingleAsync()));
     }
@@ -228,7 +259,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload("wamid.inactive", "Menu"));
 
-        Assert.Contains("não localizamos", Assert.Single(_fake.Messages).Text,
+        Assert.Contains("Não consegui identificar", Assert.Single(_fake.Messages).Text,
             StringComparison.OrdinalIgnoreCase);
         Assert.Equal(WhatsAppConversationState.UnknownPhone,
             await _host.WithDbAsync(db => db.WhatsAppSessions
@@ -236,13 +267,67 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Global_help_and_exit_preserve_then_end_the_session()
+    public async Task Inactive_residential_membership_is_not_identified()
     {
-        await PostAsync(TextPayload("wamid.help", "Ajuda"));
+        await _host.WithDbAsync(async db =>
+        {
+            var membership = await db.UnitMemberships.SingleAsync(x => x.UnitId == _unitId);
+            membership.End(DateTime.UtcNow);
+            await db.SaveChangesAsync();
+        });
+
+        await PostAsync(TextPayload("wamid.inactive-unit-membership", "Menu"));
+
+        Assert.Contains("Não consegui identificar", Assert.Single(_fake.Messages).Text);
+    }
+
+    [Fact]
+    public async Task Inactive_unit_or_condominium_is_not_identified()
+    {
+        await _host.WithDbAsync(db => db.Units.Where(x => x.Id == _unitId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.IsActive, false)));
+        await PostAsync(TextPayload("wamid.inactive-unit", "Menu"));
+        Assert.Contains("Não consegui identificar", _fake.Messages.Last().Text);
+
+        await _host.WithDbAsync(async db =>
+        {
+            await db.Units.Where(x => x.Id == _unitId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.IsActive, true));
+            var condominium = await db.Condominiums.SingleAsync(x => x.Id == _condominiumId);
+            condominium.SetActiveStatus(false);
+            await db.SaveChangesAsync();
+        });
+        await PostAsync(TextPayload("wamid.inactive-condominium", "Menu"));
+        Assert.Contains("Não consegui identificar", _fake.Messages.Last().Text);
+    }
+
+    [Fact]
+    public async Task Description_can_be_corrected_and_cancelled_without_creating_a_request()
+    {
+        await PostAsync(TextPayload("wamid.edit-1", "Menu"));
+        await PostAsync(TextPayload("wamid.edit-2", "1"));
+        await PostAsync(TextPayload("wamid.edit-3", "Descrição antiga"));
+        await PostAsync(TextPayload("wamid.edit-4", "2"));
+        await PostAsync(TextPayload("wamid.edit-5", "Descrição corrigida"));
+        await PostAsync(TextPayload("wamid.edit-6", "3"));
+
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(WhatsAppConversationState.MainMenu, session.State);
+            Assert.Null(session.DraftDescription);
+            Assert.Empty(await db.Requests.ToArrayAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Global_menu_and_exit_restart_then_end_the_session()
+    {
+        await PostAsync(TextPayload("wamid.help", "Menu"));
         await PostAsync(TextPayload("wamid.exit", "Sair"));
 
         Assert.Equal(2, _fake.Messages.Count);
-        Assert.Contains("Digite Menu", _fake.Messages[0].Text);
+        Assert.Contains("Como posso ajudar", _fake.Messages[0].Text);
         Assert.Contains("encerrado", _fake.Messages[1].Text);
         Assert.Equal(WhatsAppConversationState.Ended,
             await _host.WithDbAsync(db => db.WhatsAppSessions
@@ -259,8 +344,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload("wamid.after-expiry", "qualquer coisa"));
 
-        Assert.Contains("sessão anterior expirou", _fake.Messages[1].Text);
-        Assert.Contains("Como podemos ajudar", _fake.Messages[1].Text);
+        Assert.Contains("Como posso ajudar", _fake.Messages[1].Text);
     }
 
     [Fact]
@@ -288,38 +372,31 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload("wamid.flow-1", "Menu"));
         await PostAsync(TextPayload("wamid.flow-2", "1"));
-        await PostAsync(TextPayload("wamid.flow-3", "1"));
+        await PostAsync(TextPayload("wamid.flow-3", "Lâmpada queimada no corredor"));
         await PostAsync(TextPayload("wamid.flow-4", "1"));
-        await PostAsync(TextPayload("wamid.flow-5", "Lâmpada queimada no corredor"));
-        await PostAsync(TextPayload("wamid.flow-6", "2"));
-        await PostAsync(TextPayload("wamid.flow-7", "1"));
+        await PostAsync(TextPayload("wamid.flow-4", "1"));
 
         var requestId = await _host.WithDbAsync(async db =>
         {
             var request = await db.Requests.SingleAsync();
             Assert.Equal(RequestSource.WhatsApp, request.Source);
+            Assert.Equal(RequestPriority.Normal, request.Priority);
             Assert.Equal("Lâmpada queimada no corredor", request.Description);
-            Assert.Null(request.TargetUnitId);
+            Assert.Equal(_unitId, request.TargetUnitId);
             Assert.True(await db.RequestStatusHistories.AnyAsync(item =>
                 item.RequestId == request.Id
                 && item.NewStatus == RequestStatus.Open));
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Null(session.DraftDescription);
+            Assert.Equal(WhatsAppConversationState.MainMenu, session.State);
             return request.Id;
         });
 
-        await PostAsync(TextPayload("wamid.flow-8", "1"));
-        await PostAsync(TextPayload("wamid.flow-9", "A situação piorou."));
-
-        await _host.WithDbAsync(async db =>
-        {
-            var message = await db.RequestMessages.SingleAsync(item =>
-                item.RequestId == requestId);
-            Assert.Equal(MessageChannel.WhatsApp, message.Channel);
-            Assert.Equal("A situação piorou.", message.Content);
-        });
+        Assert.Contains(requestId.ToString("N")[..8].ToUpperInvariant(), _fake.Messages.Last().Text);
     }
 
     [Fact]
-    public async Task Valid_image_is_downloaded_to_persisted_draft_storage()
+    public async Task Non_text_message_does_not_enter_attachment_flow_in_this_batch()
     {
         await _host.WithDbAsync(async db =>
         {
@@ -330,16 +407,11 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             true, [0xFF, 0xD8, 0xFF, 0xD9], "image/jpeg", null);
         await PostAsync(TextPayload("wamid.media-1", "Menu"));
         await PostAsync(TextPayload("wamid.media-2", "1"));
-        await PostAsync(TextPayload("wamid.media-3", "1"));
-        await PostAsync(TextPayload("wamid.media-4", "1"));
-        await PostAsync(TextPayload("wamid.media-5", "Portão danificado"));
-        await PostAsync(MediaPayload("wamid.media-6", "media-id-1", "image", "image/jpeg"));
+        await PostAsync(MediaPayload("wamid.media-3", "media-id-1", "image", "image/jpeg"));
 
-        var draft = await _host.WithDbAsync(db =>
-            db.WhatsAppDraftAttachments.AsNoTracking().SingleAsync());
-        Assert.Equal("media-id-1", draft.ExternalMediaId);
-        Assert.Equal("image/jpeg", draft.ContentType);
-        Assert.Equal(4, draft.FileSize);
+        Assert.Contains("Descreva", _fake.Messages.Last().Text);
+        Assert.Empty(await _host.WithDbAsync(db =>
+            db.WhatsAppDraftAttachments.AsNoTracking().ToArrayAsync()));
     }
 
     private async Task<HttpResponseMessage> PostAsync(
