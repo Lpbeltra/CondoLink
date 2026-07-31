@@ -13,9 +13,12 @@ const http = vi.hoisted(() => ({
 vi.mock('../services/api', () => ({ api: http }))
 
 function Consumer() {
-  const { user, loginWithWhatsApp } = useAuth()
+  const { user, requestWhatsAppCode, loginWithWhatsApp } = useAuth()
   return (
     <>
+      <button onClick={() => void requestWhatsAppCode('(44) 99999-9999')}>
+        request
+      </button>
       <button onClick={() => void loginWithWhatsApp(
         '(44) 99999-9999',
         '123456',
@@ -90,5 +93,24 @@ describe('WhatsApp login in AuthProvider', () => {
       .toBe('header.payload.signature')
     expect(http.defaults.headers.common.Authorization)
       .toBe('Bearer header.payload.signature')
+  })
+
+  it('keeps the unauthenticated request-code route exclusive to login', async () => {
+    http.post.mockResolvedValue({
+      data: {
+        status: 'accepted',
+        message: 'Código solicitado.',
+        retryAfterSeconds: 60,
+      },
+    })
+    const user = userEvent.setup()
+    render(<AuthProvider><Consumer /></AuthProvider>)
+
+    await user.click(await screen.findByRole('button', { name: 'request' }))
+
+    expect(http.post).toHaveBeenCalledWith(
+      '/auth/whatsapp/request-code',
+      { phoneNumber: '(44) 99999-9999' },
+    )
   })
 })

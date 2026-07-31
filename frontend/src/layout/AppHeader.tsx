@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded'
-import { AppBar, Avatar, Box, ButtonBase, IconButton, ListItemIcon, Menu, MenuItem, Toolbar, Tooltip, Typography, alpha } from '@mui/material'
+import { AppBar, Avatar, Box, ButtonBase, Dialog, DialogContent, DialogTitle, IconButton, ListItemIcon, Menu, MenuItem, Toolbar, Tooltip, Typography, alpha } from '@mui/material'
 import { Brand } from '../components/Brand'
 import { NotificationBell } from '../notifications/NotificationBell'
 import { ThemeModeToggle } from '../theme/ThemeModeToggle'
@@ -11,6 +11,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { shouldShowGeneralCondominiumSwitcher } from './navigation'
 import { useOptionalManagementContext } from '../management/ManagementContext'
 import { PhoneVerificationMenuItem } from '../phoneVerification/PhoneVerificationMenuItem'
+import { PhoneVerificationCard } from '../phoneVerification/PhoneVerificationCard'
 
 export function AppHeader() {
   const { user, logout } = useAuth()
@@ -20,6 +21,7 @@ export function AppHeader() {
   const managementContext = useOptionalManagementContext()
   const showSwitcher = shouldShowGeneralCondominiumSwitcher(location.pathname, condominiums)
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const [phoneDialogOpen, setPhoneDialogOpen] = useState(false)
   const brandPath = location.pathname.startsWith('/overwatch')
     ? '/overwatch'
     : (managementContext?.condominiumCount ?? 0) > 0
@@ -64,7 +66,10 @@ export function AppHeader() {
           <Typography fontWeight={750} noWrap>{user?.fullName}</Typography>
           <Typography color="text.secondary" fontSize=".8rem" noWrap>{user?.email}</Typography>
         </Box>
-        <PhoneVerificationMenuItem closeMenu={() => setAnchor(null)} />
+        <PhoneVerificationMenuItem
+          closeMenu={() => setAnchor(null)}
+          openDialog={() => setPhoneDialogOpen(true)}
+        />
         <MenuItem
           onClick={() => {
             setAnchor(null)
@@ -76,6 +81,17 @@ export function AppHeader() {
           Sair
         </MenuItem>
       </Menu>
+      <Dialog
+        open={phoneDialogOpen}
+        onClose={() => setPhoneDialogOpen(false)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Confirmar WhatsApp</DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          <PhoneVerificationCard />
+        </DialogContent>
+      </Dialog>
     </AppBar>
   )
 }
