@@ -384,7 +384,7 @@ public sealed class WhatsAppConversationService(
         {
             logger.LogError(exception, "Failed to notify creation of WhatsApp request {RequestId}.", request.Id);
         }
-        return ($"Solicitação criada com sucesso.\n\nProtocolo: {ShortId(request.Id)}\n\nDigite ‘menu’ para iniciar outro atendimento.", "request_created");
+        return ($"Solicitação criada com sucesso.\n\nProtocolo: {ShortId(request.Id)}\n\nPara iniciar outro atendimento, basta chamar novamente!", "request_created");
     }
 
     private static (string, string) Recover(
@@ -408,14 +408,15 @@ public sealed class WhatsAppConversationService(
         "A qualquer momento, envie ‘menu’ para recomeçar ou ‘sair’ para encerrar.";
 
     private static string DescriptionPrompt() =>
-        "Descreva o que aconteceu com o máximo de detalhes que puder.\n\n" +
-        "Quando terminar, envie a descrição em uma única mensagem.";
+        "Descreva o que aconteceu em uma só mensagem, com o máximo de detalhes que puder.\n\n" +
+        "Pode escrever o quanto precisar. Usaremos essas informações para abrir sua solicitação.\n\n" +
+        "Depois da descrição, você poderá adicionar fotos e vídeos.";
 
     private static string ReviewPrompt(string description) =>
         $"Entendi esta descrição:\n\n{description}\n\n" +
         "1 - Confirmar e criar solicitação\n" +
         "2 - Corrigir descrição\n" +
-        "3 - Cancelar";
+        "3 - Cancelar e voltar ao início";
 
     private static string CategoryMenu(CategoryChoice[] categories) =>
         "Escolha a categoria da solicitação:\n\n" +

@@ -113,13 +113,7 @@ public sealed class WhatsAppSession
 
     public void CompleteRequest(Guid requestId, DateTime now, DateTime expiresAt)
     {
-        PreviousState = State;
-        State = WhatsAppConversationState.MainMenu;
-        RequestId = null;
-        CategoryId = null;
-        DraftDescription = null;
-        Page = 0;
-        Touch(now, expiresAt);
+        End(now);
     }
 
     public void MoveTo(

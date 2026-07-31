@@ -522,7 +522,11 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.edit-3", "Descrição antiga"));
         await PostAsync(TextPayload("wamid.edit-4", "2"));
         await PostAsync(TextPayload("wamid.edit-5", "Descrição corrigida"));
+        Assert.Contains("3 - Cancelar e voltar ao início", _fake.Messages.Last().Text);
         await PostAsync(TextPayload("wamid.edit-6", "3"));
+
+        Assert.StartsWith("A abertura foi cancelada.", _fake.Messages.Last().Text);
+        Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
 
         await _host.WithDbAsync(async db =>
         {
@@ -530,6 +534,28 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             Assert.Equal(WhatsAppConversationState.MainMenu, session.State);
             Assert.Null(session.DraftDescription);
             Assert.Empty(await db.Requests.ToArrayAsync());
+        });
+
+        await PostAsync(TextPayload("wamid.edit-7", "1"));
+        Assert.Contains("Descreva o que aconteceu em uma só mensagem", _fake.Messages.Last().Text);
+        Assert.Equal(WhatsAppConversationState.CollectingDescription,
+            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Global_cancel_abandons_draft_and_keeps_session_at_menu()
+    {
+        await PostAsync(TextPayload("wamid.global-cancel-1", "Oi"));
+        await PostAsync(TextPayload("wamid.global-cancel-2", "1"));
+        await PostAsync(TextPayload("wamid.global-cancel-3", "Descrição temporária"));
+        await PostAsync(TextPayload("wamid.global-cancel-4", "cancelar"));
+
+        Assert.StartsWith("A abertura foi cancelada.", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(WhatsAppConversationState.MainMenu, session.State);
+            Assert.Null(session.DraftDescription);
         });
     }
 
@@ -601,11 +627,27 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 && item.NewStatus == RequestStatus.Open));
             var session = await db.WhatsAppSessions.SingleAsync();
             Assert.Null(session.DraftDescription);
-            Assert.Equal(WhatsAppConversationState.MainMenu, session.State);
+            Assert.Null(session.CategoryId);
+            Assert.Null(session.RequestId);
+            Assert.Equal(WhatsAppConversationState.Ended, session.State);
             return request.Id;
         });
 
         Assert.Contains(requestId.ToString("N")[..8].ToUpperInvariant(), _fake.Messages.Last().Text);
+        Assert.Contains("basta chamar novamente", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("Digite ‘menu’", _fake.Messages.Last().Text);
+
+        await PostAsync(TextPayload("wamid.flow-new-attendance", "Bom dia"));
+
+        Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("Para abrir uma solicitação, digite 1", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(1, await db.Requests.CountAsync());
+            Assert.Equal(1, await db.WhatsAppSessions.CountAsync());
+            Assert.Equal(WhatsAppConversationState.MainMenu,
+                await db.WhatsAppSessions.Select(x => x.State).SingleAsync());
+        });
     }
 
     [Fact]
