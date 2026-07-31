@@ -177,6 +177,96 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Legacy_meta_number_matches_registered_brazilian_mobile_with_ninth_digit()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var user = await db.Users.SingleAsync(x => x.Id == _userId);
+            user.Update("Maria Silva", "(44) 99756-2161");
+            await db.SaveChangesAsync();
+        });
+
+        await PostAsync(TextPayload("wamid.legacy-mobile", "Oi", "554497562161"));
+
+        var sent = Assert.Single(_fake.Messages);
+        Assert.Equal("+554497562161", sent.Phone);
+        Assert.Contains("Como posso ajudar", sent.Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var user = await db.Users.SingleAsync(x => x.Id == _userId);
+            Assert.Equal("+5544997562161", user.NormalizedPhoneNumber);
+            Assert.Equal("(44) 99756-2161", user.PhoneNumber);
+            Assert.Equal("+554497562161", (await db.WhatsAppSessions.SingleAsync()).PhoneNumber);
+            Assert.Equal("+554497562161", (await db.WhatsAppInboundMessages.SingleAsync()).PhoneNumber);
+        });
+    }
+
+    [Fact]
+    public async Task Brazilian_phone_variants_pointing_to_different_users_are_ambiguous()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var canonical = await db.Users.SingleAsync(x => x.Id == _userId);
+            canonical.Update("Maria Silva", "(44) 99756-2161");
+            var legacy = CoreTestSeed.User("Outra Pessoa", "legacy@example.com");
+            legacy.Update("Outra Pessoa", "(45) 99999-0002");
+            db.Users.Add(legacy);
+            await db.SaveChangesAsync();
+            await db.Users.Where(x => x.Id == legacy.Id).ExecuteUpdateAsync(
+                setters => setters.SetProperty(
+                    x => x.NormalizedPhoneNumber, "+554497562161"));
+        });
+
+        await PostAsync(TextPayload("wamid.ambiguous-variant", "Oi", "554497562161"));
+
+        Assert.Contains("Não consegui identificar", Assert.Single(_fake.Messages).Text);
+        Assert.Equal(WhatsAppConversationState.UnknownPhone,
+            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Inactive_user_is_not_resolved_through_brazilian_variant()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var user = await db.Users.SingleAsync(x => x.Id == _userId);
+            user.Update("Maria Silva", "(44) 99756-2161");
+            user.SetActiveStatus(false);
+            await db.SaveChangesAsync();
+        });
+
+        await PostAsync(TextPayload("wamid.inactive-variant", "Oi", "554497562161"));
+
+        Assert.Contains("Não consegui identificar", Assert.Single(_fake.Messages).Text);
+    }
+
+    [Fact]
+    public async Task Old_unknown_phone_session_recovers_when_brazilian_variant_becomes_available()
+    {
+        await PostAsync(TextPayload("wamid.variant-unknown", "Oi", "554497562161"));
+        var sessionId = await _host.WithDbAsync(db => db.WhatsAppSessions
+            .Where(x => x.State == WhatsAppConversationState.UnknownPhone)
+            .Select(x => x.Id).SingleAsync());
+        await _host.WithDbAsync(async db =>
+        {
+            var user = await db.Users.SingleAsync(x => x.Id == _userId);
+            user.Update("Maria Silva", "(44) 99756-2161");
+            await db.SaveChangesAsync();
+        });
+
+        await PostAsync(TextPayload("wamid.variant-recovered", "Oi novamente", "554497562161"));
+
+        Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(sessionId, session.Id);
+            Assert.Equal(WhatsAppConversationState.MainMenu, session.State);
+            Assert.Equal(_userId, session.UserId);
+        });
+    }
+
+    [Fact]
     public async Task New_session_with_oi_sends_main_menu_in_the_same_interaction()
     {
         var response = await PostAsync(TextPayload("wamid.first-oi", "Oi"));
@@ -344,6 +434,67 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Old_unknown_phone_session_recovers_after_context_is_fixed()
+    {
+        await SetCondominiumMembershipActive(false);
+        await PostAsync(TextPayload("wamid.unknown-old", "Oi"));
+        var sessionId = await _host.WithDbAsync(db => db.WhatsAppSessions
+            .Where(x => x.State == WhatsAppConversationState.UnknownPhone)
+            .Select(x => x.Id).SingleAsync());
+
+        await SetCondominiumMembershipActive(true);
+        await PostAsync(TextPayload("wamid.unknown-recovered", "Oi novamente"));
+
+        Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(sessionId, session.Id);
+            Assert.Equal(WhatsAppConversationState.MainMenu, session.State);
+            Assert.Equal(_userId, session.UserId);
+            Assert.Equal(_condominiumId, session.CondominiumId);
+            Assert.Equal(_unitId, session.UnitId);
+            Assert.Equal(1, await db.WhatsAppSessions.CountAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Unknown_phone_session_stays_unknown_while_context_is_invalid()
+    {
+        await SetCondominiumMembershipActive(false);
+        await PostAsync(TextPayload("wamid.unknown-still-1", "Oi"));
+        var previousExpiry = await _host.WithDbAsync(db => db.WhatsAppSessions
+            .Select(x => x.ExpiresAt).SingleAsync());
+
+        await PostAsync(TextPayload("wamid.unknown-still-2", "reiniciar"));
+
+        Assert.Contains("Não consegui identificar", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(WhatsAppConversationState.UnknownPhone, session.State);
+            Assert.Null(session.UserId);
+            Assert.True(session.ExpiresAt >= previousExpiry);
+            Assert.Equal(1, await db.WhatsAppSessions.CountAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Restart_command_recovers_old_unknown_phone_session()
+    {
+        await SetCondominiumMembershipActive(false);
+        await PostAsync(TextPayload("wamid.restart-old", "Oi"));
+        await SetCondominiumMembershipActive(true);
+
+        await PostAsync(TextPayload("wamid.restart-recovered", "  REINICIAR  "));
+
+        Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
+        Assert.Equal(WhatsAppConversationState.MainMenu,
+            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
+        Assert.Equal(1, await _host.WithDbAsync(db => db.WhatsAppSessions.CountAsync()));
+    }
+
+    [Fact]
     public async Task Inactive_unit_or_condominium_is_not_identified()
     {
         await _host.WithDbAsync(db => db.Units.Where(x => x.Id == _unitId)
@@ -488,6 +639,16 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         request.Headers.Add("X-Hub-Signature-256", Signature(signatureBody ?? body));
         return await _host.AnonymousClient().SendAsync(request);
     }
+
+    private Task SetCondominiumMembershipActive(bool active) =>
+        _host.WithDbAsync(async db =>
+        {
+            var membership = await db.CondominiumMemberships.SingleAsync(x =>
+                x.UserId == _userId && x.CondominiumId == _condominiumId);
+            if (active) membership.Activate();
+            else membership.Deactivate(DateTime.UtcNow);
+            await db.SaveChangesAsync();
+        });
 
     private static string Signature(string body) =>
         "sha256=" + Convert.ToHexString(

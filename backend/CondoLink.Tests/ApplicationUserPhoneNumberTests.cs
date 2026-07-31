@@ -16,6 +16,16 @@ public sealed class ApplicationUserPhoneNumberTests
     }
 
     [Fact]
+    public void Legacy_mobile_input_is_stored_in_official_ninth_digit_format()
+    {
+        var user = new ApplicationUser(
+            "Maria", "legacy.mobile@example.com", "(44) 9756-2161");
+
+        Assert.Equal("(44) 9756-2161", user.PhoneNumber);
+        Assert.Equal("+5544997562161", user.NormalizedPhoneNumber);
+    }
+
+    [Fact]
     public void Invalid_phone_is_rejected()
     {
         Assert.Throws<ArgumentException>(() => new ApplicationUser(

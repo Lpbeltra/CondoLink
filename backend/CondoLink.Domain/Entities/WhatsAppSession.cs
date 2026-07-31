@@ -42,6 +42,23 @@ public sealed class WhatsAppSession
         UnitId = unitId;
     }
 
+    public void RecoverContext(
+        Guid userId,
+        Guid condominiumId,
+        Guid unitId,
+        DateTime now,
+        DateTime expiresAt)
+    {
+        UserId = userId;
+        CondominiumId = condominiumId;
+        UnitId = unitId;
+        RequestId = null;
+        CategoryId = null;
+        DraftDescription = null;
+        Page = 0;
+        MoveTo(WhatsAppConversationState.MainMenu, now, expiresAt, condominiumId);
+    }
+
     public void InvalidateIdentity(DateTime now, DateTime expiresAt)
     {
         UserId = null;

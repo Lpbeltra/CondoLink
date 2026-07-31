@@ -23,7 +23,7 @@ public sealed class WhatsAppConversationService(
 
     public async Task ProcessAsync(NormalizedWhatsAppMessage message, CancellationToken ct)
     {
-        var phone = PhoneNumberNormalizer.NormalizeBrazilian(message.PhoneNumber);
+        var phone = PhoneNumberNormalizer.NormalizeWhatsAppIdentifier(message.PhoneNumber);
         if (phone is null || string.IsNullOrWhiteSpace(message.ExternalMessageId)) return;
 
         var inbound = await db.WhatsAppInboundMessages
@@ -75,9 +75,22 @@ public sealed class WhatsAppConversationService(
         }
         else
         {
-            session.ResolveContext(identity.UserId, identity.CondominiumId, identity.UnitId);
-            (response, result) = await Respond(
-                session, identity, message, now, expires, isNewSession, ct);
+            if (!isNewSession && session.State == WhatsAppConversationState.UnknownPhone)
+            {
+                session.RecoverContext(
+                    identity.UserId, identity.CondominiumId, identity.UnitId,
+                    now, expires);
+                logger.LogInformation(
+                    "WhatsApp session residential context recovered from UnknownPhone.");
+                response = MainMenu(identity.FullName);
+                result = "main_menu";
+            }
+            else
+            {
+                session.ResolveContext(identity.UserId, identity.CondominiumId, identity.UnitId);
+                (response, result) = await Respond(
+                    session, identity, message, now, expires, isNewSession, ct);
+            }
         }
 
         inbound.Complete(identity?.UserId, result, now);
@@ -100,20 +113,34 @@ public sealed class WhatsAppConversationService(
 
     private async Task<ResolvedIdentity?> ResolveIdentity(string phone, CancellationToken ct)
     {
+        var candidates = PhoneNumberNormalizer.IdentificationCandidates(phone);
         var users = await db.Set<ApplicationUser>().AsNoTracking()
-            .Where(x => x.NormalizedPhoneNumber == phone)
-            .Select(x => new { x.Id, x.FullName, x.IsActive })
-            .Take(2).ToArrayAsync(ct);
-        if (users.Length != 1) return null;
-        logger.LogInformation("Unique WhatsApp user found by canonical phone.");
-        if (!users[0].IsActive)
+            .Where(x => x.NormalizedPhoneNumber != null
+                && candidates.Contains(x.NormalizedPhoneNumber))
+            .Select(x => new { x.Id, x.FullName, x.IsActive, x.NormalizedPhoneNumber })
+            .Take(3).ToArrayAsync(ct);
+        var activeUsers = users.Where(x => x.IsActive).DistinctBy(x => x.Id).Take(2).ToArray();
+        if (activeUsers.Length == 0)
         {
-            logger.LogWarning("WhatsApp user is inactive.");
+            if (users.Length == 1)
+                logger.LogWarning("WhatsApp user is inactive.");
+            else
+                logger.LogInformation("No WhatsApp phone match found.");
             return null;
         }
+        if (activeUsers.Length != 1)
+        {
+            logger.LogWarning("Ambiguous WhatsApp phone match found.");
+            return null;
+        }
+        var user = activeUsers[0];
+        logger.LogInformation(user.NormalizedPhoneNumber == phone
+            ? "Exact WhatsApp phone match found."
+            : "Brazilian WhatsApp phone variant match found.");
+        logger.LogInformation("Unique WhatsApp user found by canonical phone.");
 
         var unitLinks = await db.UnitMemberships.AsNoTracking()
-            .Where(x => x.UserId == users[0].Id && x.IsActive && x.EndedAt == null)
+            .Where(x => x.UserId == user.Id && x.IsActive && x.EndedAt == null)
             .Select(x => new { x.UnitId, x.IsResident, x.IsPrimaryResidence })
             .ToArrayAsync(ct);
         if (unitLinks.Length == 0)
@@ -146,7 +173,7 @@ public sealed class WhatsAppConversationService(
             logger.LogWarning("Residential context points to an inactive condominium.");
 
         var activeCondominiumMemberships = await db.CondominiumMemberships.AsNoTracking()
-            .Where(x => x.UserId == users[0].Id && x.IsActive && x.EndedAt == null
+            .Where(x => x.UserId == user.Id && x.IsActive && x.EndedAt == null
                 && condominiumIds.Contains(x.CondominiumId))
             .Select(x => x.CondominiumId).Distinct().ToArrayAsync(ct);
 
@@ -179,7 +206,7 @@ public sealed class WhatsAppConversationService(
         }
 
         logger.LogInformation("WhatsApp residential context resolved successfully.");
-        return new ResolvedIdentity(users[0].Id, users[0].FullName,
+        return new ResolvedIdentity(user.Id, user.FullName,
             resolved.CondominiumId, resolved.UnitId);
     }
 

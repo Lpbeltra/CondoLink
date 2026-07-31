@@ -20,6 +20,11 @@ public static class BrazilianPhoneNumber
             || digits.Length is not (12 or 13))
             return null;
 
+        // Legacy Brazilian mobiles have DDD + 8 digits and start in 6-9.
+        // Their canonical cadastral representation includes the ninth digit.
+        if (digits.Length == 12 && digits[4] is >= '6' and <= '9')
+            digits = digits.Insert(4, "9");
+
         return $"+{digits}";
     }
 
