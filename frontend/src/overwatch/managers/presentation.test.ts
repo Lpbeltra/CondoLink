@@ -16,7 +16,8 @@ describe('manager presentation', () => {
       phoneNumber: null, cpf: null, cnpj: null, address: null, city: null, state: null,
     })
     expect(text).toContain('manager@example.com')
-    expect(text).toContain('Temporary1!')
+    expect(text).toContain('\nSenha temporária:\n`Temporary1!`\n')
+    expect(text).toContain('/login')
   })
 
   it('upserts and sorts managers', () => {

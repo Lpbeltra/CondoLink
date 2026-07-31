@@ -365,10 +365,10 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
               startIcon={<ContentCopyRoundedIcon />}
               onClick={() => void copy(
                 employeeCredentialsText(credentials),
-                'Credenciais copiadas.',
+                'Mensagem copiada.',
               )}
             >
-              Copiar credenciais completas
+              Copiar mensagem para WhatsApp
             </Button>
           )}
           <Button variant="contained" onClick={closeCredentials}>Concluir</Button>

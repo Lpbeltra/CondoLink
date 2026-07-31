@@ -23,17 +23,45 @@ public sealed class WhatsAppPhoneVerificationService(
     public async Task<StartResult> StartAsync(
         Guid userId, CancellationToken cancellationToken)
     {
+        logger.LogInformation(
+            "Authenticated WhatsApp phone verification request received for user {UserId}.",
+            userId);
         var user = await db.Users.SingleOrDefaultAsync(
             x => x.Id == userId, cancellationToken);
-        if (user is null) return new(StartStatus.NotFound);
-        if (!user.IsActive) return new(StartStatus.Inactive);
-        if (user.NormalizedPhoneNumber is null) return new(StartStatus.NoPhone);
+        if (user is null)
+        {
+            logger.LogWarning(
+                "WhatsApp phone verification user was not found.");
+            return new(StartStatus.NotFound);
+        }
+        if (!user.IsActive)
+        {
+            logger.LogWarning(
+                "WhatsApp phone verification rejected because the user is inactive.");
+            return new(StartStatus.Inactive);
+        }
+        if (user.NormalizedPhoneNumber is null)
+        {
+            logger.LogWarning(
+                "WhatsApp phone verification rejected because the phone is missing or invalid.");
+            return new(StartStatus.NoPhone);
+        }
         if (user.PhoneNumberConfirmed)
+        {
+            logger.LogInformation(
+                "WhatsApp phone verification skipped because the phone is already confirmed.");
             return new(StartStatus.AlreadyConfirmed);
+        }
 
         var settings = options.Value;
         if (!settings.Enabled || !settings.OutboundWorkerEnabled)
+        {
+            logger.LogWarning(
+                "WhatsApp phone verification integration is unavailable. Enabled: {Enabled}; OutboundWorkerEnabled: {OutboundWorkerEnabled}.",
+                settings.Enabled,
+                settings.OutboundWorkerEnabled);
             return new(StartStatus.Unavailable);
+        }
 
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var latestCreatedAt = await db.WhatsAppPhoneVerifications.AsNoTracking()
@@ -41,17 +69,25 @@ public sealed class WhatsAppPhoneVerificationService(
                 && x.Purpose == WhatsAppChallengePurpose.PhoneVerification)
             .MaxAsync(x => (DateTime?)x.CreatedAt, cancellationToken);
         if (latestCreatedAt > now.AddSeconds(-ResendIntervalSeconds))
+        {
+            logger.LogInformation(
+                "WhatsApp phone verification request is within the resend cooldown.");
             return new(
                 StartStatus.TooSoon,
                 RetryAfter: latestCreatedAt.Value
                     .AddSeconds(ResendIntervalSeconds));
+        }
 
         var recentCount = await db.WhatsAppPhoneVerifications.AsNoTracking()
             .CountAsync(x => x.UserId == userId
                 && x.Purpose == WhatsAppChallengePurpose.PhoneVerification
                 && x.CreatedAt >= now.AddHours(-1), cancellationToken);
         if (recentCount >= MaximumChallengesPerHour)
+        {
+            logger.LogWarning(
+                "WhatsApp phone verification hourly request limit was reached.");
             return new(StartStatus.RateLimited);
+        }
 
         var previous = await db.WhatsAppPhoneVerifications
             .Where(x => x.UserId == userId
@@ -61,21 +97,43 @@ public sealed class WhatsAppPhoneVerificationService(
             .ToArrayAsync(cancellationToken);
         foreach (var verification in previous) verification.Invalidate(now);
 
-        var code = codeGenerator.Generate();
-        var (hash, salt) = PhoneVerificationCodeHasher.Hash(code);
+        WhatsAppPhoneVerification challenge;
+        WhatsAppOutboundMessage outbound;
         var expiresAt = now.AddMinutes(ValidityMinutes);
-        var challenge = new WhatsAppPhoneVerification(
-            user.Id, user.NormalizedPhoneNumber, hash, salt,
-            now, expiresAt, MaximumAttempts);
-        db.WhatsAppPhoneVerifications.Add(challenge);
-        var outbound = WhatsAppOutboundMessage.CreatePhoneVerification(
-            user.Id,
-            user.NormalizedPhoneNumber,
-            $"phone-verification:{challenge.Id:N}",
-            messageProtector.Protect(Message(code)),
-            now);
-        db.WhatsAppOutboundMessages.Add(outbound);
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            var code = codeGenerator.Generate();
+            var (hash, salt) = PhoneVerificationCodeHasher.Hash(code);
+            challenge = new WhatsAppPhoneVerification(
+                user.Id, user.NormalizedPhoneNumber, hash, salt,
+                now, expiresAt, MaximumAttempts,
+                WhatsAppChallengePurpose.PhoneVerification);
+            db.WhatsAppPhoneVerifications.Add(challenge);
+            outbound = WhatsAppOutboundMessage.CreatePhoneVerification(
+                user.Id,
+                user.NormalizedPhoneNumber,
+                $"phone-verification:{challenge.Id:N}",
+                messageProtector.Protect(Message(code)),
+                now);
+            db.WhatsAppOutboundMessages.Add(outbound);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception exception) when (
+            exception is not OperationCanceledException)
+        {
+            logger.LogError(
+                exception,
+                "WhatsApp phone verification failed before the challenge and outbound message could be persisted.");
+            return new(StartStatus.Unavailable);
+        }
+        logger.LogInformation(
+            "WhatsApp phone verification challenge {VerificationId} created with purpose {Purpose}.",
+            challenge.Id,
+            challenge.Purpose);
+        logger.LogInformation(
+            "WhatsApp phone verification outbound message {OutboundId} queued with notification type {NotificationType}.",
+            outbound.Id,
+            outbound.NotificationType);
         logger.LogInformation(
             "WhatsApp phone verification {VerificationId} created and outbound {OutboundId} queued for user {UserId} phone {Phone}.",
             challenge.Id,

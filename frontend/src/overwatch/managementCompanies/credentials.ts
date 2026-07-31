@@ -1,11 +1,6 @@
 import type { CreatedManagementCompanyEmployee } from './types'
+import { temporaryCredentialsWhatsAppText } from '../../auth/temporaryCredentials'
 
 export function employeeCredentialsText(employee: CreatedManagementCompanyEmployee) {
-  return [
-    'Comvy',
-    '',
-    `Nome: ${employee.fullName}`,
-    `E-mail: ${employee.email}`,
-    `Senha temporária: ${employee.temporaryPassword}`,
-  ].join('\n')
+  return temporaryCredentialsWhatsAppText(employee)
 }

@@ -10,6 +10,7 @@ import { useCondominium } from '../condominiums/CondominiumContext'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { shouldShowGeneralCondominiumSwitcher } from './navigation'
 import { useOptionalManagementContext } from '../management/ManagementContext'
+import { PhoneVerificationMenuItem } from '../phoneVerification/PhoneVerificationMenuItem'
 
 export function AppHeader() {
   const { user, logout } = useAuth()
@@ -63,6 +64,7 @@ export function AppHeader() {
           <Typography fontWeight={750} noWrap>{user?.fullName}</Typography>
           <Typography color="text.secondary" fontSize=".8rem" noWrap>{user?.email}</Typography>
         </Box>
+        <PhoneVerificationMenuItem closeMenu={() => setAnchor(null)} />
         <MenuItem
           onClick={() => {
             setAnchor(null)

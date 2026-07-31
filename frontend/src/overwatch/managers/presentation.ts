@@ -1,4 +1,5 @@
 import type { CreatedManager, OverwatchManager } from './types'
+import { temporaryCredentialsWhatsAppText } from '../../auth/temporaryCredentials'
 
 export const managerDetailTabs = [
   { value: 'overview', label: 'Visão geral' },
@@ -11,7 +12,7 @@ export function managerDetailsPath(id: string) {
 }
 
 export function managerCredentialsText(manager: CreatedManager) {
-  return `Comvy\nNome: ${manager.fullName}\nE-mail: ${manager.email}\nSenha temporária: ${manager.temporaryPassword}`
+  return temporaryCredentialsWhatsAppText(manager)
 }
 
 export function upsertManager(

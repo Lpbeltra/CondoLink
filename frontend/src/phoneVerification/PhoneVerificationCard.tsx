@@ -31,8 +31,10 @@ export function PhoneVerificationCard() {
 
   const load = async () => {
     try {
-      setStatus(await getPhoneVerificationStatus())
+      const nextStatus = await getPhoneVerificationStatus()
+      setStatus(nextStatus)
       setError('')
+      return nextStatus
     } catch (requestError) {
       setError(messageFor(requestError))
     } finally {
@@ -51,7 +53,11 @@ export function PhoneVerificationCard() {
       setSuccess(result.status === 'already_confirmed'
         ? 'Este telefone já está confirmado.'
         : 'Código enviado. Digite abaixo o código recebido pelo WhatsApp.')
-      await load()
+      const nextStatus = await load()
+      if (nextStatus) window.dispatchEvent(new CustomEvent(
+        'condolink:phone-verification-updated',
+        { detail: nextStatus },
+      ))
     } catch (requestError) {
       setError(messageFor(requestError))
     } finally {
@@ -67,7 +73,11 @@ export function PhoneVerificationCard() {
       await confirmPhoneVerification(code)
       setCode('')
       setSuccess('Telefone confirmado com sucesso.')
-      await load()
+      const nextStatus = await load()
+      if (nextStatus) window.dispatchEvent(new CustomEvent(
+        'condolink:phone-verification-updated',
+        { detail: nextStatus },
+      ))
     } catch (requestError) {
       setError(messageFor(requestError))
     } finally {

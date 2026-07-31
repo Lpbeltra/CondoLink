@@ -17,6 +17,7 @@ describe('employee temporary credentials', () => {
 
     expect(text).toContain('Maria da Silva')
     expect(text).toContain('maria@example.com')
-    expect(text).toContain('Temporary1!')
+    expect(text).toContain('\nSenha temporária:\n`Temporary1!`\n')
+    expect(text).toContain('/login')
   })
 })

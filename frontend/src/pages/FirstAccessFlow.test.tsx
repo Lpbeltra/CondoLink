@@ -115,4 +115,35 @@ describe('first access frontend flow', () => {
       name: 'Portal',
     })).toBeInTheDocument()
   })
+
+  it('toggles each password independently without submitting the form', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/change-password']}>
+        <Routes>
+          <Route path="/change-password" element={<ChangePasswordPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    const temporary = screen.getByLabelText(/Senha temporária/)
+    const newPassword = screen.getByLabelText(/^Nova senha/)
+    const confirmation = screen.getByLabelText(/Confirmar nova senha/)
+    expect(temporary).toHaveAttribute('type', 'password')
+    expect(newPassword).toHaveAttribute('type', 'password')
+    expect(confirmation).toHaveAttribute('type', 'password')
+
+    const toggles = screen.getAllByRole('button', { name: 'Exibir senha' })
+    await user.click(toggles[0])
+    expect(temporary).toHaveAttribute('type', 'text')
+    expect(newPassword).toHaveAttribute('type', 'password')
+    expect(http.post).not.toHaveBeenCalled()
+
+    await user.click(toggles[1])
+    await user.click(toggles[2])
+    expect(newPassword).toHaveAttribute('type', 'text')
+    expect(confirmation).toHaveAttribute('type', 'text')
+    expect(screen.getAllByRole('button', { name: 'Ocultar senha' })).toHaveLength(3)
+    expect(http.post).not.toHaveBeenCalled()
+  })
 })

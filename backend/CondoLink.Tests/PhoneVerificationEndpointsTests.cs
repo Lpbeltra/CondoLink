@@ -86,6 +86,9 @@ public sealed class PhoneVerificationEndpointsTests : IAsyncLifetime
             Assert.NotEmpty(challenge.CodeSalt);
             Assert.Equal(5, challenge.MaximumAttempts);
             Assert.Equal(
+                WhatsAppChallengePurpose.PhoneVerification,
+                challenge.Purpose);
+            Assert.Equal(
                 TimeSpan.FromMinutes(10),
                 challenge.ExpiresAt - challenge.CreatedAt);
             var outbound = await db.WhatsAppOutboundMessages.SingleAsync();
@@ -105,6 +108,45 @@ public sealed class PhoneVerificationEndpointsTests : IAsyncLifetime
         Assert.DoesNotContain(Code, statusBody);
         Assert.DoesNotContain("codeHash", statusBody,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Login_challenge_does_not_block_phone_verification_challenge()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var user = await db.Users.SingleAsync(x => x.Id == _userId);
+            var (hash, salt) = PhoneVerificationCodeHasher.Hash("654321");
+            var now = _time.GetUtcNow().UtcDateTime;
+            db.WhatsAppPhoneVerifications.Add(
+                new WhatsAppPhoneVerification(
+                    user.Id,
+                    user.NormalizedPhoneNumber!,
+                    hash,
+                    salt,
+                    now,
+                    now.AddMinutes(10),
+                    5,
+                    WhatsAppChallengePurpose.Login));
+            await db.SaveChangesAsync();
+        });
+
+        Assert.Equal(HttpStatusCode.Accepted,
+            (await StartAsync()).StatusCode);
+
+        await _host.WithDbAsync(async db =>
+        {
+            var purposes = await db.WhatsAppPhoneVerifications
+                .OrderBy(x => x.Purpose)
+                .Select(x => x.Purpose)
+                .ToArrayAsync();
+            Assert.Equal(
+                [
+                    WhatsAppChallengePurpose.PhoneVerification,
+                    WhatsAppChallengePurpose.Login
+                ],
+                purposes);
+        });
     }
 
     [Fact]

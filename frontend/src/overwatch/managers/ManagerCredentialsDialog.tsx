@@ -59,8 +59,8 @@ export function ManagerCredentialsDialog({ manager, onClose, onCopied }: Props) 
       <DialogActions>
         {manager && (
           <Button startIcon={<ContentCopyRoundedIcon />}
-            onClick={() => void copy(managerCredentialsText(manager), 'Credenciais copiadas.')}>
-            Copiar credenciais completas
+            onClick={() => void copy(managerCredentialsText(manager), 'Mensagem copiada.')}>
+            Copiar mensagem para WhatsApp
           </Button>
         )}
         <Button variant="contained" onClick={onClose}>Concluir</Button>

@@ -19,6 +19,7 @@ import { authError } from '../auth/errors'
 import { useAuth } from '../auth/AuthContext'
 import { authenticatedEntryPath } from '../auth/routeAccess'
 import { ThemeModeToggle } from '../theme/ThemeModeToggle'
+import { PasswordVisibilityAdornment } from '../components/PasswordVisibilityAdornment'
 
 interface ChangePasswordLocationState {
   email?: string
@@ -38,6 +39,9 @@ export function ChangePasswordPage() {
   const [confirmation, setConfirmation] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [showTemporaryPassword, setShowTemporaryPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmation, setShowConfirmation] = useState(false)
 
   const validationError = newPassword.length > 0 && newPassword.length < 8
     ? 'A nova senha deve possuir ao menos 8 caracteres.'
@@ -96,26 +100,36 @@ export function ChangePasswordPage() {
                   />
                   <TextField
                     required
-                    type="password"
+                    type={showTemporaryPassword ? 'text' : 'password'}
                     label="Senha temporária"
                     autoComplete="current-password"
                     value={temporaryPassword}
                     onChange={event => setTemporaryPassword(event.target.value)}
                     disabled={saving}
+                    slotProps={{ input: { endAdornment:
+                      <PasswordVisibilityAdornment
+                        visible={showTemporaryPassword}
+                        onToggle={() => setShowTemporaryPassword(value => !value)}
+                      /> } }}
                   />
                   <TextField
                     required
-                    type="password"
+                    type={showNewPassword ? 'text' : 'password'}
                     label="Nova senha"
                     autoComplete="new-password"
                     value={newPassword}
                     onChange={event => setNewPassword(event.target.value)}
                     disabled={saving}
+                    slotProps={{ input: { endAdornment:
+                      <PasswordVisibilityAdornment
+                        visible={showNewPassword}
+                        onToggle={() => setShowNewPassword(value => !value)}
+                      /> } }}
                     helperText="Ao menos 8 caracteres, com maiúscula, minúscula e número."
                   />
                   <TextField
                     required
-                    type="password"
+                    type={showConfirmation ? 'text' : 'password'}
                     label="Confirmar nova senha"
                     autoComplete="new-password"
                     value={confirmation}
@@ -123,6 +137,11 @@ export function ChangePasswordPage() {
                     disabled={saving}
                     error={Boolean(validationError)}
                     helperText={validationError}
+                    slotProps={{ input: { endAdornment:
+                      <PasswordVisibilityAdornment
+                        visible={showConfirmation}
+                        onToggle={() => setShowConfirmation(value => !value)}
+                      /> } }}
                   />
                   <Button
                     type="submit"

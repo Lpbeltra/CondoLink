@@ -92,6 +92,11 @@ public sealed class WhatsAppOutboundWorker(
                 ? await client.SendTextAsync(item.DestinationPhone, content, ct)
                 : await client.SendTemplateAsync(
                     item.DestinationPhone, item.TemplateName!, item.TemplateLanguage!, ct);
+            logger.LogInformation(
+                "WhatsApp provider response received for outbound {OutboundId}. Succeeded: {Succeeded}; ErrorCode: {ErrorCode}.",
+                item.Id,
+                result.Succeeded,
+                result.ErrorCode);
             if (result.Succeeded && !string.IsNullOrWhiteSpace(result.ExternalMessageId))
             {
                 item.MarkSent(result.ExternalMessageId, DateTime.UtcNow);
@@ -119,6 +124,10 @@ public sealed class WhatsAppOutboundWorker(
                     item.Id, result.IsTransient, result.ErrorCode);
             }
             await db.SaveChangesAsync(ct);
+            logger.LogInformation(
+                "WhatsApp outbound {OutboundId} processed with status {Status}.",
+                item.Id,
+                item.Status);
         }
     }
 }

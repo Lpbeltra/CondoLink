@@ -38,6 +38,10 @@ const member: CondominiumMember = {
 
 describe('ManagementPeoplePage password reset', () => {
   beforeEach(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    })
     managementApi.listCondominiumMembers.mockResolvedValue([member])
     managementApi.listUnits.mockResolvedValue([])
     managementApi.resetMemberTemporaryPassword.mockResolvedValue({
@@ -115,5 +119,44 @@ describe('ManagementPeoplePage password reset', () => {
       'user-id',
       expect.objectContaining({ fullName: 'Maria Atualizada' }),
     )
+  })
+
+  it('copies the password and WhatsApp message and reports clipboard failure', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    render(<ManagementPeoplePage />)
+
+    await user.click(await screen.findByRole('button', {
+      name: 'Redefinir senha temporária',
+    }))
+    await user.click(screen.getByRole('button', {
+      name: 'Gerar nova senha',
+    }))
+
+    await user.click(await screen.findByRole('button', {
+      name: 'Copiar senha',
+    }))
+    expect(writeText).toHaveBeenCalledWith(
+      'NovaTemporaria1',
+    )
+    expect(screen.getByText('Senha copiada.')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', {
+      name: 'Copiar mensagem para WhatsApp',
+    }))
+    expect(writeText).toHaveBeenLastCalledWith(
+      expect.stringContaining('\nSenha temporária:\n`NovaTemporaria1`\n'),
+    )
+    expect(screen.getByText('Mensagem copiada.')).toBeInTheDocument()
+
+    writeText.mockRejectedValueOnce(new Error('clipboard denied'))
+    await user.click(screen.getByRole('button', { name: 'Copiar senha' }))
+    expect(screen.getByText(
+      'Não foi possível copiar. Selecione o conteúdo manualmente.',
+    )).toBeInTheDocument()
   })
 })
