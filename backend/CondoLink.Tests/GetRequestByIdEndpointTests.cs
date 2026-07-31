@@ -49,10 +49,17 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
             var request = new DomainRequest(
                 condominium.Id, author.Id, unit.Id, category.Id,
                 "Vazamento", "Água no corredor");
+            var analysis = new RequestAiAnalysis(
+                request.Id, "Vazamento", "Água no corredor", "Hidráulica", 0.82,
+                "[\"Informar o andar\"]", "gpt-test");
+            var originalReport = new RequestMessage(
+                request.Id, author.Id, "Tem água vazando no corredor desde ontem.",
+                MessageChannel.WhatsApp);
 
             db.AddRange(
                 condominium, otherCondominium, block, unit, author, manager,
-                otherManager, coResident, outsider, category, request);
+                otherManager, coResident, outsider, category, request,
+                analysis, originalReport);
             CoreTestSeed.AddMember(
                 db, author.Id, condominium.Id, CondominiumRole.Resident);
             CoreTestSeed.AddMember(
@@ -89,6 +96,8 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
         Assert.Equal("Autor", body.Author.FullName);
         Assert.Equal("Manutenção", body.Category.Name);
         Assert.Equal("Open", body.Status);
+        Assert.Null(body.AiAnalysis);
+        Assert.Null(body.OriginalReport);
     }
 
     [Fact]
@@ -111,6 +120,39 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
             .GetAsync($"/requests/{_requestId}");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Manager_details_include_ai_analysis_and_original_whatsapp_report()
+    {
+        var body = await _host.ClientFor(_managerId)
+            .GetFromJsonAsync<GetRequestById.Response>($"/requests/{_requestId}");
+
+        Assert.NotNull(body!.AiAnalysis);
+        Assert.Equal("Vazamento", body.AiAnalysis.Title);
+        Assert.Equal(0.82, body.AiAnalysis.Confidence);
+        Assert.Equal(["Informar o andar"], body.AiAnalysis.MissingInformation);
+        Assert.Equal("gpt-test", body.AiAnalysis.Model);
+        Assert.NotNull(body.OriginalReport);
+        Assert.Equal("Tem água vazando no corredor desde ontem.", body.OriginalReport.Text);
+        Assert.Equal("WhatsApp", body.OriginalReport.Channel);
+    }
+
+    [Fact]
+    public async Task Manager_details_remain_compatible_without_ai_analysis()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var analysis = await db.RequestAiAnalyses.SingleAsync(x => x.RequestId == _requestId);
+            db.RequestAiAnalyses.Remove(analysis);
+            await db.SaveChangesAsync();
+        });
+
+        var body = await _host.ClientFor(_managerId)
+            .GetFromJsonAsync<GetRequestById.Response>($"/requests/{_requestId}");
+
+        Assert.Null(body!.AiAnalysis);
+        Assert.NotNull(body.OriginalReport);
     }
 
     [Fact]

@@ -91,9 +91,7 @@ public static class GetRequestById
             return Results.NotFound(new { error = "Request not found." });
         }
 
-        if (request.AuthorUserId != authenticatedUserId)
-        {
-            var isCondominiumManager = await dbContext.CondominiumMemberships
+        var isCondominiumManager = await dbContext.CondominiumMemberships
                 .AsNoTracking()
                 .Where(membership =>
                     membership.UserId == authenticatedUserId
@@ -112,12 +110,11 @@ public static class GetRequestById
                     (_, _) => true)
                 .AnyAsync(cancellationToken);
 
-            if (!isCondominiumManager)
-            {
-                return Results.Json(
-                    new { error = "You do not have access to this request." },
-                    statusCode: StatusCodes.Status403Forbidden);
-            }
+        if (request.AuthorUserId != authenticatedUserId && !isCondominiumManager)
+        {
+            return Results.Json(
+                new { error = "You do not have access to this request." },
+                statusCode: StatusCodes.Status403Forbidden);
         }
 
         TargetUnitResponse? targetUnit = null;
@@ -166,6 +163,27 @@ public static class GetRequestById
                 history.CreatedAt))
             .ToArray();
 
+        RequestAiAnalysisResponse? aiAnalysis = null;
+        OriginalReportResponse? originalReport = null;
+        if (isCondominiumManager)
+        {
+            var analysis = await dbContext.RequestAiAnalyses.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.RequestId == id, cancellationToken);
+            aiAnalysis = analysis is null
+                ? null
+                : RequestAiAnalysisResponse.FromEntity(analysis);
+
+            originalReport = await dbContext.RequestMessages.AsNoTracking()
+                .Where(message => message.RequestId == id
+                    && message.AuthorUserId == request.AuthorUserId
+                    && message.Channel == MessageChannel.WhatsApp)
+                .OrderBy(message => message.CreatedAt)
+                .ThenBy(message => message.Id)
+                .Select(message => new OriginalReportResponse(
+                    message.Content, "WhatsApp", message.CreatedAt))
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
         var response = new Response(
             request.Id,
             request.CondominiumId,
@@ -179,7 +197,9 @@ public static class GetRequestById
             request.CreatedAt,
             request.UpdatedAt,
             request.ResolvedAt,
-            statusHistory);
+            statusHistory,
+            aiAnalysis,
+            originalReport);
 
         return Results.Ok(response);
     }
@@ -187,6 +207,8 @@ public static class GetRequestById
     public sealed record AuthorResponse(Guid Id, string FullName);
     public sealed record TargetUnitResponse(Guid Id, string Identifier, string? Block);
     public sealed record CategoryResponse(Guid Id, string Name);
+    public sealed record OriginalReportResponse(
+        string? Text, string Channel, DateTime CreatedAt);
 
     public sealed record StatusHistoryResponse(
         Guid Id,
@@ -210,5 +232,7 @@ public static class GetRequestById
         DateTime CreatedAt,
         DateTime UpdatedAt,
         DateTime? ResolvedAt,
-        IReadOnlyList<StatusHistoryResponse> StatusHistory);
+        IReadOnlyList<StatusHistoryResponse> StatusHistory,
+        RequestAiAnalysisResponse? AiAnalysis,
+        OriginalReportResponse? OriginalReport);
 }

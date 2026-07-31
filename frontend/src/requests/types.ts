@@ -34,6 +34,24 @@ export interface RequestDetails extends RequestListItem {
   author: Person
   description: string
   statusHistory: StatusHistoryItem[]
+  aiAnalysis: RequestAiAnalysis | null
+  originalReport: OriginalReport | null
+}
+
+export interface RequestAiAnalysis {
+  title: string
+  description: string
+  suggestedCategory: string | null
+  confidence: number | null
+  missingInformation: string[]
+  generatedAt: string
+  model: string | null
+}
+
+export interface OriginalReport {
+  text: string | null
+  channel: 'WhatsApp'
+  createdAt: string
 }
 
 export interface RequestMessage {
