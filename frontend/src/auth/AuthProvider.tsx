@@ -5,6 +5,7 @@ import type {
   LoginResponse,
   PasswordChangeRequiredResponse,
   User,
+  WhatsAppCodeRequestResult,
 } from './types'
 import { clearStoredToken, getStoredToken, storeToken } from './authStorage'
 import { hydrateSessionUser } from './session'
@@ -75,6 +76,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return () => window.clearTimeout(timer)
   }, [logout, user])
 
+  const completeLogin = useCallback(async (data: LoginResponse) => {
+      storeToken(data.accessToken)
+      setAuthorization(data.accessToken)
+      const currentUser = await api.get<User>('/users/me')
+      setUser(hydrateSessionUser(
+        currentUser.data,
+        data.accessToken,
+        data.user.roles,
+      ))
+  }, [])
+
   const login = useCallback(async (email: string, password: string) => {
     logout()
     try {
@@ -88,21 +100,51 @@ export function AuthProvider({ children }: PropsWithChildren) {
           temporaryPassword: password,
         }
       }
-      storeToken(data.accessToken)
-      setAuthorization(data.accessToken)
-      const currentUser = await api.get<User>('/users/me')
-      setUser(hydrateSessionUser(
-        currentUser.data,
-        data.accessToken,
-        data.user.roles,
-      ))
+      await completeLogin(data)
       return { requiresPasswordChange: false as const }
     } catch (error) {
       logout()
       throw error
     }
-  }, [logout])
+  }, [completeLogin, logout])
 
-  const value = useMemo(() => ({ user, isInitializing, login, logout }), [isInitializing, login, logout, user])
+  const requestWhatsAppCode = useCallback(async (phoneNumber: string) =>
+    (await api.post<WhatsAppCodeRequestResult>(
+      '/auth/whatsapp/request-code',
+      { phoneNumber },
+    )).data, [])
+
+  const loginWithWhatsApp = useCallback(async (
+    phoneNumber: string,
+    code: string,
+  ) => {
+    logout()
+    try {
+      const { data } = await api.post<LoginResponse>(
+        '/auth/whatsapp/confirm',
+        { phoneNumber, code },
+      )
+      await completeLogin(data)
+    } catch (error) {
+      logout()
+      throw error
+    }
+  }, [completeLogin, logout])
+
+  const value = useMemo(() => ({
+    user,
+    isInitializing,
+    login,
+    requestWhatsAppCode,
+    loginWithWhatsApp,
+    logout,
+  }), [
+    isInitializing,
+    login,
+    loginWithWhatsApp,
+    logout,
+    requestWhatsAppCode,
+    user,
+  ])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

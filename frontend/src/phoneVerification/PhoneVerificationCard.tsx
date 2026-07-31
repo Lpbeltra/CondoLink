@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, CardContent, Chip, CircularProgress, Stack, Typography } from '@mui/material'
+import { Alert, Button, Card, CardContent, Chip, CircularProgress, Stack, TextField, Typography } from '@mui/material'
 import axios from 'axios'
 import { getErrorMessage } from '../services/api'
-import { getPhoneVerificationStatus, startPhoneVerification, type PhoneVerificationStatus } from './api'
+import {
+  confirmPhoneVerification,
+  getPhoneVerificationStatus,
+  startPhoneVerification,
+  type PhoneVerificationStatus,
+} from './api'
 
 const formatExpiration = (value: string) =>
   new Intl.DateTimeFormat('pt-BR', {
@@ -19,6 +24,8 @@ export function PhoneVerificationCard() {
   const [status, setStatus] = useState<PhoneVerificationStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -43,12 +50,28 @@ export function PhoneVerificationCard() {
       const result = await startPhoneVerification()
       setSuccess(result.status === 'already_confirmed'
         ? 'Este telefone já está confirmado.'
-        : 'Código enviado. Responda pelo WhatsApp com o código recebido.')
+        : 'Código enviado. Digite abaixo o código recebido pelo WhatsApp.')
       await load()
     } catch (requestError) {
       setError(messageFor(requestError))
     } finally {
       setSending(false)
+    }
+  }
+
+  const confirm = async () => {
+    setConfirming(true)
+    setError('')
+    setSuccess('')
+    try {
+      await confirmPhoneVerification(code)
+      setCode('')
+      setSuccess('Telefone confirmado com sucesso.')
+      await load()
+    } catch (requestError) {
+      setError(messageFor(requestError))
+    } finally {
+      setConfirming(false)
     }
   }
 
@@ -70,6 +93,43 @@ export function PhoneVerificationCard() {
               {status?.activeChallenge && status.expiresAt && (
                 <Typography color="text.secondary">
                   Código válido até {formatExpiration(status.expiresAt)}.
+                </Typography>
+              )}
+              {status?.activeChallenge && !status.confirmed && (
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  gap={1}
+                  alignItems={{ sm: 'flex-start' }}
+                  width="100%"
+                >
+                  <TextField
+                    label="Código de confirmação"
+                    value={code}
+                    onChange={(event) => setCode(
+                      event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    disabled={confirming}
+                    autoComplete="one-time-code"
+                    slotProps={{
+                      htmlInput: {
+                        inputMode: 'numeric',
+                        pattern: '[0-9]*',
+                        maxLength: 6,
+                        'aria-label': 'Código de confirmação',
+                      },
+                    }}
+                  />
+                  <Button
+                    variant="contained"
+                    onClick={() => void confirm()}
+                    disabled={confirming || code.length !== 6}
+                  >
+                    {confirming ? 'Confirmando…' : 'Confirmar código'}
+                  </Button>
+                </Stack>
+              )}
+              {!status?.confirmed && status?.canResendAt && (
+                <Typography color="text.secondary">
+                  Aguarde até {formatExpiration(status.canResendAt)} para reenviar.
                 </Typography>
               )}
               {!status?.confirmed && (

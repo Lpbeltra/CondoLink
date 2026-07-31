@@ -36,6 +36,8 @@ builder.Services.Configure<WhatsAppOptions>(
     builder.Configuration.GetSection(WhatsAppOptions.SectionName));
 builder.Services.AddScoped<WhatsAppConversationService>();
 builder.Services.AddScoped<WhatsAppPhoneVerificationService>();
+builder.Services.AddScoped<WhatsAppLoginService>();
+builder.Services.AddScoped<AuthenticationSessionService>();
 builder.Services.AddSingleton<IPhoneVerificationCodeGenerator,
     PhoneVerificationCodeGenerator>();
 builder.Services.AddSingleton<IPhoneVerificationMessageProtector,
@@ -167,6 +169,7 @@ app.MapGet(
 
 // Authentication
 app.MapLogin();
+app.MapWhatsAppLogin();
 app.MapChangeTemporaryPassword();
 
 // Users

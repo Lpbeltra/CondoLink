@@ -1,10 +1,7 @@
 using System.ComponentModel.DataAnnotations;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
 using CondoLink.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.Mvc;
 
 namespace CondoLink.Api.Features.Auth;
 
@@ -23,7 +20,8 @@ public static class Login
     private static async Task<IResult> HandleAsync(
         Request request,
         UserManager<ApplicationUser> userManager,
-        IConfiguration configuration)
+        [FromServices] AuthenticationSessionService sessions,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Email))
         {
@@ -71,78 +69,11 @@ public static class Login
                 user.Email!));
         }
 
-        var issuer = configuration["Jwt:Issuer"]!;
-        var audience = configuration["Jwt:Audience"]!;
-        var key = configuration["Jwt:Key"]!;
-
-        var expirationMinutes =
-            configuration.GetValue<int>("Jwt:ExpirationMinutes");
-
-        var now = DateTime.UtcNow;
-        var expiresAt = now.AddMinutes(expirationMinutes);
-
-        user.MarkSuccessfulLogin(now);
-        var updateResult = await userManager.UpdateAsync(user);
-        if (!updateResult.Succeeded)
-        {
-            return Results.Problem(
-                statusCode: StatusCodes.Status500InternalServerError);
-        }
-
-        var roles = await userManager.GetRolesAsync(user);
-
-        var claims = new List<Claim>
-        {
-            new(
-                JwtRegisteredClaimNames.Sub,
-                user.Id.ToString()),
-
-            new(
-                JwtRegisteredClaimNames.Email,
-                user.Email!),
-
-            new(
-                ClaimTypes.Name,
-                user.FullName),
-
-            new(
-                JwtRegisteredClaimNames.Jti,
-                Guid.NewGuid().ToString()),
-
-            new(
-                JwtRegisteredClaimNames.Iat,
-                EpochTime.GetIntDate(now).ToString(),
-                ClaimValueTypes.Integer64)
-        };
-
-        claims.AddRange(
-            roles.Select(
-                role => new Claim(ClaimTypes.Role, role)));
-
-        var token = new JwtSecurityToken(
-            issuer: issuer,
-            audience: audience,
-            claims: claims,
-            notBefore: now,
-            expires: expiresAt,
-            signingCredentials: new SigningCredentials(
-                new SymmetricSecurityKey(
-                    Encoding.UTF8.GetBytes(key)),
-                SecurityAlgorithms.HmacSha256));
-
-        var response = new Response(
-            false,
-            new JwtSecurityTokenHandler().WriteToken(token),
-            "Bearer",
-            checked(expirationMinutes * 60),
-            new UserResponse(
-                user.Id,
-                user.FullName,
-                user.Email!,
-                user.IsActive,
-                roles.ToList()));
-
-        return Results.Ok(response);
+        var response = await sessions.IssueAsync(user, cancellationToken);
+        return response is null
+            ? Results.Problem(
+                statusCode: StatusCodes.Status500InternalServerError)
+            : Results.Ok(response);
     }
 
     public sealed record Request(

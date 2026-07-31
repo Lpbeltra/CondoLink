@@ -14,8 +14,18 @@ export interface PhoneVerificationStart {
   expiresAt?: string
 }
 
+export interface PhoneVerificationConfirmation {
+  status: 'confirmed' | 'already_confirmed'
+}
+
 export const getPhoneVerificationStatus = async () =>
   (await api.get<PhoneVerificationStatus>('/users/me/phone-verification')).data
 
 export const startPhoneVerification = async () =>
   (await api.post<PhoneVerificationStart>('/users/me/phone-verification')).data
+
+export const confirmPhoneVerification = async (code: string) =>
+  (await api.post<PhoneVerificationConfirmation>(
+    '/users/me/phone-verification/confirm',
+    { code },
+  )).data

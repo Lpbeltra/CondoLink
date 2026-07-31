@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using CondoLink.Api.Features.Auth;
 using CondoLink.Api.Features.CondominiumMembers;
 using CondoLink.Api.Features.Notifications;
 using CondoLink.Domain.Entities;
@@ -89,6 +90,7 @@ internal sealed class CoreEndpointTestHost : IAsyncDisposable
         // registers them, so mapping them here needs the same registrations.
         builder.Services.AddScoped<NotificationService>();
         builder.Services.AddScoped<CondominiumMembershipService>();
+        builder.Services.AddScoped<AuthenticationSessionService>();
         configureServices?.Invoke(builder);
 
         _application = builder.Build();

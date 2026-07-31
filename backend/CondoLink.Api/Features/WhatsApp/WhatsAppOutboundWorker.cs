@@ -69,8 +69,9 @@ public sealed class WhatsAppOutboundWorker(
             string content;
             try
             {
-                content = item.NotificationType
-                    == WhatsAppNotificationType.PhoneVerification
+                content = item.NotificationType is
+                    WhatsAppNotificationType.PhoneVerification
+                    or WhatsAppNotificationType.LoginCode
                     ? verificationMessageProtector.Unprotect(item.Content)
                     : item.Content;
             }

@@ -72,7 +72,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         foreach (var userId in changes)
         {
             foreach (var verification in WhatsAppPhoneVerifications.Where(x =>
-                         x.UserId == userId && x.ConfirmedAt == null
+                         x.UserId == userId && x.ConsumedAt == null
                          && x.InvalidatedAt == null))
                 verification.Invalidate(now);
         }
@@ -85,7 +85,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         if (changes.Count == 0) return;
         var now = DateTime.UtcNow;
         var verifications = await WhatsAppPhoneVerifications.Where(x =>
-                changes.Contains(x.UserId) && x.ConfirmedAt == null
+                changes.Contains(x.UserId) && x.ConsumedAt == null
                 && x.InvalidatedAt == null)
             .ToArrayAsync(cancellationToken);
         foreach (var verification in verifications)

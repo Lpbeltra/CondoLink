@@ -1,3 +1,5 @@
+using CondoLink.Domain.Enums;
+
 namespace CondoLink.Domain.Entities;
 
 public sealed class WhatsAppPhoneVerification
@@ -6,7 +8,9 @@ public sealed class WhatsAppPhoneVerification
 
     public WhatsAppPhoneVerification(
         Guid userId, string normalizedPhoneNumber, byte[] codeHash,
-        byte[] codeSalt, DateTime now, DateTime expiresAt, int maximumAttempts)
+        byte[] codeSalt, DateTime now, DateTime expiresAt, int maximumAttempts,
+        WhatsAppChallengePurpose purpose =
+            WhatsAppChallengePurpose.PhoneVerification)
     {
         if (userId == Guid.Empty) throw new ArgumentException("User is required.", nameof(userId));
         if (string.IsNullOrWhiteSpace(normalizedPhoneNumber))
@@ -25,6 +29,8 @@ public sealed class WhatsAppPhoneVerification
         UpdatedAt = now;
         ExpiresAt = expiresAt;
         MaximumAttempts = maximumAttempts;
+        Purpose = purpose;
+        Version = Guid.NewGuid();
     }
 
     public Guid Id { get; private set; }
@@ -34,14 +40,17 @@ public sealed class WhatsAppPhoneVerification
     public byte[] CodeSalt { get; private set; } = null!;
     public int AttemptCount { get; private set; }
     public int MaximumAttempts { get; private set; }
+    public WhatsAppChallengePurpose Purpose { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
     public DateTime ExpiresAt { get; private set; }
     public DateTime? ConfirmedAt { get; private set; }
+    public DateTime? ConsumedAt { get; private set; }
     public DateTime? InvalidatedAt { get; private set; }
+    public Guid Version { get; private set; }
 
     public bool IsPending(DateTime now) =>
-        ConfirmedAt is null && InvalidatedAt is null
+        ConsumedAt is null && InvalidatedAt is null
         && ExpiresAt > now && AttemptCount < MaximumAttempts;
 
     public bool RegisterFailedAttempt(DateTime now)
@@ -50,6 +59,7 @@ public sealed class WhatsAppPhoneVerification
         AttemptCount++;
         UpdatedAt = now;
         if (AttemptCount >= MaximumAttempts) InvalidatedAt = now;
+        Version = Guid.NewGuid();
         return true;
     }
 
@@ -57,13 +67,24 @@ public sealed class WhatsAppPhoneVerification
     {
         if (!IsPending(now)) throw new InvalidOperationException("Verification is not pending.");
         ConfirmedAt = now;
+        ConsumedAt = now;
         UpdatedAt = now;
+        Version = Guid.NewGuid();
+    }
+
+    public void Consume(DateTime now)
+    {
+        if (!IsPending(now)) throw new InvalidOperationException("Challenge is not pending.");
+        ConsumedAt = now;
+        UpdatedAt = now;
+        Version = Guid.NewGuid();
     }
 
     public void Invalidate(DateTime now)
     {
-        if (ConfirmedAt is not null || InvalidatedAt is not null) return;
+        if (ConsumedAt is not null || InvalidatedAt is not null) return;
         InvalidatedAt = now;
         UpdatedAt = now;
+        Version = Guid.NewGuid();
     }
 }

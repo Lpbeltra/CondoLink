@@ -190,6 +190,111 @@ public sealed class PhoneVerificationEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Correct_code_submitted_by_authenticated_user_confirms_phone()
+    {
+        await StartAsync();
+
+        var response = await ConfirmAsync(_userId, Code);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("\"status\":\"confirmed\"",
+            await response.Content.ReadAsStringAsync());
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.True((await db.Users.SingleAsync(
+                x => x.Id == _userId)).PhoneNumberConfirmed);
+            Assert.NotNull((await db.WhatsAppPhoneVerifications
+                .SingleAsync()).ConfirmedAt);
+        });
+    }
+
+    [Fact]
+    public async Task Incorrect_code_is_rejected_and_counts_attempt()
+    {
+        await StartAsync();
+
+        var response = await ConfirmAsync(_userId, "000000");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("invalid_code",
+            await response.Content.ReadAsStringAsync());
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(1, (await db.WhatsAppPhoneVerifications
+                .SingleAsync()).AttemptCount);
+            Assert.False((await db.Users.SingleAsync(
+                x => x.Id == _userId)).PhoneNumberConfirmed);
+        });
+    }
+
+    [Fact]
+    public async Task Expired_and_used_codes_are_rejected_by_confirmation_endpoint()
+    {
+        await StartAsync();
+        _time.Advance(TimeSpan.FromMinutes(11));
+        var expired = await ConfirmAsync(_userId, Code);
+        Assert.Equal(HttpStatusCode.Gone, expired.StatusCode);
+        Assert.Contains("\"status\":\"expired\"",
+            await expired.Content.ReadAsStringAsync());
+
+        _time.Advance(TimeSpan.FromSeconds(61));
+        await StartAsync();
+        Assert.Equal(HttpStatusCode.OK,
+            (await ConfirmAsync(_userId, Code)).StatusCode);
+        var used = await ConfirmAsync(_userId, Code);
+        Assert.Equal(HttpStatusCode.Conflict, used.StatusCode);
+        Assert.Contains("\"status\":\"used\"",
+            await used.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Confirmation_endpoint_invalidates_code_at_attempt_limit()
+    {
+        await StartAsync();
+
+        for (var attempt = 1; attempt < 5; attempt++)
+            Assert.Equal(HttpStatusCode.BadRequest,
+                (await ConfirmAsync(_userId, "000000")).StatusCode);
+        var exhausted = await ConfirmAsync(_userId, "000000");
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, exhausted.StatusCode);
+        Assert.Contains("attempts_exhausted",
+            await exhausted.Content.ReadAsStringAsync());
+        await _host.WithDbAsync(async db =>
+        {
+            var challenge = await db.WhatsAppPhoneVerifications.SingleAsync();
+            Assert.Equal(5, challenge.AttemptCount);
+            Assert.NotNull(challenge.InvalidatedAt);
+        });
+    }
+
+    [Fact]
+    public async Task User_cannot_confirm_another_users_phone()
+    {
+        await StartAsync();
+        var otherUserId = await _host.WithDbAsync(async db =>
+        {
+            var other = CoreTestSeed.User(
+                "Outra Pessoa", "other-phone@example.com");
+            other.Update("Outra Pessoa", "(21) 98888-0002");
+            db.Users.Add(other);
+            await db.SaveChangesAsync();
+            return other.Id;
+        });
+
+        var response = await ConfirmAsync(otherUserId, Code);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.False((await db.Users.SingleAsync(
+                x => x.Id == _userId)).PhoneNumberConfirmed);
+            Assert.False((await db.Users.SingleAsync(
+                x => x.Id == otherUserId)).PhoneNumberConfirmed);
+        });
+    }
+
+    [Fact]
     public async Task Incorrect_code_exhausts_attempts_without_confirmation()
     {
         await StartAsync();
@@ -225,14 +330,14 @@ public sealed class PhoneVerificationEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Closed_session_window_does_not_create_a_challenge()
+    public async Task Request_does_not_require_a_prior_WhatsApp_session()
     {
         _time.Advance(TimeSpan.FromHours(25));
 
         var response = await StartAsync();
 
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal(0, await _host.WithDbAsync(db =>
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Equal(1, await _host.WithDbAsync(db =>
             db.WhatsAppPhoneVerifications.CountAsync()));
     }
 
@@ -296,6 +401,33 @@ public sealed class PhoneVerificationEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Provider_send_failure_does_not_confirm_phone()
+    {
+        await StartAsync();
+        _client.Fail = true;
+
+        await _host.WithServicesAsync(async services =>
+        {
+            var worker = new WhatsAppOutboundWorker(
+                services.GetRequiredService<IServiceScopeFactory>(),
+                services.GetRequiredService<IOptions<WhatsAppOptions>>(),
+                services.GetRequiredService<ILogger<WhatsAppOutboundWorker>>());
+            await worker.ProcessBatch(
+                services.GetRequiredService<IOptions<WhatsAppOptions>>().Value,
+                CancellationToken.None);
+        });
+
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.False((await db.Users.SingleAsync(
+                x => x.Id == _userId)).PhoneNumberConfirmed);
+            Assert.Equal(
+                WhatsAppOutboundStatus.PermanentlyFailed,
+                (await db.WhatsAppOutboundMessages.SingleAsync()).Status);
+        });
+    }
+
+    [Fact]
     public async Task Disabled_integration_does_not_create_or_queue_challenge()
     {
         await _host.WithServicesAsync(services =>
@@ -317,6 +449,10 @@ public sealed class PhoneVerificationEndpointsTests : IAsyncLifetime
     private Task<HttpResponseMessage> StartAsync() =>
         _host.ClientFor(_userId).PostAsync(
             "/users/me/phone-verification", null);
+
+    private Task<HttpResponseMessage> ConfirmAsync(Guid userId, string code) =>
+        _host.ClientFor(userId).PostAsJsonAsync(
+            "/users/me/phone-verification/confirm", new { code });
 
     private async Task<HttpResponseMessage> PostWebhookAsync(
         string text, string id)
@@ -351,7 +487,7 @@ public sealed class PhoneVerificationEndpointsTests : IAsyncLifetime
             }
         });
         using var request = new HttpRequestMessage(
-            HttpMethod.Post, "/integrations/whatsapp/webhook")
+            HttpMethod.Post, "/webhooks/whatsapp")
         {
             Content = new StringContent(
                 body, Encoding.UTF8, "application/json")
@@ -390,12 +526,16 @@ public sealed class PhoneVerificationEndpointsTests : IAsyncLifetime
     private sealed class FakeWhatsAppClient : IWhatsAppClient
     {
         public List<(string Phone, string Text)> Messages { get; } = [];
+        public bool Fail { get; set; }
         public Task<WhatsAppSendResult> SendTextAsync(
             string phoneNumber, string text, CancellationToken cancellationToken)
         {
             Messages.Add((phoneNumber, text));
-            return Task.FromResult(new WhatsAppSendResult(
-                true, Guid.NewGuid().ToString(), null));
+            return Task.FromResult(Fail
+                ? new WhatsAppSendResult(
+                    false, null, "simulated", false, "simulated")
+                : new WhatsAppSendResult(
+                    true, Guid.NewGuid().ToString(), null));
         }
         public Task<WhatsAppSendResult> SendTemplateAsync(
             string phoneNumber, string templateName, string language,

@@ -52,13 +52,15 @@ public sealed class EndpointAuthorizationCoverageTests
     {
         // Callers have no token yet by definition.
         "/auth/login",
+        "/auth/whatsapp/request-code",
+        "/auth/whatsapp/confirm",
         // The temporary credential itself authenticates this one-time flow.
         "/auth/change-temporary-password",
         // Liveness probe: reports only reachability, no tenant data.
         "/health",
         // Meta verifies and delivers the webhook without a CondoLink JWT.
         // Authenticity of POST deliveries is enforced by HMAC-SHA256.
-        "/integrations/whatsapp/webhook",
+        "/webhooks/whatsapp",
     };
 
     [Fact]
@@ -215,6 +217,7 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapGet("/health", () => Results.Ok());
 
         app.MapLogin();
+        app.MapWhatsAppLogin();
         app.MapChangeTemporaryPassword();
 
         app.MapCreateUser();

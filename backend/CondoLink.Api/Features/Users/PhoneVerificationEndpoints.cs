@@ -14,6 +14,7 @@ public static class PhoneVerificationEndpoints
             .RequireAuthorization()
             .WithTags("Phone verification");
         group.MapPost("", StartAsync);
+        group.MapPost("/confirm", ConfirmAsync);
         group.MapGet("", GetAsync);
         return endpoints;
     }
@@ -55,14 +56,62 @@ public static class PhoneVerificationEndpoints
                 Results.Json(new
                     { error = "Limite de solicitações atingido. Tente novamente mais tarde." },
                     statusCode: StatusCodes.Status429TooManyRequests),
-            WhatsAppPhoneVerificationService.StartStatus.SessionWindowClosed =>
-                Results.Conflict(new
-                {
-                    error = "Envie primeiro uma mensagem para o WhatsApp do Comvy e tente novamente dentro de 24 horas."
-                }),
             _ => Results.Json(new
                 { error = "A confirmação por WhatsApp está indisponível no momento." },
                 statusCode: StatusCodes.Status503ServiceUnavailable)
+        };
+    }
+
+    private static async Task<IResult> ConfirmAsync(
+        ClaimsPrincipal principal,
+        ConfirmPhoneVerificationRequest request,
+        [FromServices] WhatsAppPhoneVerificationService service,
+        CancellationToken cancellationToken)
+    {
+        if (!TryUserId(principal, out var userId))
+            return Results.Unauthorized();
+        var result = await service.ConfirmAsync(
+            userId, request.Code, cancellationToken);
+        return result switch
+        {
+            WhatsAppPhoneVerificationService.ConfirmStatus.Confirmed =>
+                Results.Ok(new { status = "confirmed" }),
+            WhatsAppPhoneVerificationService.ConfirmStatus.AlreadyConfirmed =>
+                Results.Ok(new { status = "already_confirmed" }),
+            WhatsAppPhoneVerificationService.ConfirmStatus.InvalidCode =>
+                Results.BadRequest(new
+                {
+                    status = "invalid_code",
+                    error = "Código inválido."
+                }),
+            WhatsAppPhoneVerificationService.ConfirmStatus.Expired =>
+                Results.Json(new
+                {
+                    status = "expired",
+                    error = "O código expirou. Solicite um novo código."
+                }, statusCode: StatusCodes.Status410Gone),
+            WhatsAppPhoneVerificationService.ConfirmStatus.AttemptsExhausted =>
+                Results.Json(new
+                {
+                    status = "attempts_exhausted",
+                    error = "O limite de tentativas foi atingido. Solicite um novo código."
+                }, statusCode: StatusCodes.Status429TooManyRequests),
+            WhatsAppPhoneVerificationService.ConfirmStatus.Used =>
+                Results.Conflict(new
+                {
+                    status = "used",
+                    error = "Este código já foi utilizado."
+                }),
+            WhatsAppPhoneVerificationService.ConfirmStatus.Inactive =>
+                Results.Json(new { error = "A conta está inativa." },
+                    statusCode: StatusCodes.Status403Forbidden),
+            WhatsAppPhoneVerificationService.ConfirmStatus.NotFound =>
+                Results.Unauthorized(),
+            _ => Results.Conflict(new
+            {
+                status = "unavailable",
+                error = "Não há código ativo para este telefone."
+            })
         };
     }
 
@@ -84,4 +133,6 @@ public static class PhoneVerificationEndpoints
             ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         return Guid.TryParse(subject, out userId);
     }
+
+    public sealed record ConfirmPhoneVerificationRequest(string? Code);
 }

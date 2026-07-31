@@ -37,16 +37,19 @@ public sealed class WhatsAppOutboundMessage
     public static WhatsAppOutboundMessage CreatePhoneVerification(
         Guid userId, string destinationPhone, string idempotencyKey,
         string content, DateTime now) =>
-        new(userId, destinationPhone, idempotencyKey, content, now);
+        new(
+            userId, destinationPhone, WhatsAppNotificationType.PhoneVerification,
+            idempotencyKey, content, now);
 
     private WhatsAppOutboundMessage(
-        Guid userId, string destinationPhone, string idempotencyKey,
-        string content, DateTime now)
+        Guid userId, string destinationPhone,
+        WhatsAppNotificationType notificationType,
+        string idempotencyKey, string content, DateTime now)
     {
         Id = Guid.NewGuid();
         UserId = userId;
         DestinationPhone = destinationPhone;
-        NotificationType = WhatsAppNotificationType.PhoneVerification;
+        NotificationType = notificationType;
         SendMode = WhatsAppSendMode.SessionText;
         IdempotencyKey = idempotencyKey;
         Content = content;
@@ -55,6 +58,13 @@ public sealed class WhatsAppOutboundMessage
         NextAttemptAt = now;
         Version = Guid.NewGuid();
     }
+
+    public static WhatsAppOutboundMessage CreateLoginCode(
+        Guid userId, string destinationPhone, string idempotencyKey,
+        string content, DateTime now) =>
+        new(
+            userId, destinationPhone, WhatsAppNotificationType.LoginCode,
+            idempotencyKey, content, now);
 
     public Guid Id { get; private set; }
     public Guid? RequestId { get; private set; }

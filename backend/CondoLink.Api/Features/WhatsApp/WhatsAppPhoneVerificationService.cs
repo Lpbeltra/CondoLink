@@ -1,4 +1,5 @@
 using CondoLink.Domain.Entities;
+using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -35,13 +36,9 @@ public sealed class WhatsAppPhoneVerificationService(
             return new(StartStatus.Unavailable);
 
         var now = timeProvider.GetUtcNow().UtcDateTime;
-        var sessionOpen = await db.WhatsAppInboundMessages.AsNoTracking()
-            .AnyAsync(x => x.PhoneNumber == user.NormalizedPhoneNumber
-                && x.ReceivedAt >= now.AddHours(-24), cancellationToken);
-        if (!sessionOpen) return new(StartStatus.SessionWindowClosed);
-
         var latestCreatedAt = await db.WhatsAppPhoneVerifications.AsNoTracking()
-            .Where(x => x.UserId == userId)
+            .Where(x => x.UserId == userId
+                && x.Purpose == WhatsAppChallengePurpose.PhoneVerification)
             .MaxAsync(x => (DateTime?)x.CreatedAt, cancellationToken);
         if (latestCreatedAt > now.AddSeconds(-ResendIntervalSeconds))
             return new(
@@ -51,12 +48,15 @@ public sealed class WhatsAppPhoneVerificationService(
 
         var recentCount = await db.WhatsAppPhoneVerifications.AsNoTracking()
             .CountAsync(x => x.UserId == userId
+                && x.Purpose == WhatsAppChallengePurpose.PhoneVerification
                 && x.CreatedAt >= now.AddHours(-1), cancellationToken);
         if (recentCount >= MaximumChallengesPerHour)
             return new(StartStatus.RateLimited);
 
         var previous = await db.WhatsAppPhoneVerifications
-            .Where(x => x.UserId == userId && x.ConfirmedAt == null
+            .Where(x => x.UserId == userId
+                && x.Purpose == WhatsAppChallengePurpose.PhoneVerification
+                && x.ConsumedAt == null
                 && x.InvalidatedAt == null)
             .ToArrayAsync(cancellationToken);
         foreach (var verification in previous) verification.Invalidate(now);
@@ -94,30 +94,28 @@ public sealed class WhatsAppPhoneVerificationService(
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var latest = await db.WhatsAppPhoneVerifications.AsNoTracking()
             .Where(x => x.UserId == userId)
+            .Where(x =>
+                x.Purpose == WhatsAppChallengePurpose.PhoneVerification)
             .OrderByDescending(x => x.CreatedAt)
             .Select(x => new
             {
-                x.CreatedAt, x.ExpiresAt, x.ConfirmedAt, x.InvalidatedAt,
+                x.CreatedAt, x.ExpiresAt, x.ConsumedAt, x.InvalidatedAt,
                 x.AttemptCount, x.MaximumAttempts
             })
             .FirstOrDefaultAsync(cancellationToken);
-        var active = latest is not null && latest.ConfirmedAt is null
+        var active = latest is not null && latest.ConsumedAt is null
             && latest.InvalidatedAt is null && latest.ExpiresAt > now
             && latest.AttemptCount < latest.MaximumAttempts;
         var canResendAt = latest is null
             ? now : latest.CreatedAt.AddSeconds(ResendIntervalSeconds);
         var recentCount = await db.WhatsAppPhoneVerifications.AsNoTracking()
             .CountAsync(x => x.UserId == userId
+                && x.Purpose == WhatsAppChallengePurpose.PhoneVerification
                 && x.CreatedAt >= now.AddHours(-1), cancellationToken);
-        var sessionOpen = user.NormalizedPhoneNumber is not null
-            && await db.WhatsAppInboundMessages.AsNoTracking()
-                .AnyAsync(x => x.PhoneNumber == user.NormalizedPhoneNumber
-                    && x.ReceivedAt >= now.AddHours(-24), cancellationToken);
         var canResend = !user.PhoneNumberConfirmed
             && user.NormalizedPhoneNumber is not null
             && options.Value.Enabled
             && options.Value.OutboundWorkerEnabled
-            && sessionOpen
             && recentCount < MaximumChallengesPerHour
             && canResendAt <= now;
         return new(
@@ -128,6 +126,76 @@ public sealed class WhatsAppPhoneVerificationService(
             active ? latest!.ExpiresAt : null,
             canResend,
             !canResend && canResendAt > now ? canResendAt : null);
+    }
+
+    public async Task<ConfirmStatus> ConfirmAsync(
+        Guid userId,
+        string? code,
+        CancellationToken cancellationToken)
+    {
+        var user = await db.Users.SingleOrDefaultAsync(
+            x => x.Id == userId, cancellationToken);
+        if (user is null) return ConfirmStatus.NotFound;
+        if (!user.IsActive) return ConfirmStatus.Inactive;
+
+        var verification = await db.WhatsAppPhoneVerifications
+            .Where(x => x.UserId == userId)
+            .Where(x =>
+                x.Purpose == WhatsAppChallengePurpose.PhoneVerification)
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (verification is null)
+            return user.PhoneNumberConfirmed
+                ? ConfirmStatus.AlreadyConfirmed
+                : ConfirmStatus.Unavailable;
+        if (verification.ConsumedAt is not null)
+            return ConfirmStatus.Used;
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        if (verification.AttemptCount >= verification.MaximumAttempts)
+            return ConfirmStatus.AttemptsExhausted;
+        if (verification.ExpiresAt <= now)
+        {
+            verification.Invalidate(now);
+            await db.SaveChangesAsync(cancellationToken);
+            return ConfirmStatus.Expired;
+        }
+        if (verification.InvalidatedAt is not null)
+            return ConfirmStatus.Unavailable;
+        if (user.NormalizedPhoneNumber is null
+            || !string.Equals(
+                user.NormalizedPhoneNumber,
+                verification.NormalizedPhoneNumber,
+                StringComparison.Ordinal))
+        {
+            verification.Invalidate(now);
+            await db.SaveChangesAsync(cancellationToken);
+            return ConfirmStatus.Unavailable;
+        }
+
+        var normalizedCode = code?.Trim();
+        var valid = normalizedCode is not null
+            && LooksLikeCode(normalizedCode)
+            && PhoneVerificationCodeHasher.Verify(
+                normalizedCode, verification.CodeHash, verification.CodeSalt);
+        if (!valid)
+        {
+            verification.RegisterFailedAttempt(now);
+            await db.SaveChangesAsync(cancellationToken);
+            return verification.InvalidatedAt is not null
+                ? ConfirmStatus.AttemptsExhausted
+                : ConfirmStatus.InvalidCode;
+        }
+
+        user.ConfirmPhoneNumber();
+        verification.Confirm(now);
+        await db.SaveChangesAsync(cancellationToken);
+        logger.LogInformation(
+            "WhatsApp phone verification {VerificationId} completed for user {UserId} phone {Phone}.",
+            verification.Id,
+            user.Id,
+            PhoneNumberNormalizer.Mask(user.NormalizedPhoneNumber));
+        return ConfirmStatus.Confirmed;
     }
 
     public async Task<ProcessResult> TryProcessAsync(
@@ -142,7 +210,8 @@ public sealed class WhatsAppPhoneVerificationService(
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var verification = await db.WhatsAppPhoneVerifications
             .Where(x => x.NormalizedPhoneNumber == normalizedPhoneNumber
-                && x.ConfirmedAt == null && x.InvalidatedAt == null)
+                && x.Purpose == WhatsAppChallengePurpose.PhoneVerification
+                && x.ConsumedAt == null && x.InvalidatedAt == null)
             .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -151,6 +220,8 @@ public sealed class WhatsAppPhoneVerificationService(
             if (!LooksLikeCode(text)) return ProcessResult.NotHandled;
             var previous = await db.WhatsAppPhoneVerifications.AsNoTracking()
                 .Where(x => x.NormalizedPhoneNumber == normalizedPhoneNumber)
+                .Where(x =>
+                    x.Purpose == WhatsAppChallengePurpose.PhoneVerification)
                 .OrderByDescending(x => x.CreatedAt)
                 .FirstOrDefaultAsync(cancellationToken);
             return previous is not null
@@ -218,7 +289,7 @@ public sealed class WhatsAppPhoneVerificationService(
     }
 
     internal static string Message(string code) =>
-        $"Seu código de confirmação do Comvy é {code}. "
+        $"Seu código de confirmação da Comvy é: {code}. "
         + $"Ele expira em {ValidityMinutes} minutos. Não compartilhe este código.";
 
     private static bool LooksLikeCode(string value) =>
@@ -253,7 +324,19 @@ public sealed class WhatsAppPhoneVerificationService(
         NotFound,
         TooSoon,
         RateLimited,
-        SessionWindowClosed,
         Unavailable
+    }
+
+    public enum ConfirmStatus
+    {
+        Confirmed,
+        AlreadyConfirmed,
+        InvalidCode,
+        Expired,
+        AttemptsExhausted,
+        Used,
+        Unavailable,
+        Inactive,
+        NotFound
     }
 }

@@ -8,5 +8,6 @@ public enum WhatsAppNotificationType
     RequestResolved = 4,
     RequestCancelled = 5,
     RequestReopened = 6,
-    PhoneVerification = 7
+    PhoneVerification = 7,
+    LoginCode = 8
 }
