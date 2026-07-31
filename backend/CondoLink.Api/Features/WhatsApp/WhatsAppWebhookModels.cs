@@ -55,7 +55,7 @@ public static class WhatsAppWebhookParser
                             InteractiveText(interactive),
                         _ => null
                     };
-                    if (messageType is "image" or "document"
+                    if (messageType is "image" or "video" or "document"
                         && message.TryGetProperty(messageType, out var media))
                     {
                         mediaId = media.TryGetProperty("id", out var mediaIdElement)

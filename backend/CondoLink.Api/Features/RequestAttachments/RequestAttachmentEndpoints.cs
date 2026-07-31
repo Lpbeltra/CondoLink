@@ -11,25 +11,12 @@ namespace CondoLink.Api.Features.RequestAttachments;
 
 public static class RequestAttachmentEndpoints
 {
-    private const int MaximumFileCount = 6;
-    private const long MaximumFileSize = 15 * 1024 * 1024;
-    private const long MaximumRequestSize = 96 * 1024 * 1024;
-    private static readonly IReadOnlyDictionary<string, string[]> AllowedFiles =
-        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
-        {
-            [".jpg"] = ["image/jpeg"],
-            [".jpeg"] = ["image/jpeg"],
-            [".png"] = ["image/png"],
-            [".webp"] = ["image/webp"],
-            [".pdf"] = ["application/pdf"]
-        };
-
     public static IEndpointRouteBuilder MapRequestAttachments(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapPost("/requests/{requestId:guid}/attachments", UploadAsync)
             .RequireAuthorization()
             .DisableAntiforgery()
-            .WithMetadata(new RequestSizeLimitAttribute(MaximumRequestSize));
+            .WithMetadata(new RequestSizeLimitAttribute(AttachmentPolicy.MaximumRequestSize));
         endpoints.MapGet("/requests/{requestId:guid}/attachments", ListAsync).RequireAuthorization();
         endpoints.MapGet("/request-attachments/{attachmentId:guid}/content", ContentAsync).RequireAuthorization();
         endpoints.MapDelete("/request-attachments/{attachmentId:guid}", DeleteAsync).RequireAuthorization();
@@ -58,25 +45,16 @@ public static class RequestAttachmentEndpoints
         var files = form.Files.GetFiles("files");
         if (files.Count == 0)
             return Results.BadRequest(new { error = "Selecione ao menos um arquivo." });
-        if (files.Count > MaximumFileCount)
+        if (files.Count > AttachmentPolicy.MaximumFileCount)
             return Results.BadRequest(new { error = "É permitido enviar no máximo 6 arquivos." });
 
         var validated = new List<(IFormFile File, string Name, string Extension, string ContentType)>();
         foreach (var file in files)
         {
-            var name = Path.GetFileName(file.FileName);
-            var extension = Path.GetExtension(name);
-            var contentType = file.ContentType.Split(';', 2)[0].Trim();
-            if (string.IsNullOrWhiteSpace(name) || name.Length > 255)
-                return Results.BadRequest(new { error = "O nome do arquivo é inválido ou possui mais de 255 caracteres." });
-            if (file.Length <= 0)
-                return Results.BadRequest(new { error = $"O arquivo “{name}” está vazio." });
-            if (file.Length > MaximumFileSize)
-                return Results.BadRequest(new { error = "Cada arquivo pode possuir no máximo 15 MB." });
-            if (!AllowedFiles.TryGetValue(extension, out var contentTypes)
-                || !contentTypes.Contains(contentType, StringComparer.OrdinalIgnoreCase))
-                return Results.BadRequest(new { error = "Formato não suportado. Envie somente JPG, PNG, WebP ou PDF." });
-            validated.Add((file, name, extension.ToLowerInvariant(), contentType.ToLowerInvariant()));
+            var result = AttachmentPolicy.Validate(file.FileName, file.Length, file.ContentType);
+            if (result.Error is not null)
+                return Results.BadRequest(new { error = result.Error });
+            validated.Add((file, result.Name!, result.Extension!, result.ContentType!));
         }
 
         var savedKeys = new List<string>();

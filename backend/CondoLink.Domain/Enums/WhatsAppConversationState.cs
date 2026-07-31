@@ -12,7 +12,8 @@ public enum WhatsAppConversationState
     ,SelectingUnit = 8
     ,SelectingCategory = 9
     ,CollectingDescription = 10
-    ,CollectingNewRequestAttachments = 11
+    ,CollectingAttachments = 11
+    ,CollectingNewRequestAttachments = CollectingAttachments
     ,ReviewingNewRequest = 12
     ,ViewingRequest = 13
     ,ReplyingToRequest = 14

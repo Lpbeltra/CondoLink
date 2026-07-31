@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using CondoLink.Api.Features.Notifications;
+using CondoLink.Api.Features.RequestAttachments;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
@@ -14,6 +15,7 @@ namespace CondoLink.Api.Features.WhatsApp;
 public sealed class WhatsAppConversationService(
     AppDbContext db,
     IWhatsAppClient client,
+    LocalFileStorage storage,
     NotificationService notifications,
     IOptions<WhatsAppOptions> options,
     ILogger<WhatsAppConversationService> logger)
@@ -75,21 +77,35 @@ public sealed class WhatsAppConversationService(
         }
         else
         {
-            if (!isNewSession && session.State == WhatsAppConversationState.UnknownPhone)
+            try
             {
-                session.RecoverContext(
-                    identity.UserId, identity.CondominiumId, identity.UnitId,
-                    now, expires);
-                logger.LogInformation(
-                    "WhatsApp session residential context recovered from UnknownPhone.");
-                response = MainMenu(identity.FullName);
-                result = "main_menu";
+                if (!isNewSession && session.State == WhatsAppConversationState.UnknownPhone)
+                {
+                    session.RecoverContext(
+                        identity.UserId, identity.CondominiumId, identity.UnitId,
+                        now, expires);
+                    logger.LogInformation(
+                        "WhatsApp session residential context recovered from UnknownPhone.");
+                    response = MainMenu(identity.FullName);
+                    result = "main_menu";
+                }
+                else
+                {
+                    session.ResolveContext(identity.UserId, identity.CondominiumId, identity.UnitId);
+                    (response, result) = await Respond(
+                        session, identity, message, now, expires, isNewSession, ct);
+                }
             }
-            else
+            catch (DbUpdateConcurrencyException)
             {
-                session.ResolveContext(identity.UserId, identity.CondominiumId, identity.UnitId);
-                (response, result) = await Respond(
-                    session, identity, message, now, expires, isNewSession, ct);
+                throw;
+            }
+            catch
+            {
+                await DiscardDraftAttachments(session, ct);
+                session.End(now);
+                await db.SaveChangesAsync(ct);
+                throw;
             }
         }
 
@@ -223,6 +239,7 @@ public sealed class WhatsAppConversationService(
         if (session.ExpiresAt <= now || session.State == WhatsAppConversationState.Ended)
         {
             var expired = session.State != WhatsAppConversationState.Ended;
+            if (expired) await DiscardDraftAttachments(session, ct);
             session.Restart(now, expires);
             logger.LogInformation(expired
                 ? "Expired WhatsApp session restarted for phone {Phone}."
@@ -235,11 +252,13 @@ public sealed class WhatsAppConversationService(
         var command = NormalizeCommand(text);
         if (command is "menu" or "inicio" or "reiniciar")
         {
+            await DiscardDraftAttachments(session, ct);
             session.Restart(now, expires);
             return (MainMenu(identity.FullName), "main_menu");
         }
         if (command == "sair")
         {
+            await DiscardDraftAttachments(session, ct);
             session.End(now);
             return ("Atendimento encerrado. Envie uma nova mensagem quando precisar.", "session_ended");
         }
@@ -250,6 +269,7 @@ public sealed class WhatsAppConversationService(
                 session.Touch(now, expires);
                 return ("Não há operação em andamento. Digite 1 para abrir uma solicitação.", "nothing_to_cancel");
             }
+            await DiscardDraftAttachments(session, ct);
             session.Restart(now, expires);
             logger.LogInformation("WhatsApp draft flow cancelled for phone {Phone}.", PhoneNumberNormalizer.Mask(session.PhoneNumber));
             return ($"A abertura foi cancelada.\n\n{MainMenu(identity.FullName)}", "cancelled");
@@ -260,6 +280,8 @@ public sealed class WhatsAppConversationService(
             WhatsAppConversationState.MainMenu => MainMenuChoice(session, text, now, expires),
             WhatsAppConversationState.CollectingDescription =>
                 CollectDescription(session, message, now, expires),
+            WhatsAppConversationState.CollectingAttachments =>
+                await CollectAttachments(session, message, identity.FullName, now, expires, ct),
             WhatsAppConversationState.ReviewingNewRequest =>
                 await ReviewChoice(session, text, identity.FullName, now, expires, ct),
             WhatsAppConversationState.SelectingCategory =>
@@ -295,7 +317,76 @@ public sealed class WhatsAppConversationService(
         if (description.Length > 4000)
             return ("A descrição deve ter no máximo 4000 caracteres. Envie um texto menor.", "description_too_long");
         session.SetDescriptionForReview(description, now, expires);
-        return (ReviewPrompt(description), "description_collected");
+        return (AttachmentPrompt(), "collecting_attachments");
+    }
+
+    private async Task<(string, string)> CollectAttachments(
+        WhatsAppSession session, NormalizedWhatsAppMessage message, string fullName,
+        DateTime now, DateTime expires, CancellationToken ct)
+    {
+        var text = message.Text?.Trim();
+        if (text is "1" or "2")
+        {
+            session.FinishAttachments(now, expires);
+            return (ReviewPrompt(session.DraftDescription!), "reviewing_new_request");
+        }
+        if (text == "3")
+        {
+            await DiscardDraftAttachments(session, ct);
+            session.Restart(now, expires);
+            return ($"A abertura foi cancelada.\n\n{MainMenu(fullName)}", "cancelled");
+        }
+        if (message.MessageType is not ("image" or "video" or "document")
+            || string.IsNullOrWhiteSpace(message.MediaId))
+        {
+            session.Touch(now, expires);
+            return ("No momento este tipo de arquivo ainda não é suportado.", "unsupported_attachment");
+        }
+
+        var count = await db.WhatsAppDraftAttachments.CountAsync(
+            x => x.SessionId == session.Id, ct);
+        if (count >= AttachmentPolicy.MaximumFileCount)
+        {
+            session.Touch(now, expires);
+            return ($"É permitido enviar no máximo {AttachmentPolicy.MaximumFileCount} arquivos. Digite 1 para continuar.", "attachment_limit");
+        }
+
+        var media = await client.DownloadMediaAsync(message.MediaId, ct);
+        if (!media.Succeeded || media.Content is null)
+        {
+            session.Touch(now, expires);
+            return ("Não foi possível baixar o arquivo. Tente enviá-lo novamente.", "attachment_download_failed");
+        }
+        var extension = Path.GetExtension(message.FileName);
+        if (string.IsNullOrWhiteSpace(extension))
+            extension = AttachmentPolicy.PreferredExtension(media.ContentType);
+        var fileName = string.IsNullOrWhiteSpace(message.FileName)
+            ? $"arquivo-{Guid.NewGuid():N}{extension}"
+            : message.FileName;
+        var validation = AttachmentPolicy.Validate(
+            fileName, media.Content.LongLength, media.ContentType);
+        if (validation.Error is not null)
+        {
+            session.Touch(now, expires);
+            return (validation.Error, "attachment_rejected");
+        }
+
+        var storageKey = await storage.SaveWhatsAppDraftAsync(
+            session.Id, media.Content, validation.Extension!, ct);
+        try
+        {
+            db.WhatsAppDraftAttachments.Add(new WhatsAppDraftAttachment(
+                session.Id, message.MediaId, validation.Name!, storageKey,
+                validation.ContentType!, media.Content.LongLength));
+            session.Touch(now, expires);
+            await db.SaveChangesAsync(ct);
+        }
+        catch
+        {
+            storage.Delete(storageKey);
+            throw;
+        }
+        return ("Arquivo recebido.\n\nVocê pode enviar outro arquivo ou digitar 1 quando terminar.", "attachment_received");
     }
 
     private async Task<(string, string)> ReviewChoice(
@@ -309,6 +400,7 @@ public sealed class WhatsAppConversationService(
         }
         if (text == "3")
         {
+            await DiscardDraftAttachments(session, ct);
             session.Restart(now, expires);
             return ($"A abertura foi cancelada.\n\n{MainMenu(fullName)}", "cancelled");
         }
@@ -372,11 +464,36 @@ public sealed class WhatsAppConversationService(
         db.Requests.Add(request);
         db.RequestStatusHistories.Add(new RequestStatusHistory(
             request.Id, null, RequestStatus.Open, session.UserId.Value, null, request.CreatedAt));
-        session.CompleteRequest(request.Id, now, expires);
+        db.RequestMessages.Add(new RequestMessage(
+            request.Id, session.UserId.Value, description, MessageChannel.WhatsApp));
+        var drafts = await db.WhatsAppDraftAttachments
+            .Where(x => x.SessionId == session.Id).ToArrayAsync(ct);
+        var promotedKeys = new List<string>();
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
+        try
+        {
+            foreach (var draft in drafts)
+            {
+                var extension = Path.GetExtension(draft.OriginalFileName);
+                var key = storage.PromoteWhatsAppDraft(request.Id, draft.StorageKey, extension);
+                promotedKeys.Add(key);
+                db.RequestAttachments.Add(new RequestAttachment(
+                    request.Id, session.UserId.Value, draft.OriginalFileName,
+                    key, draft.ContentType, draft.FileSize));
+            }
+            db.WhatsAppDraftAttachments.RemoveRange(drafts);
+            session.CompleteRequest(request.Id, now, expires);
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            foreach (var draft in drafts) storage.Delete(draft.StorageKey);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(ct);
+            foreach (var key in promotedKeys) storage.Delete(key);
+            throw;
+        }
         logger.LogInformation("WhatsApp request {RequestId} created.", request.Id);
 
         try { await notifications.NotifyRequestCreatedAsync(request, categoryName, ct); }
@@ -412,6 +529,13 @@ public sealed class WhatsAppConversationService(
         "Pode escrever o quanto precisar. Usaremos essas informações para abrir sua solicitação.\n\n" +
         "Depois da descrição, você poderá adicionar fotos e vídeos.";
 
+    private static string AttachmentPrompt() =>
+        "Deseja adicionar fotos, vídeos ou documentos?\n\n" +
+        "Se sim, envie os arquivos agora. Quando terminar, responda com uma das opções:\n\n" +
+        "1 - Terminei de enviar os arquivos\n" +
+        "2 - Não quero enviar arquivos\n" +
+        "3 - Cancelar e voltar ao início";
+
     private static string ReviewPrompt(string description) =>
         $"Entendi esta descrição:\n\n{description}\n\n" +
         "1 - Confirmar e criar solicitação\n" +
@@ -437,6 +561,16 @@ public sealed class WhatsAppConversationService(
     private static string FirstName(string name) =>
         name.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "Olá";
     private static string ShortId(Guid id) => id.ToString("N")[..8].ToUpperInvariant();
+
+    private async Task DiscardDraftAttachments(WhatsAppSession session, CancellationToken ct)
+    {
+        var drafts = await db.WhatsAppDraftAttachments
+            .Where(x => x.SessionId == session.Id).ToArrayAsync(ct);
+        if (drafts.Length == 0) return;
+        db.WhatsAppDraftAttachments.RemoveRange(drafts);
+        await db.SaveChangesAsync(ct);
+        foreach (var draft in drafts) storage.Delete(draft.StorageKey);
+    }
 
     private sealed record ResolvedIdentity(Guid UserId, string FullName, Guid CondominiumId, Guid UnitId);
     private sealed record ResidentialContext(Guid CondominiumId, Guid UnitId, bool IsPrimaryResidence);

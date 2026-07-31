@@ -145,6 +145,7 @@ public sealed class RequestAttachmentEndpointsTests : IAsyncLifetime
     [InlineData("imagem.png", "image/png")]
     [InlineData("imagem.webp", "image/webp")]
     [InlineData("documento.pdf", "application/pdf")]
+    [InlineData("video.mp4", "video/mp4")]
     public async Task Accepts_supported_file_types(string name, string contentType)
     {
         var response = await UploadAsync(
@@ -167,7 +168,7 @@ public sealed class RequestAttachmentEndpointsTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains(
-            "Formato não suportado",
+            "tipo de arquivo ainda não é suportado",
             await response.Content.ReadAsStringAsync());
     }
 

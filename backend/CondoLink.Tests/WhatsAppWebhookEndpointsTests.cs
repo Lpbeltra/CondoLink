@@ -521,9 +521,11 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.edit-2", "1"));
         await PostAsync(TextPayload("wamid.edit-3", "Descrição antiga"));
         await PostAsync(TextPayload("wamid.edit-4", "2"));
-        await PostAsync(TextPayload("wamid.edit-5", "Descrição corrigida"));
+        await PostAsync(TextPayload("wamid.edit-5", "2"));
+        await PostAsync(TextPayload("wamid.edit-6", "Descrição corrigida"));
+        await PostAsync(TextPayload("wamid.edit-7", "2"));
         Assert.Contains("3 - Cancelar e voltar ao início", _fake.Messages.Last().Text);
-        await PostAsync(TextPayload("wamid.edit-6", "3"));
+        await PostAsync(TextPayload("wamid.edit-8", "3"));
 
         Assert.StartsWith("A abertura foi cancelada.", _fake.Messages.Last().Text);
         Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
@@ -536,7 +538,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             Assert.Empty(await db.Requests.ToArrayAsync());
         });
 
-        await PostAsync(TextPayload("wamid.edit-7", "1"));
+        await PostAsync(TextPayload("wamid.edit-9", "1"));
         Assert.Contains("Descreva o que aconteceu em uma só mensagem", _fake.Messages.Last().Text);
         Assert.Equal(WhatsAppConversationState.CollectingDescription,
             await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
@@ -612,8 +614,9 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.flow-1", "Menu"));
         await PostAsync(TextPayload("wamid.flow-2", "1"));
         await PostAsync(TextPayload("wamid.flow-3", "Lâmpada queimada no corredor"));
-        await PostAsync(TextPayload("wamid.flow-4", "1"));
-        await PostAsync(TextPayload("wamid.flow-4", "1"));
+        await PostAsync(TextPayload("wamid.flow-4", "2"));
+        await PostAsync(TextPayload("wamid.flow-5", "1"));
+        await PostAsync(TextPayload("wamid.flow-5", "1"));
 
         var requestId = await _host.WithDbAsync(async db =>
         {
@@ -651,7 +654,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Non_text_message_does_not_enter_attachment_flow_in_this_batch()
+    public async Task Valid_image_is_kept_as_temporary_draft_attachment()
     {
         await _host.WithDbAsync(async db =>
         {
@@ -662,11 +665,150 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             true, [0xFF, 0xD8, 0xFF, 0xD9], "image/jpeg", null);
         await PostAsync(TextPayload("wamid.media-1", "Menu"));
         await PostAsync(TextPayload("wamid.media-2", "1"));
+        await PostAsync(TextPayload("wamid.media-description", "Portão danificado"));
         await PostAsync(MediaPayload("wamid.media-3", "media-id-1", "image", "image/jpeg"));
 
-        Assert.Contains("Descreva", _fake.Messages.Last().Text);
-        Assert.Empty(await _host.WithDbAsync(db =>
+        Assert.Contains("Arquivo recebido", _fake.Messages.Last().Text);
+        Assert.Single(await _host.WithDbAsync(db =>
             db.WhatsAppDraftAttachments.AsNoTracking().ToArrayAsync()));
+    }
+
+    [Fact]
+    public async Task Mixed_attachments_are_promoted_only_when_request_is_confirmed()
+    {
+        await AddCategoryAndStartAttachmentFlow();
+        var media = new[]
+        {
+            ("mix-image-1", "image", "image/jpeg", "foto.jpg"),
+            ("mix-image-2", "image", "image/png", "foto.png"),
+            ("mix-video", "video", "video/mp4", "video.mp4"),
+            ("mix-document", "document", "application/pdf", "documento.pdf")
+        };
+        foreach (var (id, type, contentType, name) in media)
+        {
+            _fake.Media = new WhatsAppMediaResult(true, [1, 2, 3], contentType, null);
+            await PostAsync(MediaPayload($"wamid.{id}", id, type, contentType, name));
+            Assert.Contains("Arquivo recebido", _fake.Messages.Last().Text);
+        }
+        Assert.Equal(4, await _host.WithDbAsync(db => db.WhatsAppDraftAttachments.CountAsync()));
+
+        await PostAsync(TextPayload("wamid.mix-finished", "1"));
+        Assert.Contains("Confirmar e criar", _fake.Messages.Last().Text);
+        await PostAsync(TextPayload("wamid.mix-confirmed", "1"));
+
+        await _host.WithDbAsync(async db =>
+        {
+            var request = await db.Requests.SingleAsync();
+            Assert.Equal(4, await db.RequestAttachments.CountAsync(x => x.RequestId == request.Id));
+            Assert.Empty(await db.WhatsAppDraftAttachments.ToArrayAsync());
+            var initial = await db.RequestMessages.SingleAsync(x => x.RequestId == request.Id);
+            Assert.Equal(MessageChannel.WhatsApp, initial.Channel);
+            Assert.Equal("Portão danificado", initial.Content);
+        });
+    }
+
+    [Fact]
+    public async Task Option_two_preserves_uploaded_files_and_moves_to_review()
+    {
+        await AddCategoryAndStartAttachmentFlow();
+        _fake.Media = new WhatsAppMediaResult(true, [1, 2, 3], "image/jpeg", null);
+        await PostAsync(MediaPayload("wamid.keep-file", "keep-file", "image", "image/jpeg", "foto.jpg"));
+
+        await PostAsync(TextPayload("wamid.no-more-files", "2"));
+
+        Assert.Contains("Confirmar e criar", _fake.Messages.Last().Text);
+        Assert.Single(await _host.WithDbAsync(db => db.WhatsAppDraftAttachments.ToArrayAsync()));
+    }
+
+    [Theory]
+    [InlineData("3", WhatsAppConversationState.MainMenu)]
+    [InlineData("cancelar", WhatsAppConversationState.MainMenu)]
+    [InlineData("menu", WhatsAppConversationState.MainMenu)]
+    [InlineData("sair", WhatsAppConversationState.Ended)]
+    public async Task Leaving_attachment_flow_removes_temporary_files(
+        string command, WhatsAppConversationState expectedState)
+    {
+        await AddCategoryAndStartAttachmentFlow();
+        _fake.Media = new WhatsAppMediaResult(true, [1, 2, 3], "image/jpeg", null);
+        await PostAsync(MediaPayload($"wamid.cleanup-{command}", $"cleanup-{command}", "image", "image/jpeg", "foto.jpg"));
+        var storageKey = await _host.WithDbAsync(db => db.WhatsAppDraftAttachments
+            .Select(x => x.StorageKey).SingleAsync());
+
+        await PostAsync(TextPayload($"wamid.cleanup-command-{command}", command));
+
+        Assert.Empty(await _host.WithDbAsync(db => db.WhatsAppDraftAttachments.ToArrayAsync()));
+        Assert.Equal(expectedState, await _host.WithDbAsync(db => db.WhatsAppSessions
+            .Select(x => x.State).SingleAsync()));
+        await _host.WithServicesAsync(services =>
+        {
+            Assert.Null(services.GetRequiredService<LocalFileStorage>().OpenRead(storageKey));
+            return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public async Task Expired_attachment_flow_removes_temporary_files_and_returns_menu()
+    {
+        await AddCategoryAndStartAttachmentFlow();
+        _fake.Media = new WhatsAppMediaResult(true, [1], "application/pdf", null);
+        await PostAsync(MediaPayload("wamid.expiring-file", "expiring-file", "document", "application/pdf", "arquivo.pdf"));
+        await _host.WithDbAsync(db => db.WhatsAppSessions.ExecuteUpdateAsync(
+            setters => setters.SetProperty(x => x.ExpiresAt, DateTime.UtcNow.AddMinutes(-1))));
+
+        await PostAsync(TextPayload("wamid.expired-with-file", "Oi"));
+
+        Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
+        Assert.Empty(await _host.WithDbAsync(db => db.WhatsAppDraftAttachments.ToArrayAsync()));
+    }
+
+    [Fact]
+    public async Task Download_failure_and_invalid_media_keep_attachment_state()
+    {
+        await AddCategoryAndStartAttachmentFlow();
+        _fake.Media = new WhatsAppMediaResult(false, null, null, "simulated");
+        await PostAsync(MediaPayload("wamid.download-failed", "download-failed", "image", "image/jpeg", "foto.jpg"));
+        Assert.Contains("Não foi possível baixar", _fake.Messages.Last().Text);
+
+        _fake.Media = new WhatsAppMediaResult(true, [1, 2], "image/svg+xml", null);
+        await PostAsync(MediaPayload("wamid.invalid-media", "invalid-media", "image", "image/svg+xml", "imagem.svg"));
+        Assert.Contains("não é suportado", _fake.Messages.Last().Text);
+        Assert.Equal(WhatsAppConversationState.CollectingAttachments,
+            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Attachment_quantity_and_size_limits_match_portal_policy()
+    {
+        await AddCategoryAndStartAttachmentFlow();
+        for (var index = 0; index < AttachmentPolicy.MaximumFileCount; index++)
+        {
+            _fake.Media = new WhatsAppMediaResult(true, [1], "image/jpeg", null);
+            await PostAsync(MediaPayload($"wamid.limit-{index}", $"limit-{index}", "image", "image/jpeg", $"foto-{index}.jpg"));
+        }
+        await PostAsync(MediaPayload("wamid.limit-extra", "limit-extra", "image", "image/jpeg", "extra.jpg"));
+        Assert.Contains("no máximo 6 arquivos", _fake.Messages.Last().Text);
+
+        await PostAsync(TextPayload("wamid.limit-menu", "menu"));
+        await PostAsync(TextPayload("wamid.limit-open", "1"));
+        await PostAsync(TextPayload("wamid.limit-description", "Nova descrição"));
+        _fake.Media = new WhatsAppMediaResult(
+            true, new byte[AttachmentPolicy.MaximumFileSize + 1], "video/mp4", null);
+        await PostAsync(MediaPayload("wamid.too-large", "too-large", "video", "video/mp4", "grande.mp4"));
+        Assert.Contains("no máximo 15 MB", _fake.Messages.Last().Text);
+    }
+
+    private async Task AddCategoryAndStartAttachmentFlow()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            db.Categories.Add(new Category(_condominiumId, "Manutenção", null));
+            await db.SaveChangesAsync();
+        });
+        await PostAsync(TextPayload($"wamid.attachment-menu-{Guid.NewGuid():N}", "Oi"));
+        await PostAsync(TextPayload($"wamid.attachment-open-{Guid.NewGuid():N}", "1"));
+        await PostAsync(TextPayload($"wamid.attachment-description-{Guid.NewGuid():N}", "Portão danificado"));
+        Assert.Equal(WhatsAppConversationState.CollectingAttachments,
+            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
     }
 
     private async Task<HttpResponseMessage> PostAsync(
@@ -736,8 +878,26 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         string id,
         string mediaId,
         string type,
-        string mimeType) =>
-        JsonSerializer.Serialize(new
+        string mimeType,
+        string? fileName = null) => type switch
+        {
+            "video" => JsonSerializer.Serialize(new
+            {
+                entry = new[] { new { changes = new[] { new { value = new { messages = new object[]
+                {
+                    new { from = "5511999990001", id, timestamp = "1785236400", type,
+                        video = new { id = mediaId, mime_type = mimeType, filename = fileName } }
+                } } } } } }
+            }),
+            "document" => JsonSerializer.Serialize(new
+            {
+                entry = new[] { new { changes = new[] { new { value = new { messages = new object[]
+                {
+                    new { from = "5511999990001", id, timestamp = "1785236400", type,
+                        document = new { id = mediaId, mime_type = mimeType, filename = fileName } }
+                } } } } } }
+            }),
+            _ => JsonSerializer.Serialize(new
         {
             entry = new[]
             {
@@ -760,7 +920,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                                         image = new
                                         {
                                             id = mediaId,
-                                            mime_type = mimeType
+                                            mime_type = mimeType,
+                                            filename = fileName
                                         }
                                     }
                                 }
@@ -769,7 +930,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                     }
                 }
             }
-        });
+        })
+        };
 
     private sealed class FakeWhatsAppClient : IWhatsAppClient
     {

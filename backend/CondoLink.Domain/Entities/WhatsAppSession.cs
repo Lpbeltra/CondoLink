@@ -99,8 +99,11 @@ public sealed class WhatsAppSession
     public void SetDescriptionForReview(string description, DateTime now, DateTime expiresAt)
     {
         DraftDescription = description.Trim();
-        MoveTo(WhatsAppConversationState.ReviewingNewRequest, now, expiresAt, CondominiumId);
+        MoveTo(WhatsAppConversationState.CollectingAttachments, now, expiresAt, CondominiumId);
     }
+
+    public void FinishAttachments(DateTime now, DateTime expiresAt) =>
+        MoveTo(WhatsAppConversationState.ReviewingNewRequest, now, expiresAt, CondominiumId);
 
     public void BeginCategorySelection(DateTime now, DateTime expiresAt) =>
         MoveTo(WhatsAppConversationState.SelectingCategory, now, expiresAt, CondominiumId);
