@@ -23,7 +23,7 @@ public sealed class RequestDraftAiServiceTests
             return Task.FromResult(Response("{}"));
         }, enabled: enabled, apiKey: apiKey);
 
-        var result = await service.ProposeAsync("Relato", [], CancellationToken.None);
+        var result = await service.ProposeAsync("Relato", [], "Condomínio Teste", CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Null(result.Proposal);
@@ -46,10 +46,11 @@ public sealed class RequestDraftAiServiceTests
         });
 
         var result = await service.ProposeAsync(
-            "O portão não fecha.", ["Manutenção"], CancellationToken.None);
+            "O portão não fecha.", ["Manutenção"], "Residencial Teste", CancellationToken.None);
 
         Assert.True(result.Succeeded);
         Assert.Equal(RequestDraftAiOutcome.Succeeded, result.Outcome);
+        Assert.Equal("gpt-4.1-mini", result.Model);
         Assert.Null(result.Proposal!.SuggestedCategory);
         Assert.Empty(result.Proposal.MissingInformation);
         Assert.Null(result.Proposal.Confidence);
@@ -63,6 +64,8 @@ public sealed class RequestDraftAiServiceTests
         Assert.Equal(5, schema.GetProperty("required").GetArrayLength());
         Assert.Equal("array", schema.GetProperty("properties")
             .GetProperty("missingInformation").GetProperty("type").GetString());
+        Assert.Contains("Nome do condomínio: Residencial Teste", payload.RootElement
+            .GetProperty("messages")[1].GetProperty("content").GetString());
     }
 
     [Fact]
@@ -73,7 +76,7 @@ public sealed class RequestDraftAiServiceTests
             """)));
 
         var result = await service.ProposeAsync(
-            "Há água no corredor.", ["Hidráulica"], CancellationToken.None);
+            "Há água no corredor.", ["Hidráulica"], "Condomínio Teste", CancellationToken.None);
 
         Assert.True(result.Succeeded);
         Assert.Equal("Vazamento", result.Proposal!.Title);
@@ -81,6 +84,13 @@ public sealed class RequestDraftAiServiceTests
         Assert.Equal("Hidráulica", result.Proposal.SuggestedCategory);
         Assert.Equal(["Informe o andar."], result.Proposal.MissingInformation);
         Assert.Equal(0.8, result.Proposal.Confidence);
+
+        var analysis = result.Proposal.ToAnalysis();
+        Assert.Equal("Vazamento", analysis.Title);
+        Assert.Equal("Há água no corredor.", analysis.Description);
+        Assert.Equal("Hidráulica", analysis.SuggestedCategory);
+        Assert.Equal(0.8, analysis.Confidence);
+        Assert.Equal(["Informe o andar."], analysis.MissingInformation);
     }
 
     [Fact]
@@ -90,7 +100,7 @@ public sealed class RequestDraftAiServiceTests
             {"choices":[{"message":{"refusal":"Não posso responder.","content":null}}]}
             """)));
 
-        var result = await service.ProposeAsync("Relato", [], CancellationToken.None);
+        var result = await service.ProposeAsync("Relato", [], "Condomínio Teste", CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Null(result.Proposal);
@@ -105,7 +115,7 @@ public sealed class RequestDraftAiServiceTests
     {
         var service = Service((_, _) => Task.FromResult(Response(content)));
 
-        var result = await service.ProposeAsync("Relato", [], CancellationToken.None);
+        var result = await service.ProposeAsync("Relato", [], "Condomínio Teste", CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Null(result.Proposal);
@@ -121,7 +131,7 @@ public sealed class RequestDraftAiServiceTests
             {"choices":[{"message":{}}]}
             """)));
 
-        var result = await service.ProposeAsync("Relato", [], CancellationToken.None);
+        var result = await service.ProposeAsync("Relato", [], "Condomínio Teste", CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Equal(RequestDraftAiOutcome.EmptyResponse, result.Outcome);
@@ -138,8 +148,8 @@ public sealed class RequestDraftAiServiceTests
             return new HttpResponseMessage(HttpStatusCode.OK);
         }, timeoutSeconds: 1);
 
-        var httpResult = await httpError.ProposeAsync("Relato", [], CancellationToken.None);
-        var timeoutResult = await timeout.ProposeAsync("Relato", [], CancellationToken.None);
+        var httpResult = await httpError.ProposeAsync("Relato", [], "Condomínio Teste", CancellationToken.None);
+        var timeoutResult = await timeout.ProposeAsync("Relato", [], "Condomínio Teste", CancellationToken.None);
 
         Assert.Equal(RequestDraftAiOutcome.HttpBadRequest, httpResult.Outcome);
         Assert.Equal(RequestDraftAiOutcome.Timeout, timeoutResult.Outcome);
@@ -154,7 +164,7 @@ public sealed class RequestDraftAiServiceTests
     {
         var service = Service((_, _) => Task.FromResult(new HttpResponseMessage(status)));
 
-        var result = await service.ProposeAsync("Relato", [], CancellationToken.None);
+        var result = await service.ProposeAsync("Relato", [], "Condomínio Teste", CancellationToken.None);
 
         Assert.Equal(expected, result.Outcome);
         Assert.Equal("AI proposal unavailable.", result.Error);
@@ -170,7 +180,7 @@ public sealed class RequestDraftAiServiceTests
             """, HttpStatusCode.BadRequest)), logger: logger,
             baseUrl: "https://api.openai.com/v1/?tenant=secret-query");
 
-        await service.ProposeAsync("relato-morador-secret", ["categoria-secret"],
+        await service.ProposeAsync("relato-morador-secret", ["categoria-secret"], "condominio-secret",
             CancellationToken.None);
 
         var logs = string.Join('\n', logger.Messages);
@@ -182,6 +192,7 @@ public sealed class RequestDraftAiServiceTests
         Assert.DoesNotContain(sensitiveMessage, logs);
         Assert.DoesNotContain("relato-morador-secret", logs);
         Assert.DoesNotContain("categoria-secret", logs);
+        Assert.DoesNotContain("condominio-secret", logs);
         Assert.DoesNotContain("test-key", logs);
     }
 

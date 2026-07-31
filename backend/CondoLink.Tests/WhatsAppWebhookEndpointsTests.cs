@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CondoLink.Api.Features.WhatsApp;
+using CondoLink.Api.Features.Requests;
 using CondoLink.Api.Features.RequestAttachments;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
@@ -539,6 +540,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             Assert.Equal(WhatsAppConversationState.MainMenu, session.State);
             Assert.Null(session.DraftDescription);
             Assert.Empty(await db.Requests.ToArrayAsync());
+            Assert.Empty(await db.RequestAiAnalyses.ToArrayAsync());
         });
 
         await PostAsync(TextPayload("wamid.edit-9", "1"));
@@ -635,6 +637,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             Assert.Null(session.DraftDescription);
             Assert.Null(session.CategoryId);
             Assert.Null(session.RequestId);
+            Assert.Null(session.DraftAiProposalJson);
             Assert.Equal(WhatsAppConversationState.Ended, session.State);
             return request.Id;
         });
@@ -679,6 +682,9 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     [Fact]
     public async Task Mixed_attachments_are_promoted_only_when_request_is_confirmed()
     {
+        _ai.Result = new(true, new RequestDraftAiProposal(
+            "Portão danificado", "Portão danificado", "Manutenção", [], 0.8),
+            null, RequestDraftAiOutcome.Succeeded, "test-model");
         await AddCategoryAndStartAttachmentFlow();
         var media = new[]
         {
@@ -707,6 +713,40 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             var initial = await db.RequestMessages.SingleAsync(x => x.RequestId == request.Id);
             Assert.Equal(MessageChannel.WhatsApp, initial.Channel);
             Assert.Equal("Portão danificado", initial.Content);
+            Assert.Single(await db.RequestAiAnalyses.Where(x => x.RequestId == request.Id)
+                .ToArrayAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Request_analysis_message_and_attachments_roll_back_together()
+    {
+        _ai.Result = new(true, new RequestDraftAiProposal(
+            "Portão danificado", "Portão danificado", "Manutenção", [], 0.8),
+            null, RequestDraftAiOutcome.Succeeded, "test-model");
+        await AddCategoryAndStartAttachmentFlow();
+        _fake.Media = new WhatsAppMediaResult(true, [1, 2, 3], "image/jpeg", null);
+        await PostAsync(MediaPayload("wamid.atomic-file", "atomic-file",
+            "image", "image/jpeg", "foto.jpg"));
+        await PostAsync(TextPayload("wamid.atomic-review", "1"));
+        var storageKey = await _host.WithDbAsync(db => db.WhatsAppDraftAttachments
+            .Select(x => x.StorageKey).SingleAsync());
+        await _host.WithServicesAsync(services =>
+        {
+            services.GetRequiredService<LocalFileStorage>().Delete(storageKey);
+            return Task.CompletedTask;
+        });
+
+        var response = await PostAsync(TextPayload("wamid.atomic-confirm", "1"));
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Empty(await db.Requests.ToArrayAsync());
+            Assert.Empty(await db.RequestAiAnalyses.ToArrayAsync());
+            Assert.Empty(await db.RequestMessages.ToArrayAsync());
+            Assert.Empty(await db.RequestAttachments.ToArrayAsync());
+            Assert.Empty(await db.WhatsAppDraftAttachments.ToArrayAsync());
         });
     }
 
@@ -731,19 +771,32 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             "O portão da garagem está danificado e não fecha corretamente.",
             "Manutenção",
             ["Informe desde quando o problema acontece."],
-            0.91), null);
+            0.91), null, RequestDraftAiOutcome.Succeeded, "test-model");
         await AddCategoryAndStartAttachmentFlow();
 
         await PostAsync(TextPayload("wamid.ai-finished", "2"));
 
         var review = _fake.Messages.Last().Text;
-        Assert.Contains("Título", review);
+        Assert.StartsWith("Revise sua solicitação antes de enviá-la.", review);
+        Assert.Contains("*Título:*\n", review);
         Assert.Contains("Portão da garagem danificado", review);
+        Assert.Contains("*Descrição:*\n", review);
         Assert.Contains("O portão da garagem está danificado", review);
-        Assert.Contains("Categoria\n\nManutenção", review);
-        Assert.Contains("talvez faltem estas informações", review);
+        Assert.DoesNotContain("Categoria", review);
+        Assert.DoesNotContain("Confidence", review);
+        Assert.DoesNotContain("Informe desde quando", review);
+        Assert.Equal("Residencial Teste", _ai.CondominiumName);
         Assert.Contains("\"Source\":\"ai\"", await _host.WithDbAsync(db =>
             db.WhatsAppSessions.Select(x => x.DraftAiProposalJson).SingleAsync()));
+        var persistedProposal = await _host.WithDbAsync(db => db.WhatsAppSessions
+            .Select(x => x.DraftAiProposalJson).SingleAsync());
+        using var persistedJson = JsonDocument.Parse(persistedProposal!);
+        var internalProposal = persistedJson.RootElement.GetProperty("Proposal");
+        Assert.Equal("Manutenção", internalProposal.GetProperty("SuggestedCategory").GetString());
+        Assert.Equal("Informe desde quando o problema acontece.", internalProposal
+            .GetProperty("MissingInformation")[0].GetString());
+        Assert.Equal(0.91, internalProposal.GetProperty("Confidence").GetDouble());
+        await PostAsync(TextPayload("wamid.ai-confirmed", "1"));
         await PostAsync(TextPayload("wamid.ai-confirmed", "1"));
 
         await _host.WithDbAsync(async db =>
@@ -755,7 +808,28 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 .Select(x => x.Name).SingleAsync());
             Assert.Equal("Portão danificado", await db.RequestMessages
                 .Where(x => x.RequestId == request.Id).Select(x => x.Content).SingleAsync());
+            var analysis = await db.RequestAiAnalyses.SingleAsync(x => x.RequestId == request.Id);
+            var response = RequestAiAnalysisResponse.FromEntity(analysis);
+            Assert.Equal("Portão da garagem danificado", response.Title);
+            Assert.Equal("O portão da garagem está danificado e não fecha corretamente.",
+                response.Description);
+            Assert.Equal("Manutenção", response.SuggestedCategory);
+            Assert.Equal(0.91, response.Confidence);
+            Assert.Equal(["Informe desde quando o problema acontece."],
+                response.MissingInformation);
+            Assert.Equal("test-model", response.Model);
+            Assert.NotEqual(default, response.GeneratedAt);
+            var completedSession = await db.WhatsAppSessions.SingleAsync();
+            Assert.Null(completedSession.RequestId);
+            Assert.Null(completedSession.DraftAiProposalJson);
+            var requestIdIndex = db.Model.FindEntityType(typeof(RequestAiAnalysis))!
+                .GetIndexes().Single(x => x.Properties
+                    .Select(property => property.Name).SequenceEqual(["RequestId"]));
+            Assert.True(requestIdIndex.IsUnique);
         });
+
+        await PostAsync(TextPayload("wamid.ai-new-attendance", "Olá"));
+        Assert.Single(await _host.WithDbAsync(db => db.RequestAiAnalyses.ToArrayAsync()));
     }
 
     [Theory]
@@ -785,6 +859,49 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Equal("Manutenção", await _host.WithDbAsync(db => db.Requests
             .Join(db.Categories, request => request.CategoryId, category => category.Id,
                 (_, category) => category.Name).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Invalid_ai_category_uses_active_others_category_when_available()
+    {
+        _ai.Result = new(true, new RequestDraftAiProposal(
+            "Título organizado", "Descrição organizada", "Jardinagem", [], 0.4), null,
+            RequestDraftAiOutcome.Succeeded);
+        await AddCategoryAndStartAttachmentFlow();
+        await _host.WithDbAsync(async db =>
+        {
+            db.Categories.AddRange(
+                new Category(_condominiumId, "Outros", null),
+                new Category(_condominiumId, "Segurança", null));
+            await db.SaveChangesAsync();
+        });
+
+        await PostAsync(TextPayload("wamid.others-review", "2"));
+        await PostAsync(TextPayload("wamid.others-confirm", "1"));
+
+        Assert.Equal("Outros", await _host.WithDbAsync(db => db.Requests
+            .Join(db.Categories, request => request.CategoryId, category => category.Id,
+                (_, category) => category.Name).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Invalid_ai_category_keeps_manual_flow_when_others_does_not_exist()
+    {
+        _ai.Result = new(true, new RequestDraftAiProposal(
+            "Título organizado", "Descrição organizada", "Jardinagem", [], 0.4), null,
+            RequestDraftAiOutcome.Succeeded);
+        await AddCategoryAndStartAttachmentFlow();
+        await _host.WithDbAsync(async db =>
+        {
+            db.Categories.Add(new Category(_condominiumId, "Segurança", null));
+            await db.SaveChangesAsync();
+        });
+
+        await PostAsync(TextPayload("wamid.manual-category-review", "2"));
+        await PostAsync(TextPayload("wamid.manual-category-confirm", "1"));
+
+        Assert.Contains("Escolha a categoria", _fake.Messages.Last().Text);
+        Assert.Empty(await _host.WithDbAsync(db => db.Requests.ToArrayAsync()));
     }
 
     [Fact]
@@ -864,6 +981,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             Assert.Equal("Portão danificado", request.Description);
             Assert.Equal("Portão danificado", await db.RequestMessages
                 .Where(x => x.RequestId == request.Id).Select(x => x.Content).SingleAsync());
+            Assert.Empty(await db.RequestAiAnalyses.ToArrayAsync());
         });
     }
 
@@ -1117,12 +1235,15 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         public RequestDraftAiResult Result { get; set; } =
             new(false, null, "not configured");
         public int Calls { get; private set; }
+        public string? CondominiumName { get; private set; }
 
         public Task<RequestDraftAiResult> ProposeAsync(string originalReport,
             IReadOnlyCollection<string> activeCategories,
+            string condominiumName,
             CancellationToken cancellationToken)
         {
             Calls++;
+            CondominiumName = condominiumName;
             return Task.FromResult(Result);
         }
     }

@@ -420,6 +420,8 @@ public sealed class WhatsAppConversationService(
         var categories = await ActiveCategories(session.CondominiumId!.Value, ct);
         var suggested = categories.SingleOrDefault(x => string.Equals(
             x.Name, review.Proposal?.SuggestedCategory, StringComparison.OrdinalIgnoreCase));
+        suggested ??= categories.SingleOrDefault(x => string.Equals(
+            x.Name, "Outros", StringComparison.OrdinalIgnoreCase));
         if (suggested is not null)
         {
             session.ChooseCategory(suggested.Id, now, expires);
@@ -487,6 +489,17 @@ public sealed class WhatsAppConversationService(
             request.Id, null, RequestStatus.Open, session.UserId.Value, null, request.CreatedAt));
         db.RequestMessages.Add(new RequestMessage(
             request.Id, session.UserId.Value, originalReport, MessageChannel.WhatsApp));
+        if (review.Source == AiReviewSource)
+        {
+            db.RequestAiAnalyses.Add(new RequestAiAnalysis(
+                request.Id,
+                review.Proposal!.Title,
+                review.Proposal.Description,
+                review.Proposal.SuggestedCategory,
+                review.Proposal.Confidence,
+                JsonSerializer.Serialize(review.Proposal.MissingInformation),
+                review.Model));
+        }
         var drafts = await db.WhatsAppDraftAttachments
             .Where(x => x.SessionId == session.Id).ToArrayAsync(ct);
         var promotedKeys = new List<string>();
@@ -513,6 +526,14 @@ public sealed class WhatsAppConversationService(
         {
             await transaction.RollbackAsync(ct);
             foreach (var key in promotedKeys) storage.Delete(key);
+            foreach (var entry in db.ChangeTracker.Entries().Where(x =>
+                x.State == EntityState.Added
+                && x.Entity is DomainRequest or RequestStatusHistory
+                    or RequestMessage or RequestAttachment or RequestAiAnalysis))
+                entry.State = EntityState.Detached;
+            foreach (var draft in drafts)
+                if (db.Entry(draft).State == EntityState.Deleted)
+                    db.Entry(draft).State = EntityState.Unchanged;
             throw;
         }
         logger.LogInformation("WhatsApp request {RequestId} created.", request.Id);
@@ -559,14 +580,10 @@ public sealed class WhatsAppConversationService(
 
     private static string ReviewPrompt(RequestDraftAiProposal proposal)
     {
-        var text = "Entendi sua solicitação desta forma:\n\n" +
-            $"Título\n\n{proposal.Title}\n\n" +
-            $"Descrição\n\n{proposal.Description}\n\n" +
-            $"Categoria\n\n{proposal.SuggestedCategory ?? "Não identificada"}";
-        if (proposal.MissingInformation.Length > 0)
-            text += "\n\nA IA identificou que talvez faltem estas informações:\n\n" +
-                string.Join("\n", proposal.MissingInformation);
-        return text + "\n\n1 - Confirmar solicitação\n" +
+        return "Revise sua solicitação antes de enviá-la.\n\n" +
+            $"*Título:*\n{proposal.Title}\n\n" +
+            $"*Descrição:*\n{proposal.Description}\n\n" +
+            "1 - Confirmar solicitação\n" +
             "2 - Reescrever descrição\n" +
             "3 - Cancelar e voltar ao início";
     }
@@ -601,11 +618,15 @@ public sealed class WhatsAppConversationService(
         WhatsAppSession session, DateTime now, DateTime expires, CancellationToken ct)
     {
         var categories = await ActiveCategories(session.CondominiumId!.Value, ct);
+        var condominiumName = await db.Condominiums.AsNoTracking()
+            .Where(x => x.Id == session.CondominiumId.Value)
+            .Select(x => x.Name).SingleAsync(ct);
         var result = await requestDraftAi.ProposeAsync(
-            session.DraftDescription!, categories.Select(x => x.Name).ToArray(), ct);
+            session.DraftDescription!, categories.Select(x => x.Name).ToArray(),
+            condominiumName, ct);
         var review = result.Succeeded && result.Proposal is not null
-            ? new RequestDraftReview(AiReviewSource, result.Proposal)
-            : new RequestDraftReview(FallbackReviewSource, null);
+            ? new RequestDraftReview(AiReviewSource, result.Proposal, result.Model)
+            : new RequestDraftReview(FallbackReviewSource, null, null);
         session.SetAiProposal(JsonSerializer.Serialize(review), now, expires);
         logger.LogInformation(result.Succeeded
             ? "Request draft AI proposal generated."
@@ -641,7 +662,7 @@ public sealed class WhatsAppConversationService(
                 || string.IsNullOrWhiteSpace(legacyProposal.Description)
                 || legacyProposal.MissingInformation is null
                 ? null
-                : new RequestDraftReview(AiReviewSource, legacyProposal);
+                : new RequestDraftReview(AiReviewSource, legacyProposal, null);
         }
         catch (JsonException) { return null; }
     }
@@ -659,5 +680,6 @@ public sealed class WhatsAppConversationService(
     private sealed record ResolvedIdentity(Guid UserId, string FullName, Guid CondominiumId, Guid UnitId);
     private sealed record ResidentialContext(Guid CondominiumId, Guid UnitId, bool IsPrimaryResidence);
     private sealed record CategoryChoice(Guid Id, string Name);
-    private sealed record RequestDraftReview(string Source, RequestDraftAiProposal? Proposal);
+    private sealed record RequestDraftReview(
+        string Source, RequestDraftAiProposal? Proposal, string? Model);
 }
