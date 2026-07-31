@@ -61,6 +61,7 @@ public sealed class WhatsAppConversationService(
             session = new WhatsAppSession(phone, now, expires);
             db.WhatsAppSessions.Add(session);
             logger.LogInformation("WhatsApp session created for phone {Phone}.", PhoneNumberNormalizer.Mask(phone));
+            logger.LogInformation("WhatsApp session initial state assigned: {State}.", session.State);
         }
 
         string response;
@@ -68,6 +69,7 @@ public sealed class WhatsAppConversationService(
         if (identity is null)
         {
             session.InvalidateIdentity(now, expires);
+            logger.LogWarning("WhatsApp session state assigned after context validation: {State}.", session.State);
             response = IdentificationFailure;
             result = "identity_not_resolved";
         }
@@ -79,6 +81,7 @@ public sealed class WhatsAppConversationService(
         }
 
         inbound.Complete(identity?.UserId, result, now);
+        logger.LogInformation("WhatsApp inbound final processing result: {ProcessingResult}.", result);
         try
         {
             await db.SaveChangesAsync(ct);
@@ -101,26 +104,83 @@ public sealed class WhatsAppConversationService(
             .Where(x => x.NormalizedPhoneNumber == phone)
             .Select(x => new { x.Id, x.FullName, x.IsActive })
             .Take(2).ToArrayAsync(ct);
-        if (users.Length != 1 || !users[0].IsActive) return null;
+        if (users.Length != 1) return null;
+        logger.LogInformation("Unique WhatsApp user found by canonical phone.");
+        if (!users[0].IsActive)
+        {
+            logger.LogWarning("WhatsApp user is inactive.");
+            return null;
+        }
 
-        var contexts = await (
-            from unitMembership in db.UnitMemberships.AsNoTracking()
-            join unit in db.Units.AsNoTracking() on unitMembership.UnitId equals unit.Id
-            join condominium in db.Condominiums.AsNoTracking() on unit.CondominiumId equals condominium.Id
-            join membership in db.CondominiumMemberships.AsNoTracking()
-                on new { UserId = unitMembership.UserId, CondominiumId = condominium.Id }
-                equals new { membership.UserId, membership.CondominiumId }
-            where unitMembership.UserId == users[0].Id
-                && unitMembership.IsActive && unitMembership.EndedAt == null && unitMembership.IsResident
-                && unit.IsActive && condominium.IsActive
-                && membership.IsActive && membership.EndedAt == null
-            select new { CondominiumId = condominium.Id, UnitId = unit.Id })
-            .Distinct().Take(2).ToArrayAsync(ct);
+        var unitLinks = await db.UnitMemberships.AsNoTracking()
+            .Where(x => x.UserId == users[0].Id && x.IsActive && x.EndedAt == null)
+            .Select(x => new { x.UnitId, x.IsResident, x.IsPrimaryResidence })
+            .ToArrayAsync(ct);
+        if (unitLinks.Length == 0)
+        {
+            logger.LogWarning("No active unit membership found for WhatsApp user.");
+            return null;
+        }
 
-        return contexts.Length == 1
-            ? new ResolvedIdentity(users[0].Id, users[0].FullName,
-                contexts[0].CondominiumId, contexts[0].UnitId)
-            : null;
+        var residentialLinks = unitLinks.Where(x => x.IsResident).ToArray();
+        if (residentialLinks.Length == 0)
+        {
+            logger.LogWarning("No eligible residential membership found for WhatsApp user.");
+            return null;
+        }
+
+        var unitIds = residentialLinks.Select(x => x.UnitId).Distinct().ToArray();
+        var units = await db.Units.AsNoTracking()
+            .Where(x => unitIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.CondominiumId, x.IsActive })
+            .ToArrayAsync(ct);
+        if (units.Any(x => !x.IsActive))
+            logger.LogWarning("Active unit membership points to an inactive unit.");
+
+        var condominiumIds = units.Select(x => x.CondominiumId).Distinct().ToArray();
+        var condominiums = await db.Condominiums.AsNoTracking()
+            .Where(x => condominiumIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.IsActive })
+            .ToArrayAsync(ct);
+        if (condominiums.Any(x => !x.IsActive))
+            logger.LogWarning("Residential context points to an inactive condominium.");
+
+        var activeCondominiumMemberships = await db.CondominiumMemberships.AsNoTracking()
+            .Where(x => x.UserId == users[0].Id && x.IsActive && x.EndedAt == null
+                && condominiumIds.Contains(x.CondominiumId))
+            .Select(x => x.CondominiumId).Distinct().ToArrayAsync(ct);
+
+        var contexts = (
+            from link in residentialLinks
+            join unit in units on link.UnitId equals unit.Id
+            join condominium in condominiums on unit.CondominiumId equals condominium.Id
+            where unit.IsActive && condominium.IsActive
+                && activeCondominiumMemberships.Contains(condominium.Id)
+            select new ResidentialContext(
+                condominium.Id, unit.Id, link.IsPrimaryResidence))
+            .DistinctBy(x => new { x.CondominiumId, x.UnitId }).ToArray();
+        if (contexts.Length == 0)
+        {
+            logger.LogWarning("No eligible residential membership found for WhatsApp user.");
+            return null;
+        }
+
+        var resolved = contexts.Length == 1
+            ? contexts[0]
+            : contexts.Where(x => x.IsPrimaryResidence).Take(2).ToArray() switch
+            {
+                [var primary] => primary,
+                _ => null
+            };
+        if (resolved is null)
+        {
+            logger.LogWarning("More than one eligible residential context found for WhatsApp user.");
+            return null;
+        }
+
+        logger.LogInformation("WhatsApp residential context resolved successfully.");
+        return new ResolvedIdentity(users[0].Id, users[0].FullName,
+            resolved.CondominiumId, resolved.UnitId);
     }
 
     private async Task<(string Response, string Result)> Respond(
@@ -351,5 +411,6 @@ public sealed class WhatsAppConversationService(
     private static string ShortId(Guid id) => id.ToString("N")[..8].ToUpperInvariant();
 
     private sealed record ResolvedIdentity(Guid UserId, string FullName, Guid CondominiumId, Guid UnitId);
+    private sealed record ResidentialContext(Guid CondominiumId, Guid UnitId, bool IsPrimaryResidence);
     private sealed record CategoryChoice(Guid Id, string Name);
 }

@@ -6,7 +6,9 @@ using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Api.Features.RequestAttachments;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
+using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -175,13 +177,20 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task First_message_starts_at_the_menu_even_when_it_contains_free_text()
+    public async Task New_session_with_oi_sends_main_menu_in_the_same_interaction()
     {
-        await PostAsync(TextPayload("wamid.first-free-text", "O portão quebrou"));
+        var response = await PostAsync(TextPayload("wamid.first-oi", "Oi"));
 
-        Assert.Contains("Como posso ajudar", Assert.Single(_fake.Messages).Text);
-        Assert.Equal(WhatsAppConversationState.MainMenu,
-            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var sent = Assert.Single(_fake.Messages);
+        Assert.Contains("Olá, Maria!", sent.Text);
+        Assert.Contains("Como posso ajudar", sent.Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(WhatsAppConversationState.MainMenu, session.State);
+            Assert.Equal("main_menu", (await db.WhatsAppInboundMessages.SingleAsync()).ProcessingResult);
+        });
     }
 
     [Theory]
@@ -215,6 +224,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     {
         await _host.WithDbAsync(async db =>
         {
+            var current = await db.UnitMemberships.SingleAsync(x => x.UnitId == _unitId);
+            current.Update(UnitRelationshipType.Owner, true, false);
             var second = new Condominium("Condomínio B", null, null);
             var unit = new Unit(second.Id, "202", null, null, null);
             db.AddRange(second, unit, new UnitMembership(
@@ -232,6 +243,57 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Equal(WhatsAppConversationState.UnknownPhone,
             await _host.WithDbAsync(db => db.WhatsAppSessions
                 .Select(item => item.State).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Unique_primary_residence_resolves_multiple_residential_links()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var second = new Condominium("Condomínio B", null, null);
+            var unit = new Unit(second.Id, "202", null, null, null);
+            db.AddRange(second, unit, new UnitMembership(
+                _userId, unit.Id, UnitRelationshipType.Tenant, true, false));
+            CoreTestSeed.AddMember(db, _userId, second.Id, CondominiumRole.Resident);
+            await db.SaveChangesAsync();
+        });
+
+        await PostAsync(TextPayload("wamid.primary-context", "Oi"));
+
+        Assert.Contains("Como posso ajudar", Assert.Single(_fake.Messages).Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(WhatsAppConversationState.MainMenu, session.State);
+            Assert.Equal(_unitId, session.UnitId);
+            Assert.Equal(_condominiumId, session.CondominiumId);
+        });
+    }
+
+    [Fact]
+    public async Task Manager_and_platform_admin_with_residential_link_receives_menu()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var membership = await db.CondominiumMemberships.SingleAsync(x =>
+                x.UserId == _userId && x.CondominiumId == _condominiumId);
+            db.CondominiumMembershipRoles.Add(new CondominiumMembershipRole(
+                membership.Id, CondominiumRole.Manager));
+            var role = new IdentityRole<Guid>(DependencyInjection.PlatformAdminRole)
+            {
+                Id = Guid.NewGuid(),
+                NormalizedName = DependencyInjection.PlatformAdminRole.ToUpperInvariant()
+            };
+            db.Roles.Add(role);
+            db.UserRoles.Add(new IdentityUserRole<Guid> { UserId = _userId, RoleId = role.Id });
+            await db.SaveChangesAsync();
+        });
+
+        await PostAsync(TextPayload("wamid.resident-admin", "Oi"));
+
+        Assert.Contains("Como posso ajudar", Assert.Single(_fake.Messages).Text);
+        Assert.Equal(WhatsAppConversationState.MainMenu,
+            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
     }
 
     [Fact]
