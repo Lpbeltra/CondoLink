@@ -14,8 +14,10 @@ public sealed class OpenAiAudioTranscriptionServiceTests
     {
         string? body = null;
         string? mediaType = null;
+        Uri? requestUri = null;
         var service = Service(async (request, ct) =>
         {
+            requestUri = request.RequestUri;
             mediaType = request.Content!.Headers.ContentType!.MediaType;
             body = await request.Content.ReadAsStringAsync(ct);
             return JsonResponse("{\"text\":\"  Relato transcrito.  \"}");
@@ -27,8 +29,124 @@ public sealed class OpenAiAudioTranscriptionServiceTests
         Assert.True(result.Succeeded);
         Assert.Equal("Relato transcrito.", result.Text);
         Assert.Equal("multipart/form-data", mediaType);
+        Assert.Equal("https://api.openai.com/v1/audio/transcriptions", requestUri?.ToString());
         Assert.Contains("gpt-audio-test", body);
         Assert.Contains("audio.ogg", body);
+        Assert.Contains("name=file", body);
+        Assert.Contains("name=model", body);
+    }
+
+    [Theory]
+    [InlineData("audio/ogg; codecs=opus", "audio/ogg", "audio.ogg")]
+    [InlineData("audio/ogg", "audio/ogg", "audio.ogg")]
+    [InlineData("audio/mpeg", "audio/mpeg", "audio.mp3")]
+    [InlineData("audio/mp4", "audio/mp4", "audio.m4a")]
+    [InlineData("audio/aac", "audio/aac", "audio.aac")]
+    [InlineData("audio/amr", "audio/amr", "audio.amr")]
+    public async Task Normalizes_audio_mime_and_uses_safe_technical_filename(
+        string inputMime, string expectedMime, string expectedFileName)
+    {
+        string? body = null;
+        var service = Service(async (request, ct) =>
+        {
+            body = await request.Content!.ReadAsStringAsync(ct);
+            return JsonResponse("{\"text\":\"ok\"}");
+        });
+
+        var result = await service.TranscribeAsync(
+            new byte[] { 1 }, string.Empty, inputMime, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Contains($"Content-Type: {expectedMime}", body);
+        Assert.Contains($"filename={expectedFileName}", body);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest, "http_bad_request")]
+    [InlineData(HttpStatusCode.Unauthorized, "http_unauthorized")]
+    [InlineData(HttpStatusCode.Forbidden, "http_unauthorized")]
+    [InlineData(HttpStatusCode.TooManyRequests, "http_rate_limited")]
+    [InlineData(HttpStatusCode.InternalServerError, "provider_error")]
+    public async Task Maps_provider_http_failures(HttpStatusCode status, string expected)
+    {
+        var service = Service((_, _) => Task.FromResult(new HttpResponseMessage(status)
+        {
+            Content = new StringContent(
+                "{\"error\":{\"type\":\"safe-type\",\"code\":\"safe-code\",\"param\":\"safe-param\",\"message\":\"must-not-be-logged\"}}")
+        }));
+
+        var result = await service.TranscribeAsync(
+            new byte[] { 1 }, "ignored.ogg", "audio/ogg", CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(expected, result.Code);
+    }
+
+    [Fact]
+    public async Task Empty_text_returns_empty_response()
+    {
+        var service = Service((_, _) => Task.FromResult(JsonResponse("{\"text\":\" \"}")));
+
+        var result = await service.TranscribeAsync(
+            new byte[] { 1 }, "ignored.ogg", "audio/ogg", CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("empty_response", result.Code);
+    }
+
+    [Fact]
+    public async Task Multipart_preparation_failure_is_safe_and_does_not_send()
+    {
+        var called = false;
+        var service = Service((_, _) =>
+        {
+            called = true;
+            return Task.FromResult(JsonResponse("{}"));
+        });
+
+        var result = await service.TranscribeAsync(
+            new byte[] { 1 }, "ignored.bin", "application/octet-stream",
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("provider_error", result.Code);
+        Assert.False(called);
+    }
+
+    [Fact]
+    public async Task Audio_open_failure_is_safe_and_does_not_send()
+    {
+        var called = false;
+        var service = Service((_, _) =>
+        {
+            called = true;
+            return Task.FromResult(JsonResponse("{}"));
+        }, audioContentFactory: _ => throw new IOException("test"));
+
+        var result = await service.TranscribeAsync(
+            new byte[] { 1 }, "ignored.ogg", "audio/ogg", CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("provider_error", result.Code);
+        Assert.False(called);
+    }
+
+    [Fact]
+    public async Task Multipart_add_failure_is_safe_and_does_not_send()
+    {
+        var called = false;
+        var service = Service((_, _) =>
+        {
+            called = true;
+            return Task.FromResult(JsonResponse("{}"));
+        }, addFile: (_, _, _) => throw new FormatException("test"));
+
+        var result = await service.TranscribeAsync(
+            new byte[] { 1 }, "ignored.ogg", "audio/ogg", CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("provider_error", result.Code);
+        Assert.False(called);
     }
 
     [Theory]
@@ -96,21 +214,28 @@ public sealed class OpenAiAudioTranscriptionServiceTests
         Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send,
         bool enabled = true, string? apiKey = "test-key", int timeoutSeconds = 15,
         ILogger<OpenAiAudioTranscriptionService>? logger = null,
-        string baseUrl = "https://api.openai.com/v1/")
+        string baseUrl = "https://api.openai.com/v1/",
+        Func<ReadOnlyMemory<byte>, HttpContent>? audioContentFactory = null,
+        Action<MultipartFormDataContent, HttpContent, string>? addFile = null)
     {
         var client = new HttpClient(new DelegateHandler(send))
         {
             BaseAddress = new Uri(baseUrl)
         };
-        return new OpenAiAudioTranscriptionService(client,
-            Options.Create(new RequestDraftAiAudioOptions
+        var configuredOptions = Options.Create(new RequestDraftAiAudioOptions
             {
                 Enabled = enabled,
                 ApiKey = apiKey,
                 BaseUrl = baseUrl,
                 Model = "gpt-audio-test",
                 TimeoutSeconds = timeoutSeconds
-            }), logger ?? NullLogger<OpenAiAudioTranscriptionService>.Instance);
+            });
+        var configuredLogger = logger ?? NullLogger<OpenAiAudioTranscriptionService>.Instance;
+        return audioContentFactory is null && addFile is null
+            ? new OpenAiAudioTranscriptionService(client, configuredOptions, configuredLogger)
+            : new OpenAiAudioTranscriptionService(client, configuredOptions, configuredLogger,
+                audioContentFactory ?? (bytes => new ByteArrayContent(bytes.ToArray())),
+                addFile ?? ((form, content, name) => form.Add(content, "file", name)));
     }
 
     private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)

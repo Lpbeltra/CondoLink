@@ -41,7 +41,30 @@ public static class AttachmentPolicy
 
     public static string? PreferredExtension(string? contentType) =>
         AllowedFiles.FirstOrDefault(x => x.Value.Contains(
-            contentType ?? string.Empty, StringComparer.OrdinalIgnoreCase)).Key;
+            NormalizeMediaType(contentType) ?? string.Empty,
+            StringComparer.OrdinalIgnoreCase)).Key;
+
+    public static AudioMultipartFormat? ResolveAudioMultipartFormat(string? contentType)
+    {
+        var mediaType = NormalizeMediaType(contentType);
+        return mediaType?.ToLowerInvariant() switch
+        {
+            "audio/ogg" => new("audio/ogg", "audio.ogg"),
+            "audio/mpeg" => new("audio/mpeg", "audio.mp3"),
+            "audio/mp4" or "audio/x-m4a" => new("audio/mp4", "audio.m4a"),
+            "audio/aac" => new("audio/aac", "audio.aac"),
+            "audio/amr" => new("audio/amr", "audio.amr"),
+            _ => null
+        };
+    }
+
+    private static string? NormalizeMediaType(string? contentType)
+    {
+        var mediaType = contentType?.Split(';', 2)[0].Trim();
+        return string.IsNullOrWhiteSpace(mediaType) ? null : mediaType;
+    }
+
+    public sealed record AudioMultipartFormat(string ContentType, string FileName);
 
     public sealed record ValidationResult(
         string? Error,
