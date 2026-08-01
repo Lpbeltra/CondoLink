@@ -29,6 +29,7 @@ public static class CreateOverwatchCondominium
         var item = new Condominium(name, request.Email, cnpj, request.Address,
             request.City, request.State, request.HasDoorman,
             request.IsRemoteDoorman, request.DoormanContact);
+        item.ConfigureWhatsAppUpdates(request.WhatsAppUpdatesEnabled ?? true, null);
         db.Condominiums.Add(item);
         await db.SaveChangesAsync(cancellationToken);
         return Results.Created($"/overwatch/condominiums/{item.Id}", new { item.Id });

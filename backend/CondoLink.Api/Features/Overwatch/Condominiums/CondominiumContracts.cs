@@ -5,12 +5,14 @@ namespace CondoLink.Api.Features.Overwatch.Condominiums;
 
 public sealed record CondominiumRequest(
     string? Name, string? Email, string? Cnpj, string? Address, string? City,
-    string? State, bool HasDoorman, bool IsRemoteDoorman, string? DoormanContact);
+    string? State, bool HasDoorman, bool IsRemoteDoorman, string? DoormanContact,
+    bool? WhatsAppUpdatesEnabled);
 
 public sealed record CondominiumResponse(
     Guid Id, string Name, string? Email, string? Cnpj, string? Address,
     string? City, string? State, bool HasDoorman, bool IsRemoteDoorman,
-    string? DoormanContact, bool IsActive, DateTime CreatedAt, DateTime UpdatedAt,
+    string? DoormanContact, bool WhatsAppUpdatesEnabled, bool IsActive,
+    DateTime CreatedAt, DateTime UpdatedAt,
     Guid? ManagementCompanyId, string? ManagementCompanyName, int ManagerCount);
 
 internal static class CondominiumValidation

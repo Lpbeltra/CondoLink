@@ -30,6 +30,9 @@ public static class UpdateOverwatchCondominium
         item.Update(name, request.Email, cnpj, request.Address, request.City,
             request.State, request.HasDoorman, request.IsRemoteDoorman,
             request.DoormanContact);
+        if (request.WhatsAppUpdatesEnabled.HasValue)
+            item.ConfigureWhatsAppUpdates(request.WhatsAppUpdatesEnabled.Value,
+                item.WhatsAppDisplayName);
         await db.SaveChangesAsync(cancellationToken);
         return Results.Ok(new { item.Id });
     }

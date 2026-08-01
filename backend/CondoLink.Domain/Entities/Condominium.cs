@@ -16,6 +16,7 @@ public sealed class Condominium
         ApplyChanges(name, email, cnpj, address, city, state, hasDoorman,
             isRemoteDoorman, doormanContact);
         IsActive = true;
+        WhatsAppUpdatesEnabled = true;
         CreatedAt = now;
         UpdatedAt = now;
     }

@@ -29,7 +29,7 @@ public sealed class CondominiumConfiguration : IEntityTypeConfiguration<Condomin
             .HasForeignKey(item => item.ManagementCompanyId).OnDelete(DeleteBehavior.SetNull);
         builder.Property(item => item.IsActive).HasColumnName("is_active").IsRequired();
         builder.Property(item => item.WhatsAppUpdatesEnabled)
-            .HasColumnName("whatsapp_updates_enabled").HasDefaultValue(false).IsRequired();
+            .HasColumnName("whatsapp_updates_enabled").HasDefaultValue(true).IsRequired();
         builder.Property(item => item.WhatsAppDisplayName)
             .HasColumnName("whatsapp_display_name").HasMaxLength(200);
         builder.Property(item => item.CreatedAt).HasColumnName("created_at").IsRequired();

@@ -39,7 +39,7 @@ describe('Overwatch condominium API', () => {
     const input = {
       name: 'Condomínio', email: null, cnpj: '11222333000181',
       address: 'Rua A', city: 'São Paulo', state: 'SP', hasDoorman: false,
-      isRemoteDoorman: false, doormanContact: null,
+      isRemoteDoorman: false, doormanContact: null, whatsAppUpdatesEnabled: true,
     }
     http.post.mockResolvedValue({ data: { id: 'condominium-id' } })
 
@@ -54,6 +54,7 @@ describe('Overwatch condominium API', () => {
       email: 'contact@example.com',
       cnpj: '11222333000181', address: 'Rua A', city: 'São Paulo', state: 'SP',
       hasDoorman: false, isRemoteDoorman: false, doormanContact: null,
+      whatsAppUpdatesEnabled: false,
     }
     http.put.mockResolvedValue({ data: {} })
     http.patch.mockResolvedValue({ data: {} })

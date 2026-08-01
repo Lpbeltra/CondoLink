@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
   Alert, Box, Button, Checkbox, CircularProgress, Dialog, DialogActions,
-  DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, TextField,
-  Typography,
+  DialogContent, DialogTitle, FormControlLabel, FormHelperText, MenuItem, Stack,
+  Switch, TextField, Typography,
 } from '@mui/material'
 import { brazilianStates, formatCnpj } from '../registration'
 import type { CondominiumInput, ManagementCompanyOption, OverwatchCondominium } from './types'
@@ -21,6 +21,7 @@ export function CondominiumFormDialog({
   const [values, setValues] = useState({
     name: '', email: '', cnpj: '', address: '', city: '', state: '',
     hasDoorman: false, isRemoteDoorman: false, doormanContact: '',
+    whatsAppUpdatesEnabled: true,
     managementCompanyId: '',
   })
   const [validationError, setValidationError] = useState('')
@@ -37,6 +38,7 @@ export function CondominiumFormDialog({
       state: condominium?.state ?? '', hasDoorman: condominium?.hasDoorman ?? false,
       isRemoteDoorman: condominium?.isRemoteDoorman ?? false,
       doormanContact: condominium?.doormanContact ?? '',
+      whatsAppUpdatesEnabled: condominium?.whatsAppUpdatesEnabled ?? true,
       managementCompanyId: condominium?.managementCompanyId ?? '',
     })
     setValidationError(''); setPendingRequest(null)
@@ -52,6 +54,7 @@ export function CondominiumFormDialog({
         hasDoorman: values.hasDoorman,
         isRemoteDoorman: values.hasDoorman && values.isRemoteDoorman,
         doormanContact: values.hasDoorman ? normalizeOptional(values.doormanContact) : null,
+        whatsAppUpdatesEnabled: values.whatsAppUpdatesEnabled,
       },
       managementCompanyId: values.managementCompanyId || null,
     }
@@ -95,6 +98,16 @@ export function CondominiumFormDialog({
               onChange={e => set('doormanContact', e.target.value)}
               slotProps={{ htmlInput: { maxLength: 100 } }} />
           </>}
+          <Box>
+            <FormControlLabel
+              control={<Switch checked={values.whatsAppUpdatesEnabled}
+                onChange={e => set('whatsAppUpdatesEnabled', e.target.checked)} />}
+              label="Atualizações pelo WhatsApp"
+            />
+            <FormHelperText sx={{ ml: 1.75 }}>
+              Permite enviar aos moradores atualizações de status e solicitações de resposta pelo WhatsApp.
+            </FormHelperText>
+          </Box>
           <TextField select label="Administradora" value={values.managementCompanyId}
             onChange={e => set('managementCompanyId', e.target.value)}>
             <MenuItem value="">Sem administradora</MenuItem>

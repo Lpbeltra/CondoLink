@@ -200,6 +200,63 @@ public sealed class OverwatchCondominiumEndpointsTests : IAsyncLifetime
         Assert.False(details.IsRemoteDoorman);
         Assert.Null(details.DoormanContact);
         Assert.Equal("04252011000110", details.Cnpj);
+        Assert.True(details.WhatsAppUpdatesEnabled);
+    }
+
+    [Fact]
+    public async Task WhatsApp_updates_default_to_true_and_explicit_values_can_be_toggled()
+    {
+        var defaultResponse = await _admin.PostAsJsonAsync(
+            "/overwatch/condominiums",
+            Registration("Default WhatsApp", "04.252.011/0001-10", false, false, null));
+        var defaultCreated = await defaultResponse.Content.ReadFromJsonAsync<CreatedResponse>();
+        Assert.True((await _admin.GetFromJsonAsync<RegistrationResponse>(
+            $"/overwatch/condominiums/{defaultCreated!.Id}"))!.WhatsAppUpdatesEnabled);
+        var disableDefault = new {
+            name = "Default WhatsApp", email = (string?)null,
+            cnpj = "04.252.011/0001-10", address = "Rua A", city = "São Paulo",
+            state = "SP", hasDoorman = false, isRemoteDoorman = false,
+            doormanContact = (string?)null, whatsAppUpdatesEnabled = false
+        };
+        Assert.Equal(HttpStatusCode.OK, (await _admin.PutAsJsonAsync(
+            $"/overwatch/condominiums/{defaultCreated.Id}", disableDefault)).StatusCode);
+        Assert.False((await _admin.GetFromJsonAsync<RegistrationResponse>(
+            $"/overwatch/condominiums/{defaultCreated.Id}"))!.WhatsAppUpdatesEnabled);
+
+        var explicitFalse = new {
+            name = "Disabled WhatsApp", email = (string?)null,
+            cnpj = "45.723.174/0001-10", address = "Rua B", city = "Curitiba",
+            state = "PR", hasDoorman = false, isRemoteDoorman = false,
+            doormanContact = (string?)null, whatsAppUpdatesEnabled = false
+        };
+        var falseResponse = await _admin.PostAsJsonAsync(
+            "/overwatch/condominiums", explicitFalse);
+        var falseCreated = await falseResponse.Content.ReadFromJsonAsync<CreatedResponse>();
+        var falseDetails = await _admin.GetFromJsonAsync<RegistrationResponse>(
+            $"/overwatch/condominiums/{falseCreated!.Id}");
+        Assert.False(falseDetails!.WhatsAppUpdatesEnabled);
+
+        var enabledUpdate = new {
+            explicitFalse.name, explicitFalse.email, explicitFalse.cnpj,
+            explicitFalse.address, explicitFalse.city, explicitFalse.state,
+            explicitFalse.hasDoorman, explicitFalse.isRemoteDoorman,
+            explicitFalse.doormanContact, whatsAppUpdatesEnabled = true
+        };
+        Assert.Equal(HttpStatusCode.OK, (await _admin.PutAsJsonAsync(
+            $"/overwatch/condominiums/{falseCreated.Id}", enabledUpdate)).StatusCode);
+        Assert.True((await _admin.GetFromJsonAsync<RegistrationResponse>(
+            $"/overwatch/condominiums/{falseCreated.Id}"))!.WhatsAppUpdatesEnabled);
+    }
+
+    [Fact]
+    public void Domain_and_ef_model_default_whatsapp_updates_to_true()
+    {
+        Assert.True(new Condominium("Default", null, null).WhatsAppUpdatesEnabled);
+        using var scope = _application!.Services.CreateScope();
+        var property = scope.ServiceProvider.GetRequiredService<AppDbContext>().Model
+            .FindEntityType(typeof(Condominium))!
+            .FindProperty(nameof(Condominium.WhatsAppUpdatesEnabled))!;
+        Assert.Equal(true, property.GetDefaultValue());
     }
 
     [Fact]
@@ -273,5 +330,6 @@ public sealed class OverwatchCondominiumEndpointsTests : IAsyncLifetime
     private sealed record LinkResponse(Guid? ManagementCompanyId);
     private sealed record CreatedResponse(Guid Id);
     private sealed record RegistrationResponse(
-        string? Cnpj, bool HasDoorman, bool IsRemoteDoorman, string? DoormanContact);
+        string? Cnpj, bool HasDoorman, bool IsRemoteDoorman, string? DoormanContact,
+        bool WhatsAppUpdatesEnabled);
 }

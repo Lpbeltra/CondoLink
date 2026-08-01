@@ -91,7 +91,8 @@ public static class CreateCondominium
 
         var registrationRequest = new Features.Overwatch.Condominiums.CondominiumRequest(
             request.Name, request.Email, request.Cnpj, request.Address, request.City,
-            request.State, request.HasDoorman, request.IsRemoteDoorman, request.DoormanContact);
+            request.State, request.HasDoorman, request.IsRemoteDoorman,
+            request.DoormanContact, null);
         var registrationError = Features.Overwatch.Condominiums.CondominiumValidation.Validate(
             registrationRequest);
         if (registrationError is not null)

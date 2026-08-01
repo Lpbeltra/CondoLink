@@ -13,6 +13,7 @@ function condominium(id: string, name: string): OverwatchCondominium {
     email: null,
     cnpj: null, address: null, city: null, state: null,
     hasDoorman: false, isRemoteDoorman: false, doormanContact: null,
+    whatsAppUpdatesEnabled: true,
     isActive: true,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',

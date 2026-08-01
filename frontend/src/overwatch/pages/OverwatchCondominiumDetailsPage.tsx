@@ -170,6 +170,7 @@ export function OverwatchCondominiumDetailsPage() {
     ['Cidade', condominium.city || 'Não informada'],
     ['Estado', condominium.state || 'Não informado'],
     ['Possui portaria', condominium.hasDoorman ? 'Sim' : 'Não'],
+    ['Atualizações pelo WhatsApp', condominium.whatsAppUpdatesEnabled ? 'Ativas' : 'Desativadas'],
     ...(condominium.hasDoorman ? [
       ['Tipo', condominium.isRemoteDoorman ? 'Remota' : 'Presencial'],
       ['Contato da portaria', condominium.doormanContact || 'Não informado'],

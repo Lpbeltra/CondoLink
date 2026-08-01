@@ -9,6 +9,7 @@ export interface OverwatchCondominium {
   hasDoorman: boolean
   isRemoteDoorman: boolean
   doormanContact: string | null
+  whatsAppUpdatesEnabled: boolean
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -27,6 +28,7 @@ export interface CondominiumInput {
   hasDoorman: boolean
   isRemoteDoorman: boolean
   doormanContact: string | null
+  whatsAppUpdatesEnabled: boolean
 }
 
 export interface ManagementCompanyOption {

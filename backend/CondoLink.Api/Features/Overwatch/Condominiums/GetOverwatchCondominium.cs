@@ -40,6 +40,7 @@ public static class GetOverwatchCondominium
                 condominium.HasDoorman,
                 condominium.IsRemoteDoorman,
                 condominium.DoormanContact,
+                condominium.WhatsAppUpdatesEnabled,
                 condominium.IsActive,
                 condominium.CreatedAt,
                 condominium.UpdatedAt,
