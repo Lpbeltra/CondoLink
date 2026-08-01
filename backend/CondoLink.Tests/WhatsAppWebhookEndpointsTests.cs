@@ -1074,8 +1074,11 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             RequestDraftAiOutcome.Succeeded, "draft-model");
         _transcription.Result = new(true, "O elevador está fazendo barulho.", "succeeded");
         await AddCategoryAndStartAudioFlow("valid-audio");
+        await PostAsync(MediaPayload(
+            "wamid.valid-audio", "valid-audio", "audio", "audio/ogg; codecs=opus"));
 
         Assert.Equal(1, _transcription.Calls);
+        Assert.Equal(1, _fake.DownloadCalls);
         await PostAsync(TextPayload("wamid.audio-finished", "2"));
         Assert.Equal(1, _ai.Calls);
         Assert.Contains("Revise sua solicitação", _fake.Messages.Last().Text);
@@ -1336,6 +1339,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     {
         public List<(string Phone, string Text)> Messages { get; } = [];
         public bool Fail { get; set; }
+        public int DownloadCalls { get; private set; }
         public WhatsAppMediaResult Media { get; set; } =
             new(false, null, null, "No media configured.");
 
@@ -1352,8 +1356,11 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         public Task<WhatsAppMediaResult> DownloadMediaAsync(
             string mediaId,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(Media);
+            CancellationToken cancellationToken)
+        {
+            DownloadCalls++;
+            return Task.FromResult(Media);
+        }
 
         public Task<WhatsAppSendResult> SendTemplateAsync(
             string phoneNumber,

@@ -118,11 +118,20 @@ public static class WhatsAppWebhookEndpoints
         using (document)
         {
             var messages = WhatsAppWebhookParser.Parse(document.RootElement);
+            logger.LogInformation(
+                "WhatsApp webhook parsing completed. ProcessableMessageCount: {ProcessableMessageCount}.",
+                messages.Count);
             if (messages.Count == 0)
                 logger.LogInformation(
                     "WhatsApp webhook event ignored because it contains no processable message.");
             foreach (var message in messages)
             {
+                logger.LogInformation(
+                    "WhatsApp parsed message metadata. MessageType: {MessageType}; HasMediaId: {HasMediaId}; HasMimeType: {HasMimeType}; HasFileName: {HasFileName}.",
+                    message.MessageType,
+                    !string.IsNullOrWhiteSpace(message.MediaId),
+                    !string.IsNullOrWhiteSpace(message.MediaContentType),
+                    !string.IsNullOrWhiteSpace(message.FileName));
                 try
                 {
                     await conversations.ProcessAsync(message, cancellationToken);

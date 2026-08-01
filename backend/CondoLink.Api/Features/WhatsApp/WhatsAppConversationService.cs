@@ -256,6 +256,14 @@ public sealed class WhatsAppConversationService(
 
         var text = message.Text?.Trim();
         var command = NormalizeCommand(text);
+        logger.LogInformation(
+            "WhatsApp message routing. SessionState: {SessionState}; MessageType: {MessageType}; HasMediaId: {HasMediaId}; HasMimeType: {HasMimeType}; HasFileName: {HasFileName}; ProcessingBranch: {ProcessingBranch}.",
+            session.State,
+            message.MessageType,
+            !string.IsNullOrWhiteSpace(message.MediaId),
+            !string.IsNullOrWhiteSpace(message.MediaContentType),
+            !string.IsNullOrWhiteSpace(message.FileName),
+            ProcessingBranch(session.State, message));
         if (command is "menu" or "inicio" or "reiniciar")
         {
             await DiscardDraftAttachments(session, ct);
@@ -354,6 +362,8 @@ public sealed class WhatsAppConversationService(
     {
         if (string.IsNullOrWhiteSpace(message.MediaId))
         {
+            logger.LogWarning(
+                "WhatsApp audio branch cannot download media because MediaId is absent.");
             MarkAudioFailure(session, now, expires);
             return (AudioFailurePrompt(), "audio_missing");
         }
@@ -702,6 +712,20 @@ public sealed class WhatsAppConversationService(
         return string.Join(' ', builder.ToString().Normalize(NormalizationForm.FormC)
             .Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
+
+    private static string ProcessingBranch(
+        WhatsAppConversationState state, NormalizedWhatsAppMessage message) =>
+        state switch
+        {
+            WhatsAppConversationState.CollectingDescription
+                when message.MessageType == "audio" => "audio",
+            WhatsAppConversationState.CollectingDescription
+                when message.MessageType == "text" => "text",
+            WhatsAppConversationState.CollectingAttachments
+                when message.MessageType is "image" or "video" or "document" => "attachment",
+            _ when message.MessageType is "text" or "interactive" => "text",
+            _ => "unsupported"
+        };
 
     private static string FirstName(string name) =>
         name.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "Olá";
