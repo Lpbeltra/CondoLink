@@ -15,7 +15,8 @@ namespace CondoLink.Api.Features.Notifications;
 /// </summary>
 public sealed class NotificationService(
     AppDbContext dbContext,
-    WhatsAppNotificationDispatcher? whatsApp = null)
+    WhatsAppNotificationDispatcher? whatsApp = null,
+    ILogger<NotificationService>? logger = null)
 {
     /// <summary>
     /// Notifies the managers of a condominium that a new request was opened.
@@ -65,18 +66,29 @@ public sealed class NotificationService(
             request.Id));
 
         await dbContext.SaveChangesAsync(cancellationToken);
-        if (whatsApp is not null && statusHistoryId.HasValue)
+        var type = StatusNotificationType(previousStatus, request.Status);
+        logger?.LogInformation(
+            "WhatsApp notification flow. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; Decision: {Decision}; Reason: {Reason}",
+            request.Id, request.CondominiumId, type, "EnteredNotificationService",
+            "InAppNotificationSaved");
+        if (whatsApp is null)
         {
-            var type = request.Status switch
-            {
-                RequestStatus.WaitingForResident =>
-                    WhatsAppNotificationType.InformationRequested,
-                RequestStatus.Resolved => WhatsAppNotificationType.RequestResolved,
-                RequestStatus.Cancelled => WhatsAppNotificationType.RequestCancelled,
-                RequestStatus.Open when previousStatus is RequestStatus.Resolved
-                    or RequestStatus.Cancelled => WhatsAppNotificationType.RequestReopened,
-                _ => WhatsAppNotificationType.StatusChanged
-            };
+            logger?.LogInformation(
+                "WhatsApp notification flow. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; Decision: {Decision}; Reason: {Reason}",
+                request.Id, request.CondominiumId, type, "Stopped", "WhatsAppDispatcherUnavailable");
+        }
+        else if (!statusHistoryId.HasValue)
+        {
+            logger?.LogInformation(
+                "WhatsApp notification flow. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; Decision: {Decision}; Reason: {Reason}",
+                request.Id, request.CondominiumId, type, "Stopped", "StatusHistoryIdMissing");
+        }
+        else
+        {
+            logger?.LogInformation(
+                "WhatsApp notification flow. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; Decision: {Decision}; Reason: {Reason}",
+                request.Id, request.CondominiumId, type, "CallingWhatsAppDispatcher",
+                "EligibleForEnqueueEvaluation");
             await whatsApp.EnqueueAsync(
                 request.Id, type, $"request-status:{statusHistoryId}",
                 content,
@@ -182,6 +194,17 @@ public sealed class NotificationService(
         RequestStatus.Resolved => "Resolvida",
         RequestStatus.Cancelled => "Cancelada",
         _ => status.ToString()
+    };
+
+    internal static WhatsAppNotificationType StatusNotificationType(
+        RequestStatus previousStatus, RequestStatus currentStatus) => currentStatus switch
+    {
+        RequestStatus.WaitingForResident => WhatsAppNotificationType.InformationRequested,
+        RequestStatus.Resolved => WhatsAppNotificationType.RequestResolved,
+        RequestStatus.Cancelled => WhatsAppNotificationType.RequestCancelled,
+        RequestStatus.Open when previousStatus is RequestStatus.Resolved
+            or RequestStatus.Cancelled => WhatsAppNotificationType.RequestReopened,
+        _ => WhatsAppNotificationType.StatusChanged
     };
 
     internal static string StatusChangedContent(string title,

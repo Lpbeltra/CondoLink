@@ -20,14 +20,34 @@ public sealed class WhatsAppNotificationDispatcher(
         Guid? requestMessageId,
         CancellationToken ct)
     {
+        void Log(string decision, string reason, Guid condominiumId = default) =>
+            logger.LogInformation(
+                "WhatsApp notification flow. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; Decision: {Decision}; Reason: {Reason}",
+                requestId, condominiumId, type, decision, reason);
+
+        Log("EnteredWhatsAppDispatcher", "EnqueueEvaluationStarted");
         var request = await db.Requests.AsNoTracking()
-            .SingleAsync(x => x.Id == requestId, ct);
+            .SingleOrDefaultAsync(x => x.Id == requestId, ct);
+        if (request is null)
+        {
+            Log("Stopped", "RequestNotFound");
+            return;
+        }
         if (await db.WhatsAppOutboundMessages.AsNoTracking()
-            .AnyAsync(x => x.IdempotencyKey == idempotencyKey, ct)) return;
+            .AnyAsync(x => x.IdempotencyKey == idempotencyKey, ct))
+        {
+            Log("Stopped", "DuplicateIdempotencyKey", request.CondominiumId);
+            return;
+        }
         var settings = options.Value;
         var condominium = await db.Condominiums.AsNoTracking()
             .Where(x => x.Id == request.CondominiumId)
-            .Select(x => new { x.WhatsAppUpdatesEnabled }).SingleAsync(ct);
+            .Select(x => new { x.WhatsAppUpdatesEnabled }).SingleOrDefaultAsync(ct);
+        if (condominium is null)
+        {
+            Log("Stopped", "CondominiumNotFound", request.CondominiumId);
+            return;
+        }
         var user = await db.Set<ApplicationUser>().AsNoTracking()
             .Where(x => x.Id == request.AuthorUserId)
             .Select(x => new
@@ -61,6 +81,19 @@ public sealed class WhatsAppNotificationDispatcher(
                     || string.IsNullOrWhiteSpace(template.Language))
                 ? "Template não configurado."
                 : null;
+        var technicalReason = !settings.Enabled ? "GlobalFeatureDisabled"
+            : !condominium.WhatsAppUpdatesEnabled ? "CondominiumFeatureDisabled"
+            : user is null ? "UserNotFound"
+            : !user.IsActive ? "UserInactive"
+            : !user.ReceiveWhatsAppUpdates ? "UserPreferenceDisabled"
+            : phone is null ? "PhoneMissingOrInvalid"
+            : ambiguous ? "PhoneAmbiguous"
+            : !activeMembership ? "MembershipInvalid"
+            : mode == WhatsAppSendMode.Template
+                && (string.IsNullOrWhiteSpace(template.Name)
+                    || string.IsNullOrWhiteSpace(template.Language))
+                ? "TemplateNotConfigured"
+                : "Eligible";
         var status = skipReason is null
             ? WhatsAppOutboundStatus.Pending : WhatsAppOutboundStatus.Skipped;
         db.WhatsAppOutboundMessages.Add(new WhatsAppOutboundMessage(
@@ -68,6 +101,8 @@ public sealed class WhatsAppNotificationDispatcher(
             request.CondominiumId, phone ?? string.Empty, type, mode,
             idempotencyKey, content, template.Name, template.Language,
             DateTime.UtcNow, status, skipReason));
+        Log("WhatsAppOutboundMessageCreated", technicalReason,
+            request.CondominiumId);
         if (skipReason is null && type == WhatsAppNotificationType.InformationRequested)
         {
             var now = DateTime.UtcNow;
@@ -87,31 +122,31 @@ public sealed class WhatsAppNotificationDispatcher(
                 || session.ExpiresAt <= now)
                 session.OfferResidentReply(request.Id, now, expires);
         }
-        try { await db.SaveChangesAsync(ct); }
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            Log("QueueSaveChangesCompleted", "MessagesCreated:1",
+                request.CondominiumId);
+        }
         catch (DbUpdateException)
         {
             if (await db.WhatsAppOutboundMessages.AsNoTracking()
-                .AnyAsync(x => x.IdempotencyKey == idempotencyKey, ct)) return;
+                .AnyAsync(x => x.IdempotencyKey == idempotencyKey, ct))
+            {
+                Log("Stopped", "DuplicateDetectedDuringSave",
+                    request.CondominiumId);
+                return;
+            }
+            Log("Stopped", "QueueSaveChangesFailed", request.CondominiumId);
             throw;
         }
-        if (skipReason is not null)
-            logger.LogInformation(
-                "WhatsApp outbound skipped. GlobalEnabled: {GlobalEnabled}; " +
-                "CondominiumEnabled: {CondominiumEnabled}; UserActive: {UserActive}; " +
-                "UserPreferenceEnabled: {UserPreferenceEnabled}; " +
-                "PhoneConfigured: {PhoneConfigured}; MembershipValid: {MembershipValid}; " +
-                "SessionOpen: {SessionOpen}; TemplateConfigured: {TemplateConfigured}; " +
-                "Reason: {Reason}",
-                settings.Enabled,
-                condominium.WhatsAppUpdatesEnabled,
-                user?.IsActive == true,
-                user?.ReceiveWhatsAppUpdates == true,
-                phone is not null,
-                activeMembership,
-                sessionOpen,
-                !string.IsNullOrWhiteSpace(template.Name)
-                    && !string.IsNullOrWhiteSpace(template.Language),
-                skipReason);
+        catch (Exception)
+        {
+            Log("Stopped", "QueueSaveChangesFailed", request.CondominiumId);
+            throw;
+        }
+        Log(skipReason is null ? "Enqueued" : "Skipped", technicalReason,
+            request.CondominiumId);
     }
 
     private static WhatsAppTemplateDefinition TemplateFor(

@@ -29,6 +29,11 @@ public static class UpdateRequestStatus
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        var logger = loggerFactory.CreateLogger(typeof(UpdateRequestStatus));
+        logger.LogInformation(
+            "WhatsApp notification flow. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; Decision: {Decision}; Reason: {Reason}",
+            requestId, Guid.Empty, "Undetermined", "EnteredUpdateRequestStatus", "EndpointEntered");
+
         var authenticatedUserIdValue =
             principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
             ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -66,6 +71,9 @@ public static class UpdateRequestStatus
 
         if (targetRequest is null)
         {
+            logger.LogInformation(
+                "WhatsApp notification flow. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; Decision: {Decision}; Reason: {Reason}",
+                requestId, Guid.Empty, "Undetermined", "Stopped", "RequestNotFound");
             return Results.NotFound(new { error = "Request not found." });
         }
 
@@ -158,18 +166,23 @@ public static class UpdateRequestStatus
         // must not turn a successful update into an error for the manager.
         try
         {
+            var notificationType = NotificationService.StatusNotificationType(
+                previousStatus, targetRequest.Status);
+            logger.LogInformation(
+                "WhatsApp notification flow. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; Decision: {Decision}; Reason: {Reason}",
+                targetRequest.Id, targetRequest.CondominiumId, notificationType,
+                "CallingNotificationService", "StatusChangePersisted");
             await notifications.NotifyStatusChangedAsync(
                 targetRequest, previousStatus, authenticatedUserId,
                 cancellationToken, history.Id, reason);
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            loggerFactory
-                .CreateLogger(typeof(UpdateRequestStatus))
-                .LogError(
-                    exception,
-                    "Failed to notify status change for request {RequestId}.",
-                    targetRequest.Id);
+            logger.LogError(
+                "WhatsApp notification flow. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; Decision: {Decision}; Reason: {Reason}",
+                targetRequest.Id, targetRequest.CondominiumId,
+                NotificationService.StatusNotificationType(previousStatus, targetRequest.Status),
+                "Stopped", "NotificationServiceFailed");
         }
 
         return Results.Ok(new Response(
