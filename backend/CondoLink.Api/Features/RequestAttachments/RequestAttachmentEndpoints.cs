@@ -109,7 +109,10 @@ public static class RequestAttachmentEndpoints
         try { stream = storage.OpenRead(attachment.StorageKey); }
         catch (InvalidOperationException) { stream = null; }
         if (stream is null) return Results.NotFound(new { error = "O arquivo do anexo não foi encontrado." });
-        response.Headers.ContentDisposition = $"attachment; filename*=UTF-8''{Uri.EscapeDataString(attachment.OriginalFileName)}";
+        var disposition = attachment.ContentType.StartsWith(
+            "audio/", StringComparison.OrdinalIgnoreCase) ? "inline" : "attachment";
+        response.Headers.ContentDisposition =
+            $"{disposition}; filename*=UTF-8''{Uri.EscapeDataString(attachment.OriginalFileName)}";
         response.Headers.CacheControl = "no-store";
         return Results.File(stream, attachment.ContentType, enableRangeProcessing: true);
     }

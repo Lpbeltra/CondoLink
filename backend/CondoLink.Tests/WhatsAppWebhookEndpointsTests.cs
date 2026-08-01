@@ -888,7 +888,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Invalid_ai_category_keeps_manual_flow_when_others_does_not_exist()
+    public async Task Invalid_ai_category_uses_stable_internal_fallback_when_others_does_not_exist()
     {
         _ai.Result = new(true, new RequestDraftAiProposal(
             "Título organizado", "Descrição organizada", "Jardinagem", [], 0.4), null,
@@ -903,7 +903,34 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.manual-category-review", "2"));
         await PostAsync(TextPayload("wamid.manual-category-confirm", "1"));
 
-        Assert.Contains("Escolha a categoria", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("categoria", _fake.Messages.Last().Text,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Manutenção", await _host.WithDbAsync(db => db.Requests
+            .Join(db.Categories, request => request.CategoryId, category => category.Id,
+                (_, category) => category.Name).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Legacy_selecting_category_session_returns_to_review_without_showing_categories()
+    {
+        _ai.Result = new(true, new RequestDraftAiProposal(
+            "Título organizado", "Descrição organizada", "Manutenção", [], 0.8), null);
+        await AddCategoryAndStartAttachmentFlow();
+        await PostAsync(TextPayload("wamid.legacy-review", "2"));
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            session.BeginCategorySelection(DateTime.UtcNow, DateTime.UtcNow.AddMinutes(30));
+            await db.SaveChangesAsync();
+        });
+
+        await PostAsync(TextPayload("wamid.legacy-category-input", "1"));
+
+        Assert.StartsWith("Revise sua solicitação", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("categoria", _fake.Messages.Last().Text,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(WhatsAppConversationState.ReviewingNewRequest,
+            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
         Assert.Empty(await _host.WithDbAsync(db => db.Requests.ToArrayAsync()));
     }
 
@@ -947,7 +974,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     [InlineData("invalid json")]
     [InlineData("outside schema")]
     [InlineData("manual validation failure")]
-    public async Task Ai_failure_uses_traditional_review_and_manual_category(string error)
+    public async Task Ai_failure_uses_traditional_review_and_internal_category_fallback(string error)
     {
         _ai.Result = new(false, null, error);
         await AddCategoryAndStartAttachmentFlow();
@@ -974,14 +1001,16 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Contains("\"Source\":\"fallback\"", storedReview);
 
         await PostAsync(TextPayload($"wamid.ai-fallback-confirm-{error}", "1"));
-        Assert.Contains("Escolha a categoria", _fake.Messages.Last().Text);
-        await PostAsync(TextPayload($"wamid.ai-fallback-category-{error}", "1"));
+        Assert.DoesNotContain("categoria", _fake.Messages.Last().Text,
+            StringComparison.OrdinalIgnoreCase);
 
         await _host.WithDbAsync(async db =>
         {
             var request = await db.Requests.SingleAsync();
             Assert.Equal("Solicitação recebida pelo WhatsApp", request.Title);
             Assert.Equal("Portão danificado", request.Description);
+            Assert.Equal("Manutenção", await db.Categories
+                .Where(x => x.Id == request.CategoryId).Select(x => x.Name).SingleAsync());
             Assert.Equal("Portão danificado", await db.RequestMessages
                 .Where(x => x.RequestId == request.Id).Select(x => x.Content).SingleAsync());
             Assert.Empty(await db.RequestAiAnalyses.ToArrayAsync());

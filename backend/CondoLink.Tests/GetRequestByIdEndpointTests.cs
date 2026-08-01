@@ -55,11 +55,14 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
             var originalReport = new RequestMessage(
                 request.Id, author.Id, "Tem água vazando no corredor desde ontem.",
                 MessageChannel.WhatsApp);
+            var originalAudio = new RequestAttachment(
+                request.Id, author.Id, "audio.ogg", "requests/test/audio.ogg",
+                "audio/ogg", 123, originalReport.Id);
 
             db.AddRange(
                 condominium, otherCondominium, block, unit, author, manager,
                 otherManager, coResident, outsider, category, request,
-                analysis, originalReport);
+                analysis, originalReport, originalAudio);
             CoreTestSeed.AddMember(
                 db, author.Id, condominium.Id, CondominiumRole.Resident);
             CoreTestSeed.AddMember(
@@ -136,6 +139,10 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
         Assert.NotNull(body.OriginalReport);
         Assert.Equal("Tem água vazando no corredor desde ontem.", body.OriginalReport.Text);
         Assert.Equal("WhatsApp", body.OriginalReport.Channel);
+        Assert.NotNull(body.OriginalReport.AudioAttachment);
+        Assert.Equal("audio/ogg", body.OriginalReport.AudioAttachment.ContentType);
+        Assert.Equal($"/request-attachments/{body.OriginalReport.AudioAttachment.Id}/content",
+            body.OriginalReport.AudioAttachment.ContentUrl);
     }
 
     [Fact]

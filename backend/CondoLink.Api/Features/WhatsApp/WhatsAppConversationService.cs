@@ -299,7 +299,7 @@ public sealed class WhatsAppConversationService(
             WhatsAppConversationState.ReviewingNewRequest =>
                 await ReviewChoice(session, text, identity.FullName, now, expires, ct),
             WhatsAppConversationState.SelectingCategory =>
-                await SelectCategory(session, text, identity.FullName, now, expires, ct),
+                await ResumeLegacyCategorySession(session, now, expires, ct),
             _ => Recover(session, identity.FullName, now, expires)
         };
     }
@@ -523,37 +523,33 @@ public sealed class WhatsAppConversationService(
             x.Name, review.Proposal?.SuggestedCategory, StringComparison.OrdinalIgnoreCase));
         suggested ??= categories.SingleOrDefault(x => string.Equals(
             x.Name, "Outros", StringComparison.OrdinalIgnoreCase));
+        suggested ??= categories.FirstOrDefault();
         if (suggested is not null)
         {
             session.ChooseCategory(suggested.Id, now, expires);
             return await CreateRequest(session, suggested.Name, now, expires, ct);
         }
-        if (categories.Length == 1)
-        {
-            session.ChooseCategory(categories[0].Id, now, expires);
-            return await CreateRequest(session, categories[0].Name, now, expires, ct);
-        }
-        session.BeginCategorySelection(now, expires);
-        return categories.Length == 0
-            ? ("Não há uma categoria ativa disponível para concluir a solicitação. Digite ‘menu’ para voltar.", "category_unavailable")
-            : (CategoryMenu(categories), "selecting_category");
+        session.Touch(now, expires);
+        return ("Não há uma categoria ativa disponível para concluir a solicitação. Digite ‘menu’ para voltar.",
+            "category_unavailable");
     }
 
-    private async Task<(string, string)> SelectCategory(
-        WhatsAppSession session, string? text, string fullName,
-        DateTime now, DateTime expires, CancellationToken ct)
+    private async Task<(string, string)> ResumeLegacyCategorySession(
+        WhatsAppSession session, DateTime now, DateTime expires, CancellationToken ct)
     {
-        var categories = await ActiveCategories(session.CondominiumId!.Value, ct);
-        if (int.TryParse(text, out var choice) && choice >= 1 && choice <= categories.Length)
+        var review = Review(session);
+        if (review is not null)
         {
-            var category = categories[choice - 1];
-            session.ChooseCategory(category.Id, now, expires);
-            return await CreateRequest(session, category.Name, now, expires, ct);
+            session.SetAiProposal(session.DraftAiProposalJson!, now, expires);
+            return (review.Source == AiReviewSource
+                ? ReviewPrompt(review.Proposal!)
+                : FallbackReviewPrompt(session.DraftDescription!), "reviewing_request");
         }
-        session.Touch(now, expires);
-        return categories.Length == 0
-            ? ($"Não há uma categoria ativa disponível. Digite ‘menu’ para voltar.\n\n{MainMenu(fullName)}", "category_unavailable")
-            : ("Escolha uma categoria válida.\n\n" + CategoryMenu(categories), "invalid_category_choice");
+        if (!string.IsNullOrWhiteSpace(session.DraftDescription))
+            return await GenerateAiProposal(session, now, expires, ct);
+        session.Restart(now, expires);
+        return ("O atendimento anterior expirou. Digite 1 para abrir uma solicitação.",
+            "legacy_category_session_recovered");
     }
 
     private async Task<(string, string)> CreateRequest(
@@ -658,7 +654,8 @@ public sealed class WhatsAppConversationService(
 
     private Task<CategoryChoice[]> ActiveCategories(Guid condominiumId, CancellationToken ct) =>
         db.Categories.AsNoTracking().Where(x => x.CondominiumId == condominiumId && x.IsActive)
-            .OrderBy(x => x.Name).Select(x => new CategoryChoice(x.Id, x.Name)).Take(20).ToArrayAsync(ct);
+            .OrderBy(x => x.Name).ThenBy(x => x.Id)
+            .Select(x => new CategoryChoice(x.Id, x.Name)).ToArrayAsync(ct);
 
     private static string MainMenu(string fullName) =>
         $"Olá, {FirstName(fullName)}! Como posso ajudar?\n\n" +
@@ -696,10 +693,6 @@ public sealed class WhatsAppConversationService(
         "1 - Confirmar e continuar\n" +
         "2 - Corrigir relato\n" +
         "3 - Cancelar e voltar ao início";
-
-    private static string CategoryMenu(CategoryChoice[] categories) =>
-        "Escolha a categoria da solicitação:\n\n" +
-        string.Join('\n', categories.Select((x, i) => $"{i + 1} - {x.Name}"));
 
     private static string NormalizeCommand(string? value)
     {

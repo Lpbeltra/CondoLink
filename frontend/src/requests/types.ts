@@ -52,6 +52,15 @@ export interface OriginalReport {
   text: string | null
   channel: 'WhatsApp'
   createdAt: string
+  audioAttachment: OriginalAudioAttachment | null
+}
+
+export interface OriginalAudioAttachment {
+  id: string
+  originalFileName: string
+  contentType: string
+  fileSize: number
+  contentUrl: string
 }
 
 export interface RequestMessage {

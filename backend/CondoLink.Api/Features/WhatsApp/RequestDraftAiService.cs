@@ -82,6 +82,9 @@ public sealed class RequestDraftAiService(HttpClient httpClient,
         CancellationToken cancellationToken)
     {
         var settings = options.Value;
+        logger.LogInformation(
+            "Request draft AI API key metadata. ApiKeyConfigured: {ApiKeyConfigured}; ApiKeyLength: {ApiKeyLength} characters.",
+            !string.IsNullOrWhiteSpace(settings.ApiKey), settings.ApiKey?.Length ?? 0);
         if (!settings.Enabled)
         {
             logger.LogInformation("Request draft AI is disabled. Outcome: {Outcome}.",

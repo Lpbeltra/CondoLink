@@ -173,15 +173,37 @@ public static class GetRequestById
                 ? null
                 : RequestAiAnalysisResponse.FromEntity(analysis);
 
-            originalReport = await dbContext.RequestMessages.AsNoTracking()
+            var originalMessage = await dbContext.RequestMessages.AsNoTracking()
                 .Where(message => message.RequestId == id
                     && message.AuthorUserId == request.AuthorUserId
                     && message.Channel == MessageChannel.WhatsApp)
                 .OrderBy(message => message.CreatedAt)
                 .ThenBy(message => message.Id)
-                .Select(message => new OriginalReportResponse(
-                    message.Content, "WhatsApp", message.CreatedAt))
+                .Select(message => new
+                {
+                    message.Id,
+                    message.Content,
+                    message.CreatedAt
+                })
                 .FirstOrDefaultAsync(cancellationToken);
+            if (originalMessage is not null)
+            {
+                var audio = await dbContext.RequestAttachments.AsNoTracking()
+                    .Where(attachment => attachment.RequestId == id
+                        && attachment.RequestMessageId == originalMessage.Id
+                        && attachment.ContentType.StartsWith("audio/"))
+                    .OrderBy(attachment => attachment.CreatedAt)
+                    .ThenBy(attachment => attachment.Id)
+                    .Select(attachment => new OriginalAudioResponse(
+                        attachment.Id,
+                        attachment.OriginalFileName,
+                        attachment.ContentType,
+                        attachment.FileSize,
+                        $"/request-attachments/{attachment.Id}/content"))
+                    .FirstOrDefaultAsync(cancellationToken);
+                originalReport = new OriginalReportResponse(
+                    originalMessage.Content, "WhatsApp", originalMessage.CreatedAt, audio);
+            }
         }
 
         var response = new Response(
@@ -208,7 +230,10 @@ public static class GetRequestById
     public sealed record TargetUnitResponse(Guid Id, string Identifier, string? Block);
     public sealed record CategoryResponse(Guid Id, string Name);
     public sealed record OriginalReportResponse(
-        string? Text, string Channel, DateTime CreatedAt);
+        string? Text, string Channel, DateTime CreatedAt,
+        OriginalAudioResponse? AudioAttachment);
+    public sealed record OriginalAudioResponse(Guid Id, string OriginalFileName,
+        string ContentType, long FileSize, string ContentUrl);
 
     public sealed record StatusHistoryResponse(
         Guid Id,

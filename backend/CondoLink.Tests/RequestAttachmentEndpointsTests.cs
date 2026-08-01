@@ -190,6 +190,65 @@ public sealed class RequestAttachmentEndpointsTests : IAsyncLifetime
         Assert.Equal("%PDF-test"u8.ToArray(), await response.Content.ReadAsByteArrayAsync());
     }
 
+    [Theory]
+    [InlineData("audio.ogg", "audio/ogg")]
+    [InlineData("audio.mp3", "audio/mpeg")]
+    [InlineData("audio.m4a", "audio/mp4")]
+    [InlineData("audio.aac", "audio/aac")]
+    [InlineData("audio.amr", "audio/amr")]
+    public async Task Authorized_audio_is_inline_with_range_support(
+        string name, string contentType)
+    {
+        var upload = await UploadAsync(_host.ClientFor(_authorId), _requestId,
+            File(name, contentType, Enumerable.Range(0, 10).Select(x => (byte)x).ToArray()));
+        upload.EnsureSuccessStatusCode();
+        var attachment = Assert.Single((await upload.Content
+            .ReadFromJsonAsync<RequestAttachmentEndpoints.Response[]>())!);
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, attachment.ContentUrl);
+        request.Headers.Range = new RangeHeaderValue(2, 5);
+        var response = await _host.ClientFor(_authorId).SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.PartialContent, response.StatusCode);
+        Assert.Equal(contentType, response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("inline", response.Content.Headers.ContentDisposition?.DispositionType);
+        Assert.Equal("bytes", Assert.Single(response.Headers.AcceptRanges));
+        Assert.Equal(4, response.Content.Headers.ContentLength);
+        Assert.Equal([2, 3, 4, 5], await response.Content.ReadAsByteArrayAsync());
+    }
+
+    [Fact]
+    public async Task Invalid_audio_range_returns_range_not_satisfiable()
+    {
+        var upload = await UploadAsync(_host.ClientFor(_authorId), _requestId,
+            File("audio.ogg", "audio/ogg", [1, 2, 3]));
+        var attachment = Assert.Single((await upload.Content
+            .ReadFromJsonAsync<RequestAttachmentEndpoints.Response[]>())!);
+        using var request = new HttpRequestMessage(HttpMethod.Get, attachment.ContentUrl);
+        request.Headers.Range = new RangeHeaderValue(20, 30);
+
+        var response = await _host.ClientFor(_authorId).SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.RequestedRangeNotSatisfiable, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Missing_audio_file_returns_not_found()
+    {
+        var upload = await UploadAsync(_host.ClientFor(_authorId), _requestId,
+            File("audio.ogg", "audio/ogg", [1, 2, 3]));
+        var attachment = Assert.Single((await upload.Content
+            .ReadFromJsonAsync<RequestAttachmentEndpoints.Response[]>())!);
+        var storageKey = await _host.WithDbAsync(db => db.RequestAttachments
+            .Where(x => x.Id == attachment.Id).Select(x => x.StorageKey).SingleAsync());
+        System.IO.File.Delete(Path.Combine(_storageRoot,
+            storageKey.Replace('/', Path.DirectorySeparatorChar)));
+
+        var response = await _host.ClientFor(_authorId).GetAsync(attachment.ContentUrl);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
     [Fact]
     public async Task User_without_request_access_cannot_download()
     {
@@ -197,6 +256,19 @@ public sealed class RequestAttachmentEndpointsTests : IAsyncLifetime
 
         var response = await _host.ClientFor(_outsiderId)
             .GetAsync(attachment.ContentUrl);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task User_without_request_access_cannot_stream_audio()
+    {
+        var upload = await UploadAsync(_host.ClientFor(_authorId), _requestId,
+            File("audio.ogg", "audio/ogg", [1, 2, 3]));
+        var attachment = Assert.Single((await upload.Content
+            .ReadFromJsonAsync<RequestAttachmentEndpoints.Response[]>())!);
+
+        var response = await _host.ClientFor(_outsiderId).GetAsync(attachment.ContentUrl);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }

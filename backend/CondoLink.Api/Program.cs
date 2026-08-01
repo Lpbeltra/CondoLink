@@ -45,16 +45,13 @@ builder.Services.AddHttpClient<IRequestDraftAiService, RequestDraftAiService>((s
 });
 builder.Services.Configure<RequestDraftAiAudioOptions>(
     builder.Configuration.GetSection(RequestDraftAiAudioOptions.SectionName));
-builder.Services.AddHttpClient<OpenAiAudioTranscriptionService>((services, client) =>
+builder.Services.AddHttpClient<IWhatsAppAudioTranscriptionService,
+    OpenAiAudioTranscriptionService>((services, client) =>
 {
     var settings = services.GetRequiredService<
         Microsoft.Extensions.Options.IOptions<RequestDraftAiAudioOptions>>().Value;
     client.BaseAddress = new Uri(settings.BaseUrl);
 });
-builder.Services.AddScoped<IWhatsAppAudioTranscriptionService>(services =>
-    services.GetRequiredService<OpenAiAudioTranscriptionService>());
-builder.Services.AddScoped<IOpenAiAudioDiagnostics>(services =>
-    services.GetRequiredService<OpenAiAudioTranscriptionService>());
 builder.Services.AddScoped<AuthenticationSessionService>();
 builder.Services.AddSingleton<IPhoneVerificationMessageProtector,
     PhoneVerificationMessageProtector>();
@@ -152,8 +149,6 @@ if (app.Environment.IsDevelopment())
 app.UseCors("FrontendDevelopment");
 app.UseAuthentication();
 app.UseAuthorization();
-
-app.MapOpenAiDiagnosticsEndpoints();
 
 app.MapGet(
         "/health",

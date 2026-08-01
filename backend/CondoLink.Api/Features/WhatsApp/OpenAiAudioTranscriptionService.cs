@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using System.Diagnostics;
 using System.Text.Json;
 using CondoLink.Api.Features.RequestAttachments;
 using Microsoft.Extensions.Options;
@@ -23,22 +22,6 @@ public interface IWhatsAppAudioTranscriptionService
         CancellationToken cancellationToken);
 }
 
-public interface IOpenAiAudioDiagnostics
-{
-    Task<OpenAiDiagnosticResponse> CheckAsync(CancellationToken cancellationToken);
-}
-
-public sealed record OpenAiDiagnosticResponse(
-    bool Success,
-    int? StatusCode,
-    string? ReasonPhrase,
-    long ElapsedMilliseconds,
-    string? ExceptionType,
-    string? InnerExceptionType,
-    string FailureType,
-    string BaseUrl,
-    string Model);
-
 public sealed record AudioTranscriptionResult(bool Succeeded, string? Text, string Code);
 
 public enum AudioTranscriptionOutcome
@@ -54,8 +37,7 @@ public enum AudioTranscriptionOutcome
     Succeeded
 }
 
-public sealed class OpenAiAudioTranscriptionService : IWhatsAppAudioTranscriptionService,
-    IOpenAiAudioDiagnostics
+public sealed class OpenAiAudioTranscriptionService : IWhatsAppAudioTranscriptionService
 {
     private readonly HttpClient httpClient;
     private readonly IOptions<RequestDraftAiAudioOptions> options;
@@ -85,73 +67,14 @@ public sealed class OpenAiAudioTranscriptionService : IWhatsAppAudioTranscriptio
         this.addFile = addFile;
     }
 
-    public async Task<OpenAiDiagnosticResponse> CheckAsync(
-        CancellationToken cancellationToken)
-    {
-        var settings = options.Value;
-        var stopwatch = Stopwatch.StartNew();
-        var baseUrl = SafeBaseUrl(httpClient.BaseAddress, settings.BaseUrl);
-        logger.LogInformation(
-            "Starting OpenAI HTTPS diagnostic. BaseUrl: {BaseUrl}; Model: {Model}.",
-            baseUrl, settings.Model);
-
-        if (string.IsNullOrWhiteSpace(settings.ApiKey))
-        {
-            stopwatch.Stop();
-            logger.LogWarning(
-                "OpenAI HTTPS diagnostic not configured. FailureType: {FailureType}; ElapsedMilliseconds: {ElapsedMilliseconds}.",
-                AudioTranscriptionOutcome.NotConfigured, stopwatch.ElapsedMilliseconds);
-            return Diagnostic(false, null, null, stopwatch.ElapsedMilliseconds,
-                null, null, AudioTranscriptionOutcome.NotConfigured.ToString(), baseUrl,
-                settings.Model);
-        }
-
-        try
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Get, "models");
-            request.Headers.Authorization = new AuthenticationHeaderValue(
-                "Bearer", settings.ApiKey);
-            logger.LogInformation("Sending OpenAI HTTPS diagnostic request.");
-            using var response = await httpClient.SendAsync(request, cancellationToken);
-            stopwatch.Stop();
-            var failureType = response.IsSuccessStatusCode
-                ? AudioTranscriptionOutcome.Succeeded
-                : HttpOutcome(response.StatusCode);
-            logger.LogInformation(
-                "OpenAI HTTPS diagnostic response received. StatusCode: {StatusCode}; FailureType: {FailureType}; ElapsedMilliseconds: {ElapsedMilliseconds}.",
-                (int)response.StatusCode, failureType, stopwatch.ElapsedMilliseconds);
-            return Diagnostic(response.IsSuccessStatusCode, (int)response.StatusCode,
-                response.ReasonPhrase, stopwatch.ElapsedMilliseconds, null, null,
-                failureType.ToString(), baseUrl, settings.Model);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException
-            || !cancellationToken.IsCancellationRequested)
-        {
-            stopwatch.Stop();
-            var failureType = exception is OperationCanceledException
-                ? AudioTranscriptionOutcome.Timeout
-                : AudioTranscriptionOutcome.ProviderError;
-            logger.LogWarning(
-                "OpenAI HTTPS diagnostic exception. ExceptionType: {ExceptionType}; InnerExceptionType: {InnerExceptionType}; FailureType: {FailureType}; ElapsedMilliseconds: {ElapsedMilliseconds}.",
-                exception.GetType().Name, exception.InnerException?.GetType().Name,
-                failureType, stopwatch.ElapsedMilliseconds);
-            return Diagnostic(false, null, null, stopwatch.ElapsedMilliseconds,
-                exception.GetType().Name, exception.InnerException?.GetType().Name,
-                failureType.ToString(), baseUrl, settings.Model);
-        }
-    }
-
-    private static OpenAiDiagnosticResponse Diagnostic(bool success, int? statusCode,
-        string? reasonPhrase, long elapsedMilliseconds, string? exceptionType,
-        string? innerExceptionType, string failureType, string baseUrl, string model) =>
-        new(success, statusCode, reasonPhrase, elapsedMilliseconds, exceptionType,
-            innerExceptionType, failureType, baseUrl, model);
-
     public async Task<AudioTranscriptionResult> TranscribeAsync(
         ReadOnlyMemory<byte> audio, string fileName, string contentType,
         CancellationToken cancellationToken)
     {
         var settings = options.Value;
+        logger.LogInformation(
+            "WhatsApp audio transcription API key metadata. ApiKeyConfigured: {ApiKeyConfigured}; ApiKeyLength: {ApiKeyLength} characters.",
+            !string.IsNullOrWhiteSpace(settings.ApiKey), settings.ApiKey?.Length ?? 0);
         if (!settings.Enabled)
         {
             logger.LogInformation("WhatsApp audio transcription is disabled.");

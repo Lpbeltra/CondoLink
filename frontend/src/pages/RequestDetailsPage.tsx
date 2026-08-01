@@ -74,7 +74,7 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
             {unit && <><Divider sx={{ my: 3 }} /><Typography variant="h3" mb={1}>Unidade relacionada</Typography><Typography>{unit}</Typography></>}
           </CardContent></Card>
           {canViewInternal && <RequestAiAssistant analysis={details.aiAnalysis} />}
-          {canViewInternal && details.originalReport && <OriginalReportAccordion report={details.originalReport} attachments={<RequestAttachments requestId={details.id} readOnly={residentReadOnly} />} />}
+          {canViewInternal && details.originalReport && <OriginalReportAccordion key={details.id} report={details.originalReport} attachments={<RequestAttachments requestId={details.id} readOnly={residentReadOnly} />} />}
           {canViewInternal && <RequestManagementActions requestId={details.id} status={details.status} priority={details.priority} onUpdated={load} />}
           {(!canViewInternal || !details.originalReport) && <RequestAttachments requestId={details.id} readOnly={residentReadOnly} />}
           <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}><Typography variant="h2" mb={.5}>Atualizações</Typography><Typography color="text.secondary" mb={3}>{residentReadOnly ? 'Consulte o histórico de mensagens do atendimento.' : 'Registre novas informações e acompanhe o atendimento.'}</Typography><RequestConversation requestId={details.id} status={details.status} messages={messages} readOnly={residentReadOnly} onMessageCreated={(message) => setMessages((current) => [...current, message])} /></CardContent></Card>
