@@ -165,8 +165,20 @@ public static class GetRequestById
 
         RequestAiAnalysisResponse? aiAnalysis = null;
         OriginalReportResponse? originalReport = null;
+        ResidentReplyRequirementResponse? residentReplyRequirement = null;
+        var hasUnreadResidentReply = false;
+        if (request.AuthorUserId == authenticatedUserId)
+        {
+            residentReplyRequirement = await dbContext.RequestResidentReplyRequirements
+                .AsNoTracking().Where(x => x.RequestId == id && x.IsActive)
+                .Select(x => new ResidentReplyRequirementResponse(x.Id, x.Question,
+                    x.RequestedAt, x.IsActive)).SingleOrDefaultAsync(cancellationToken);
+        }
         if (isCondominiumManager)
         {
+            hasUnreadResidentReply = await dbContext.RequestResidentReplyRequirements
+                .AsNoTracking().AnyAsync(x => x.RequestId == id && x.HasUnreadAnswer,
+                    cancellationToken);
             var analysis = await dbContext.RequestAiAnalyses.AsNoTracking()
                 .SingleOrDefaultAsync(x => x.RequestId == id, cancellationToken);
             aiAnalysis = analysis is null
@@ -221,7 +233,9 @@ public static class GetRequestById
             request.ResolvedAt,
             statusHistory,
             aiAnalysis,
-            originalReport);
+            originalReport,
+            residentReplyRequirement,
+            hasUnreadResidentReply);
 
         return Results.Ok(response);
     }
@@ -234,6 +248,8 @@ public static class GetRequestById
         OriginalAudioResponse? AudioAttachment);
     public sealed record OriginalAudioResponse(Guid Id, string OriginalFileName,
         string ContentType, long FileSize, string ContentUrl);
+    public sealed record ResidentReplyRequirementResponse(Guid Id, string Question,
+        DateTime RequestedAt, bool IsActive);
 
     public sealed record StatusHistoryResponse(
         Guid Id,
@@ -259,5 +275,7 @@ public static class GetRequestById
         DateTime? ResolvedAt,
         IReadOnlyList<StatusHistoryResponse> StatusHistory,
         RequestAiAnalysisResponse? AiAnalysis,
-        OriginalReportResponse? OriginalReport);
+        OriginalReportResponse? OriginalReport,
+        ResidentReplyRequirementResponse? ResidentReplyRequirement,
+        bool HasUnreadResidentReply);
 }

@@ -360,10 +360,35 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("Envie uma foto do local.", Assert.Single(await HistoryAsync()).Reason);
+        var requirement = Assert.Single(await _host.WithDbAsync(db =>
+            db.RequestResidentReplyRequirements.AsNoTracking().ToArrayAsync()));
+        Assert.True(requirement.IsActive);
+        Assert.Equal("Envie uma foto do local.", requirement.Question);
+        Assert.Equal(_managerId, requirement.RequestedByUserId);
+        Assert.Equal(Assert.Single(await HistoryAsync()).Id, requirement.RequestStatusHistoryId);
         var notification = Assert.Single(await _host.WithDbAsync(db =>
             db.Notifications.AsNoTracking().ToArrayAsync()));
         Assert.Contains("Comentário da administração", notification.Body);
         Assert.Contains("Envie uma foto do local.", notification.Body);
+    }
+
+    [Fact]
+    public async Task Administrative_transition_away_from_waiting_closes_requirement_without_answer()
+    {
+        await _host.WithDbAsync(db => db.Requests.Where(x => x.Id == _requestId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Status, RequestStatus.InProgress)));
+        Assert.Equal(HttpStatusCode.OK, (await _host.ClientFor(_managerId).PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "WaitingForResident", reason = "Envie uma foto." })).StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK, (await _host.ClientFor(_managerId).PatchAsJsonAsync(
+            $"/requests/{_requestId}/status", new { status = "InProgress" })).StatusCode);
+
+        var requirement = Assert.Single(await _host.WithDbAsync(db =>
+            db.RequestResidentReplyRequirements.AsNoTracking().ToArrayAsync()));
+        Assert.False(requirement.IsActive);
+        Assert.Null(requirement.AnsweredAt);
+        Assert.Null(requirement.AnswerMessageId);
     }
 
     [Fact]

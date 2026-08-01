@@ -16,13 +16,20 @@ public sealed class LocalFileStorage
     public async Task<string> SaveAsync(Guid requestId, IFormFile file, string extension,
         CancellationToken cancellationToken)
     {
+        await using var stream = file.OpenReadStream();
+        return await SaveAsync(requestId, stream, extension, cancellationToken);
+    }
+
+    public async Task<string> SaveAsync(Guid requestId, Stream content, string extension,
+        CancellationToken cancellationToken)
+    {
         var storageKey = Path.Combine("requests", requestId.ToString(), $"{Guid.NewGuid():N}{extension}")
             .Replace('\\', '/');
         var fullPath = Resolve(storageKey);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
         await using var output = new FileStream(fullPath, FileMode.CreateNew, FileAccess.Write,
             FileShare.None, 81920, FileOptions.Asynchronous);
-        await file.CopyToAsync(output, cancellationToken);
+        await content.CopyToAsync(output, cancellationToken);
         return storageKey;
     }
 

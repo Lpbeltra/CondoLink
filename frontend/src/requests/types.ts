@@ -36,7 +36,11 @@ export interface RequestDetails extends RequestListItem {
   statusHistory: StatusHistoryItem[]
   aiAnalysis: RequestAiAnalysis | null
   originalReport: OriginalReport | null
+  residentReplyRequirement: ResidentReplyRequirement | null
+  hasUnreadResidentReply?: boolean
 }
+
+export interface ResidentReplyRequirement { id: string; question: string; requestedAt: string; isActive: boolean }
 
 export interface RequestAiAnalysis {
   title: string
@@ -100,6 +104,7 @@ export interface CreatedRequest {
 export interface ManagementRequestItem extends RequestListItem {
   author: Person
   condominiumName: string
+  hasUnreadResidentReply?: boolean
 }
 
 export interface RequestCounts {

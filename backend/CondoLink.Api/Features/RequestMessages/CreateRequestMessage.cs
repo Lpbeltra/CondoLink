@@ -109,6 +109,9 @@ public static class CreateRequestMessage
                 or RequestStatus.Cancelled)
             return ClosedForResident();
 
+        if (!isCondominiumManager && targetRequest.Status == RequestStatus.WaitingForResident)
+            return Results.Conflict(new { error = "Use a pendência ativa para enviar a resposta solicitada." });
+
         if (targetRequest.Status == RequestStatus.Cancelled)
         {
             return Results.Conflict(

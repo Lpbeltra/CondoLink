@@ -31,6 +31,8 @@ public static class RequestAttachmentEndpoints
         if (access.Error is not null) return access.Error;
         if (!access.IsManager && IsClosed(access.Status))
             return ClosedForResident();
+        if (!access.IsManager && access.Status == RequestStatus.WaitingForResident)
+            return Results.Conflict(new { error = "Use a pendência ativa para enviar os anexos da resposta." });
         if (access.Status == RequestStatus.Cancelled)
             return Results.Conflict(new { error = "Solicitações canceladas não podem receber anexos." });
         if (!request.HasFormContentType)

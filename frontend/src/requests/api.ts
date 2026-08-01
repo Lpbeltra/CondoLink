@@ -42,6 +42,16 @@ export async function listManagementRequests(filters: {
   )).data
 }
 
+export async function createResidentReply(requestId: string, message: string, files: File[], onProgress?: (loaded: number, total?: number) => void) {
+  const form = new FormData()
+  if (message.trim()) form.append('message', message.trim())
+  files.forEach(file => form.append('files', file))
+  return (await api.post<{ messageId: string; status: 'InProgress' }>(
+    `/requests/${requestId}/resident-reply`, form,
+    { timeout: 5 * 60 * 1000, onUploadProgress: event => onProgress?.(event.loaded, event.total) },
+  )).data
+}
+
 export async function updateRequestStatus(requestId: string, status: RequestStatus, reason: string | null) {
   return (await api.patch(`/requests/${requestId}/status`, { status, reason })).data
 }

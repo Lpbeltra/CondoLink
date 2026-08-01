@@ -31,6 +31,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddScoped<CondominiumMembershipService>();
 builder.Services.AddScoped<ManagerOnboardingService>();
 builder.Services.AddScoped<NotificationService>();
+builder.Services.AddScoped<ResidentReplyService>();
 builder.Services.AddScoped<WhatsAppNotificationDispatcher>();
 builder.Services.Configure<WhatsAppOptions>(
     builder.Configuration.GetSection(WhatsAppOptions.SectionName));
@@ -233,6 +234,7 @@ app.MapListMyRequests();
 app.MapListCondominiumRequests();
 app.MapUpdateRequestStatus();
 app.MapUpdateRequestPriority();
+app.MapCreateResidentReply();
 
 // Reports
 app.MapGetRequestReport();

@@ -1,5 +1,5 @@
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
-import { Box, Card, CardActionArea, CardContent, Stack, Typography } from '@mui/material'
+import { Alert, Box, Card, CardActionArea, CardContent, Stack, Typography } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
 import { formatRelativeDate } from '../presentation'
 import type { ManagementRequestItem } from '../types'
@@ -16,6 +16,7 @@ export function ManagementRequestCard({ request }: { request: ManagementRequestI
         <ChevronRightRoundedIcon color="action" />
       </Box>
       <Stack direction="row" flexWrap="wrap" gap={1} mt={2}><RequestStatusChip status={request.status} /><RequestPriorityChip priority={request.priority} /></Stack>
+      {request.hasUnreadResidentReply && <Alert severity="warning" sx={{ mt: 1.5, py: 0 }}>Morador respondeu</Alert>}
       <Typography color="primary.main" fontSize=".8rem" fontWeight={750} mt={1.5}>{request.condominiumName}</Typography>
       <Box display="flex" justifyContent="space-between" gap={2} mt={2}><Typography color="text.secondary" fontSize=".8rem" noWrap>{unit || 'Sem unidade relacionada'}</Typography><Typography color="text.secondary" fontSize=".8rem" flexShrink={0}>{formatRelativeDate(request.updatedAt)}</Typography></Box>
     </CardContent>

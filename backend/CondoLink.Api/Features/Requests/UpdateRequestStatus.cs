@@ -219,6 +219,27 @@ public static class UpdateRequestStatus
                 await transaction.RollbackAsync(cancellationToken);
                 return false;
             }
+
+            var activeRequirement = await dbContext.RequestResidentReplyRequirements
+                .SingleOrDefaultAsync(item => item.RequestId == request.Id && item.IsActive,
+                    cancellationToken);
+            if (request.Status == RequestStatus.WaitingForResident)
+            {
+                if (activeRequirement is not null)
+                    throw new InvalidOperationException("The request already has an active resident reply requirement.");
+                dbContext.RequestResidentReplyRequirements.Add(
+                    new RequestResidentReplyRequirement(request.Id, history.ChangedByUserId,
+                        history.Id, history.Reason!, history.CreatedAt));
+            }
+            else
+            {
+                activeRequirement?.CloseWithoutAnswer(history.CreatedAt);
+                var unreadRequirements = await dbContext.RequestResidentReplyRequirements
+                    .Where(item => item.RequestId == request.Id && item.HasUnreadAnswer)
+                    .ToListAsync(cancellationToken);
+                foreach (var requirement in unreadRequirements)
+                    requirement.MarkAnswerRead(history.CreatedAt);
+            }
             dbContext.RequestStatusHistories.Add(history);
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);

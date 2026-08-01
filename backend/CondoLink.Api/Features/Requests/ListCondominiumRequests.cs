@@ -195,6 +195,9 @@ public static class ListCondominiumRequests
                     request.CreatedAt,
                     request.UpdatedAt,
                     request.ResolvedAt
+                    ,HasUnreadResidentReply = dbContext.RequestResidentReplyRequirements
+                        .Any(requirement => requirement.RequestId == request.Id
+                            && requirement.HasUnreadAnswer)
                 })
             .ToListAsync(cancellationToken);
 
@@ -216,7 +219,8 @@ public static class ListCondominiumRequests
                 item.Priority.ToString(),
                 item.CreatedAt,
                 item.UpdatedAt,
-                item.ResolvedAt))
+                item.ResolvedAt,
+                item.HasUnreadResidentReply))
             .ToArray();
 
         return Results.Ok(new Response(rows.Count, counts, items));
@@ -287,7 +291,8 @@ public static class ListCondominiumRequests
         string Priority,
         DateTime CreatedAt,
         DateTime UpdatedAt,
-        DateTime? ResolvedAt);
+        DateTime? ResolvedAt,
+        bool HasUnreadResidentReply);
 
     public sealed record Response(
         int Total,
