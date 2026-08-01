@@ -14,7 +14,13 @@ public static class AttachmentPolicy
             [".png"] = ["image/png"],
             [".webp"] = ["image/webp"],
             [".mp4"] = ["video/mp4"],
-            [".pdf"] = ["application/pdf"]
+            [".pdf"] = ["application/pdf"],
+            [".ogg"] = ["audio/ogg"],
+            [".opus"] = ["audio/ogg", "audio/opus"],
+            [".mp3"] = ["audio/mpeg"],
+            [".m4a"] = ["audio/mp4", "audio/x-m4a"],
+            [".aac"] = ["audio/aac"],
+            [".amr"] = ["audio/amr"]
         };
 
     public static ValidationResult Validate(string? fileName, long size, string? contentType)

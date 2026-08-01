@@ -5,7 +5,7 @@ public sealed class RequestAttachment
     private RequestAttachment() { }
 
     public RequestAttachment(Guid requestId, Guid uploadedByUserId, string originalFileName,
-        string storageKey, string contentType, long fileSize)
+        string storageKey, string contentType, long fileSize, Guid? requestMessageId = null)
     {
         if (requestId == Guid.Empty) throw new ArgumentException("RequestId is required.", nameof(requestId));
         if (uploadedByUserId == Guid.Empty) throw new ArgumentException("UploadedByUserId is required.", nameof(uploadedByUserId));
@@ -16,7 +16,7 @@ public sealed class RequestAttachment
 
         Id = Guid.NewGuid();
         RequestId = requestId;
-        RequestMessageId = null;
+        RequestMessageId = requestMessageId;
         UploadedByUserId = uploadedByUserId;
         OriginalFileName = originalFileName.Trim();
         StorageKey = storageKey.Trim();

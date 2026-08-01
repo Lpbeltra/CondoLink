@@ -43,6 +43,15 @@ builder.Services.AddHttpClient<IRequestDraftAiService, RequestDraftAiService>((s
         Microsoft.Extensions.Options.IOptions<RequestDraftAiOptions>>().Value;
     client.BaseAddress = new Uri(settings.BaseUrl);
 });
+builder.Services.Configure<RequestDraftAiAudioOptions>(
+    builder.Configuration.GetSection(RequestDraftAiAudioOptions.SectionName));
+builder.Services.AddHttpClient<IWhatsAppAudioTranscriptionService,
+    OpenAiAudioTranscriptionService>((services, client) =>
+{
+    var settings = services.GetRequiredService<
+        Microsoft.Extensions.Options.IOptions<RequestDraftAiAudioOptions>>().Value;
+    client.BaseAddress = new Uri(settings.BaseUrl);
+});
 builder.Services.AddScoped<AuthenticationSessionService>();
 builder.Services.AddSingleton<IPhoneVerificationMessageProtector,
     PhoneVerificationMessageProtector>();

@@ -22,6 +22,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     private CoreEndpointTestHost _host = null!;
     private FakeWhatsAppClient _fake = null!;
     private FakeRequestDraftAiService _ai = null!;
+    private FakeAudioTranscriptionService _transcription = null!;
     private Guid _userId;
     private Guid _condominiumId;
     private Guid _unitId;
@@ -30,6 +31,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     {
         _fake = new FakeWhatsAppClient();
         _ai = new FakeRequestDraftAiService();
+        _transcription = new FakeAudioTranscriptionService();
         _host = await CoreEndpointTestHost.StartAsync(
             app => app.MapWhatsAppWebhook(),
             builder =>
@@ -43,6 +45,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 });
                 builder.Services.AddSingleton<IWhatsAppClient>(_fake);
                 builder.Services.AddSingleton<IRequestDraftAiService>(_ai);
+                builder.Services.AddSingleton<IWhatsAppAudioTranscriptionService>(_transcription);
                 builder.Services.AddSingleton<LocalFileStorage>();
                 builder.Services.AddScoped<WhatsAppConversationService>();
             });
@@ -959,7 +962,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         var review = _fake.Messages.Last().Text;
         Assert.Equal("Você descreveu:\n\nPortão danificado\n\n" +
             "1 - Confirmar e continuar\n" +
-            "2 - Reescrever descrição\n" +
+            "2 - Corrigir relato\n" +
             "3 - Cancelar e voltar ao início", review);
         Assert.DoesNotContain("Título", review);
         Assert.DoesNotContain("Categoria", review);
@@ -1062,6 +1065,129 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Contains("no máximo 15 MB", _fake.Messages.Last().Text);
     }
 
+    [Fact]
+    public async Task Audio_report_is_transcribed_reviewed_and_persisted_with_original_file()
+    {
+        _ai.Result = new(true, new RequestDraftAiProposal(
+            "Barulho no elevador", "O elevador está fazendo barulho.",
+            "Manutenção", ["Informar o horário."], 0.9), null,
+            RequestDraftAiOutcome.Succeeded, "draft-model");
+        _transcription.Result = new(true, "O elevador está fazendo barulho.", "succeeded");
+        await AddCategoryAndStartAudioFlow("valid-audio");
+
+        Assert.Equal(1, _transcription.Calls);
+        await PostAsync(TextPayload("wamid.audio-finished", "2"));
+        Assert.Equal(1, _ai.Calls);
+        Assert.Contains("Revise sua solicitação", _fake.Messages.Last().Text);
+        await PostAsync(TextPayload("wamid.audio-confirm", "1"));
+        await PostAsync(TextPayload("wamid.audio-confirm", "1"));
+
+        await _host.WithDbAsync(async db =>
+        {
+            var request = await db.Requests.SingleAsync();
+            var message = await db.RequestMessages.SingleAsync(x => x.RequestId == request.Id);
+            var attachment = await db.RequestAttachments.SingleAsync(x => x.RequestId == request.Id);
+            Assert.Equal("O elevador está fazendo barulho.", message.Content);
+            Assert.Equal(message.Id, attachment.RequestMessageId);
+            Assert.Equal("audio/ogg", attachment.ContentType);
+            Assert.Single(await db.RequestAiAnalyses.Where(x => x.RequestId == request.Id)
+                .ToArrayAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Audio_can_be_corrected_with_text_while_other_attachments_remain()
+    {
+        await AddCategoryAndStartAudioFlow("audio-to-text");
+        _fake.Media = new WhatsAppMediaResult(true, [4, 5, 6], "image/jpeg", null);
+        await PostAsync(MediaPayload("wamid.audio-photo", "audio-photo",
+            "image", "image/jpeg", "foto.jpg"));
+        await PostAsync(TextPayload("wamid.audio-first-review", "1"));
+        await PostAsync(TextPayload("wamid.audio-correct", "2"));
+
+        Assert.Single(await _host.WithDbAsync(db => db.WhatsAppDraftAttachments
+            .Where(x => x.ContentType == "image/jpeg").ToArrayAsync()));
+        Assert.Empty(await _host.WithDbAsync(db => db.WhatsAppDraftAttachments
+            .Where(x => x.ContentType.StartsWith("audio/")).ToArrayAsync()));
+        await PostAsync(TextPayload("wamid.audio-new-text", "Novo relato escrito."));
+        await PostAsync(TextPayload("wamid.audio-new-text-review", "2"));
+        Assert.Equal(2, _ai.Calls);
+        Assert.Single(await _host.WithDbAsync(db => db.WhatsAppDraftAttachments.ToArrayAsync()));
+    }
+
+    [Fact]
+    public async Task Text_can_be_corrected_with_audio_and_audio_with_another_audio()
+    {
+        await AddCategoryAndStartAttachmentFlow();
+        await PostAsync(TextPayload("wamid.text-first-review", "2"));
+        await PostAsync(TextPayload("wamid.text-correct", "2"));
+        _fake.Media = new WhatsAppMediaResult(true, [1, 2, 3], "audio/ogg", null);
+        await PostAsync(MediaPayload("wamid.text-to-audio", "text-to-audio", "audio", "audio/ogg"));
+        await PostAsync(TextPayload("wamid.second-review", "2"));
+        await PostAsync(TextPayload("wamid.audio-correct-again", "2"));
+        await PostAsync(MediaPayload("wamid.audio-to-audio", "audio-to-audio", "audio", "audio/ogg"));
+
+        Assert.Equal(2, _transcription.Calls);
+        Assert.Single(await _host.WithDbAsync(db => db.WhatsAppDraftAttachments
+            .Where(x => x.ContentType.StartsWith("audio/")).ToArrayAsync()));
+    }
+
+    [Theory]
+    [InlineData("provider_error", "audio_transcription_failed")]
+    [InlineData("timeout", "audio_transcription_timeout")]
+    public async Task Audio_transcription_failure_does_not_create_request(
+        string code, string processingResult)
+    {
+        _transcription.Result = new(false, null, code);
+        await AddCategoryAndOpenDescription();
+        _fake.Media = new WhatsAppMediaResult(true, [1, 2, 3], "audio/ogg", null);
+        await PostAsync(MediaPayload($"wamid.audio-failure-{code}", code, "audio", "audio/ogg"));
+
+        Assert.Contains("Não consegui compreender o áudio", _fake.Messages.Last().Text);
+        Assert.Equal(processingResult, await _host.WithDbAsync(db => db.WhatsAppInboundMessages
+            .Where(x => x.ExternalMessageId == $"wamid.audio-failure-{code}")
+            .Select(x => x.ProcessingResult).SingleAsync()));
+        Assert.Empty(await _host.WithDbAsync(db => db.Requests.ToArrayAsync()));
+        Assert.Empty(await _host.WithDbAsync(db => db.WhatsAppDraftAttachments.ToArrayAsync()));
+        await PostAsync(TextPayload($"wamid.audio-write-{code}", "2"));
+        Assert.Contains("Descreva o que aconteceu", _fake.Messages.Last().Text);
+        await PostAsync(TextPayload($"wamid.audio-written-{code}", "Relato escrito após a falha."));
+        Assert.Equal(WhatsAppConversationState.CollectingAttachments,
+            await _host.WithDbAsync(db => db.WhatsAppSessions
+                .Select(x => x.State).SingleAsync()));
+    }
+
+    [Theory]
+    [InlineData("audio/wav", 3, "não é suportado")]
+    [InlineData("audio/ogg", AttachmentPolicy.MaximumFileSize + 1, "no máximo 15 MB")]
+    public async Task Invalid_or_oversized_audio_is_rejected(
+        string contentType, int size, string expected)
+    {
+        await AddCategoryAndOpenDescription();
+        _fake.Media = new WhatsAppMediaResult(true, new byte[size], contentType, null);
+        await PostAsync(MediaPayload($"wamid.audio-rejected-{size}", "rejected", "audio", contentType));
+        Assert.Contains(expected, _fake.Messages.Last().Text);
+        Assert.Equal(0, _transcription.Calls);
+    }
+
+    private async Task AddCategoryAndStartAudioFlow(string id)
+    {
+        await AddCategoryAndOpenDescription();
+        _fake.Media = new WhatsAppMediaResult(true, [1, 2, 3], "audio/ogg", null);
+        await PostAsync(MediaPayload($"wamid.{id}", id, "audio", "audio/ogg"));
+    }
+
+    private async Task AddCategoryAndOpenDescription()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            db.Categories.Add(new Category(_condominiumId, "Manutenção", null));
+            await db.SaveChangesAsync();
+        });
+        await PostAsync(TextPayload($"wamid.audio-menu-{Guid.NewGuid():N}", "Oi"));
+        await PostAsync(TextPayload($"wamid.audio-open-{Guid.NewGuid():N}", "1"));
+    }
+
     private async Task AddCategoryAndStartAttachmentFlow()
     {
         await _host.WithDbAsync(async db =>
@@ -1146,6 +1272,14 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         string mimeType,
         string? fileName = null) => type switch
         {
+            "audio" => JsonSerializer.Serialize(new
+            {
+                entry = new[] { new { changes = new[] { new { value = new { messages = new object[]
+                {
+                    new { from = "5511999990001", id, timestamp = "1785236400", type,
+                        audio = new { id = mediaId, mime_type = mimeType, filename = fileName } }
+                } } } } } }
+            }),
             "video" => JsonSerializer.Serialize(new
             {
                 entry = new[] { new { changes = new[] { new { value = new { messages = new object[]
@@ -1244,6 +1378,22 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         {
             Calls++;
             CondominiumName = condominiumName;
+            return Task.FromResult(Result);
+        }
+    }
+
+    private sealed class FakeAudioTranscriptionService
+        : IWhatsAppAudioTranscriptionService
+    {
+        public AudioTranscriptionResult Result { get; set; } =
+            new(true, "Transcrição do relato em áudio.", "succeeded");
+        public int Calls { get; private set; }
+
+        public Task<AudioTranscriptionResult> TranscribeAsync(
+            ReadOnlyMemory<byte> audio, string fileName, string contentType,
+            CancellationToken cancellationToken)
+        {
+            Calls++;
             return Task.FromResult(Result);
         }
     }

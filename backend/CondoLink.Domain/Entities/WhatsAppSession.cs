@@ -107,6 +107,28 @@ public sealed class WhatsAppSession
         MoveTo(WhatsAppConversationState.CollectingAttachments, now, expiresAt, CondominiumId);
     }
 
+    public void SetAudioDescriptionForReview(
+        string description, string audioDraftJson, DateTime now, DateTime expiresAt)
+    {
+        DraftDescription = description.Trim();
+        DraftAiProposalJson = audioDraftJson;
+        MoveTo(WhatsAppConversationState.CollectingAttachments, now, expiresAt, CondominiumId);
+    }
+
+    public void MarkAudioTranscriptionFailure(
+        string failureJson, DateTime now, DateTime expiresAt)
+    {
+        DraftDescription = null;
+        DraftAiProposalJson = failureJson;
+        Touch(now, expiresAt);
+    }
+
+    public void ClearPendingAudioState(DateTime now, DateTime expiresAt)
+    {
+        DraftAiProposalJson = null;
+        Touch(now, expiresAt);
+    }
+
     public void SetAiProposal(string proposalJson, DateTime now, DateTime expiresAt)
     {
         DraftAiProposalJson = proposalJson;

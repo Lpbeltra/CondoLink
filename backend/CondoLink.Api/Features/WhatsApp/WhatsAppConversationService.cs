@@ -18,6 +18,7 @@ public sealed class WhatsAppConversationService(
     IWhatsAppClient client,
     LocalFileStorage storage,
     IRequestDraftAiService requestDraftAi,
+    IWhatsAppAudioTranscriptionService audioTranscription,
     NotificationService notifications,
     IOptions<WhatsAppOptions> options,
     ILogger<WhatsAppConversationService> logger)
@@ -284,7 +285,7 @@ public sealed class WhatsAppConversationService(
         {
             WhatsAppConversationState.MainMenu => MainMenuChoice(session, text, now, expires),
             WhatsAppConversationState.CollectingDescription =>
-                CollectDescription(session, message, now, expires),
+                await CollectDescription(session, message, identity.FullName, now, expires, ct),
             WhatsAppConversationState.CollectingAttachments =>
                 await CollectAttachments(session, message, identity.FullName, now, expires, ct),
             WhatsAppConversationState.ReviewingNewRequest =>
@@ -312,16 +313,105 @@ public sealed class WhatsAppConversationService(
         return ("Para abrir uma solicitação, digite 1.", "invalid_main_menu_choice");
     }
 
-    private static (string, string) CollectDescription(
+    private async Task<(string, string)> CollectDescription(
         WhatsAppSession session, NormalizedWhatsAppMessage message,
-        DateTime now, DateTime expires)
+        string fullName, DateTime now, DateTime expires, CancellationToken ct)
     {
+        if (IsAudioTranscriptionFailure(session))
+        {
+            if (message.MessageType == "text" && message.Text?.Trim() == "1")
+            {
+                session.ClearPendingAudioState(now, expires);
+                return ("Envie o novo áudio quando estiver pronto.", "collecting_audio_retry");
+            }
+            if (message.MessageType == "text" && message.Text?.Trim() == "2")
+            {
+                session.ClearPendingAudioState(now, expires);
+                return (DescriptionPrompt(), "collecting_text_retry");
+            }
+            if (message.MessageType == "text" && message.Text?.Trim() == "3")
+            {
+                await DiscardDraftAttachments(session, ct);
+                session.Restart(now, expires);
+                return ($"A abertura foi cancelada.\n\n{MainMenu(fullName)}", "cancelled");
+            }
+        }
+
+        if (message.MessageType == "audio")
+            return await CollectAudioDescription(session, message, now, expires, ct);
         if (message.MessageType != "text" || string.IsNullOrWhiteSpace(message.Text))
             return (DescriptionPrompt(), "description_required");
         var description = message.Text.Trim();
         if (description.Length > 4000)
             return ("A descrição deve ter no máximo 4000 caracteres. Envie um texto menor.", "description_too_long");
         session.SetDescriptionForReview(description, now, expires);
+        return (AttachmentPrompt(), "collecting_attachments");
+    }
+
+    private async Task<(string, string)> CollectAudioDescription(
+        WhatsAppSession session, NormalizedWhatsAppMessage message,
+        DateTime now, DateTime expires, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(message.MediaId))
+        {
+            MarkAudioFailure(session, now, expires);
+            return (AudioFailurePrompt(), "audio_missing");
+        }
+        var media = await client.DownloadMediaAsync(message.MediaId, ct);
+        if (!media.Succeeded || media.Content is null)
+        {
+            MarkAudioFailure(session, now, expires);
+            return (AudioFailurePrompt(), "audio_download_failed");
+        }
+        var contentType = media.ContentType ?? message.MediaContentType;
+        var extension = AttachmentPolicy.PreferredExtension(contentType);
+        var fileName = $"audio-{Guid.NewGuid():N}{extension}";
+        var validation = AttachmentPolicy.Validate(fileName, media.Content.LongLength, contentType);
+        if (validation.Error is not null)
+        {
+            session.Touch(now, expires);
+            return (validation.Error, "audio_rejected");
+        }
+        var count = await db.WhatsAppDraftAttachments.CountAsync(
+            x => x.SessionId == session.Id, ct);
+        if (count >= AttachmentPolicy.MaximumFileCount)
+            return ($"É permitido enviar no máximo {AttachmentPolicy.MaximumFileCount} arquivos.",
+                "attachment_limit");
+
+        var storageKey = await storage.SaveWhatsAppDraftAsync(
+            session.Id, media.Content, validation.Extension!, ct);
+        var draft = new WhatsAppDraftAttachment(
+            session.Id, message.MediaId, validation.Name!, storageKey,
+            validation.ContentType!, media.Content.LongLength);
+        try
+        {
+            db.WhatsAppDraftAttachments.Add(draft);
+            await db.SaveChangesAsync(ct);
+        }
+        catch
+        {
+            storage.Delete(storageKey);
+            throw;
+        }
+
+        var transcription = await audioTranscription.TranscribeAsync(
+            media.Content, validation.Name!, validation.ContentType!, ct);
+        if (!transcription.Succeeded || string.IsNullOrWhiteSpace(transcription.Text)
+            || transcription.Text.Length > 4000)
+        {
+            db.WhatsAppDraftAttachments.Remove(draft);
+            await db.SaveChangesAsync(ct);
+            storage.Delete(storageKey);
+            MarkAudioFailure(session, now, expires);
+            return (AudioFailurePrompt(), transcription.Code == "timeout"
+                ? "audio_transcription_timeout" : "audio_transcription_failed");
+        }
+
+        session.SetAudioDescriptionForReview(
+            transcription.Text,
+            JsonSerializer.Serialize(new RequestDraftReview(
+                PendingAudioSource, null, null, draft.Id)),
+            now, expires);
         return (AttachmentPrompt(), "collecting_attachments");
     }
 
@@ -399,6 +489,7 @@ public sealed class WhatsAppConversationService(
     {
         if (text == "2")
         {
+            await DiscardOriginalAudioDraft(session, ct);
             session.RewriteDescription(now, expires);
             return (DescriptionPrompt(), "description_correction");
         }
@@ -411,7 +502,7 @@ public sealed class WhatsAppConversationService(
         if (text != "1")
         {
             session.Touch(now, expires);
-            return ("Digite 1 para confirmar, 2 para corrigir a descrição ou 3 para cancelar.", "invalid_confirmation_choice");
+            return ("Digite 1 para confirmar, 2 para corrigir o relato ou 3 para cancelar.", "invalid_confirmation_choice");
         }
 
         var review = Review(session);
@@ -487,8 +578,9 @@ public sealed class WhatsAppConversationService(
         db.Requests.Add(request);
         db.RequestStatusHistories.Add(new RequestStatusHistory(
             request.Id, null, RequestStatus.Open, session.UserId.Value, null, request.CreatedAt));
-        db.RequestMessages.Add(new RequestMessage(
-            request.Id, session.UserId.Value, originalReport, MessageChannel.WhatsApp));
+        var originalMessage = new RequestMessage(
+            request.Id, session.UserId.Value, originalReport, MessageChannel.WhatsApp);
+        db.RequestMessages.Add(originalMessage);
         if (review.Source == AiReviewSource)
         {
             db.RequestAiAnalyses.Add(new RequestAiAnalysis(
@@ -514,7 +606,8 @@ public sealed class WhatsAppConversationService(
                 promotedKeys.Add(key);
                 db.RequestAttachments.Add(new RequestAttachment(
                     request.Id, session.UserId.Value, draft.OriginalFileName,
-                    key, draft.ContentType, draft.FileSize));
+                    key, draft.ContentType, draft.FileSize,
+                    draft.Id == review.OriginalAudioDraftId ? originalMessage.Id : null));
             }
             db.WhatsAppDraftAttachments.RemoveRange(drafts);
             session.CompleteRequest(request.Id, now, expires);
@@ -584,14 +677,14 @@ public sealed class WhatsAppConversationService(
             $"*Título:*\n{proposal.Title}\n\n" +
             $"*Descrição:*\n{proposal.Description}\n\n" +
             "1 - Confirmar solicitação\n" +
-            "2 - Reescrever descrição\n" +
+            "2 - Corrigir relato\n" +
             "3 - Cancelar e voltar ao início";
     }
 
     private static string FallbackReviewPrompt(string originalReport) =>
         $"Você descreveu:\n\n{originalReport}\n\n" +
         "1 - Confirmar e continuar\n" +
-        "2 - Reescrever descrição\n" +
+        "2 - Corrigir relato\n" +
         "3 - Cancelar e voltar ao início";
 
     private static string CategoryMenu(CategoryChoice[] categories) =>
@@ -625,8 +718,10 @@ public sealed class WhatsAppConversationService(
             session.DraftDescription!, categories.Select(x => x.Name).ToArray(),
             condominiumName, ct);
         var review = result.Succeeded && result.Proposal is not null
-            ? new RequestDraftReview(AiReviewSource, result.Proposal, result.Model)
-            : new RequestDraftReview(FallbackReviewSource, null, null);
+            ? new RequestDraftReview(AiReviewSource, result.Proposal, result.Model,
+                OriginalAudioDraftId(session))
+            : new RequestDraftReview(FallbackReviewSource, null, null,
+                OriginalAudioDraftId(session));
         session.SetAiProposal(JsonSerializer.Serialize(review), now, expires);
         logger.LogInformation(result.Succeeded
             ? "Request draft AI proposal generated."
@@ -662,7 +757,7 @@ public sealed class WhatsAppConversationService(
                 || string.IsNullOrWhiteSpace(legacyProposal.Description)
                 || legacyProposal.MissingInformation is null
                 ? null
-                : new RequestDraftReview(AiReviewSource, legacyProposal, null);
+                : new RequestDraftReview(AiReviewSource, legacyProposal, null, null);
         }
         catch (JsonException) { return null; }
     }
@@ -677,9 +772,66 @@ public sealed class WhatsAppConversationService(
         foreach (var draft in drafts) storage.Delete(draft.StorageKey);
     }
 
+    private async Task DiscardOriginalAudioDraft(
+        WhatsAppSession session, CancellationToken ct)
+    {
+        var audioDraftId = OriginalAudioDraftId(session);
+        if (audioDraftId is null) return;
+        var draft = await db.WhatsAppDraftAttachments.SingleOrDefaultAsync(
+            x => x.Id == audioDraftId && x.SessionId == session.Id, ct);
+        if (draft is null) return;
+        db.WhatsAppDraftAttachments.Remove(draft);
+        await db.SaveChangesAsync(ct);
+        storage.Delete(draft.StorageKey);
+    }
+
+    private static Guid? OriginalAudioDraftId(WhatsAppSession session)
+    {
+        if (string.IsNullOrWhiteSpace(session.DraftAiProposalJson)) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(session.DraftAiProposalJson);
+            return document.RootElement.TryGetProperty(
+                    nameof(RequestDraftReview.OriginalAudioDraftId), out var id)
+                && id.ValueKind == JsonValueKind.String
+                && Guid.TryParse(id.GetString(), out var parsed)
+                    ? parsed
+                    : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    private static bool IsAudioTranscriptionFailure(WhatsAppSession session)
+    {
+        if (string.IsNullOrWhiteSpace(session.DraftAiProposalJson)) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(session.DraftAiProposalJson);
+            return document.RootElement.TryGetProperty(nameof(RequestDraftReview.Source), out var source)
+                && source.GetString() == AudioFailureSource;
+        }
+        catch (JsonException) { return false; }
+    }
+
+    private static string AudioFailurePrompt() =>
+        "Não consegui compreender o áudio.\n\n" +
+        "Você pode:\n\n" +
+        "1 - Enviar outro áudio\n" +
+        "2 - Escrever a descrição\n" +
+        "3 - Cancelar";
+
+    private static void MarkAudioFailure(
+        WhatsAppSession session, DateTime now, DateTime expires) =>
+        session.MarkAudioTranscriptionFailure(
+            JsonSerializer.Serialize(new RequestDraftReview(
+                AudioFailureSource, null, null, null)), now, expires);
+
     private sealed record ResolvedIdentity(Guid UserId, string FullName, Guid CondominiumId, Guid UnitId);
     private sealed record ResidentialContext(Guid CondominiumId, Guid UnitId, bool IsPrimaryResidence);
     private sealed record CategoryChoice(Guid Id, string Name);
+    private const string PendingAudioSource = "pending_audio";
+    private const string AudioFailureSource = "audio_failure";
     private sealed record RequestDraftReview(
-        string Source, RequestDraftAiProposal? Proposal, string? Model);
+        string Source, RequestDraftAiProposal? Proposal, string? Model,
+        Guid? OriginalAudioDraftId);
 }
