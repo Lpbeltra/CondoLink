@@ -52,8 +52,9 @@ public sealed class NotificationService(
         Guid? statusHistoryId = null,
         string? reason = null)
     {
-        var content = StatusChangedContent(
-            request.Title, previousStatus, request.Status, reason);
+        var content = request.Status == RequestStatus.WaitingForResident
+            ? ResidentReplyRequestedContent(request.Title, reason!)
+            : StatusChangedContent(request.Title, previousStatus, request.Status, reason);
 
         dbContext.Notifications.Add(new Notification(
             request.AuthorUserId,
@@ -193,4 +194,9 @@ public sealed class NotificationService(
             ? content
             : content + $"\n\nComentário da administração:\n\n{comment}";
     }
+
+    internal static string ResidentReplyRequestedContent(string title, string question) =>
+        "A administração precisa de uma informação sua sobre a solicitação:\n\n" +
+        $"*\"{Shorten(title, 120)}\"*\n\n{question.Trim()}\n\n" +
+        "1 - Responder agora\n2 - Responder depois";
 }

@@ -22,6 +22,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     private CoreEndpointTestHost _host = null!;
     private FakeWhatsAppClient _fake = null!;
     private FakeRequestDraftAiService _ai = null!;
+    private FakeResidentReplyAiService _replyAi = null!;
     private FakeAudioTranscriptionService _transcription = null!;
     private Guid _userId;
     private Guid _condominiumId;
@@ -31,6 +32,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     {
         _fake = new FakeWhatsAppClient();
         _ai = new FakeRequestDraftAiService();
+        _replyAi = new FakeResidentReplyAiService();
         _transcription = new FakeAudioTranscriptionService();
         _host = await CoreEndpointTestHost.StartAsync(
             app => app.MapWhatsAppWebhook(),
@@ -45,8 +47,10 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 });
                 builder.Services.AddSingleton<IWhatsAppClient>(_fake);
                 builder.Services.AddSingleton<IRequestDraftAiService>(_ai);
+                builder.Services.AddSingleton<IResidentReplyAiService>(_replyAi);
                 builder.Services.AddSingleton<IWhatsAppAudioTranscriptionService>(_transcription);
                 builder.Services.AddSingleton<LocalFileStorage>();
+                builder.Services.AddScoped<ResidentReplyService>();
                 builder.Services.AddScoped<WhatsAppConversationService>();
             });
         await _host.WithDbAsync(async db =>
@@ -83,6 +87,52 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Equal("12345", await accepted.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.Forbidden, rejected.StatusCode);
         Assert.DoesNotContain(VerifyToken, await rejected.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Active_requirement_from_option_two_accepts_text_through_resident_reply_service()
+    {
+        var requestId = await _host.WithDbAsync(async db =>
+        {
+            var category = new Category(_condominiumId, "Manutenção", null);
+            var request = new CondoLink.Domain.Entities.Request(_condominiumId,
+                _userId, _unitId, category.Id, "Portão da garagem",
+                "Relato original");
+            var changedAt = DateTime.UtcNow;
+            request.ChangeStatus(RequestStatus.WaitingForResident, changedAt);
+            var manager = CoreTestSeed.User("Gestor", "reply-manager@example.com");
+            var history = new RequestStatusHistory(request.Id,
+                RequestStatus.InProgress, RequestStatus.WaitingForResident,
+                manager.Id, "Qual foi o horário?", changedAt);
+            db.AddRange(category, manager, request, history,
+                new RequestResidentReplyRequirement(request.Id, manager.Id,
+                    history.Id, history.Reason!, changedAt));
+            await db.SaveChangesAsync();
+            return request.Id;
+        });
+
+        await PostAsync(TextPayload("wamid.reply-menu", "Oi"));
+        await PostAsync(TextPayload("wamid.reply-list", "2"));
+        await PostAsync(TextPayload("wamid.reply-select", "1"));
+        Assert.Contains("Qual foi o horário?", _fake.Messages.Last().Text);
+        await PostAsync(TextPayload("wamid.reply-now", "1"));
+        await PostAsync(TextPayload("wamid.reply-text", "Foi por volta das 22h"));
+        Assert.Contains("Você respondeu", _fake.Messages.Last().Text);
+        await PostAsync(TextPayload("wamid.reply-review", "1"));
+        await PostAsync(TextPayload("wamid.reply-no-files", "2"));
+
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(RequestStatus.InProgress,
+                (await db.Requests.SingleAsync(x => x.Id == requestId)).Status);
+            var requirement = await db.RequestResidentReplyRequirements.SingleAsync();
+            Assert.False(requirement.IsActive);
+            Assert.True(requirement.HasUnreadAnswer);
+            var message = Assert.Single(await db.RequestMessages
+                .Where(x => x.RequestId == requestId).ToArrayAsync());
+            Assert.Equal("Foi por volta das 22h", message.Content);
+            Assert.Equal(MessageChannel.WhatsApp, message.Channel);
+        });
     }
 
     [Theory]
@@ -1671,5 +1721,13 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             Calls++;
             return Task.FromResult(Result);
         }
+    }
+
+    private sealed class FakeResidentReplyAiService : IResidentReplyAiService
+    {
+        public ResidentReplyAiResult Result { get; set; } = new(false, null);
+        public Task<ResidentReplyAiResult> OrganizeAsync(string question,
+            string originalAnswer, CancellationToken cancellationToken) =>
+            Task.FromResult(Result);
     }
 }

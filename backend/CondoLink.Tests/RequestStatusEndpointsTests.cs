@@ -368,7 +368,8 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         Assert.Equal(Assert.Single(await HistoryAsync()).Id, requirement.RequestStatusHistoryId);
         var notification = Assert.Single(await _host.WithDbAsync(db =>
             db.Notifications.AsNoTracking().ToArrayAsync()));
-        Assert.Contains("Comentário da administração", notification.Body);
+        Assert.Contains("A administração precisa de uma informação sua", notification.Body);
+        Assert.Contains("Responder agora", notification.Body);
         Assert.Contains("Envie uma foto do local.", notification.Body);
     }
 

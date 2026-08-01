@@ -68,6 +68,25 @@ public sealed class WhatsAppNotificationDispatcher(
             request.CondominiumId, phone ?? string.Empty, type, mode,
             idempotencyKey, content, template.Name, template.Language,
             DateTime.UtcNow, status, skipReason));
+        if (skipReason is null && type == WhatsAppNotificationType.InformationRequested)
+        {
+            var now = DateTime.UtcNow;
+            var expires = now.AddMinutes(Math.Clamp(
+                settings.SessionExpirationMinutes, 30, 30));
+            var session = await db.WhatsAppSessions.SingleOrDefaultAsync(
+                x => x.PhoneNumber == phone, ct);
+            if (session is null)
+            {
+                session = new WhatsAppSession(phone!, now, expires);
+                session.Identify(request.AuthorUserId);
+                db.WhatsAppSessions.Add(session);
+            }
+            if (session.State is WhatsAppConversationState.MainMenu
+                    or WhatsAppConversationState.Ended
+                    or WhatsAppConversationState.AwaitingResidentReplyChoice
+                || session.ExpiresAt <= now)
+                session.OfferResidentReply(request.Id, now, expires);
+        }
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateException)
         {

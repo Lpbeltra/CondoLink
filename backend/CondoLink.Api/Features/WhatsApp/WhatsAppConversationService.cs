@@ -18,7 +18,9 @@ public sealed class WhatsAppConversationService(
     IWhatsAppClient client,
     LocalFileStorage storage,
     IRequestDraftAiService requestDraftAi,
+    IResidentReplyAiService residentReplyAi,
     IWhatsAppAudioTranscriptionService audioTranscription,
+    CondoLink.Api.Features.Requests.ResidentReplyService residentReplies,
     NotificationService notifications,
     IOptions<WhatsAppOptions> options,
     ILogger<WhatsAppConversationService> logger)
@@ -284,6 +286,8 @@ public sealed class WhatsAppConversationService(
                 session.Touch(now, expires);
                 return ("Não há operação em andamento. Digite 1 para abrir uma solicitação.", "nothing_to_cancel");
             }
+            if (IsResidentReplyFlow(session.State))
+                return await DeferResidentReply(session, now, expires, ct);
             var ownRequestFlow = IsOwnRequestFlow(session.State);
             await DiscardDraftAttachments(session, ct);
             session.Restart(now, expires);
@@ -303,6 +307,14 @@ public sealed class WhatsAppConversationService(
                 await OwnRequestDetailsChoice(session, identity, text, now, expires, ct),
             WhatsAppConversationState.ViewingOwnRequestUpdates =>
                 await OwnRequestUpdatesChoice(session, identity, text, now, expires, ct),
+            WhatsAppConversationState.AwaitingResidentReplyChoice =>
+                await ResidentReplyChoice(session, identity, text, now, expires, ct),
+            WhatsAppConversationState.CollectingResidentReply =>
+                await CollectResidentReply(session, identity, message, now, expires, ct),
+            WhatsAppConversationState.ReviewingResidentReply =>
+                await ResidentReplyReviewChoice(session, identity, text, now, expires, ct),
+            WhatsAppConversationState.CollectingResidentReplyAttachments =>
+                await CollectResidentReplyAttachments(session, identity, message, now, expires, ct),
             WhatsAppConversationState.CollectingDescription =>
                 await CollectDescription(session, message, identity.FullName, now, expires, ct),
             WhatsAppConversationState.CollectingAttachments =>
@@ -367,6 +379,14 @@ public sealed class WhatsAppConversationService(
         {
             var selected = page.Items[choice - 1];
             session.ShowOwnRequest(selected.Id, now, expires);
+            var requirement = await ActiveResidentReplyRequirement(
+                selected.Id, identity, ct);
+            if (requirement is not null)
+            {
+                session.OfferResidentReply(selected.Id, now, expires);
+                return (ResidentReplyOfferPrompt(requirement.Question, true),
+                    "resident_reply_offered_from_request");
+            }
             return (OwnRequestDetails(selected), "viewing_own_request");
         }
 
@@ -571,6 +591,252 @@ public sealed class WhatsAppConversationService(
         WhatsAppConversationState.ListingOwnRequests
         or WhatsAppConversationState.ViewingOwnRequest
         or WhatsAppConversationState.ViewingOwnRequestUpdates;
+
+    private static bool IsResidentReplyFlow(WhatsAppConversationState state) => state is
+        WhatsAppConversationState.AwaitingResidentReplyChoice
+        or WhatsAppConversationState.CollectingResidentReply
+        or WhatsAppConversationState.ReviewingResidentReply
+        or WhatsAppConversationState.CollectingResidentReplyAttachments;
+
+    private async Task<(string, string)> ResidentReplyChoice(
+        WhatsAppSession session, ResolvedIdentity identity, string? text,
+        DateTime now, DateTime expires, CancellationToken ct)
+    {
+        var requirement = await ActiveResidentReplyRequirement(session.RequestId, identity, ct);
+        if (requirement is null)
+            return ResidentReplyNoLongerAvailable(session, identity.FullName, now, expires);
+        if (text == "1")
+        {
+            session.BeginResidentReply(now, expires, true);
+            return (ResidentReplyInputPrompt(), "collecting_resident_reply");
+        }
+        if (text == "2" && session.PreviousState == WhatsAppConversationState.ViewingOwnRequest)
+        {
+            var request = await AccessibleOwnRequest(session.RequestId, identity, ct);
+            if (request is null)
+                return ResidentReplyNoLongerAvailable(session, identity.FullName, now, expires);
+            session.ShowOwnRequest(request.Id, now, expires);
+            return (OwnRequestDetails(request), "viewing_own_request");
+        }
+        if (text == "2")
+            return await DeferResidentReply(session, now, expires, ct);
+        if (text == "0" && session.PreviousState == WhatsAppConversationState.ViewingOwnRequest)
+        {
+            session.Restart(now, expires);
+            return (MainMenu(identity.FullName), "main_menu");
+        }
+        session.Touch(now, expires);
+        return (ResidentReplyOfferPrompt(requirement.Question,
+            session.PreviousState == WhatsAppConversationState.ViewingOwnRequest),
+            "invalid_resident_reply_choice");
+    }
+
+    private async Task<(string, string)> CollectResidentReply(
+        WhatsAppSession session, ResolvedIdentity identity,
+        NormalizedWhatsAppMessage message, DateTime now, DateTime expires,
+        CancellationToken ct)
+    {
+        var requirement = await ActiveResidentReplyRequirement(session.RequestId, identity, ct);
+        if (requirement is null)
+            return ResidentReplyNoLongerAvailable(session, identity.FullName, now, expires);
+        if (IsAudioTranscriptionFailure(session))
+        {
+            if (message.MessageType == "text" && message.Text?.Trim() is "1" or "2")
+            {
+                session.ClearPendingAudioState(now, expires);
+                return (ResidentReplyInputPrompt(), "collecting_resident_reply_retry");
+            }
+            if (message.MessageType == "text" && message.Text?.Trim() == "3")
+                return await DeferResidentReply(session, now, expires, ct);
+        }
+        if (message.MessageType == "audio")
+        {
+            if (string.IsNullOrWhiteSpace(message.MediaId))
+            {
+                MarkAudioFailure(session, now, expires);
+                return (AudioFailurePrompt(), "resident_reply_audio_missing");
+            }
+            var media = await client.DownloadMediaAsync(message.MediaId, ct);
+            if (!media.Succeeded || media.Content is null)
+            {
+                MarkAudioFailure(session, now, expires);
+                return (AudioFailurePrompt(), "resident_reply_audio_download_failed");
+            }
+            var contentType = media.ContentType ?? message.MediaContentType;
+            var extension = AttachmentPolicy.PreferredExtension(contentType);
+            var validation = AttachmentPolicy.Validate($"audio-{Guid.NewGuid():N}{extension}",
+                media.Content.LongLength, contentType);
+            if (validation.Error is not null) return (validation.Error, "resident_reply_audio_rejected");
+            var key = await storage.SaveWhatsAppDraftAsync(session.Id, media.Content,
+                validation.Extension!, ct);
+            var draft = new WhatsAppDraftAttachment(session.Id, message.MediaId,
+                validation.Name!, key, validation.ContentType!, media.Content.LongLength);
+            db.WhatsAppDraftAttachments.Add(draft);
+            try { await db.SaveChangesAsync(ct); }
+            catch { storage.Delete(key); throw; }
+            var transcription = await audioTranscription.TranscribeAsync(media.Content,
+                validation.Name!, validation.ContentType!, ct);
+            if (!transcription.Succeeded || string.IsNullOrWhiteSpace(transcription.Text)
+                || transcription.Text.Length > 4000)
+            {
+                db.WhatsAppDraftAttachments.Remove(draft);
+                await db.SaveChangesAsync(ct);
+                storage.Delete(key);
+                MarkAudioFailure(session, now, expires);
+                return (AudioFailurePrompt(), "resident_reply_transcription_failed");
+            }
+            return await OrganizeResidentReply(session, requirement.Question,
+                transcription.Text, draft.Id, now, expires, ct);
+        }
+        if (message.MessageType != "text" || string.IsNullOrWhiteSpace(message.Text))
+            return (ResidentReplyInputPrompt(), "resident_reply_required");
+        var original = message.Text.Trim();
+        if (original.Length > 4000)
+            return ("A resposta deve ter no máximo 4000 caracteres.", "resident_reply_too_long");
+        return await OrganizeResidentReply(session, requirement.Question, original,
+            null, now, expires, ct);
+    }
+
+    private async Task<(string, string)> OrganizeResidentReply(WhatsAppSession session,
+        string question, string original, Guid? audioDraftId, DateTime now,
+        DateTime expires, CancellationToken ct)
+    {
+        var result = await residentReplyAi.OrganizeAsync(question, original, ct);
+        var review = new ResidentReplyReview(result.Succeeded ? AiReviewSource : FallbackReviewSource,
+            result.Succeeded ? result.Answer! : original, audioDraftId);
+        session.SetResidentReplyForReview(original, JsonSerializer.Serialize(review), now, expires);
+        return (ResidentReplyReviewPrompt(review), result.Succeeded
+            ? "reviewing_resident_reply_ai" : "reviewing_resident_reply_fallback");
+    }
+
+    private async Task<(string, string)> ResidentReplyReviewChoice(
+        WhatsAppSession session, ResolvedIdentity identity, string? text,
+        DateTime now, DateTime expires, CancellationToken ct)
+    {
+        if (await ActiveResidentReplyRequirement(session.RequestId, identity, ct) is null)
+            return ResidentReplyNoLongerAvailable(session, identity.FullName, now, expires);
+        if (text == "2")
+        {
+            await DiscardOriginalAudioDraft(session, ct);
+            session.BeginResidentReply(now, expires, true);
+            return (ResidentReplyInputPrompt(), "resident_reply_correction");
+        }
+        if (text == "3") return await DeferResidentReply(session, now, expires, ct);
+        var review = ResidentReview(session);
+        if (text != "1" || review is null)
+        {
+            session.Touch(now, expires);
+            return (review is null ? ResidentReplyInputPrompt() : ResidentReplyReviewPrompt(review),
+                "invalid_resident_reply_confirmation");
+        }
+        session.BeginResidentReplyAttachments(now, expires);
+        return (ResidentReplyAttachmentPrompt(), "collecting_resident_reply_attachments");
+    }
+
+    private async Task<(string, string)> CollectResidentReplyAttachments(
+        WhatsAppSession session, ResolvedIdentity identity,
+        NormalizedWhatsAppMessage message, DateTime now, DateTime expires,
+        CancellationToken ct)
+    {
+        if (await ActiveResidentReplyRequirement(session.RequestId, identity, ct) is null)
+            return ResidentReplyNoLongerAvailable(session, identity.FullName, now, expires);
+        var text = message.Text?.Trim();
+        if (text == "3") return await DeferResidentReply(session, now, expires, ct);
+        if (text is "1" or "2")
+            return await ConfirmResidentReply(session, identity, now, expires, ct);
+        if (message.MessageType is not ("image" or "video" or "document")
+            || string.IsNullOrWhiteSpace(message.MediaId))
+            return (ResidentReplyAttachmentPrompt(), "unsupported_resident_reply_attachment");
+        var count = await db.WhatsAppDraftAttachments.CountAsync(x => x.SessionId == session.Id, ct);
+        if (count >= AttachmentPolicy.MaximumFileCount)
+            return ($"É permitido enviar no máximo {AttachmentPolicy.MaximumFileCount} arquivos.",
+                "resident_reply_attachment_limit");
+        var media = await client.DownloadMediaAsync(message.MediaId, ct);
+        if (!media.Succeeded || media.Content is null)
+            return ("Não foi possível baixar o arquivo. Tente novamente.",
+                "resident_reply_attachment_download_failed");
+        var extension = Path.GetExtension(message.FileName);
+        if (string.IsNullOrWhiteSpace(extension)) extension = AttachmentPolicy.PreferredExtension(media.ContentType);
+        var fileName = string.IsNullOrWhiteSpace(message.FileName)
+            ? $"arquivo-{Guid.NewGuid():N}{extension}" : message.FileName;
+        var validation = AttachmentPolicy.Validate(fileName, media.Content.LongLength, media.ContentType);
+        if (validation.Error is not null) return (validation.Error, "resident_reply_attachment_rejected");
+        var key = await storage.SaveWhatsAppDraftAsync(session.Id, media.Content,
+            validation.Extension!, ct);
+        try
+        {
+            db.WhatsAppDraftAttachments.Add(new WhatsAppDraftAttachment(session.Id,
+                message.MediaId, validation.Name!, key, validation.ContentType!, media.Content.LongLength));
+            session.Touch(now, expires);
+            await db.SaveChangesAsync(ct);
+        }
+        catch { storage.Delete(key); throw; }
+        return ("Arquivo recebido. Envie outro ou digite 1 quando terminar.",
+            "resident_reply_attachment_received");
+    }
+
+    private async Task<(string, string)> ConfirmResidentReply(WhatsAppSession session,
+        ResolvedIdentity identity, DateTime now, DateTime expires, CancellationToken ct)
+    {
+        var review = ResidentReview(session);
+        if (review is null || !session.RequestId.HasValue)
+            return ResidentReplyNoLongerAvailable(session, identity.FullName, now, expires);
+        var drafts = await db.WhatsAppDraftAttachments.AsNoTracking()
+            .Where(x => x.SessionId == session.Id).ToArrayAsync(ct);
+        var files = drafts.Select(draft => new CondoLink.Api.Features.Requests.ResidentReplyService.ReplyFile(
+            draft.OriginalFileName, draft.ContentType, draft.FileSize,
+            _ => Task.FromResult<Stream>(storage.OpenRead(draft.StorageKey)
+                ?? throw new FileNotFoundException("Temporary WhatsApp attachment was not found."))))
+            .ToArray();
+        var result = await residentReplies.ReplyAsync(session.RequestId.Value,
+            identity.UserId, review.Answer, files, MessageChannel.WhatsApp, ct);
+        if (result.Code != CondoLink.Api.Features.Requests.ResidentReplyService.ResultCode.Succeeded)
+        {
+            await DiscardDraftAttachments(session, ct);
+            session.Restart(now, expires);
+            return ("Não foi possível enviar a resposta porque a pendência foi alterada.\n\n"
+                + MainMenu(identity.FullName), "resident_reply_conflict");
+        }
+        await DiscardDraftAttachments(session, ct);
+        session.Restart(now, expires);
+        return ("Resposta enviada com sucesso.\n\n" + MainMenu(identity.FullName),
+            "resident_reply_sent");
+    }
+
+    private async Task<(string, string)> DeferResidentReply(WhatsAppSession session,
+        DateTime now, DateTime expires, CancellationToken ct)
+    {
+        await DiscardDraftAttachments(session, ct);
+        session.Restart(now, expires);
+        return ("Tudo bem. A solicitação continuará aguardando sua resposta.\n\n"
+            + "Você pode responder depois pelo portal ou consultar a solicitação pelo WhatsApp.",
+            "resident_reply_deferred");
+    }
+
+    private (string, string) ResidentReplyNoLongerAvailable(WhatsAppSession session,
+        string fullName, DateTime now, DateTime expires)
+    {
+        session.Restart(now, expires);
+        return ("Não foi possível continuar este atendimento.\n\n" + MainMenu(fullName),
+            "resident_reply_no_longer_available");
+    }
+
+    private async Task<ResidentReplyRequirement?> ActiveResidentReplyRequirement(
+        Guid? requestId, ResolvedIdentity identity, CancellationToken ct)
+    {
+        if (!requestId.HasValue) return null;
+        return await db.Requests.AsNoTracking()
+            .Where(x => x.Id == requestId && x.AuthorUserId == identity.UserId
+                && x.CondominiumId == identity.CondominiumId
+                && (x.TargetUnitId == null || x.TargetUnitId == identity.UnitId)
+                && x.Status == RequestStatus.WaitingForResident)
+            .Join(db.RequestResidentReplyRequirements.AsNoTracking()
+                    .Where(x => x.IsActive && x.AnswerMessageId == null),
+                request => request.Id, requirement => requirement.RequestId,
+                (_, requirement) => new ResidentReplyRequirement(requirement.Id,
+                    requirement.Question))
+            .SingleOrDefaultAsync(ct);
+    }
 
     private async Task<(string, string)> CollectDescription(
         WhatsAppSession session, NormalizedWhatsAppMessage message,
@@ -929,6 +1195,30 @@ public sealed class WhatsAppConversationService(
         "2 - Não quero enviar arquivos\n" +
         "3 - Cancelar e voltar ao início";
 
+    private static string ResidentReplyOfferPrompt(string question, bool fromDetails) =>
+        "A administração está aguardando uma resposta sua:\n\n" + question.Trim() + "\n\n" +
+        (fromDetails
+            ? "1 - Responder agora\n2 - Ver detalhes\n0 - Voltar ao menu"
+            : "1 - Responder agora\n2 - Responder depois");
+
+    private static string ResidentReplyInputPrompt() =>
+        "Envie sua resposta em uma mensagem de texto ou áudio.\n\n" +
+        "Depois, você poderá adicionar fotos, vídeos ou documentos.";
+
+    private static string ResidentReplyReviewPrompt(ResidentReplyReview review) =>
+        (review.Source == AiReviewSource
+            ? "Revise sua resposta antes de enviá-la.\n\n*Resposta:*\n"
+            : "Você respondeu:\n\n") + review.Answer + "\n\n" +
+        "1 - Confirmar resposta\n2 - Corrigir relato\n" +
+        "3 - Cancelar e responder depois";
+
+    private static string ResidentReplyAttachmentPrompt() =>
+        "Deseja adicionar fotos, vídeos ou documentos?\n\n" +
+        "Se sim, envie os arquivos agora.\n\nQuando terminar:\n\n" +
+        "1 - Terminei de enviar os arquivos\n" +
+        "2 - Não quero enviar arquivos\n" +
+        "3 - Cancelar e responder depois";
+
     private static string ReviewPrompt(RequestDraftAiProposal proposal)
     {
         return "Revise sua solicitação antes de enviá-la.\n\n" +
@@ -1030,6 +1320,21 @@ public sealed class WhatsAppConversationService(
         catch (JsonException) { return null; }
     }
 
+    private static ResidentReplyReview? ResidentReview(WhatsAppSession session)
+    {
+        if (string.IsNullOrWhiteSpace(session.DraftAiProposalJson)) return null;
+        try
+        {
+            var review = JsonSerializer.Deserialize<ResidentReplyReview>(
+                session.DraftAiProposalJson);
+            return review is not null
+                && review.Source is AiReviewSource or FallbackReviewSource
+                && !string.IsNullOrWhiteSpace(review.Answer)
+                ? review : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
     private async Task DiscardDraftAttachments(WhatsAppSession session, CancellationToken ct)
     {
         var drafts = await db.WhatsAppDraftAttachments
@@ -1103,6 +1408,9 @@ public sealed class WhatsAppConversationService(
         bool HasNext);
     private sealed record OwnRequestUpdate(Guid Id, Guid AuthorUserId, string Content,
         DateTime CreatedAt);
+    private sealed record ResidentReplyRequirement(Guid Id, string Question);
+    private sealed record ResidentReplyReview(string Source, string Answer,
+        Guid? OriginalAudioDraftId);
     private const string PendingAudioSource = "pending_audio";
     private const string AudioFailureSource = "audio_failure";
     private sealed record RequestDraftReview(

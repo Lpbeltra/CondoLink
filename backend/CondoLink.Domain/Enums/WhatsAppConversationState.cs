@@ -23,4 +23,8 @@ public enum WhatsAppConversationState
     ,ListingOwnRequests = 18
     ,ViewingOwnRequest = 19
     ,ViewingOwnRequestUpdates = 20
+    ,AwaitingResidentReplyChoice = 21
+    ,CollectingResidentReply = 22
+    ,ReviewingResidentReply = 23
+    ,CollectingResidentReplyAttachments = 24
 }

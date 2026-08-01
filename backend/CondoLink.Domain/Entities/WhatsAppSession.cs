@@ -237,6 +237,37 @@ public sealed class WhatsAppSession
         MoveTo(WhatsAppConversationState.ViewingOwnRequest, now, expiresAt,
             CondominiumId);
 
+    public void OfferResidentReply(Guid requestId, DateTime now, DateTime expiresAt)
+    {
+        RequestId = requestId;
+        CategoryId = null;
+        DraftDescription = null;
+        DraftAiProposalJson = null;
+        MoveTo(WhatsAppConversationState.AwaitingResidentReplyChoice, now, expiresAt,
+            CondominiumId);
+    }
+
+    public void BeginResidentReply(DateTime now, DateTime expiresAt, bool clearAnswer = false)
+    {
+        if (clearAnswer) DraftDescription = null;
+        DraftAiProposalJson = null;
+        MoveTo(WhatsAppConversationState.CollectingResidentReply, now, expiresAt,
+            CondominiumId);
+    }
+
+    public void SetResidentReplyForReview(string answer, string reviewJson,
+        DateTime now, DateTime expiresAt)
+    {
+        DraftDescription = answer.Trim();
+        DraftAiProposalJson = reviewJson;
+        MoveTo(WhatsAppConversationState.ReviewingResidentReply, now, expiresAt,
+            CondominiumId);
+    }
+
+    public void BeginResidentReplyAttachments(DateTime now, DateTime expiresAt) =>
+        MoveTo(WhatsAppConversationState.CollectingResidentReplyAttachments,
+            now, expiresAt, CondominiumId);
+
     public bool HasDraft => CategoryId.HasValue || !string.IsNullOrWhiteSpace(DraftDescription);
 
     public void ClearDraft()
