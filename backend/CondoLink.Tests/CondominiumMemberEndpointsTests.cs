@@ -92,6 +92,9 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
         Assert.Equal("Maria Atualizada", body!.FullName);
         Assert.Equal("maria.atualizada@example.com", body.Email);
         Assert.Equal(_unitId, body.UnitLink!.UnitId);
+        Assert.True(await _host.WithDbAsync(db => db.Users
+            .Where(item => item.Id == _residentId)
+            .Select(item => item.ReceiveWhatsAppUpdates).SingleAsync()));
         Assert.True(await _host.WithDbAsync(db => db.UnitMemberships
             .AnyAsync(item =>
                 item.UserId == _residentId

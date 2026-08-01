@@ -31,6 +31,7 @@ public sealed class ApplicationUser : IdentityUser<Guid>
         SetPhoneNumber(phoneNumber);
         IsActive = true;
         MustChangePassword = false;
+        ReceiveWhatsAppUpdates = true;
         CreatedAt = now;
         UpdatedAt = now;
     }

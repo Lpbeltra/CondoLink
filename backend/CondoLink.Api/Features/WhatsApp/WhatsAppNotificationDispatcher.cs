@@ -95,8 +95,23 @@ public sealed class WhatsAppNotificationDispatcher(
             throw;
         }
         if (skipReason is not null)
-            logger.LogInformation("WhatsApp outbound {Key} skipped: {Reason}.",
-                idempotencyKey, skipReason);
+            logger.LogInformation(
+                "WhatsApp outbound skipped. GlobalEnabled: {GlobalEnabled}; " +
+                "CondominiumEnabled: {CondominiumEnabled}; UserActive: {UserActive}; " +
+                "UserPreferenceEnabled: {UserPreferenceEnabled}; " +
+                "PhoneConfigured: {PhoneConfigured}; MembershipValid: {MembershipValid}; " +
+                "SessionOpen: {SessionOpen}; TemplateConfigured: {TemplateConfigured}; " +
+                "Reason: {Reason}",
+                settings.Enabled,
+                condominium.WhatsAppUpdatesEnabled,
+                user?.IsActive == true,
+                user?.ReceiveWhatsAppUpdates == true,
+                phone is not null,
+                activeMembership,
+                sessionOpen,
+                !string.IsNullOrWhiteSpace(template.Name)
+                    && !string.IsNullOrWhiteSpace(template.Language),
+                skipReason);
     }
 
     private static WhatsAppTemplateDefinition TemplateFor(

@@ -80,6 +80,7 @@ public sealed class ResetMemberTemporaryPasswordTests : IAsyncLifetime
             Assert.False(await userManager.CheckPasswordAsync(user!, "Original123"));
             Assert.True(await userManager.CheckPasswordAsync(user!, body.TemporaryPassword));
             Assert.True(user!.MustChangePassword);
+            Assert.True(user.ReceiveWhatsAppUpdates);
         });
     }
 

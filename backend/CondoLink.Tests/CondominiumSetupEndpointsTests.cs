@@ -195,6 +195,7 @@ public sealed class CondominiumSetupEndpointsTests : IAsyncLifetime
                 "maria.setup@example.com");
             Assert.NotNull(user);
             Assert.True(user!.MustChangePassword);
+            Assert.True(user.ReceiveWhatsAppUpdates);
             Assert.True(await userManager.CheckPasswordAsync(
                 user, credential.TemporaryPassword));
         });

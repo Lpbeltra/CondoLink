@@ -5,6 +5,17 @@ namespace CondoLink.Tests;
 public sealed class ApplicationUserPhoneNumberTests
 {
     [Fact]
+    public void New_user_enables_whatsapp_updates_but_can_be_disabled_explicitly()
+    {
+        var user = new ApplicationUser(
+            "Maria", "whatsapp.default@example.com", "(44) 99999-9999");
+
+        Assert.True(user.ReceiveWhatsAppUpdates);
+        user.SetReceiveWhatsAppUpdates(false);
+        Assert.False(user.ReceiveWhatsAppUpdates);
+    }
+
+    [Fact]
     public void Valid_phone_is_trimmed_and_normalized_without_confirmation()
     {
         var user = new ApplicationUser(
