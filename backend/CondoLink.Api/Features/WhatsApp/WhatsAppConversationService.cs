@@ -667,9 +667,9 @@ public sealed class WhatsAppConversationService(
         "A qualquer momento, envie ‘menu’ para recomeçar ou ‘sair’ para encerrar.";
 
     private static string DescriptionPrompt() =>
-        "Descreva o que aconteceu em uma só mensagem, com o máximo de detalhes que puder.\n\n" +
-        "Pode escrever o quanto precisar. Usaremos essas informações para abrir sua solicitação.\n\n" +
-        "Depois da descrição, você poderá adicionar fotos e vídeos.";
+        "Descreva o que aconteceu em uma só mensagem, com o máximo de detalhes que puder. Se quiser, você também pode mandar um audio.\n\n" +
+        "Pode escrever o quanto precisar, se for um audio tente não passar de 2 minutos. Usaremos essas informações para abrir sua solicitação.\n\n" +
+        "Depois da descrição da sua solicitação/duvida, você poderá adicionar fotos e vídeos.";
 
     private static string AttachmentPrompt() =>
         "Deseja adicionar fotos, vídeos ou documentos?\n\n" +
