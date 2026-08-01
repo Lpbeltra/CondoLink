@@ -136,27 +136,48 @@ public sealed class NotificationServiceTests : IAsyncLifetime
     public async Task Status_change_notifies_the_author()
     {
         var request = await AddRequestAsync(_resident.Id);
-        request.ChangeStatus(RequestStatus.InProgress, DateTime.UtcNow);
+        request.ChangeStatus(RequestStatus.WaitingForThirdParty, DateTime.UtcNow);
 
         await _service.NotifyStatusChangedAsync(
-            request, RequestStatus.Open, _managerA.Id, default);
+            request, RequestStatus.InProgress, _managerA.Id, default);
 
         var notification = await _db.Notifications.AsNoTracking().SingleAsync();
         Assert.Equal(_resident.Id, notification.RecipientUserId);
         Assert.Equal(NotificationType.RequestStatusChanged, notification.Type);
-        Assert.Contains("Em andamento", notification.Body);
+        Assert.Contains("Aguardando terceiro", notification.Body);
+        Assert.DoesNotContain("Comentário da administração", notification.Body);
     }
 
     [Fact]
-    public async Task Status_change_made_by_the_author_notifies_nobody()
+    public async Task Status_change_made_by_the_author_still_creates_the_resident_notification()
     {
         var request = await AddRequestAsync(_managerA.Id);
-        request.ChangeStatus(RequestStatus.InProgress, DateTime.UtcNow);
+        request.ChangeStatus(RequestStatus.WaitingForThirdParty, DateTime.UtcNow);
 
         await _service.NotifyStatusChangedAsync(
-            request, RequestStatus.Open, _managerA.Id, default);
+            request, RequestStatus.InProgress, _managerA.Id, default,
+            reason: "Aguardando fornecedor");
 
-        Assert.Empty(await _db.Notifications.AsNoTracking().ToListAsync());
+        var notification = await _db.Notifications.AsNoTracking().SingleAsync();
+        Assert.Equal(_managerA.Id, notification.RecipientUserId);
+        Assert.Contains("Comentário da administração", notification.Body);
+        Assert.Contains("Aguardando fornecedor", notification.Body);
+    }
+
+    [Fact]
+    public void Status_notification_content_follows_the_whatsapp_template_with_optional_comment()
+    {
+        var withoutComment = NotificationService.StatusChangedContent(
+            "Vazamento", RequestStatus.InProgress,
+            RequestStatus.WaitingForThirdParty, null);
+        var withComment = NotificationService.StatusChangedContent(
+            "Vazamento", RequestStatus.InProgress,
+            RequestStatus.WaitingForResident, "Envie uma foto.");
+
+        Assert.Equal("A solicitação *\"Vazamento\"* foi alterada de "
+            + "*Em andamento* para *Aguardando terceiro*.", withoutComment);
+        Assert.DoesNotContain("Comentário", withoutComment);
+        Assert.Contains("Comentário da administração:\n\nEnvie uma foto.", withComment);
     }
 
     // ---- messages ----

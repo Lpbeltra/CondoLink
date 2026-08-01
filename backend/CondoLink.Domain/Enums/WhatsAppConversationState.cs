@@ -20,4 +20,7 @@ public enum WhatsAppConversationState
     ,CollectingExistingRequestAttachment = 15
     ,ViewingRequestHistory = 16
     ,ConfirmingResume = 17
+    ,ListingOwnRequests = 18
+    ,ViewingOwnRequest = 19
+    ,ViewingOwnRequestUpdates = 20
 }

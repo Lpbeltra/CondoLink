@@ -55,6 +55,9 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
             CoreTestSeed.AddMember(
                 db, resident.Id, condominium.Id, CondominiumRole.Resident);
             await db.SaveChangesAsync();
+            // Mantém a cobertura das transições de solicitações legadas ainda abertas.
+            await db.Requests.Where(item => item.Id == request.Id).ExecuteUpdateAsync(
+                setters => setters.SetProperty(item => item.Status, RequestStatus.Open));
 
             _condominiumId = condominium.Id;
             _managerId = manager.Id;
@@ -169,7 +172,8 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
             $"/requests/{_requestId}/status",
             new { status = "InProgress", reason = "  Equipe acionada  " });
         await manager.PatchAsJsonAsync(
-            $"/requests/{_requestId}/status", new { status = "Resolved" });
+            $"/requests/{_requestId}/status",
+            new { status = "Resolved", reason = "Serviço concluído" });
 
         var history = await HistoryAsync();
         Assert.Equal(2, history.Count);
@@ -179,7 +183,7 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         Assert.Equal(_managerId, history[0].ChangedByUserId);
         Assert.Equal(RequestStatus.InProgress, history[1].PreviousStatus);
         Assert.Equal(RequestStatus.Resolved, history[1].NewStatus);
-        Assert.Null(history[1].Reason);
+        Assert.Equal("Serviço concluído", history[1].Reason);
     }
 
     [Fact]
@@ -188,7 +192,8 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         var manager = _host.ClientFor(_managerId);
 
         var resolved = await manager.PatchAsJsonAsync(
-            $"/requests/{_requestId}/status", new { status = "Resolved" });
+            $"/requests/{_requestId}/status",
+            new { status = "Resolved", reason = "Problema corrigido" });
         var resolvedBody = await resolved.Content
             .ReadFromJsonAsync<UpdateRequestStatus.Response>();
         Assert.NotNull(resolvedBody!.ResolvedAt);
@@ -227,7 +232,8 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         string target)
     {
         var response = await _host.ClientFor(_managerId).PatchAsJsonAsync(
-            $"/requests/{_requestId}/status", new { status = target });
+            $"/requests/{_requestId}/status",
+            new { status = target, reason = "Contexto da transição" });
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal(RequestStatus.Open, await CurrentStatusAsync());
@@ -240,7 +246,7 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         var manager = _host.ClientFor(_managerId);
         Assert.Equal(HttpStatusCode.OK, (await manager.PatchAsJsonAsync(
             $"/requests/{_requestId}/status",
-            new { status = "Cancelled" })).StatusCode);
+            new { status = "Cancelled", reason = "Solicitação duplicada" })).StatusCode);
 
         var toInProgress = await manager.PatchAsJsonAsync(
             $"/requests/{_requestId}/status", new { status = "InProgress" });
@@ -299,6 +305,109 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Null(Assert.Single(await HistoryAsync()).Reason);
+    }
+
+    [Theory]
+    [InlineData("WaitingForResident")]
+    [InlineData("Resolved")]
+    [InlineData("Cancelled")]
+    public async Task Required_statuses_reject_an_empty_comment(string status)
+    {
+        await _host.WithDbAsync(db => db.Requests.Where(x => x.Id == _requestId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.Status, RequestStatus.InProgress)));
+
+        var response = await _host.ClientFor(_managerId).PatchAsJsonAsync(
+            $"/requests/{_requestId}/status", new { status, reason = "   " });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("comment is required",
+            await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(RequestStatus.InProgress, await CurrentStatusAsync());
+        Assert.Empty(await HistoryAsync());
+        Assert.Empty(await _host.WithDbAsync(db => db.Notifications.ToArrayAsync()));
+    }
+
+    [Fact]
+    public async Task Optional_status_accepts_no_comment_and_notifies_without_comment_block()
+    {
+        await _host.WithDbAsync(db => db.Requests.Where(x => x.Id == _requestId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.Status, RequestStatus.InProgress)));
+
+        var response = await _host.ClientFor(_managerId).PatchAsJsonAsync(
+            $"/requests/{_requestId}/status", new { status = "WaitingForThirdParty" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Null(Assert.Single(await HistoryAsync()).Reason);
+        var notification = Assert.Single(await _host.WithDbAsync(db =>
+            db.Notifications.AsNoTracking().ToArrayAsync()));
+        Assert.Contains("Em andamento", notification.Body);
+        Assert.Contains("Aguardando terceiro", notification.Body);
+        Assert.DoesNotContain("Comentário da administração", notification.Body);
+    }
+
+    [Fact]
+    public async Task Required_status_with_comment_persists_event_and_notification_text()
+    {
+        await _host.WithDbAsync(db => db.Requests.Where(x => x.Id == _requestId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.Status, RequestStatus.InProgress)));
+
+        var response = await _host.ClientFor(_managerId).PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "WaitingForResident", reason = "Envie uma foto do local." });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Envie uma foto do local.", Assert.Single(await HistoryAsync()).Reason);
+        var notification = Assert.Single(await _host.WithDbAsync(db =>
+            db.Notifications.AsNoTracking().ToArrayAsync()));
+        Assert.Contains("Comentário da administração", notification.Body);
+        Assert.Contains("Envie uma foto do local.", notification.Body);
+    }
+
+    [Fact]
+    public async Task Competing_status_changes_based_on_the_same_previous_status_accept_only_one_event()
+    {
+        var results = await _host.WithDbAsync(async db =>
+        {
+            var first = await db.Requests.AsNoTracking().SingleAsync(x => x.Id == _requestId);
+            var second = await db.Requests.AsNoTracking().SingleAsync(x => x.Id == _requestId);
+            first.ChangeStatus(RequestStatus.Resolved, DateTime.UtcNow);
+            second.ChangeStatus(RequestStatus.Cancelled, DateTime.UtcNow.AddMilliseconds(1));
+            var firstHistory = new RequestStatusHistory(first.Id, RequestStatus.Open,
+                first.Status, _managerId, "Concluída", first.UpdatedAt);
+            var secondHistory = new RequestStatusHistory(second.Id, RequestStatus.Open,
+                second.Status, _managerId, "Cancelada", second.UpdatedAt);
+            var acceptedFirst = await UpdateRequestStatus.TryPersistStatusChangeAsync(
+                db, first, RequestStatus.Open, firstHistory, default);
+            var acceptedSecond = await UpdateRequestStatus.TryPersistStatusChangeAsync(
+                db, second, RequestStatus.Open, secondHistory, default);
+            return new[] { acceptedFirst, acceptedSecond };
+        });
+
+        Assert.Equal([true, false], results);
+        Assert.Single(await HistoryAsync());
+    }
+
+    [Fact]
+    public async Task History_insert_failure_rolls_back_the_status_change()
+    {
+        await _host.WithDbAsync(db => db.Database.ExecuteSqlRawAsync("""
+            CREATE TRIGGER fail_request_status_history
+            BEFORE INSERT ON request_status_history
+            BEGIN
+                SELECT RAISE(ABORT, 'simulated history failure');
+            END;
+            """));
+
+        await Assert.ThrowsAnyAsync<Exception>(() => _host.ClientFor(_managerId)
+            .PatchAsJsonAsync($"/requests/{_requestId}/status",
+                new { status = "InProgress" }));
+
+        Assert.Equal(RequestStatus.Open, await CurrentStatusAsync());
+        Assert.Empty(await HistoryAsync());
+        Assert.Empty(await _host.WithDbAsync(db => db.Notifications.ToArrayAsync()));
     }
 
     [Fact]
@@ -360,7 +469,8 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
     {
         var manager = _host.ClientFor(_managerId);
         await manager.PatchAsJsonAsync(
-            $"/requests/{_requestId}/status", new { status = "Cancelled" });
+            $"/requests/{_requestId}/status",
+            new { status = "Cancelled", reason = "Solicitação inválida" });
 
         var response = await manager.PatchAsJsonAsync(
             $"/requests/{_requestId}/priority", new { priority = "High" });

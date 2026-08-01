@@ -291,7 +291,6 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("2")]
     [InlineData("3")]
     [InlineData("4")]
     public async Task Unavailable_menu_options_do_not_advance_the_session(string option)
@@ -303,6 +302,192 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Equal(WhatsAppConversationState.MainMenu,
             await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
     }
+
+    [Fact]
+    public async Task Option_two_lists_no_requests_without_leaving_the_tracking_flow()
+    {
+        await PostAsync(TextPayload("wamid.own-empty-menu", "Menu"));
+        await PostAsync(TextPayload("wamid.own-empty", "2"));
+
+        Assert.Equal("Você ainda não possui solicitações registradas.\n\n0 - Voltar ao menu",
+            _fake.Messages.Last().Text);
+        Assert.Equal(WhatsAppConversationState.ListingOwnRequests,
+            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Own_requests_are_isolated_ordered_and_paginated_with_local_choices()
+    {
+        await SeedOwnRequests(7);
+        await SeedInaccessibleRequests();
+        await PostAsync(TextPayload("wamid.own-list-menu", "Menu"));
+        await PostAsync(TextPayload("wamid.own-list", "2"));
+
+        var first = _fake.Messages.Last().Text;
+        Assert.Contains("Estas são suas solicitações mais recentes", first);
+        Assert.Contains("1 - Solicitação 7", first);
+        Assert.Contains("5 - Solicitação 3", first);
+        Assert.Contains("Status: Aberta", first);
+        Assert.Contains("6 - Ver mais", first);
+        Assert.DoesNotContain("Solicitação externa", first);
+        Assert.DoesNotContain(_userId.ToString(), first);
+
+        await PostAsync(TextPayload("wamid.own-next", "6"));
+        var second = _fake.Messages.Last().Text;
+        Assert.Contains("1 - Solicitação 2", second);
+        Assert.Contains("2 - Solicitação 1", second);
+        Assert.Contains("Status: Resolvida", second);
+        Assert.Contains("7 - Página anterior", second);
+
+        await PostAsync(TextPayload("wamid.own-previous", "7"));
+        Assert.Contains("1 - Solicitação 7", _fake.Messages.Last().Text);
+        Assert.Equal(0, await _host.WithDbAsync(db => db.WhatsAppSessions
+            .Select(x => x.Page).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Own_request_selection_shows_safe_details_and_handles_invalid_choice()
+    {
+        await SeedOwnRequests(1);
+        await PostAsync(TextPayload("wamid.own-details-menu", "Menu"));
+        await PostAsync(TextPayload("wamid.own-details-list", "2"));
+        await PostAsync(TextPayload("wamid.own-details-invalid", "5"));
+        Assert.Contains("Escolha uma opção válida", _fake.Messages.Last().Text);
+
+        await PostAsync(TextPayload("wamid.own-details-select", "1"));
+        var details = _fake.Messages.Last().Text;
+        Assert.Contains("*Título:*\nSolicitação 1", details);
+        Assert.Contains("*Status:*\nResolvida", details);
+        Assert.Contains("*Descrição:*\nDescrição 1", details);
+        Assert.Contains("*Última atualização:*", details);
+        Assert.Contains("1 - Ver atualizações", details);
+        Assert.DoesNotContain("Prioridade", details);
+        Assert.DoesNotContain("Confidence", details);
+        Assert.Equal(WhatsAppConversationState.ViewingOwnRequest,
+            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Own_request_updates_hide_original_report_and_staff_identity()
+    {
+        var requestId = Assert.Single(await SeedOwnRequests(1));
+        await _host.WithDbAsync(async db =>
+        {
+            var staff = CoreTestSeed.User("Funcionário Nome Completo", "staff-updates@example.com");
+            db.Users.Add(staff);
+            db.RequestMessages.Add(new RequestMessage(
+                requestId, _userId, "Relato original", MessageChannel.WhatsApp));
+            for (var index = 1; index <= 6; index++)
+                db.RequestMessages.Add(new RequestMessage(
+                    requestId, staff.Id, $"Atualização {index}"));
+            await db.SaveChangesAsync();
+        });
+        await PostAsync(TextPayload("wamid.updates-menu", "Menu"));
+        await PostAsync(TextPayload("wamid.updates-list", "2"));
+        await PostAsync(TextPayload("wamid.updates-details", "1"));
+        await PostAsync(TextPayload("wamid.updates-open", "1"));
+
+        var updates = _fake.Messages.Last().Text;
+        Assert.Contains("Atualizações da solicitação", updates);
+        Assert.DoesNotContain("Relato original", updates);
+        Assert.DoesNotContain("Atualização 1", updates);
+        Assert.Contains("Atualização 2", updates);
+        Assert.Contains("Atualização 6", updates);
+        Assert.Contains("Administração", updates);
+        Assert.DoesNotContain("Funcionário Nome Completo", updates);
+        Assert.True(updates.IndexOf("Atualização 2", StringComparison.Ordinal)
+            < updates.IndexOf("Atualização 6", StringComparison.Ordinal));
+
+        await PostAsync(TextPayload("wamid.updates-back", "1"));
+        Assert.Contains("*Título:*", _fake.Messages.Last().Text);
+    }
+
+    [Fact]
+    public async Task Own_request_without_messages_reports_no_updates()
+    {
+        await SeedOwnRequests(1);
+        await PostAsync(TextPayload("wamid.no-updates-menu", "Menu"));
+        await PostAsync(TextPayload("wamid.no-updates-list", "2"));
+        await PostAsync(TextPayload("wamid.no-updates-details", "1"));
+        await PostAsync(TextPayload("wamid.no-updates-open", "1"));
+
+        Assert.Contains("Ainda não há novas atualizações", _fake.Messages.Last().Text);
+    }
+
+    [Fact]
+    public async Task Request_that_becomes_inaccessible_is_not_disclosed_after_listing()
+    {
+        var requestId = Assert.Single(await SeedOwnRequests(1));
+        await PostAsync(TextPayload("wamid.inaccessible-menu", "Menu"));
+        await PostAsync(TextPayload("wamid.inaccessible-list", "2"));
+        await _host.WithDbAsync(async db =>
+        {
+            var other = CoreTestSeed.User("Outro", "other-owner@example.com");
+            db.Users.Add(other);
+            await db.SaveChangesAsync();
+            await db.Requests.Where(x => x.Id == requestId).ExecuteUpdateAsync(
+                setters => setters.SetProperty(x => x.AuthorUserId, other.Id));
+        });
+
+        await PostAsync(TextPayload("wamid.inaccessible-select", "1"));
+
+        Assert.Contains("Escolha uma opção válida", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("Solicitação 1", _fake.Messages.Last().Text);
+    }
+
+    [Theory]
+    [InlineData("menu", WhatsAppConversationState.MainMenu)]
+    [InlineData("cancelar", WhatsAppConversationState.MainMenu)]
+    [InlineData("sair", WhatsAppConversationState.Ended)]
+    public async Task Global_commands_leave_own_request_flow(
+        string command, WhatsAppConversationState expected)
+    {
+        await SeedOwnRequests(1);
+        await PostAsync(TextPayload($"wamid.command-menu-{command}", "Menu"));
+        await PostAsync(TextPayload($"wamid.command-list-{command}", "2"));
+        await PostAsync(TextPayload($"wamid.command-{command}", command));
+
+        Assert.Equal(expected, await _host.WithDbAsync(db => db.WhatsAppSessions
+            .Select(x => x.State).SingleAsync()));
+        Assert.Equal(0, await _host.WithDbAsync(db => db.WhatsAppSessions
+            .Select(x => x.Page).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Invalid_persisted_page_is_clamped_and_duplicate_selection_is_idempotent()
+    {
+        await SeedOwnRequests(1);
+        await PostAsync(TextPayload("wamid.page-menu", "Menu"));
+        await PostAsync(TextPayload("wamid.page-list", "2"));
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            session.SetPage(999, DateTime.UtcNow, DateTime.UtcNow.AddMinutes(30));
+            await db.SaveChangesAsync();
+        });
+        await PostAsync(TextPayload("wamid.page-invalid", "9"));
+        Assert.Equal(0, await _host.WithDbAsync(db => db.WhatsAppSessions
+            .Select(x => x.Page).SingleAsync()));
+
+        var payload = TextPayload("wamid.idempotent-own-selection", "1");
+        await PostAsync(payload);
+        var sent = _fake.Messages.Count;
+        await PostAsync(payload);
+        Assert.Equal(sent, _fake.Messages.Count);
+        Assert.Equal(WhatsAppConversationState.ViewingOwnRequest,
+            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
+    }
+
+    [Theory]
+    [InlineData(RequestStatus.Open, "Aberta")]
+    [InlineData(RequestStatus.InProgress, "Em andamento")]
+    [InlineData(RequestStatus.WaitingForResident, "Aguardando informações do morador")]
+    [InlineData(RequestStatus.WaitingForThirdParty, "Aguardando terceiro")]
+    [InlineData(RequestStatus.Resolved, "Resolvida")]
+    [InlineData(RequestStatus.Cancelled, "Cancelada")]
+    public void WhatsApp_request_statuses_have_central_friendly_labels(
+        RequestStatus status, string expected) =>
+        Assert.Equal(expected, WhatsAppConversationService.FriendlyStatus(status));
 
     [Fact]
     public async Task Unknown_phone_gets_closed_guidance_without_creating_a_user()
@@ -635,7 +820,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             Assert.Equal(_unitId, request.TargetUnitId);
             Assert.True(await db.RequestStatusHistories.AnyAsync(item =>
                 item.RequestId == request.Id
-                && item.NewStatus == RequestStatus.Open));
+                && item.NewStatus == RequestStatus.InProgress));
             var session = await db.WhatsAppSessions.SingleAsync();
             Assert.Null(session.DraftDescription);
             Assert.Null(session.CategoryId);
@@ -1363,6 +1548,60 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             }
         })
         };
+
+    private async Task<Guid[]> SeedOwnRequests(int count)
+    {
+        return await _host.WithDbAsync(async db =>
+        {
+            var category = await db.Categories.FirstOrDefaultAsync(
+                x => x.CondominiumId == _condominiumId);
+            if (category is null)
+            {
+                category = new Category(_condominiumId, "Manutenção", null);
+                db.Categories.Add(category);
+            }
+            var requests = Enumerable.Range(1, count).Select(index =>
+                new CondoLink.Domain.Entities.Request(
+                    _condominiumId, _userId, _unitId, category.Id,
+                    $"Solicitação {index}", $"Descrição {index}",
+                    RequestSource.WhatsApp)).ToArray();
+            db.Requests.AddRange(requests);
+            await db.SaveChangesAsync();
+            var baseTime = new DateTime(2026, 7, 31, 18, 0, 0, DateTimeKind.Utc);
+            for (var index = 0; index < requests.Length; index++)
+            {
+                var requestId = requests[index].Id;
+                var updatedAt = index == 0
+                    ? baseTime.AddDays(1)
+                    : baseTime.AddMinutes(index);
+                await db.Requests.Where(x => x.Id == requestId).ExecuteUpdateAsync(setters =>
+                    setters.SetProperty(x => x.UpdatedAt, updatedAt)
+                        .SetProperty(x => x.Status, index == 0
+                            ? RequestStatus.Resolved : RequestStatus.Open));
+            }
+            return requests.Select(x => x.Id).ToArray();
+        });
+    }
+
+    private async Task SeedInaccessibleRequests()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var other = CoreTestSeed.User("Outra Moradora", "other-list@example.com");
+            var foreignCondominium = new Condominium("Residencial Externo", null, null);
+            var localCategory = await db.Categories.FirstAsync(
+                x => x.CondominiumId == _condominiumId);
+            var foreignCategory = new Category(foreignCondominium.Id, "Outros", null);
+            db.AddRange(other, foreignCondominium, foreignCategory,
+                new CondoLink.Domain.Entities.Request(
+                    _condominiumId, other.Id, null, localCategory.Id,
+                    "Solicitação externa", "Não pode aparecer"),
+                new CondoLink.Domain.Entities.Request(
+                    foreignCondominium.Id, _userId, null, foreignCategory.Id,
+                    "Outro condomínio", "Não pode aparecer"));
+            await db.SaveChangesAsync();
+        });
+    }
 
     private sealed class FakeWhatsAppClient : IWhatsAppClient
     {

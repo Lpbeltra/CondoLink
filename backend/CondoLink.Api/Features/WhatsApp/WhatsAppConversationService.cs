@@ -26,6 +26,7 @@ public sealed class WhatsAppConversationService(
     private const string FallbackRequestTitle = "Solicitação recebida pelo WhatsApp";
     private const string AiReviewSource = "ai";
     private const string FallbackReviewSource = "fallback";
+    private const int OwnRequestsPageSize = 5;
     private const string IdentificationFailure =
         "Não consegui identificar seu cadastro. Entre em contato com a administração do condomínio para verificar seu número.";
 
@@ -283,15 +284,25 @@ public sealed class WhatsAppConversationService(
                 session.Touch(now, expires);
                 return ("Não há operação em andamento. Digite 1 para abrir uma solicitação.", "nothing_to_cancel");
             }
+            var ownRequestFlow = IsOwnRequestFlow(session.State);
             await DiscardDraftAttachments(session, ct);
             session.Restart(now, expires);
+            if (ownRequestFlow)
+                return (MainMenu(identity.FullName), "main_menu");
             logger.LogInformation("WhatsApp draft flow cancelled for phone {Phone}.", PhoneNumberNormalizer.Mask(session.PhoneNumber));
             return ($"A abertura foi cancelada.\n\n{MainMenu(identity.FullName)}", "cancelled");
         }
 
         return session.State switch
         {
-            WhatsAppConversationState.MainMenu => MainMenuChoice(session, text, now, expires),
+            WhatsAppConversationState.MainMenu =>
+                await MainMenuChoice(session, identity, text, now, expires, ct),
+            WhatsAppConversationState.ListingOwnRequests =>
+                await OwnRequestsChoice(session, identity, text, now, expires, ct),
+            WhatsAppConversationState.ViewingOwnRequest =>
+                await OwnRequestDetailsChoice(session, identity, text, now, expires, ct),
+            WhatsAppConversationState.ViewingOwnRequestUpdates =>
+                await OwnRequestUpdatesChoice(session, identity, text, now, expires, ct),
             WhatsAppConversationState.CollectingDescription =>
                 await CollectDescription(session, message, identity.FullName, now, expires, ct),
             WhatsAppConversationState.CollectingAttachments =>
@@ -304,15 +315,22 @@ public sealed class WhatsAppConversationService(
         };
     }
 
-    private (string, string) MainMenuChoice(
-        WhatsAppSession session, string? text, DateTime now, DateTime expires)
+    private async Task<(string, string)> MainMenuChoice(
+        WhatsAppSession session, ResolvedIdentity identity, string? text,
+        DateTime now, DateTime expires, CancellationToken ct)
     {
         if (text == "1")
         {
             session.BeginDescription(now, expires);
             return (DescriptionPrompt(), "collecting_description");
         }
-        if (text is "2" or "3" or "4")
+        if (text == "2")
+        {
+            session.BeginOwnRequestListing(now, expires);
+            return (await OwnRequestsPage(session, identity, now, expires, ct),
+                "listing_own_requests");
+        }
+        if (text is "3" or "4")
         {
             session.Touch(now, expires);
             return ("Essa opção estará disponível em breve. Digite ‘menu’ para voltar.", "option_unavailable");
@@ -320,6 +338,239 @@ public sealed class WhatsAppConversationService(
         session.Touch(now, expires);
         return ("Para abrir uma solicitação, digite 1.", "invalid_main_menu_choice");
     }
+
+    private async Task<(string, string)> OwnRequestsChoice(
+        WhatsAppSession session, ResolvedIdentity identity, string? text,
+        DateTime now, DateTime expires, CancellationToken ct)
+    {
+        if (text == "0")
+        {
+            session.Restart(now, expires);
+            return (MainMenu(identity.FullName), "main_menu");
+        }
+        if (text == "6")
+        {
+            session.SetPage(session.Page + 1, now, expires);
+            return (await OwnRequestsPage(session, identity, now, expires, ct),
+                "listing_own_requests_next_page");
+        }
+        if (text == "7" && session.Page > 0)
+        {
+            session.SetPage(session.Page - 1, now, expires);
+            return (await OwnRequestsPage(session, identity, now, expires, ct),
+                "listing_own_requests_previous_page");
+        }
+
+        var page = await CurrentOwnRequestsPage(session, identity, now, expires, ct);
+        if (int.TryParse(text, out var choice)
+            && choice >= 1 && choice <= page.Items.Length)
+        {
+            var selected = page.Items[choice - 1];
+            session.ShowOwnRequest(selected.Id, now, expires);
+            return (OwnRequestDetails(selected), "viewing_own_request");
+        }
+
+        session.Touch(now, expires);
+        return ("Escolha uma opção válida.\n\n" + OwnRequestsPageText(page),
+            "invalid_own_request_choice");
+    }
+
+    private async Task<(string, string)> OwnRequestDetailsChoice(
+        WhatsAppSession session, ResolvedIdentity identity, string? text,
+        DateTime now, DateTime expires, CancellationToken ct)
+    {
+        if (text == "0")
+        {
+            session.Restart(now, expires);
+            return (MainMenu(identity.FullName), "main_menu");
+        }
+        if (text == "2")
+        {
+            session.ReturnToOwnRequestListing(now, expires);
+            return (await OwnRequestsPage(session, identity, now, expires, ct),
+                "listing_own_requests");
+        }
+        var request = await AccessibleOwnRequest(session.RequestId, identity, ct);
+        if (request is null)
+        {
+            session.ReturnToOwnRequestListing(now, expires);
+            return ("Não foi possível acessar essa solicitação.\n\n"
+                + await OwnRequestsPage(session, identity, now, expires, ct),
+                "own_request_no_longer_accessible");
+        }
+        if (text == "1")
+        {
+            session.ShowOwnRequestUpdates(now, expires);
+            return (await OwnRequestUpdates(request, identity.UserId, ct),
+                "viewing_own_request_updates");
+        }
+        session.Touch(now, expires);
+        return ("Escolha uma opção válida.\n\n" + OwnRequestDetails(request),
+            "invalid_own_request_details_choice");
+    }
+
+    private async Task<(string, string)> OwnRequestUpdatesChoice(
+        WhatsAppSession session, ResolvedIdentity identity, string? text,
+        DateTime now, DateTime expires, CancellationToken ct)
+    {
+        if (text == "0")
+        {
+            session.Restart(now, expires);
+            return (MainMenu(identity.FullName), "main_menu");
+        }
+        var request = await AccessibleOwnRequest(session.RequestId, identity, ct);
+        if (request is null)
+        {
+            session.ReturnToOwnRequestListing(now, expires);
+            return ("Não foi possível acessar essa solicitação.\n\n"
+                + await OwnRequestsPage(session, identity, now, expires, ct),
+                "own_request_no_longer_accessible");
+        }
+        if (text == "1")
+        {
+            session.ReturnToOwnRequestDetails(now, expires);
+            return (OwnRequestDetails(request), "viewing_own_request");
+        }
+        session.Touch(now, expires);
+        return ("Escolha uma opção válida.\n\n"
+            + await OwnRequestUpdates(request, identity.UserId, ct),
+            "invalid_own_request_updates_choice");
+    }
+
+    private async Task<string> OwnRequestsPage(
+        WhatsAppSession session, ResolvedIdentity identity,
+        DateTime now, DateTime expires, CancellationToken ct) =>
+        OwnRequestsPageText(await CurrentOwnRequestsPage(
+            session, identity, now, expires, ct));
+
+    private async Task<OwnRequestPage> CurrentOwnRequestsPage(
+        WhatsAppSession session, ResolvedIdentity identity,
+        DateTime now, DateTime expires, CancellationToken ct)
+    {
+        var allowed = AllowedOwnRequests(identity);
+        var total = await allowed.CountAsync(ct);
+        var lastPage = total == 0 ? 0 : (total - 1) / OwnRequestsPageSize;
+        var page = Math.Clamp(session.Page, 0, lastPage);
+        if (page != session.Page) session.SetPage(page, now, expires);
+        else session.Touch(now, expires);
+        var items = await allowed
+            .OrderBy(x => x.Status == RequestStatus.Resolved
+                || x.Status == RequestStatus.Cancelled)
+            .ThenByDescending(x => x.UpdatedAt)
+            .ThenBy(x => x.Id)
+            .Skip(page * OwnRequestsPageSize)
+            .Take(OwnRequestsPageSize)
+            .Select(x => new OwnRequestItem(
+                x.Id, x.Title, x.Description, x.Status, x.UpdatedAt))
+            .ToArrayAsync(ct);
+        return new OwnRequestPage(items, page, total,
+            (page + 1) * OwnRequestsPageSize < total);
+    }
+
+    private IQueryable<DomainRequest> AllowedOwnRequests(ResolvedIdentity identity) =>
+        db.Requests.AsNoTracking().Where(x =>
+            x.AuthorUserId == identity.UserId
+            && x.CondominiumId == identity.CondominiumId
+            && (x.TargetUnitId == null || x.TargetUnitId == identity.UnitId));
+
+    private async Task<OwnRequestItem?> AccessibleOwnRequest(
+        Guid? requestId, ResolvedIdentity identity, CancellationToken ct)
+    {
+        if (requestId is null) return null;
+        return await AllowedOwnRequests(identity)
+            .Where(x => x.Id == requestId.Value)
+            .Select(x => new OwnRequestItem(
+                x.Id, x.Title, x.Description, x.Status, x.UpdatedAt))
+            .SingleOrDefaultAsync(ct);
+    }
+
+    private static string OwnRequestsPageText(OwnRequestPage page)
+    {
+        if (page.Total == 0)
+            return "Você ainda não possui solicitações registradas.\n\n0 - Voltar ao menu";
+        var items = string.Join("\n\n", page.Items.Select((item, index) =>
+            $"{index + 1} - {item.Title}\n"
+            + $"Status: {FriendlyStatus(item.Status)}\n"
+            + $"Atualizada em: {LocalDateTime(item.UpdatedAt)}"));
+        var navigation = new List<string>();
+        if (page.HasNext) navigation.Add("6 - Ver mais");
+        if (page.Page > 0) navigation.Add("7 - Página anterior");
+        navigation.Add("0 - Voltar ao menu");
+        return "Estas são suas solicitações mais recentes:\n\n"
+            + items + "\n\nDigite o número para ver os detalhes.\n\n"
+            + string.Join('\n', navigation);
+    }
+
+    private static string OwnRequestDetails(OwnRequestItem request) =>
+        $"*Título:*\n{request.Title}\n\n"
+        + $"*Status:*\n{FriendlyStatus(request.Status)}\n\n"
+        + $"*Descrição:*\n{request.Description}\n\n"
+        + $"*Última atualização:*\n{LocalDateTime(request.UpdatedAt)}\n\n"
+        + "1 - Ver atualizações\n"
+        + "2 - Voltar para minhas solicitações\n"
+        + "0 - Voltar ao menu";
+
+    private async Task<string> OwnRequestUpdates(
+        OwnRequestItem request, Guid userId, CancellationToken ct)
+    {
+        var originalMessageId = await db.RequestMessages.AsNoTracking()
+            .Where(x => x.RequestId == request.Id
+                && x.AuthorUserId == userId
+                && x.Channel == MessageChannel.WhatsApp)
+            .OrderBy(x => x.CreatedAt).ThenBy(x => x.Id)
+            .Select(x => (Guid?)x.Id).FirstOrDefaultAsync(ct);
+        var latest = await db.RequestMessages.AsNoTracking()
+            .Where(x => x.RequestId == request.Id
+                && (originalMessageId == null || x.Id != originalMessageId.Value))
+            .OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id)
+            .Take(5)
+            .Select(x => new OwnRequestUpdate(
+                x.Id, x.AuthorUserId, x.Content, x.CreatedAt))
+            .ToArrayAsync(ct);
+        var updates = latest.OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).ToArray();
+        var content = updates.Length == 0
+            ? "Ainda não há novas atualizações nesta solicitação."
+            : string.Join("\n\n", updates.Select(x =>
+                $"{LocalDateTime(x.CreatedAt)} — "
+                + (x.AuthorUserId == userId ? "Você" : "Administração")
+                + $"\n{x.Content}"));
+        return "Atualizações da solicitação:\n\n" + content
+            + "\n\n1 - Voltar aos detalhes\n0 - Voltar ao menu";
+    }
+
+    internal static string FriendlyStatus(RequestStatus status) => status switch
+    {
+        RequestStatus.Open => "Aberta",
+        RequestStatus.InProgress => "Em andamento",
+        RequestStatus.WaitingForResident => "Aguardando informações do morador",
+        RequestStatus.WaitingForThirdParty => "Aguardando terceiro",
+        RequestStatus.Resolved => "Resolvida",
+        RequestStatus.Cancelled => "Cancelada",
+        _ => "Status indisponível"
+    };
+
+    private static string LocalDateTime(DateTime value)
+    {
+        var utc = value.Kind == DateTimeKind.Utc
+            ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+        return TimeZoneInfo.ConvertTimeFromUtc(utc, SaoPauloTimeZone)
+            .ToString("dd/MM/yyyy 'às' HH:mm", CultureInfo.GetCultureInfo("pt-BR"));
+    }
+
+    private static readonly TimeZoneInfo SaoPauloTimeZone = FindSaoPauloTimeZone();
+    private static TimeZoneInfo FindSaoPauloTimeZone()
+    {
+        try { return TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo"); }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("E. South America Standard Time");
+        }
+    }
+
+    private static bool IsOwnRequestFlow(WhatsAppConversationState state) => state is
+        WhatsAppConversationState.ListingOwnRequests
+        or WhatsAppConversationState.ViewingOwnRequest
+        or WhatsAppConversationState.ViewingOwnRequestUpdates;
 
     private async Task<(string, string)> CollectDescription(
         WhatsAppSession session, NormalizedWhatsAppMessage message,
@@ -583,7 +834,7 @@ public sealed class WhatsAppConversationService(
             session.CategoryId!.Value, title, description, RequestSource.WhatsApp);
         db.Requests.Add(request);
         db.RequestStatusHistories.Add(new RequestStatusHistory(
-            request.Id, null, RequestStatus.Open, session.UserId.Value, null, request.CreatedAt));
+            request.Id, null, RequestStatus.InProgress, session.UserId.Value, null, request.CreatedAt));
         var originalMessage = new RequestMessage(
             request.Id, session.UserId.Value, originalReport, MessageChannel.WhatsApp);
         db.RequestMessages.Add(originalMessage);
@@ -846,6 +1097,12 @@ public sealed class WhatsAppConversationService(
     private sealed record ResolvedIdentity(Guid UserId, string FullName, Guid CondominiumId, Guid UnitId);
     private sealed record ResidentialContext(Guid CondominiumId, Guid UnitId, bool IsPrimaryResidence);
     private sealed record CategoryChoice(Guid Id, string Name);
+    private sealed record OwnRequestItem(Guid Id, string Title, string Description,
+        RequestStatus Status, DateTime UpdatedAt);
+    private sealed record OwnRequestPage(OwnRequestItem[] Items, int Page, int Total,
+        bool HasNext);
+    private sealed record OwnRequestUpdate(Guid Id, Guid AuthorUserId, string Content,
+        DateTime CreatedAt);
     private const string PendingAudioSource = "pending_audio";
     private const string AudioFailureSource = "audio_failure";
     private sealed record RequestDraftReview(

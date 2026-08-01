@@ -49,16 +49,18 @@ public sealed class NotificationService(
         RequestStatus previousStatus,
         Guid changedByUserId,
         CancellationToken cancellationToken,
-        Guid? statusHistoryId = null)
+        Guid? statusHistoryId = null,
+        string? reason = null)
     {
-        if (changedByUserId == request.AuthorUserId) return;
+        var content = StatusChangedContent(
+            request.Title, previousStatus, request.Status, reason);
 
         dbContext.Notifications.Add(new Notification(
             request.AuthorUserId,
             request.CondominiumId,
             NotificationType.RequestStatusChanged,
             "Status atualizado",
-            $"{Shorten(request.Title)}: {Describe(previousStatus)} → {Describe(request.Status)}",
+            Shorten(content, 500),
             request.Id));
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -76,8 +78,7 @@ public sealed class NotificationService(
             };
             await whatsApp.EnqueueAsync(
                 request.Id, type, $"request-status:{statusHistoryId}",
-                $"A solicitação #{request.Id.ToString("N")[..8].ToUpperInvariant()} "
-                + $"foi atualizada: {Describe(previousStatus)} → {Describe(request.Status)}.",
+                content,
                 null, cancellationToken);
         }
     }
@@ -181,4 +182,15 @@ public sealed class NotificationService(
         RequestStatus.Cancelled => "Cancelada",
         _ => status.ToString()
     };
+
+    internal static string StatusChangedContent(string title,
+        RequestStatus previousStatus, RequestStatus newStatus, string? reason)
+    {
+        var content = $"A solicitação *\"{Shorten(title, 80)}\"* foi alterada de "
+            + $"*{Describe(previousStatus)}* para *{Describe(newStatus)}*.";
+        var comment = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        return comment is null
+            ? content
+            : content + $"\n\nComentário da administração:\n\n{comment}";
+    }
 }

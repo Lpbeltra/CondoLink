@@ -204,6 +204,39 @@ public sealed class WhatsAppSession
         Version = Guid.NewGuid();
     }
 
+    public void BeginOwnRequestListing(DateTime now, DateTime expiresAt)
+    {
+        RequestId = null;
+        CategoryId = null;
+        DraftDescription = null;
+        DraftAiProposalJson = null;
+        Page = 0;
+        MoveTo(WhatsAppConversationState.ListingOwnRequests, now, expiresAt,
+            CondominiumId);
+    }
+
+    public void ShowOwnRequest(Guid requestId, DateTime now, DateTime expiresAt)
+    {
+        RequestId = requestId;
+        MoveTo(WhatsAppConversationState.ViewingOwnRequest, now, expiresAt,
+            CondominiumId);
+    }
+
+    public void ReturnToOwnRequestListing(DateTime now, DateTime expiresAt)
+    {
+        RequestId = null;
+        MoveTo(WhatsAppConversationState.ListingOwnRequests, now, expiresAt,
+            CondominiumId);
+    }
+
+    public void ShowOwnRequestUpdates(DateTime now, DateTime expiresAt) =>
+        MoveTo(WhatsAppConversationState.ViewingOwnRequestUpdates, now, expiresAt,
+            CondominiumId);
+
+    public void ReturnToOwnRequestDetails(DateTime now, DateTime expiresAt) =>
+        MoveTo(WhatsAppConversationState.ViewingOwnRequest, now, expiresAt,
+            CondominiumId);
+
     public bool HasDraft => CategoryId.HasValue || !string.IsNullOrWhiteSpace(DraftDescription);
 
     public void ClearDraft()

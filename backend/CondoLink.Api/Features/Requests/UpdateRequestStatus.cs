@@ -61,6 +61,7 @@ public static class UpdateRequestStatus
         }
 
         var targetRequest = await dbContext.Requests
+            .AsNoTracking()
             .SingleOrDefaultAsync(item => item.Id == requestId, cancellationToken);
 
         if (targetRequest is null)
@@ -108,6 +109,14 @@ public static class UpdateRequestStatus
                 new { error = "Reason must not exceed 500 characters." });
         }
 
+        if (RequiresReason(newStatus) && reason is null)
+        {
+            return Results.BadRequest(new
+            {
+                error = "A comment is required for the selected status."
+            });
+        }
+
         if (targetRequest.Status == newStatus)
         {
             return Results.Conflict(
@@ -137,8 +146,13 @@ public static class UpdateRequestStatus
             reason,
             changedAt);
 
-        dbContext.RequestStatusHistories.Add(history);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        if (!await TryPersistStatusChangeAsync(
+                dbContext, targetRequest, previousStatus, history,
+                cancellationToken))
+            return Results.Conflict(new
+            {
+                error = "The request status changed concurrently. Try again."
+            });
 
         // Side effect: the status change is committed, so a notification failure
         // must not turn a successful update into an error for the manager.
@@ -146,7 +160,7 @@ public static class UpdateRequestStatus
         {
             await notifications.NotifyStatusChangedAsync(
                 targetRequest, previousStatus, authenticatedUserId,
-                cancellationToken, history.Id);
+                cancellationToken, history.Id, reason);
         }
         catch (Exception exception)
         {
@@ -174,6 +188,47 @@ public static class UpdateRequestStatus
             && !int.TryParse(value, out _)
             && Enum.TryParse(value, ignoreCase: true, out status)
             && Enum.IsDefined(status);
+    }
+
+    private static bool RequiresReason(RequestStatus status) => status is
+        RequestStatus.WaitingForResident
+        or RequestStatus.Resolved
+        or RequestStatus.Cancelled;
+
+    internal static async Task<bool> TryPersistStatusChangeAsync(
+        AppDbContext dbContext,
+        CondoLink.Domain.Entities.Request request,
+        RequestStatus expectedStatus,
+        RequestStatusHistory history,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database
+            .BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var affected = await dbContext.Requests
+                .Where(item => item.Id == request.Id
+                    && item.Status == expectedStatus)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(item => item.Status, request.Status)
+                    .SetProperty(item => item.UpdatedAt, request.UpdatedAt)
+                    .SetProperty(item => item.ResolvedAt, request.ResolvedAt),
+                    cancellationToken);
+            if (affected != 1)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return false;
+            }
+            dbContext.RequestStatusHistories.Add(history);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
     }
 
     public sealed record RequestDto(string? Status, string? Reason);

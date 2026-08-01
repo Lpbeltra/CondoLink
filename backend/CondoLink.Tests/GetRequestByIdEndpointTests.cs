@@ -98,7 +98,7 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
         Assert.Equal(_authorId, body.Author.Id);
         Assert.Equal("Autor", body.Author.FullName);
         Assert.Equal("Manutenção", body.Category.Name);
-        Assert.Equal("Open", body.Status);
+        Assert.Equal("InProgress", body.Status);
         Assert.Null(body.AiAnalysis);
         Assert.Null(body.OriginalReport);
     }
@@ -230,20 +230,22 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
         var manager = _host.ClientFor(_managerId);
         await manager.PatchAsJsonAsync(
             $"/requests/{_requestId}/status",
-            new { status = "InProgress", reason = "Equipe acionada" });
+            new { status = "WaitingForThirdParty", reason = "Equipe acionada" });
         await manager.PatchAsJsonAsync(
-            $"/requests/{_requestId}/status", new { status = "Resolved" });
+            $"/requests/{_requestId}/status",
+            new { status = "Resolved", reason = "Serviço concluído" });
 
         var body = await _host.ClientFor(_authorId)
             .GetFromJsonAsync<GetRequestById.Response>(
                 $"/requests/{_requestId}");
 
         Assert.Equal(2, body!.StatusHistory.Count);
-        Assert.Equal("Open", body.StatusHistory[0].PreviousStatus);
-        Assert.Equal("InProgress", body.StatusHistory[0].NewStatus);
+        Assert.Equal("InProgress", body.StatusHistory[0].PreviousStatus);
+        Assert.Equal("WaitingForThirdParty", body.StatusHistory[0].NewStatus);
         Assert.Equal("Equipe acionada", body.StatusHistory[0].Reason);
         Assert.Equal("Sindico Alfa", body.StatusHistory[0].ChangedByFullName);
-        Assert.Equal("InProgress", body.StatusHistory[1].PreviousStatus);
+        Assert.Equal("WaitingForThirdParty", body.StatusHistory[1].PreviousStatus);
         Assert.Equal("Resolved", body.StatusHistory[1].NewStatus);
+        Assert.Equal("Serviço concluído", body.StatusHistory[1].Reason);
     }
 }

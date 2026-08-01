@@ -225,7 +225,7 @@ public static class CreateRequest
         var initialHistory = new RequestStatusHistory(
             domainRequest.Id,
             previousStatus: null,
-            RequestStatus.Open,
+            RequestStatus.InProgress,
             authenticatedUserId,
             reason: null,
             domainRequest.CreatedAt);

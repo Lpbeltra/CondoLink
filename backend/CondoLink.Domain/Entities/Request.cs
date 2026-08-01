@@ -57,7 +57,7 @@ public sealed class Request
         Title = title.Trim();
         Description = description.Trim();
         Source = source;
-        Status = RequestStatus.Open;
+        Status = RequestStatus.InProgress;
         Priority = RequestPriority.Normal;
         CreatedAt = now;
         UpdatedAt = now;
