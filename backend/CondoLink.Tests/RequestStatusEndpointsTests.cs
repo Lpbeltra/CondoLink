@@ -1,10 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
 using CondoLink.Api.Features.Requests;
+using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using DomainRequest = CondoLink.Domain.Entities.Request;
 
 namespace CondoLink.Tests;
@@ -31,7 +33,8 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         {
             application.MapUpdateRequestStatus();
             application.MapUpdateRequestPriority();
-        });
+        }, builder => builder.Services
+            .AddScoped<WhatsAppNotificationDispatcher>());
 
         await _host.WithDbAsync(async db =>
         {
@@ -390,6 +393,45 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         Assert.False(requirement.IsActive);
         Assert.Null(requirement.AnsweredAt);
         Assert.Null(requirement.AnswerMessageId);
+    }
+
+    [Fact]
+    public async Task Reentering_waiting_for_resident_creates_new_requirement_and_outbound_event()
+    {
+        await _host.WithDbAsync(db => db.Requests.Where(x => x.Id == _requestId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.Status, RequestStatus.InProgress)));
+        var manager = _host.ClientFor(_managerId);
+
+        Assert.Equal(HttpStatusCode.OK, (await manager.PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "WaitingForResident", reason = "Primeira pendência." })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await manager.PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "InProgress" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await manager.PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "WaitingForResident", reason = "Nova pendência." })).StatusCode);
+
+        await _host.WithDbAsync(async db =>
+        {
+            var requirements = await db.RequestResidentReplyRequirements
+                .AsNoTracking().ToArrayAsync();
+            Assert.Equal(2, requirements.Length);
+            Assert.False(Assert.Single(requirements,
+                x => x.Question == "Primeira pendência.").IsActive);
+            Assert.True(Assert.Single(requirements,
+                x => x.Question == "Nova pendência.").IsActive);
+
+            var outbound = await db.WhatsAppOutboundMessages.AsNoTracking()
+                .Where(x => x.RequestId == _requestId
+                    && x.NotificationType == WhatsAppNotificationType.InformationRequested)
+                .ToArrayAsync();
+            Assert.Equal(2, outbound.Length);
+            Assert.NotEqual(outbound[0].IdempotencyKey, outbound[1].IdempotencyKey);
+            Assert.All(outbound, item => Assert.StartsWith("request-status:",
+                item.IdempotencyKey));
+        });
     }
 
     [Fact]

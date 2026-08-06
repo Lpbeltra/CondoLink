@@ -109,14 +109,16 @@ public sealed class WhatsAppOutboundWorker(
                     item.TemplateName!, item.TemplateLanguage!, parameters,
                     quickReplies, ct);
             }
+            result = EnsureFailureDiagnostic(result);
             logger.LogInformation(
-                "WhatsApp provider response received for outbound {OutboundId}. Result: {Result}; ErrorCode: {ErrorCode}; ErrorType: {ErrorType}; HttpStatus: {HttpStatus}; Transient: {Transient}.",
+                "WhatsApp provider response received for outbound {OutboundId}. Success: {Success}; IsTransient: {IsTransient}; ErrorCode: {ErrorCode}; HttpStatus: {HttpStatus}; FailureKind: {FailureKind}; FailureStage: {FailureStage}.",
                 item.Id,
-                result.Succeeded ? "Succeeded" : "Failed",
+                result.Succeeded,
+                result.IsTransient,
                 result.ErrorCode,
-                result.ErrorType,
                 result.HttpStatusCode,
-                result.IsTransient);
+                result.FailureKind,
+                result.FailureStage);
             if (result.Succeeded && !string.IsNullOrWhiteSpace(result.ExternalMessageId))
             {
                 item.MarkSent(result.ExternalMessageId, DateTime.UtcNow);
@@ -130,9 +132,10 @@ public sealed class WhatsAppOutboundWorker(
                 logger.Log(
                     result.IsTransient
                         ? LogLevel.Warning : LogLevel.Error,
-                    "WhatsApp outbound {OutboundId} failed. Result: Failed; ErrorCode: {ErrorCode}; ErrorType: {ErrorType}; HttpStatus: {HttpStatus}; Transient: {Transient}.",
-                    item.Id, result.ErrorCode, result.ErrorType,
-                    result.HttpStatusCode, result.IsTransient);
+                    "WhatsApp outbound {OutboundId} failed. Success: false; IsTransient: {IsTransient}; ErrorCode: {ErrorCode}; HttpStatus: {HttpStatus}; FailureKind: {FailureKind}; FailureStage: {FailureStage}.",
+                    item.Id, result.IsTransient, result.ErrorCode,
+                    result.HttpStatusCode, result.FailureKind,
+                    result.FailureStage);
             }
             await db.SaveChangesAsync(ct);
             logger.LogInformation(
@@ -157,6 +160,7 @@ public sealed class WhatsAppOutboundWorker(
         WhatsAppOptions settings,
         DateTime now)
     {
+        result = EnsureFailureDiagnostic(result);
         var exponent = Math.Min(item.AttemptCount - 1, 6);
         var delay = TimeSpan.FromSeconds(
             Math.Clamp(settings.OutboundInitialRetrySeconds, 10, 3600)
@@ -168,5 +172,23 @@ public sealed class WhatsAppOutboundWorker(
             Math.Clamp(settings.OutboundMaxAttempts, 1, 10),
             now,
             delay);
+    }
+
+    internal static WhatsAppSendResult EnsureFailureDiagnostic(
+        WhatsAppSendResult result)
+    {
+        if (result.Succeeded) return result;
+        return result with
+        {
+            ErrorCode = string.IsNullOrWhiteSpace(result.ErrorCode)
+                ? "undiagnosed_failure" : result.ErrorCode,
+            Error = string.IsNullOrWhiteSpace(result.Error)
+                ? "Client returned a failure without a technical description."
+                : result.Error,
+            FailureKind = string.IsNullOrWhiteSpace(result.FailureKind)
+                ? "UndiagnosedClientFailure" : result.FailureKind,
+            FailureStage = string.IsNullOrWhiteSpace(result.FailureStage)
+                ? "worker_received_result" : result.FailureStage
+        };
     }
 }

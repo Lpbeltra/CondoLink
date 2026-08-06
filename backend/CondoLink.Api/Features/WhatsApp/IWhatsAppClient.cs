@@ -26,7 +26,9 @@ public sealed record WhatsAppSendResult(
     string? ErrorCode = null,
     int? HttpStatusCode = null,
     string? ErrorType = null,
-    string? ErrorSubcode = null);
+    string? ErrorSubcode = null,
+    string? FailureKind = null,
+    string? FailureStage = null);
 public sealed record WhatsAppMediaResult(
     bool Succeeded,
     byte[]? Content,

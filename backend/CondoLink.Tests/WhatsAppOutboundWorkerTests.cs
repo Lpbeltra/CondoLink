@@ -51,6 +51,27 @@ public sealed class WhatsAppOutboundWorkerTests
         Assert.Equal(now.AddSeconds(30), message.NextAttemptAt);
     }
 
+    [Fact]
+    public void Empty_failure_is_normalized_before_becoming_permanent()
+    {
+        var message = Message();
+        message.StartProcessing();
+
+        WhatsAppOutboundWorker.ApplyFailure(message,
+            new WhatsAppSendResult(false, null, null),
+            new WhatsAppOptions { OutboundMaxAttempts = 5 }, DateTime.UtcNow);
+
+        Assert.Equal(WhatsAppOutboundStatus.PermanentlyFailed, message.Status);
+        Assert.Equal("undiagnosed_failure", message.LastErrorCode);
+        Assert.Equal(
+            "Client returned a failure without a technical description.",
+            message.LastErrorDescription);
+        var normalized = WhatsAppOutboundWorker.EnsureFailureDiagnostic(
+            new WhatsAppSendResult(false, null, null));
+        Assert.Equal("UndiagnosedClientFailure", normalized.FailureKind);
+        Assert.Equal("worker_received_result", normalized.FailureStage);
+    }
+
     private static WhatsAppOutboundMessage Message() => new(
         Guid.NewGuid(), null, Guid.NewGuid(), Guid.NewGuid(),
         "+5511999990001", WhatsAppNotificationType.InformationRequested,

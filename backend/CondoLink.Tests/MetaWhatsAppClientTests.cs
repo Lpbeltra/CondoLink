@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using CondoLink.Api.Features.WhatsApp;
@@ -89,6 +90,8 @@ public sealed class MetaWhatsAppClientTests
         Assert.Equal("2494010", result.ErrorSubcode);
         Assert.Equal(status, result.HttpStatusCode);
         Assert.Equal(transient, result.IsTransient);
+        Assert.Equal("MetaApi", result.FailureKind);
+        Assert.Equal("receiving_response", result.FailureStage);
         Assert.Contains(details, result.Error);
         Assert.DoesNotContain("not persisted", result.Error);
     }
@@ -107,7 +110,24 @@ public sealed class MetaWhatsAppClientTests
         Assert.False(result.Succeeded);
         Assert.False(result.IsTransient);
         Assert.Equal(expectedCode, result.ErrorCode);
+        Assert.Equal("Configuration", result.FailureKind);
+        Assert.Equal("building_payload", result.FailureStage);
         Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task Configuration_failure_is_logged_before_returning()
+    {
+        var handler = new RecordingHandler();
+        var logger = new RecordingLogger<MetaWhatsAppClient>();
+
+        var result = await NewClient(handler, logger).SendTemplateAsync(
+            "+5511999990001", "message warning", "pt_BR", ["Ana"], [], default);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(logger.Messages, message =>
+            message.Contains("FailureKind: Configuration", StringComparison.Ordinal)
+            && message.Contains("FailureStage: building_payload", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -115,10 +135,17 @@ public sealed class MetaWhatsAppClientTests
     {
         var handler = new RecordingHandler(exception:
             new TaskCanceledException("timeout"));
-        var result = await NewClient(handler).SendTemplateAsync(
+        var logger = new RecordingLogger<MetaWhatsAppClient>();
+        var result = await NewClient(handler, logger).SendTemplateAsync(
             "+5511999990001", "message_warning", "pt_BR", ["Ana"], [], default);
         Assert.Equal("timeout", result.ErrorCode);
         Assert.True(result.IsTransient);
+        Assert.Equal("Timeout", result.FailureKind);
+        Assert.Equal("sending_http", result.FailureStage);
+        Assert.Contains(logger.Exceptions, exception =>
+            exception is TaskCanceledException);
+        Assert.Contains(logger.Messages, message =>
+            message.Contains("IsTimeout: True", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -130,6 +157,47 @@ public sealed class MetaWhatsAppClientTests
             "+5511999990001", "message_warning", "pt_BR", ["Ana"], [], default);
         Assert.Equal("network", result.ErrorCode);
         Assert.True(result.IsTransient);
+        Assert.Equal("Transport", result.FailureKind);
+        Assert.Equal("sending_http", result.FailureStage);
+    }
+
+    [Fact]
+    public async Task Http_request_with_socket_exception_logs_native_diagnostics()
+    {
+        var socket = new SocketException((int)SocketError.ConnectionRefused);
+        var handler = new RecordingHandler(exception:
+            new HttpRequestException("network", socket));
+        var logger = new RecordingLogger<MetaWhatsAppClient>();
+
+        var result = await NewClient(handler, logger).SendTemplateAsync(
+            "+5511999990001", "message_warning", "pt_BR", ["Ana"], [], default);
+
+        Assert.True(result.IsTransient);
+        Assert.Equal("Transport", result.FailureKind);
+        Assert.Equal("sending_http", result.FailureStage);
+        Assert.Contains(logger.Exceptions, exception =>
+            exception is HttpRequestException);
+        var logs = string.Join("\n", logger.Messages);
+        Assert.Contains(SocketError.ConnectionRefused.ToString(), logs);
+        Assert.Contains(socket.NativeErrorCode.ToString(), logs);
+        Assert.Contains("Stage: sending_http", logs);
+        Assert.Contains("Result: Exception", logs);
+    }
+
+    [Fact]
+    public async Task IOException_during_send_is_transient_and_diagnosed()
+    {
+        var handler = new RecordingHandler(exception: new IOException("io"));
+        var logger = new RecordingLogger<MetaWhatsAppClient>();
+
+        var result = await NewClient(handler, logger).SendTemplateAsync(
+            "+5511999990001", "message_warning", "pt_BR", ["Ana"], [], default);
+
+        Assert.True(result.IsTransient);
+        Assert.Equal("io_error", result.ErrorCode);
+        Assert.Equal("TransportIO", result.FailureKind);
+        Assert.Equal("sending_http", result.FailureStage);
+        Assert.Contains(logger.Exceptions, exception => exception is IOException);
     }
 
     [Fact]
@@ -142,6 +210,8 @@ public sealed class MetaWhatsAppClientTests
         Assert.False(result.Succeeded);
         Assert.False(result.IsTransient);
         Assert.Equal("client_error", result.ErrorCode);
+        Assert.Equal("ProviderResponse", result.FailureKind);
+        Assert.Equal("parsing_response", result.FailureStage);
         Assert.Contains("parsing_response", result.Error);
         Assert.Contains("Json", result.Error);
     }
@@ -216,7 +286,8 @@ public sealed class MetaWhatsAppClientTests
         string fullName, string expected) =>
         Assert.Equal(expected, WhatsAppOutboundWorker.SafeFirstName(fullName));
 
-    private static MetaWhatsAppClient NewClient(RecordingHandler handler) =>
+    private static MetaWhatsAppClient NewClient(RecordingHandler handler,
+        ILogger<MetaWhatsAppClient>? logger = null) =>
         new(new HttpClient(handler)
         {
             BaseAddress = new Uri("https://graph.facebook.com/")
@@ -225,7 +296,7 @@ public sealed class MetaWhatsAppClientTests
             Enabled = true,
             PhoneNumberId = "phone-id",
             AccessToken = "secret"
-        }), NullLogger<MetaWhatsAppClient>.Instance);
+        }), logger ?? NullLogger<MetaWhatsAppClient>.Instance);
 
     private sealed class RecordingHandler(
         HttpStatusCode status = HttpStatusCode.OK,
@@ -251,11 +322,15 @@ public sealed class MetaWhatsAppClientTests
     private sealed class RecordingLogger<T> : ILogger<T>
     {
         public List<string> Messages { get; } = [];
+        public List<Exception?> Exceptions { get; } = [];
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
-            Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Exception? exception, Func<TState, Exception?, string> formatter)
+        {
             Messages.Add(formatter(state, exception));
+            Exceptions.Add(exception);
+        }
     }
 
     private sealed class CyclicPayload
