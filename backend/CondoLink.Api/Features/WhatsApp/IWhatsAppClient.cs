@@ -23,7 +23,10 @@ public sealed record WhatsAppSendResult(
     string? ExternalMessageId,
     string? Error,
     bool IsTransient = false,
-    string? ErrorCode = null);
+    string? ErrorCode = null,
+    int? HttpStatusCode = null,
+    string? ErrorType = null,
+    string? ErrorSubcode = null);
 public sealed record WhatsAppMediaResult(
     bool Succeeded,
     byte[]? Content,

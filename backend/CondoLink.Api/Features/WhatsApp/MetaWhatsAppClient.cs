@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 
@@ -48,53 +49,247 @@ public sealed class MetaWhatsAppClient(
         IReadOnlyList<string> quickReplyPayloads,
         CancellationToken cancellationToken)
     {
+        var stage = "building_payload";
+        int? httpStatus = null;
+        HttpResponseMessage? response = null;
         var settings = options.Value;
-        if (!settings.Enabled || string.IsNullOrWhiteSpace(settings.PhoneNumberId)
-            || string.IsNullOrWhiteSpace(settings.AccessToken))
-            return new(false, null, "WhatsApp integration is not configured.");
-        using var request = new HttpRequestMessage(
-            HttpMethod.Post, $"{settings.ApiVersion}/{settings.PhoneNumberId}/messages");
-        request.Headers.Authorization =
-            new AuthenticationHeaderValue("Bearer", settings.AccessToken);
-        var components = new List<object>();
-        if (bodyParameters.Count > 0)
-            components.Add(new
-            {
-                type = "body",
-                parameters = bodyParameters.Select(value => new
-                {
-                    type = "text",
-                    text = value
-                }).ToArray()
-            });
-        for (var index = 0; index < quickReplyPayloads.Count; index++)
-            components.Add(new
-            {
-                type = "button",
-                sub_type = "quick_reply",
-                index = index.ToString(),
-                parameters = new[] { new
-                {
-                    type = "payload",
-                    payload = quickReplyPayloads[index]
-                } }
-            });
-        request.Content = JsonContent.Create(new
+        try
         {
-            messaging_product = "whatsapp",
-            to = phoneNumber.TrimStart('+'),
-            type = "template",
-            template = new
+            if (!settings.Enabled || string.IsNullOrWhiteSpace(settings.PhoneNumberId)
+                || string.IsNullOrWhiteSpace(settings.AccessToken))
+                return PermanentConfigurationFailure("whatsapp_not_configured",
+                    "WhatsApp integration is not configured.");
+            if (string.IsNullOrWhiteSpace(templateName)
+                || templateName.Any(char.IsWhiteSpace))
+                return PermanentConfigurationFailure("template_name_invalid",
+                    "Template name is empty or contains whitespace.");
+            if (string.IsNullOrWhiteSpace(language)
+                || language.Any(char.IsWhiteSpace))
+                return PermanentConfigurationFailure("template_language_invalid",
+                    "Template language is empty or contains whitespace.");
+
+            var components = new List<object>();
+            if (bodyParameters.Count > 0)
+                components.Add(new
+                {
+                    type = "body",
+                    parameters = bodyParameters.Select(value => new
+                    {
+                        type = "text",
+                        text = value
+                    }).ToArray()
+                });
+            for (var index = 0; index < quickReplyPayloads.Count; index++)
+                components.Add(new
+                {
+                    type = "button",
+                    sub_type = "quick_reply",
+                    index = index.ToString(),
+                    parameters = new[] { new
+                    {
+                        type = "payload",
+                        payload = quickReplyPayloads[index]
+                    } }
+                });
+            var payload = new
             {
-                name = templateName,
-                language = new { code = language },
-                components = components.ToArray()
-            }
-        });
-        logger.LogInformation(
-            "WhatsApp template send. Mode: Template; TemplateName: {TemplateName}; Language: {Language}.",
-            templateName, language);
-        return await SendAsync(request, cancellationToken);
+                messaging_product = "whatsapp",
+                to = phoneNumber.TrimStart('+'),
+                type = "template",
+                template = new
+                {
+                    name = templateName,
+                    language = new { code = language },
+                    components = components.ToArray()
+                }
+            };
+            logger.LogInformation(
+                "WhatsApp template diagnostic. Mode: Template; TemplateConfigured: {TemplateConfigured}; TemplateName: {TemplateName}; Language: {Language}; ButtonComponentCount: {ButtonComponentCount}; Stage: {Stage}.",
+                true, templateName, language, quickReplyPayloads.Count, stage);
+
+            stage = "serializing_payload";
+            var json = SerializePayload(payload);
+            stage = "creating_request";
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                $"{settings.ApiVersion}/{settings.PhoneNumberId}/messages");
+            request.Headers.Authorization =
+                new AuthenticationHeaderValue("Bearer", settings.AccessToken);
+            request.Content = new StringContent(json, Encoding.UTF8,
+                "application/json");
+
+            stage = "sending_http";
+            response = await httpClient.SendAsync(request, cancellationToken);
+            stage = "receiving_response";
+            httpStatus = (int)response.StatusCode;
+            stage = "reading_response";
+            var responseBody = await response.Content
+                .ReadAsStringAsync(cancellationToken);
+            stage = "parsing_response";
+            var result = response.IsSuccessStatusCode
+                ? ParseTemplateSuccess(responseBody, httpStatus.Value)
+                : ParseMetaFailure(responseBody, httpStatus.Value,
+                    bodyParameters);
+            stage = "completed";
+            logger.Log(result.Succeeded ? LogLevel.Information :
+                    result.IsTransient ? LogLevel.Warning : LogLevel.Error,
+                "WhatsApp template diagnostic completed. Mode: Template; TemplateName: {TemplateName}; Language: {Language}; Stage: {Stage}; HttpStatus: {HttpStatus}; Result: {Result}; ErrorType: {ErrorType}; ErrorCode: {ErrorCode}; ErrorSubcode: {ErrorSubcode}; Transient: {Transient}.",
+                templateName, language, stage, httpStatus,
+                result.Succeeded ? "Succeeded" : "Failed", result.ErrorType,
+                result.ErrorCode, result.ErrorSubcode, result.IsTransient);
+            return result;
+        }
+        catch (OperationCanceledException exception)
+            when (!cancellationToken.IsCancellationRequested)
+        {
+            LogTemplateException(exception, templateName, language, stage,
+                httpStatus);
+            return new(false, null, "Provider request timed out.", true,
+                "timeout", httpStatus);
+        }
+        catch (HttpRequestException exception)
+        {
+            httpStatus ??= exception.StatusCode is null
+                ? null : (int)exception.StatusCode.Value;
+            LogTemplateException(exception, templateName, language, stage,
+                httpStatus);
+            var transient = !httpStatus.HasValue
+                || IsTransientStatus(httpStatus.Value);
+            return new(false, null, "Provider HTTP request failed.", transient,
+                httpStatus.HasValue ? $"http_{httpStatus}" : "network",
+                httpStatus);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            LogTemplateException(exception, templateName, language, stage,
+                httpStatus);
+            var transient = exception is IOException;
+            return new(false, null,
+                $"Template send failed during {stage} ({exception.GetType().Name}).",
+                transient, transient ? "io_error" : "client_error", httpStatus);
+        }
+        finally
+        {
+            response?.Dispose();
+        }
+    }
+
+    private void LogTemplateException(Exception exception, string templateName,
+        string language, string stage, int? httpStatus) =>
+        logger.LogError(exception,
+            "WhatsApp template diagnostic failed. Mode: Template; TemplateName: {TemplateName}; Language: {Language}; Stage: {Stage}; ExceptionType: {ExceptionType}; InnerExceptionType: {InnerExceptionType}; HttpStatus: {HttpStatus}.",
+            templateName, language, stage, exception.GetType().Name,
+            exception.InnerException?.GetType().Name, httpStatus);
+
+    internal static string SerializePayload(object payload) =>
+        JsonSerializer.Serialize(payload);
+
+    private static WhatsAppSendResult PermanentConfigurationFailure(
+        string code, string description) =>
+        new(false, null, description, false, code);
+
+    private static WhatsAppSendResult ParseTemplateSuccess(
+        string responseBody, int httpStatus)
+    {
+        using var document = JsonDocument.Parse(responseBody);
+        var id = document.RootElement.TryGetProperty("messages", out var messages)
+            && messages.ValueKind == JsonValueKind.Array
+            && messages.GetArrayLength() > 0
+            && messages[0].TryGetProperty("id", out var idElement)
+                ? idElement.GetString()
+                : null;
+        return string.IsNullOrWhiteSpace(id)
+            ? new(false, null, "Provider success response did not contain a message id.",
+                false, "invalid_provider_response", httpStatus)
+            : new(true, id, null, false, null, httpStatus);
+    }
+
+    private static WhatsAppSendResult ParseMetaFailure(
+        string responseBody, int httpStatus,
+        IReadOnlyList<string> sensitiveValues)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(responseBody);
+            var root = document.RootElement;
+            var error = root.TryGetProperty("error", out var value)
+                ? value : default;
+            var type = StringProperty(error, "type");
+            var code = ScalarProperty(error, "code")
+                ?? $"http_{httpStatus}";
+            var subcode = ScalarProperty(error, "error_subcode");
+            var details = error.ValueKind == JsonValueKind.Object
+                && error.TryGetProperty("error_data", out var errorData)
+                ? StringProperty(errorData, "details") : null;
+            var safeDetails = SafeTechnicalDetails(details, sensitiveValues);
+            var description = $"Meta HTTP {httpStatus}; type={type ?? "unknown"}; code={code}"
+                + (subcode is null ? string.Empty : $"; subcode={subcode}")
+                + (safeDetails is null ? string.Empty : $"; details={safeDetails}");
+            return new(false, null, description, IsTransientStatus(httpStatus),
+                code, httpStatus, type, subcode);
+        }
+        catch (JsonException)
+        {
+            return new(false, null,
+                $"Meta HTTP {httpStatus}; response error was not valid JSON.",
+                IsTransientStatus(httpStatus), $"http_{httpStatus}", httpStatus);
+        }
+    }
+
+    private static string? StringProperty(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private static string? ScalarProperty(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(name, out var value)
+        && value.ValueKind is JsonValueKind.String or JsonValueKind.Number
+            ? value.ToString() : null;
+
+    private static bool IsTransientStatus(int status) =>
+        status is 408 or 429 or >= 500;
+
+    internal static string? SafeTechnicalDetails(string? details,
+        IReadOnlyList<string>? sensitiveValues = null)
+    {
+        if (string.IsNullOrWhiteSpace(details)) return null;
+        var value = details.Trim();
+        if (value.Length > 300 || value.Contains('@') || value.Contains('+'))
+            return null;
+        if (sensitiveValues?.Any(sensitive =>
+                !string.IsNullOrWhiteSpace(sensitive)
+                && value.Contains(sensitive, StringComparison.OrdinalIgnoreCase)) == true)
+            return null;
+        var consecutiveDigits = 0;
+        foreach (var character in value)
+        {
+            consecutiveDigits = char.IsDigit(character)
+                ? consecutiveDigits + 1 : 0;
+            if (consecutiveDigits >= 5) return null;
+        }
+        return value;
+    }
+
+    private static async Task<string?> ProviderErrorCodeAsync(
+        HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = await response.Content
+                .ReadAsStreamAsync(cancellationToken);
+            using var document = await JsonDocument.ParseAsync(stream,
+                cancellationToken: cancellationToken);
+            return document.RootElement.TryGetProperty("error", out var error)
+                ? ScalarProperty(error, "code") : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private async Task<WhatsAppSendResult> SendAsync(
@@ -140,26 +335,6 @@ public sealed class MetaWhatsAppClient(
         {
             logger.LogError(exception, "WhatsApp send failed.");
             return new(false, null, "Provider request failed.", true, "network");
-        }
-    }
-
-    private static async Task<string?> ProviderErrorCodeAsync(
-        HttpResponseMessage response, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await using var stream = await response.Content
-                .ReadAsStreamAsync(cancellationToken);
-            using var document = await JsonDocument.ParseAsync(stream,
-                cancellationToken: cancellationToken);
-            return document.RootElement.TryGetProperty("error", out var error)
-                && error.TryGetProperty("code", out var code)
-                    ? code.ToString()
-                    : null;
-        }
-        catch (JsonException)
-        {
-            return null;
         }
     }
 

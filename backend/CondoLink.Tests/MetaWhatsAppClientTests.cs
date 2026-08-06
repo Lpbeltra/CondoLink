@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using CondoLink.Api.Features.WhatsApp;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -31,6 +32,8 @@ public sealed class MetaWhatsAppClientTests
         Assert.True(result.Succeeded);
         using var json = JsonDocument.Parse(handler.Body!);
         var root = json.RootElement;
+        Assert.Equal("whatsapp", root.GetProperty("messaging_product").GetString());
+        Assert.Equal("5511999990001", root.GetProperty("to").GetString());
         Assert.Equal("template", root.GetProperty("type").GetString());
         var template = root.GetProperty("template");
         Assert.Equal("message_warning", template.GetProperty("name").GetString());
@@ -38,12 +41,171 @@ public sealed class MetaWhatsAppClientTests
             .GetProperty("code").GetString());
         var components = template.GetProperty("components");
         Assert.Equal(3, components.GetArrayLength());
-        Assert.Equal("Ana", components[0].GetProperty("parameters")[0]
+        var bodyParameters = components[0].GetProperty("parameters");
+        Assert.Single(bodyParameters.EnumerateArray());
+        Assert.Equal("Ana", bodyParameters[0]
             .GetProperty("text").GetString());
+        Assert.Equal("button", components[1].GetProperty("type").GetString());
+        Assert.Equal("quick_reply", components[1].GetProperty("sub_type").GetString());
+        Assert.Equal("0", components[1].GetProperty("index").GetString());
         Assert.Equal("resident_reply_now", components[1]
             .GetProperty("parameters")[0].GetProperty("payload").GetString());
+        Assert.Equal("button", components[2].GetProperty("type").GetString());
+        Assert.Equal("quick_reply", components[2].GetProperty("sub_type").GetString());
+        Assert.Equal("1", components[2].GetProperty("index").GetString());
         Assert.Equal("resident_reply_later", components[2]
             .GetProperty("parameters")[0].GetProperty("payload").GetString());
+    }
+
+    [Theory]
+    [InlineData(400, "OAuthException", "132001", "Template does not exist", false)]
+    [InlineData(400, "OAuthException", "132012", "Template parameter format mismatch", false)]
+    [InlineData(400, "GraphMethodException", "100", "Invalid button component", false)]
+    [InlineData(429, "OAuthException", "4", "Rate limit reached", true)]
+    [InlineData(500, "OAuthException", "2", "Temporary service failure", true)]
+    public async Task Meta_error_is_parsed_and_classified(
+        int status, string type, string code, string details, bool transient)
+    {
+        var body = JsonSerializer.Serialize(new
+        {
+            error = new
+            {
+                message = "not persisted",
+                type,
+                code = int.Parse(code),
+                error_subcode = 2494010,
+                error_data = new { details },
+                fbtrace_id = "trace"
+            }
+        });
+        var handler = new RecordingHandler((HttpStatusCode)status, body);
+        var result = await NewClient(handler).SendTemplateAsync(
+            "+5511999990001", "message_warning", "pt_BR", ["Ana"],
+            ["resident_reply_now", "resident_reply_later"], default);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(code, result.ErrorCode);
+        Assert.Equal(type, result.ErrorType);
+        Assert.Equal("2494010", result.ErrorSubcode);
+        Assert.Equal(status, result.HttpStatusCode);
+        Assert.Equal(transient, result.IsTransient);
+        Assert.Contains(details, result.Error);
+        Assert.DoesNotContain("not persisted", result.Error);
+    }
+
+    [Theory]
+    [InlineData("message warning", "pt_BR", "template_name_invalid")]
+    [InlineData("message_warning", "pt BR", "template_language_invalid")]
+    [InlineData("", "pt_BR", "template_name_invalid")]
+    public async Task Invalid_template_configuration_fails_before_http(
+        string name, string language, string expectedCode)
+    {
+        var handler = new RecordingHandler();
+        var result = await NewClient(handler).SendTemplateAsync(
+            "+5511999990001", name, language, ["Ana"], [], default);
+
+        Assert.False(result.Succeeded);
+        Assert.False(result.IsTransient);
+        Assert.Equal(expectedCode, result.ErrorCode);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task Timeout_is_transient()
+    {
+        var handler = new RecordingHandler(exception:
+            new TaskCanceledException("timeout"));
+        var result = await NewClient(handler).SendTemplateAsync(
+            "+5511999990001", "message_warning", "pt_BR", ["Ana"], [], default);
+        Assert.Equal("timeout", result.ErrorCode);
+        Assert.True(result.IsTransient);
+    }
+
+    [Fact]
+    public async Task Http_request_exception_is_transient()
+    {
+        var handler = new RecordingHandler(exception:
+            new HttpRequestException("network"));
+        var result = await NewClient(handler).SendTemplateAsync(
+            "+5511999990001", "message_warning", "pt_BR", ["Ana"], [], default);
+        Assert.Equal("network", result.ErrorCode);
+        Assert.True(result.IsTransient);
+    }
+
+    [Fact]
+    public async Task Invalid_success_json_is_a_permanent_parsing_failure()
+    {
+        var handler = new RecordingHandler(HttpStatusCode.OK, "not-json");
+        var result = await NewClient(handler).SendTemplateAsync(
+            "+5511999990001", "message_warning", "pt_BR", ["Ana"], [], default);
+
+        Assert.False(result.Succeeded);
+        Assert.False(result.IsTransient);
+        Assert.Equal("client_error", result.ErrorCode);
+        Assert.Contains("parsing_response", result.Error);
+        Assert.Contains("Json", result.Error);
+    }
+
+    [Fact]
+    public async Task Invalid_meta_error_json_keeps_safe_http_diagnostic()
+    {
+        var handler = new RecordingHandler(HttpStatusCode.BadRequest, "not-json");
+        var result = await NewClient(handler).SendTemplateAsync(
+            "+5511999990001", "message_warning", "pt_BR", ["Ana"], [], default);
+
+        Assert.False(result.Succeeded);
+        Assert.False(result.IsTransient);
+        Assert.Equal("http_400", result.ErrorCode);
+        Assert.Equal(400, result.HttpStatusCode);
+        Assert.Equal("Meta HTTP 400; response error was not valid JSON.", result.Error);
+    }
+
+    [Fact]
+    public async Task Diagnostics_do_not_log_secrets_or_personal_values()
+    {
+        const string token = "top-secret-token";
+        const string phone = "+5511987654321";
+        const string name = "SensitiveResidentName";
+        var logger = new RecordingLogger<MetaWhatsAppClient>();
+        var handler = new RecordingHandler(HttpStatusCode.BadRequest,
+            "{\"error\":{\"type\":\"OAuthException\",\"code\":132001}} ");
+        var options = Options.Create(new WhatsAppOptions
+        {
+            Enabled = true, PhoneNumberId = "phone-id", AccessToken = token
+        });
+        var client = new MetaWhatsAppClient(new HttpClient(handler)
+            { BaseAddress = new Uri("https://graph.facebook.com/") }, options, logger);
+
+        await client.SendTemplateAsync(phone, "message_warning", "pt_BR",
+            [name], ["resident_reply_now"], default);
+
+        var logs = string.Join("\n", logger.Messages);
+        Assert.DoesNotContain(token, logs);
+        Assert.DoesNotContain(phone, logs);
+        Assert.DoesNotContain(phone.TrimStart('+'), logs);
+        Assert.DoesNotContain(name, logs);
+        Assert.DoesNotContain(handler.Body!, logs);
+        Assert.Contains("completed", logs);
+    }
+
+    [Fact]
+    public void Personal_details_are_not_retained()
+    {
+        Assert.Null(MetaWhatsAppClient.SafeTechnicalDetails(
+            "Invalid value for Ana at +5511987654321"));
+        Assert.Null(MetaWhatsAppClient.SafeTechnicalDetails(
+            "Invalid value for Ana", ["Ana"]));
+        Assert.Equal("Invalid button component",
+            MetaWhatsAppClient.SafeTechnicalDetails("Invalid button component"));
+    }
+
+    [Fact]
+    public void Serialization_failure_is_exposed_by_the_same_payload_serializer()
+    {
+        var cyclic = new CyclicPayload();
+        cyclic.Self = cyclic;
+        Assert.Throws<JsonException>(() =>
+            MetaWhatsAppClient.SerializePayload(cyclic));
     }
 
     [Theory]
@@ -54,20 +216,50 @@ public sealed class MetaWhatsAppClientTests
         string fullName, string expected) =>
         Assert.Equal(expected, WhatsAppOutboundWorker.SafeFirstName(fullName));
 
-    private sealed class RecordingHandler : HttpMessageHandler
+    private static MetaWhatsAppClient NewClient(RecordingHandler handler) =>
+        new(new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://graph.facebook.com/")
+        }, Options.Create(new WhatsAppOptions
+        {
+            Enabled = true,
+            PhoneNumberId = "phone-id",
+            AccessToken = "secret"
+        }), NullLogger<MetaWhatsAppClient>.Instance);
+
+    private sealed class RecordingHandler(
+        HttpStatusCode status = HttpStatusCode.OK,
+        string body = "{\"messages\":[{\"id\":\"wamid.sent\"}]}",
+        Exception? exception = null) : HttpMessageHandler
     {
         public string? Body { get; private set; }
+        public int Calls { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            Calls++;
             Body = await request.Content!.ReadAsStringAsync(cancellationToken);
-            return new HttpResponseMessage(HttpStatusCode.OK)
+            if (exception is not null) throw exception;
+            return new HttpResponseMessage(status)
             {
-                Content = new StringContent(
-                    "{\"messages\":[{\"id\":\"wamid.sent\"}]}",
-                    Encoding.UTF8, "application/json")
+                Content = new StringContent(body, Encoding.UTF8, "application/json")
             };
         }
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Messages.Add(formatter(state, exception));
+    }
+
+    private sealed class CyclicPayload
+    {
+        public CyclicPayload? Self { get; set; }
     }
 }

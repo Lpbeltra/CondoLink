@@ -110,10 +110,13 @@ public sealed class WhatsAppOutboundWorker(
                     quickReplies, ct);
             }
             logger.LogInformation(
-                "WhatsApp provider response received for outbound {OutboundId}. Succeeded: {Succeeded}; ErrorCode: {ErrorCode}.",
+                "WhatsApp provider response received for outbound {OutboundId}. Result: {Result}; ErrorCode: {ErrorCode}; ErrorType: {ErrorType}; HttpStatus: {HttpStatus}; Transient: {Transient}.",
                 item.Id,
-                result.Succeeded,
-                result.ErrorCode);
+                result.Succeeded ? "Succeeded" : "Failed",
+                result.ErrorCode,
+                result.ErrorType,
+                result.HttpStatusCode,
+                result.IsTransient);
             if (result.Succeeded && !string.IsNullOrWhiteSpace(result.ExternalMessageId))
             {
                 item.MarkSent(result.ExternalMessageId, DateTime.UtcNow);
@@ -123,22 +126,13 @@ public sealed class WhatsAppOutboundWorker(
             }
             else
             {
-                var exponent = Math.Min(item.AttemptCount - 1, 6);
-                var delay = TimeSpan.FromSeconds(
-                    Math.Clamp(settings.OutboundInitialRetrySeconds, 10, 3600)
-                    * Math.Pow(2, exponent));
-                item.MarkFailure(
-                    result.ErrorCode,
-                    result.Error ?? "Provider did not return a message id.",
-                    result.IsTransient,
-                    Math.Clamp(settings.OutboundMaxAttempts, 1, 10),
-                    DateTime.UtcNow,
-                    delay);
+                ApplyFailure(item, result, settings, DateTime.UtcNow);
                 logger.Log(
                     result.IsTransient
                         ? LogLevel.Warning : LogLevel.Error,
-                    "WhatsApp outbound {OutboundId} failed transient {Transient} code {ErrorCode}.",
-                    item.Id, result.IsTransient, result.ErrorCode);
+                    "WhatsApp outbound {OutboundId} failed. Result: Failed; ErrorCode: {ErrorCode}; ErrorType: {ErrorType}; HttpStatus: {HttpStatus}; Transient: {Transient}.",
+                    item.Id, result.ErrorCode, result.ErrorType,
+                    result.HttpStatusCode, result.IsTransient);
             }
             await db.SaveChangesAsync(ct);
             logger.LogInformation(
@@ -155,5 +149,24 @@ public sealed class WhatsAppOutboundWorker(
         var separator = displayName.IndexOfAny([' ', '\t', '\r', '\n']);
         var firstName = separator > 0 ? displayName[..separator] : displayName;
         return firstName.Length <= 60 ? firstName : firstName[..60];
+    }
+
+    internal static void ApplyFailure(
+        CondoLink.Domain.Entities.WhatsAppOutboundMessage item,
+        WhatsAppSendResult result,
+        WhatsAppOptions settings,
+        DateTime now)
+    {
+        var exponent = Math.Min(item.AttemptCount - 1, 6);
+        var delay = TimeSpan.FromSeconds(
+            Math.Clamp(settings.OutboundInitialRetrySeconds, 10, 3600)
+            * Math.Pow(2, exponent));
+        item.MarkFailure(
+            result.ErrorCode,
+            result.Error ?? "Provider did not return a message id.",
+            result.IsTransient,
+            Math.Clamp(settings.OutboundMaxAttempts, 1, 10),
+            now,
+            delay);
     }
 }
