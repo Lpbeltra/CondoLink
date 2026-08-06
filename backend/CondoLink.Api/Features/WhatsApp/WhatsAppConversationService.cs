@@ -245,7 +245,11 @@ public sealed class WhatsAppConversationService(
             session.Restart(now, expires);
             return (MainMenu(identity.FullName), "main_menu");
         }
-        if (session.ExpiresAt <= now || session.State == WhatsAppConversationState.Ended)
+        var residentReplyButton = ResidentReplyButtonChoice(message);
+        if ((session.ExpiresAt <= now
+                && !(session.State == WhatsAppConversationState.AwaitingResidentReplyChoice
+                    && residentReplyButton is not null))
+            || session.State == WhatsAppConversationState.Ended)
         {
             var expired = session.State != WhatsAppConversationState.Ended;
             if (expired) await DiscardDraftAttachments(session, ct);
@@ -308,7 +312,9 @@ public sealed class WhatsAppConversationService(
             WhatsAppConversationState.ViewingOwnRequestUpdates =>
                 await OwnRequestUpdatesChoice(session, identity, text, now, expires, ct),
             WhatsAppConversationState.AwaitingResidentReplyChoice =>
-                await ResidentReplyChoice(session, identity, text, now, expires, ct),
+                await ResidentReplyChoice(session, identity,
+                    residentReplyButton ?? text, now, expires, ct,
+                    residentReplyButton is not null),
             WhatsAppConversationState.CollectingResidentReply =>
                 await CollectResidentReply(session, identity, message, now, expires, ct),
             WhatsAppConversationState.ReviewingResidentReply =>
@@ -600,7 +606,8 @@ public sealed class WhatsAppConversationService(
 
     private async Task<(string, string)> ResidentReplyChoice(
         WhatsAppSession session, ResolvedIdentity identity, string? text,
-        DateTime now, DateTime expires, CancellationToken ct)
+        DateTime now, DateTime expires, CancellationToken ct,
+        bool templateButton = false)
     {
         var requirement = await ActiveResidentReplyRequirement(session.RequestId, identity, ct);
         if (requirement is null)
@@ -619,7 +626,8 @@ public sealed class WhatsAppConversationService(
             return (OwnRequestDetails(request), "viewing_own_request");
         }
         if (text == "2")
-            return await DeferResidentReply(session, now, expires, ct);
+            return await DeferResidentReply(session, now, expires, ct,
+                templateButton);
         if (text == "0" && session.PreviousState == WhatsAppConversationState.ViewingOwnRequest)
         {
             session.Restart(now, expires);
@@ -804,13 +812,32 @@ public sealed class WhatsAppConversationService(
     }
 
     private async Task<(string, string)> DeferResidentReply(WhatsAppSession session,
-        DateTime now, DateTime expires, CancellationToken ct)
+        DateTime now, DateTime expires, CancellationToken ct,
+        bool endSession = false)
     {
         await DiscardDraftAttachments(session, ct);
-        session.Restart(now, expires);
+        if (endSession) session.End(now);
+        else session.Restart(now, expires);
         return ("Tudo bem. A solicitação continuará aguardando sua resposta.\n\n"
             + "Você pode responder depois pelo portal ou consultar a solicitação pelo WhatsApp.",
             "resident_reply_deferred");
+    }
+
+    private static string? ResidentReplyButtonChoice(
+        NormalizedWhatsAppMessage message)
+    {
+        if (message.MessageType != "interactive") return null;
+        return message.InteractiveReplyId switch
+        {
+            "resident_reply_now" => "1",
+            "resident_reply_later" => "2",
+            _ => message.InteractiveReplyTitle?.Trim() switch
+            {
+                "Responder agora" => "1",
+                "Responder depois" => "2",
+                _ => null
+            }
+        };
     }
 
     private (string, string) ResidentReplyNoLongerAvailable(WhatsAppSession session,

@@ -174,6 +174,56 @@ public sealed class WhatsAppNotificationDispatcherTests
         Assert.Null(outbound.LastErrorDescription);
     }
 
+    [Fact]
+    public async Task Information_requested_outside_window_uses_configured_template()
+    {
+        await using var host = await CoreEndpointTestHost.StartAsync(_ => { });
+        var requestId = await SeedAsync(host, UserCondition.OutsideSessionWindow);
+
+        await host.WithDbAsync(async db =>
+        {
+            var options = new WhatsAppOptions { Enabled = true };
+            options.Templates.InformationRequested.Name = "message_warning";
+            options.Templates.InformationRequested.Language = "pt_BR";
+            await new WhatsAppNotificationDispatcher(db, Options.Create(options),
+                NullLogger<WhatsAppNotificationDispatcher>.Instance).EnqueueAsync(
+                    requestId, WhatsAppNotificationType.InformationRequested,
+                    $"information:{Guid.NewGuid():N}", "free text", null,
+                    CancellationToken.None);
+        });
+
+        await host.WithDbAsync(async db =>
+        {
+            var outbound = await db.WhatsAppOutboundMessages.AsNoTracking().SingleAsync();
+            Assert.Equal(WhatsAppOutboundStatus.Pending, outbound.Status);
+            Assert.Equal(WhatsAppSendMode.Template, outbound.SendMode);
+            Assert.Equal("message_warning", outbound.TemplateName);
+            Assert.Equal("pt_BR", outbound.TemplateLanguage);
+            var session = await db.WhatsAppSessions.AsNoTracking().SingleAsync();
+            Assert.Equal(requestId, session.RequestId);
+            Assert.Equal(WhatsAppConversationState.AwaitingResidentReplyChoice,
+                session.State);
+        });
+    }
+
+    [Fact]
+    public async Task Information_requested_without_template_is_skipped()
+    {
+        await using var host = await CoreEndpointTestHost.StartAsync(_ => { });
+        var requestId = await SeedAsync(host, UserCondition.OutsideSessionWindow);
+
+        await host.WithDbAsync(async db =>
+            await NewDispatcher(db).EnqueueAsync(requestId,
+                WhatsAppNotificationType.InformationRequested,
+                $"information:{Guid.NewGuid():N}", "free text", null,
+                CancellationToken.None));
+
+        var outbound = await host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().SingleAsync());
+        Assert.Equal(WhatsAppOutboundStatus.Skipped, outbound.Status);
+        Assert.Equal("Template não configurado.", outbound.LastErrorDescription);
+    }
+
     [Theory]
     [InlineData(UserCondition.PreferenceDisabled, "Preferência desabilitada.")]
     [InlineData(UserCondition.MissingPhone, "Telefone inválido.")]
@@ -260,7 +310,8 @@ public sealed class WhatsAppNotificationDispatcherTests
         PreferenceDisabled,
         MissingPhone,
         Inactive,
-        MissingMembership
+        MissingMembership,
+        OutsideSessionWindow
     }
 
     private sealed class RecordingLogger<T> : ILogger<T>

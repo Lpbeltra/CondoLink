@@ -1,4 +1,5 @@
 using CondoLink.Domain.Enums;
+using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -88,10 +89,26 @@ public sealed class WhatsAppOutboundWorker(
                 continue;
             }
 
-            var result = item.SendMode == WhatsAppSendMode.SessionText
-                ? await client.SendTextAsync(item.DestinationPhone, content, ct)
-                : await client.SendTemplateAsync(
-                    item.DestinationPhone, item.TemplateName!, item.TemplateLanguage!, ct);
+            WhatsAppSendResult result;
+            if (item.SendMode == WhatsAppSendMode.SessionText)
+                result = await client.SendTextAsync(item.DestinationPhone, content, ct);
+            else
+            {
+                IReadOnlyList<string> parameters = [];
+                IReadOnlyList<string> quickReplies = [];
+                if (item.NotificationType == WhatsAppNotificationType.InformationRequested)
+                {
+                    var fullName = await db.Set<ApplicationUser>().AsNoTracking()
+                        .Where(x => x.Id == item.UserId)
+                        .Select(x => x.FullName)
+                        .SingleAsync(ct);
+                    parameters = [SafeFirstName(fullName)];
+                    quickReplies = ["resident_reply_now", "resident_reply_later"];
+                }
+                result = await client.SendTemplateAsync(item.DestinationPhone,
+                    item.TemplateName!, item.TemplateLanguage!, parameters,
+                    quickReplies, ct);
+            }
             logger.LogInformation(
                 "WhatsApp provider response received for outbound {OutboundId}. Succeeded: {Succeeded}; ErrorCode: {ErrorCode}.",
                 item.Id,
@@ -129,5 +146,14 @@ public sealed class WhatsAppOutboundWorker(
                 item.Id,
                 item.Status);
         }
+    }
+
+    internal static string SafeFirstName(string? fullName)
+    {
+        var displayName = string.IsNullOrWhiteSpace(fullName)
+            ? "Morador" : fullName.Trim();
+        var separator = displayName.IndexOfAny([' ', '\t', '\r', '\n']);
+        var firstName = separator > 0 ? displayName[..separator] : displayName;
+        return firstName.Length <= 60 ? firstName : firstName[..60];
     }
 }

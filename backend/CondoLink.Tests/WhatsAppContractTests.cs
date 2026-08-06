@@ -21,6 +21,23 @@ public sealed class WhatsAppContractTests
         Assert.StartsWith("wamid.", message.ExternalMessageId);
     }
 
+    [Fact]
+    public void Template_quick_reply_preserves_stable_id_and_visible_title()
+    {
+        using var document = JsonDocument.Parse("""
+            {"entry":[{"changes":[{"value":{"messages":[{
+              "from":"5511999990001","id":"wamid.reply","timestamp":"1785236400",
+              "type":"interactive","interactive":{"type":"button_reply",
+              "button_reply":{"id":"resident_reply_now","title":"Responder agora"}}
+            }]}}]}]}
+            """);
+
+        var message = Assert.Single(WhatsAppWebhookParser.Parse(document.RootElement));
+
+        Assert.Equal("resident_reply_now", message.InteractiveReplyId);
+        Assert.Equal("Responder agora", message.InteractiveReplyTitle);
+    }
+
     [Theory]
     [InlineData("status-event.json")]
     [InlineData("no-messages.json")]

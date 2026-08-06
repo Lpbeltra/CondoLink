@@ -141,11 +141,9 @@ public sealed class WhatsAppNotificationDispatcher(
                     session.Identify(request.AuthorUserId);
                     db.WhatsAppSessions.Add(session);
                 }
-                if (session.State is WhatsAppConversationState.MainMenu
-                        or WhatsAppConversationState.Ended
-                        or WhatsAppConversationState.AwaitingResidentReplyChoice
-                    || session.ExpiresAt <= now)
-                    session.OfferResidentReply(request.Id, now, expires);
+                // Keep the request correlation server-side before either free text
+                // or a template quick reply can be processed.
+                session.OfferResidentReply(request.Id, now, expires);
             }
             stage = "saving_outbound";
             try

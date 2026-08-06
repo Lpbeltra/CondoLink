@@ -10,7 +10,9 @@ public sealed record NormalizedWhatsAppMessage(
     DateTime ProviderTimestamp,
     string? MediaId = null,
     string? FileName = null,
-    string? MediaContentType = null);
+    string? MediaContentType = null,
+    string? InteractiveReplyId = null,
+    string? InteractiveReplyTitle = null);
 
 public sealed record NormalizedWhatsAppStatus(
     string ExternalMessageId,
@@ -46,6 +48,8 @@ public static class WhatsAppWebhookParser
                     string? mediaId = null;
                     string? fileName = null;
                     string? mediaContentType = null;
+                    string? interactiveReplyId = null;
+                    string? interactiveReplyTitle = null;
                     string? text = messageType switch
                     {
                         "text" when message.TryGetProperty("text", out var body)
@@ -55,6 +59,10 @@ public static class WhatsAppWebhookParser
                             InteractiveText(interactive),
                         _ => null
                     };
+                    if (messageType == "interactive"
+                        && message.TryGetProperty("interactive", out var replyContainer))
+                        (interactiveReplyId, interactiveReplyTitle) =
+                            InteractiveReply(replyContainer);
                     if (messageType is "image" or "video" or "document" or "audio"
                         && message.TryGetProperty(messageType, out var media))
                     {
@@ -77,7 +85,9 @@ public static class WhatsAppWebhookParser
                         timestamp,
                         mediaId,
                         fileName,
-                        mediaContentType));
+                        mediaContentType,
+                        interactiveReplyId,
+                        interactiveReplyTitle));
                 }
             }
         }
@@ -137,5 +147,18 @@ public static class WhatsAppWebhookParser
             }
         }
         return null;
+    }
+
+    private static (string? Id, string? Title) InteractiveReply(
+        JsonElement interactive)
+    {
+        foreach (var property in new[] { "button_reply", "list_reply" })
+        {
+            if (!interactive.TryGetProperty(property, out var reply)) continue;
+            return (
+                reply.TryGetProperty("id", out var id) ? id.GetString() : null,
+                reply.TryGetProperty("title", out var title) ? title.GetString() : null);
+        }
+        return (null, null);
     }
 }

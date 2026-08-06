@@ -115,7 +115,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.reply-list", "2"));
         await PostAsync(TextPayload("wamid.reply-select", "1"));
         Assert.Contains("Qual foi o horário?", _fake.Messages.Last().Text);
-        await PostAsync(TextPayload("wamid.reply-now", "1"));
+        await PostAsync(InteractiveReplyPayload("wamid.reply-now",
+            "resident_reply_now", "Responder agora"));
         await PostAsync(TextPayload("wamid.reply-text", "Foi por volta das 22h"));
         Assert.Contains("Você respondeu", _fake.Messages.Last().Text);
         await PostAsync(TextPayload("wamid.reply-review", "1"));
@@ -132,6 +133,45 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 .Where(x => x.RequestId == requestId).ToArrayAsync());
             Assert.Equal("Foi por volta das 22h", message.Content);
             Assert.Equal(MessageChannel.WhatsApp, message.Channel);
+        });
+    }
+
+    [Fact]
+    public async Task Reply_later_button_keeps_requirement_active_and_ends_session()
+    {
+        var requestId = await _host.WithDbAsync(async db =>
+        {
+            var category = new Category(_condominiumId, "Portaria", null);
+            var request = new CondoLink.Domain.Entities.Request(_condominiumId,
+                _userId, _unitId, category.Id, "Acesso", "Relato");
+            var now = DateTime.UtcNow;
+            request.ChangeStatus(RequestStatus.WaitingForResident, now);
+            var manager = CoreTestSeed.User("Gestor", "later-manager@example.com");
+            var history = new RequestStatusHistory(request.Id,
+                RequestStatus.InProgress, RequestStatus.WaitingForResident,
+                manager.Id, "Confirme o horário.", now);
+            var requirement = new RequestResidentReplyRequirement(request.Id,
+                manager.Id, history.Id, history.Reason!, now);
+            var session = new WhatsAppSession("+5511999990001", now,
+                now.AddMinutes(30));
+            session.ResolveContext(_userId, _condominiumId, _unitId);
+            session.OfferResidentReply(request.Id, now, now.AddMinutes(30));
+            db.AddRange(category, manager, request, history, requirement, session);
+            await db.SaveChangesAsync();
+            return request.Id;
+        });
+
+        await PostAsync(InteractiveReplyPayload("wamid.reply-later",
+            "resident_reply_later", "Responder depois"));
+
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(RequestStatus.WaitingForResident,
+                (await db.Requests.SingleAsync(x => x.Id == requestId)).Status);
+            Assert.True((await db.RequestResidentReplyRequirements.SingleAsync()).IsActive);
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(WhatsAppConversationState.Ended, session.State);
+            Assert.Null(session.RequestId);
         });
     }
 
@@ -1532,6 +1572,25 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             }
         });
 
+    private static string InteractiveReplyPayload(
+        string id, string replyId, string title) =>
+        JsonSerializer.Serialize(new
+        {
+            entry = new[] { new { changes = new[] { new { value = new
+            {
+                messages = new[] { new
+                {
+                    from = "5511999990001", id, timestamp = "1785236400",
+                    type = "interactive",
+                    interactive = new
+                    {
+                        type = "button_reply",
+                        button_reply = new { id = replyId, title }
+                    }
+                } }
+            } } } } }
+        });
+
     private static string MediaPayload(
         string id,
         string mediaId,
@@ -1684,6 +1743,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             string phoneNumber,
             string templateName,
             string language,
+            IReadOnlyList<string> bodyParameters,
+            IReadOnlyList<string> quickReplyPayloads,
             CancellationToken cancellationToken) =>
             SendTextAsync(phoneNumber, $"template:{templateName}:{language}",
                 cancellationToken);

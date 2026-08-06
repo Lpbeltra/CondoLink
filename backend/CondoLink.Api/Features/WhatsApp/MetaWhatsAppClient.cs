@@ -44,6 +44,8 @@ public sealed class MetaWhatsAppClient(
         string phoneNumber,
         string templateName,
         string language,
+        IReadOnlyList<string> bodyParameters,
+        IReadOnlyList<string> quickReplyPayloads,
         CancellationToken cancellationToken)
     {
         var settings = options.Value;
@@ -54,13 +56,44 @@ public sealed class MetaWhatsAppClient(
             HttpMethod.Post, $"{settings.ApiVersion}/{settings.PhoneNumberId}/messages");
         request.Headers.Authorization =
             new AuthenticationHeaderValue("Bearer", settings.AccessToken);
+        var components = new List<object>();
+        if (bodyParameters.Count > 0)
+            components.Add(new
+            {
+                type = "body",
+                parameters = bodyParameters.Select(value => new
+                {
+                    type = "text",
+                    text = value
+                }).ToArray()
+            });
+        for (var index = 0; index < quickReplyPayloads.Count; index++)
+            components.Add(new
+            {
+                type = "button",
+                sub_type = "quick_reply",
+                index = index.ToString(),
+                parameters = new[] { new
+                {
+                    type = "payload",
+                    payload = quickReplyPayloads[index]
+                } }
+            });
         request.Content = JsonContent.Create(new
         {
             messaging_product = "whatsapp",
             to = phoneNumber.TrimStart('+'),
             type = "template",
-            template = new { name = templateName, language = new { code = language } }
+            template = new
+            {
+                name = templateName,
+                language = new { code = language },
+                components = components.ToArray()
+            }
         });
+        logger.LogInformation(
+            "WhatsApp template send. Mode: Template; TemplateName: {TemplateName}; Language: {Language}.",
+            templateName, language);
         return await SendAsync(request, cancellationToken);
     }
 
@@ -73,10 +106,12 @@ public sealed class MetaWhatsAppClient(
             using var response = await httpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                var errorCode = ((int)response.StatusCode).ToString();
+                var errorCode = await ProviderErrorCodeAsync(
+                    response, cancellationToken)
+                    ?? ((int)response.StatusCode).ToString();
                 logger.LogWarning(
-                    "WhatsApp send failed with HTTP {StatusCode}.",
-                    (int)response.StatusCode);
+                    "WhatsApp send failed with HTTP {StatusCode}; ErrorCode: {ErrorCode}.",
+                    (int)response.StatusCode, errorCode);
                 return new(false, null,
                     $"Provider returned HTTP {(int)response.StatusCode}.",
                     (int)response.StatusCode is 408 or 429 or >= 500,
@@ -91,6 +126,9 @@ public sealed class MetaWhatsAppClient(
                 && messages[0].TryGetProperty("id", out var idElement)
                     ? idElement.GetString()
                     : null;
+            logger.LogInformation(
+                "WhatsApp send accepted with HTTP {StatusCode}.",
+                (int)response.StatusCode);
             return new(true, id, null);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -102,6 +140,26 @@ public sealed class MetaWhatsAppClient(
         {
             logger.LogError(exception, "WhatsApp send failed.");
             return new(false, null, "Provider request failed.", true, "network");
+        }
+    }
+
+    private static async Task<string?> ProviderErrorCodeAsync(
+        HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = await response.Content
+                .ReadAsStreamAsync(cancellationToken);
+            using var document = await JsonDocument.ParseAsync(stream,
+                cancellationToken: cancellationToken);
+            return document.RootElement.TryGetProperty("error", out var error)
+                && error.TryGetProperty("code", out var code)
+                    ? code.ToString()
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 

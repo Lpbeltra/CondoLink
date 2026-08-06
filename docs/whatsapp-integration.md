@@ -43,6 +43,13 @@ Use variáveis de ambiente ou um secret store:
 Não coloque valores reais no repositório, frontend, logs ou imagens Docker.
 Com `WhatsApp__Enabled=false`, a API inicia normalmente e as rotas retornam 404.
 
+Para pedidos de informação ao morador, configure exatamente
+`WhatsApp__Templates__InformationRequested__Name=message_warning` e
+`WhatsApp__Templates__InformationRequested__Language=pt_BR`. O corpo aprovado
+recebe apenas o primeiro nome em `{{1}}`. Os quick replies usam os payloads
+`resident_reply_now` e `resident_reply_later`; o texto visível é usado somente
+como compatibilidade quando a Meta não fornecer um identificador.
+
 ## Webhook
 
 - Verificação: `GET /integrations/whatsapp/webhook`
@@ -172,6 +179,16 @@ Quando o último contato recebido daquele telefone ocorreu nas últimas 24 horas
 o worker envia texto de sessão. Fora da janela, envia exclusivamente o template
 aprovado configurado para o evento. Template ausente causa `Skipped`, nunca
 fallback para texto livre.
+
+Na transição para `WaitingForResident`, somente o evento específico
+`InformationRequested` é enfileirado para o WhatsApp; o histórico e a
+notificação interna de status continuam sendo criados. Fora da janela de 24
+horas, `message_warning` é enviado com um parâmetro de corpo e os dois botões
+de resposta rápida. Mensagens antigas marcadas como `TemplateNotConfigured`
+não são reprocessadas automaticamente. O retry administrativo preserva o
+snapshot de template gravado na mensagem; portanto, itens antigos sem nome e
+idioma não devem ser retentados. O retry continua disponível para mensagens que
+já possuíam configuração válida quando foram criadas.
 
 Configuração administrativa protegida:
 

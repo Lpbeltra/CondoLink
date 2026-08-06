@@ -180,6 +180,17 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         Assert.Contains("Comentário da administração:\n\nEnvie uma foto.", withComment);
     }
 
+    [Fact]
+    public void Waiting_for_resident_maps_only_to_specific_information_request()
+    {
+        Assert.Equal(WhatsAppNotificationType.InformationRequested,
+            NotificationService.StatusNotificationType(
+                RequestStatus.InProgress, RequestStatus.WaitingForResident));
+        Assert.Equal(WhatsAppNotificationType.StatusChanged,
+            NotificationService.StatusNotificationType(
+                RequestStatus.InProgress, RequestStatus.WaitingForThirdParty));
+    }
+
     // ---- messages ----
 
     [Fact]
