@@ -46,6 +46,8 @@ public sealed class MetaWhatsAppClientTests
         Assert.Single(bodyParameters.EnumerateArray());
         Assert.Equal("Ana", bodyParameters[0]
             .GetProperty("text").GetString());
+        Assert.False(bodyParameters[0].TryGetProperty(
+            "parameter_name", out _));
         Assert.Equal("button", components[1].GetProperty("type").GetString());
         Assert.Equal("quick_reply", components[1].GetProperty("sub_type").GetString());
         Assert.Equal("0", components[1].GetProperty("index").GetString());
@@ -53,6 +55,33 @@ public sealed class MetaWhatsAppClientTests
             .GetProperty("parameters")[0].GetProperty("payload").GetString());
         Assert.Equal("button", components[2].GetProperty("type").GetString());
         Assert.Equal("quick_reply", components[2].GetProperty("sub_type").GetString());
+        Assert.Equal("1", components[2].GetProperty("index").GetString());
+        Assert.Equal("resident_reply_later", components[2]
+            .GetProperty("parameters")[0].GetProperty("payload").GetString());
+    }
+
+    [Fact]
+    public async Task Named_body_parameter_uses_parameter_name_and_preserves_buttons()
+    {
+        var handler = new RecordingHandler();
+
+        var result = await NewClient(handler).SendTemplateAsync(
+            "+5511999990001", "resident_reply_required", "pt_BR", ["Ana"],
+            ["resident_reply_now", "resident_reply_later"], default,
+            "resident_first_name");
+
+        Assert.True(result.Succeeded);
+        using var json = JsonDocument.Parse(handler.Body!);
+        var components = json.RootElement.GetProperty("template")
+            .GetProperty("components");
+        var parameter = components[0].GetProperty("parameters")[0];
+        Assert.Equal("text", parameter.GetProperty("type").GetString());
+        Assert.Equal("resident_first_name", parameter
+            .GetProperty("parameter_name").GetString());
+        Assert.Equal("Ana", parameter.GetProperty("text").GetString());
+        Assert.Equal("0", components[1].GetProperty("index").GetString());
+        Assert.Equal("resident_reply_now", components[1]
+            .GetProperty("parameters")[0].GetProperty("payload").GetString());
         Assert.Equal("1", components[2].GetProperty("index").GetString());
         Assert.Equal("resident_reply_later", components[2]
             .GetProperty("parameters")[0].GetProperty("payload").GetString());
@@ -126,8 +155,9 @@ public sealed class MetaWhatsAppClientTests
 
         Assert.False(result.Succeeded);
         Assert.Contains(logger.Messages, message =>
-            message.Contains("FailureKind: Configuration", StringComparison.Ordinal)
-            && message.Contains("FailureStage: building_payload", StringComparison.Ordinal));
+            message.Contains("MetaErrorCode: template_name_invalid", StringComparison.Ordinal)
+            && message.Contains("FailureStage: building_payload", StringComparison.Ordinal)
+            && message.Contains("NamedParameterEnabled: False", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -142,10 +172,8 @@ public sealed class MetaWhatsAppClientTests
         Assert.True(result.IsTransient);
         Assert.Equal("Timeout", result.FailureKind);
         Assert.Equal("sending_http", result.FailureStage);
-        Assert.Contains(logger.Exceptions, exception =>
-            exception is TaskCanceledException);
         Assert.Contains(logger.Messages, message =>
-            message.Contains("IsTimeout: True", StringComparison.Ordinal));
+            message.Contains("FailureStage: sending_http", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -162,7 +190,7 @@ public sealed class MetaWhatsAppClientTests
     }
 
     [Fact]
-    public async Task Http_request_with_socket_exception_logs_native_diagnostics()
+    public async Task Http_request_with_socket_exception_logs_only_safe_fields()
     {
         var socket = new SocketException((int)SocketError.ConnectionRefused);
         var handler = new RecordingHandler(exception:
@@ -175,13 +203,10 @@ public sealed class MetaWhatsAppClientTests
         Assert.True(result.IsTransient);
         Assert.Equal("Transport", result.FailureKind);
         Assert.Equal("sending_http", result.FailureStage);
-        Assert.Contains(logger.Exceptions, exception =>
-            exception is HttpRequestException);
         var logs = string.Join("\n", logger.Messages);
-        Assert.Contains(SocketError.ConnectionRefused.ToString(), logs);
-        Assert.Contains(socket.NativeErrorCode.ToString(), logs);
-        Assert.Contains("Stage: sending_http", logs);
-        Assert.Contains("Result: Exception", logs);
+        Assert.Contains("FailureStage: sending_http", logs);
+        Assert.DoesNotContain(SocketError.ConnectionRefused.ToString(), logs);
+        Assert.DoesNotContain(socket.NativeErrorCode.ToString(), logs);
     }
 
     [Fact]
@@ -197,7 +222,8 @@ public sealed class MetaWhatsAppClientTests
         Assert.Equal("io_error", result.ErrorCode);
         Assert.Equal("TransportIO", result.FailureKind);
         Assert.Equal("sending_http", result.FailureStage);
-        Assert.Contains(logger.Exceptions, exception => exception is IOException);
+        Assert.Contains(logger.Messages, message =>
+            message.Contains("FailureStage: sending_http", StringComparison.Ordinal));
     }
 
     [Fact]

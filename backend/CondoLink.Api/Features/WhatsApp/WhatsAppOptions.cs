@@ -33,4 +33,5 @@ public sealed class WhatsAppTemplateDefinition
 {
     public string? Name { get; set; }
     public string? Language { get; set; }
+    public string? BodyParameterName { get; set; }
 }

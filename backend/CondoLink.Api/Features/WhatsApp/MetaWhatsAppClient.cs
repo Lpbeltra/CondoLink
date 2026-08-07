@@ -1,6 +1,5 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
@@ -48,12 +47,14 @@ public sealed class MetaWhatsAppClient(
         string language,
         IReadOnlyList<string> bodyParameters,
         IReadOnlyList<string> quickReplyPayloads,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? bodyParameterName = null)
     {
         var stage = "building_payload";
         int? httpStatus = null;
         HttpResponseMessage? response = null;
         var settings = options.Value;
+        var namedParameterEnabled = !string.IsNullOrWhiteSpace(bodyParameterName);
         try
         {
             if (!settings.Enabled || string.IsNullOrWhiteSpace(settings.PhoneNumberId)
@@ -61,30 +62,34 @@ public sealed class MetaWhatsAppClient(
                 return LogAndReturnFailure(PermanentConfigurationFailure(
                     "whatsapp_not_configured",
                     "WhatsApp integration is not configured.", stage),
-                    templateName, language);
+                    templateName, language, namedParameterEnabled);
             if (string.IsNullOrWhiteSpace(templateName)
                 || templateName.Any(char.IsWhiteSpace))
                 return LogAndReturnFailure(PermanentConfigurationFailure(
                     "template_name_invalid",
                     "Template name is empty or contains whitespace.", stage),
-                    templateName, language);
+                    templateName, language, namedParameterEnabled);
             if (string.IsNullOrWhiteSpace(language)
                 || language.Any(char.IsWhiteSpace))
                 return LogAndReturnFailure(PermanentConfigurationFailure(
                     "template_language_invalid",
                     "Template language is empty or contains whitespace.", stage),
-                    templateName, language);
+                    templateName, language, namedParameterEnabled);
 
             var components = new List<object>();
             if (bodyParameters.Count > 0)
                 components.Add(new
                 {
                     type = "body",
-                    parameters = bodyParameters.Select(value => new
-                    {
-                        type = "text",
-                        text = value
-                    }).ToArray()
+                    parameters = bodyParameters.Select(value =>
+                        namedParameterEnabled
+                            ? (object)new
+                            {
+                                type = "text",
+                                parameter_name = bodyParameterName!.Trim(),
+                                text = value
+                            }
+                            : new { type = "text", text = value }).ToArray()
                 });
             for (var index = 0; index < quickReplyPayloads.Count; index++)
                 components.Add(new
@@ -110,9 +115,8 @@ public sealed class MetaWhatsAppClient(
                     components = components.ToArray()
                 }
             };
-            logger.LogInformation(
-                "WhatsApp template diagnostic. Mode: Template; TemplateConfigured: {TemplateConfigured}; TemplateName: {TemplateName}; Language: {Language}; ButtonComponentCount: {ButtonComponentCount}; Stage: {Stage}.",
-                true, templateName, language, quickReplyPayloads.Count, stage);
+            LogTemplateEvent(LogLevel.Information, templateName, language,
+                namedParameterEnabled, httpStatus, null, stage);
 
             stage = "serializing_payload";
             var json = SerializePayload(payload);
@@ -125,15 +129,9 @@ public sealed class MetaWhatsAppClient(
                 "application/json");
 
             stage = "sending_http";
-            logger.LogInformation(
-                "WhatsApp template transport. Mode: Template; TemplateName: {TemplateName}; Language: {Language}; Stage: {Stage}; Result: Started.",
-                templateName, language, stage);
             response = await httpClient.SendAsync(request, cancellationToken);
             stage = "receiving_response";
             httpStatus = (int)response.StatusCode;
-            logger.LogInformation(
-                "WhatsApp template transport. Mode: Template; TemplateName: {TemplateName}; Language: {Language}; Stage: {Stage}; Result: ResponseReceived; HttpStatus: {HttpStatus}.",
-                templateName, language, stage, httpStatus);
             stage = "reading_response";
             var responseBody = await response.Content
                 .ReadAsStringAsync(cancellationToken);
@@ -143,19 +141,17 @@ public sealed class MetaWhatsAppClient(
                 : ParseMetaFailure(responseBody, httpStatus.Value,
                     bodyParameters);
             stage = "completed";
-            logger.Log(result.Succeeded ? LogLevel.Information :
-                    result.IsTransient ? LogLevel.Warning : LogLevel.Error,
-                "WhatsApp template diagnostic completed. Mode: Template; TemplateName: {TemplateName}; Language: {Language}; Stage: {Stage}; HttpStatus: {HttpStatus}; Result: {Result}; ErrorType: {ErrorType}; ErrorCode: {ErrorCode}; ErrorSubcode: {ErrorSubcode}; Transient: {Transient}.",
-                templateName, language, stage, httpStatus,
-                result.Succeeded ? "Succeeded" : "Failed", result.ErrorType,
-                result.ErrorCode, result.ErrorSubcode, result.IsTransient);
+            LogTemplateEvent(result.Succeeded ? LogLevel.Information :
+                result.IsTransient ? LogLevel.Warning : LogLevel.Error,
+                templateName, language, namedParameterEnabled, httpStatus,
+                result.ErrorCode, result.FailureStage ?? stage);
             return result;
         }
         catch (OperationCanceledException exception)
             when (!cancellationToken.IsCancellationRequested)
         {
             LogTemplateException(exception, templateName, language, stage,
-                httpStatus, cancellationToken.IsCancellationRequested);
+                httpStatus, namedParameterEnabled);
             return new(false, null, "Provider request timed out.", true,
                 "timeout", httpStatus, FailureKind: "Timeout",
                 FailureStage: stage);
@@ -165,7 +161,7 @@ public sealed class MetaWhatsAppClient(
             httpStatus ??= exception.StatusCode is null
                 ? null : (int)exception.StatusCode.Value;
             LogTemplateException(exception, templateName, language, stage,
-                httpStatus, cancellationToken.IsCancellationRequested);
+                httpStatus, namedParameterEnabled);
             var transient = !httpStatus.HasValue
                 || IsTransientStatus(httpStatus.Value);
             return new(false, null, "Provider HTTP request failed.", transient,
@@ -177,13 +173,13 @@ public sealed class MetaWhatsAppClient(
             when (cancellationToken.IsCancellationRequested)
         {
             LogTemplateException(exception, templateName, language, stage,
-                httpStatus, true);
+                httpStatus, namedParameterEnabled);
             throw;
         }
         catch (Exception exception)
         {
             LogTemplateException(exception, templateName, language, stage,
-                httpStatus, cancellationToken.IsCancellationRequested);
+                httpStatus, namedParameterEnabled);
             var transient = exception is IOException;
             return new(false, null,
                 $"Template send failed during {stage} ({exception.GetType().Name}).",
@@ -199,26 +195,9 @@ public sealed class MetaWhatsAppClient(
 
     private void LogTemplateException(Exception exception, string templateName,
         string language, string stage, int? httpStatus,
-        bool isCancellationRequested)
-    {
-        var socket = FindSocketException(exception);
-        logger.LogError(exception,
-            "WhatsApp template diagnostic failed. Mode: Template; TemplateName: {TemplateName}; Language: {Language}; Stage: {Stage}; Result: Exception; ExceptionType: {ExceptionType}; InnerExceptionType: {InnerExceptionType}; SocketErrorCode: {SocketErrorCode}; NativeErrorCode: {NativeErrorCode}; IsCancellationRequested: {IsCancellationRequested}; IsTimeout: {IsTimeout}; HttpStatus: {HttpStatus}.",
-            templateName, language, stage, exception.GetType().Name,
-            exception.InnerException?.GetType().Name,
-            socket?.SocketErrorCode.ToString(), socket?.NativeErrorCode,
-            isCancellationRequested,
-            exception is OperationCanceledException && !isCancellationRequested,
-            httpStatus);
-    }
-
-    private static SocketException? FindSocketException(Exception exception)
-    {
-        for (Exception? current = exception; current is not null;
-             current = current.InnerException)
-            if (current is SocketException socket) return socket;
-        return null;
-    }
+        bool namedParameterEnabled) =>
+        LogTemplateEvent(LogLevel.Error, templateName, language,
+            namedParameterEnabled, httpStatus, null, stage);
 
     internal static string SerializePayload(object payload) =>
         JsonSerializer.Serialize(payload);
@@ -229,14 +208,21 @@ public sealed class MetaWhatsAppClient(
             FailureKind: "Configuration", FailureStage: stage);
 
     private WhatsAppSendResult LogAndReturnFailure(WhatsAppSendResult result,
-        string templateName, string language)
+        string templateName, string language, bool namedParameterEnabled)
     {
-        logger.LogError(
-            "WhatsApp template diagnostic completed. Mode: Template; TemplateName: {TemplateName}; Language: {Language}; Stage: {Stage}; Result: Failed; ErrorCode: {ErrorCode}; FailureKind: {FailureKind}; FailureStage: {FailureStage}; Transient: {Transient}.",
-            templateName, language, result.FailureStage, result.ErrorCode,
-            result.FailureKind, result.FailureStage, result.IsTransient);
+        LogTemplateEvent(LogLevel.Error, templateName, language,
+            namedParameterEnabled, result.HttpStatusCode, result.ErrorCode,
+            result.FailureStage);
         return result;
     }
+
+    private void LogTemplateEvent(LogLevel level, string templateName,
+        string language, bool namedParameterEnabled, int? httpStatus,
+        string? metaErrorCode, string? failureStage) =>
+        logger.Log(level,
+            "WhatsApp template. TemplateName: {TemplateName}; Language: {Language}; NamedParameterEnabled: {NamedParameterEnabled}; HttpStatus: {HttpStatus}; MetaErrorCode: {MetaErrorCode}; FailureStage: {FailureStage}.",
+            templateName, language, namedParameterEnabled, httpStatus,
+            metaErrorCode, failureStage);
 
     private static string FailureKindFor(string stage, Exception exception) =>
         exception is IOException ? "TransportIO"

@@ -15,7 +15,8 @@ public interface IWhatsAppClient
         string language,
         IReadOnlyList<string> bodyParameters,
         IReadOnlyList<string> quickReplyPayloads,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? bodyParameterName = null);
 }
 
 public sealed record WhatsAppSendResult(

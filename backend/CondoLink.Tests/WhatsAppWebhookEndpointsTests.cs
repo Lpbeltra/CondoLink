@@ -1745,7 +1745,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             string language,
             IReadOnlyList<string> bodyParameters,
             IReadOnlyList<string> quickReplyPayloads,
-            CancellationToken cancellationToken) =>
+            CancellationToken cancellationToken,
+            string? bodyParameterName = null) =>
             SendTextAsync(phoneNumber, $"template:{templateName}:{language}",
                 cancellationToken);
     }

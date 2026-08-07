@@ -130,6 +130,15 @@ app.Logger.LogInformation(
     !string.IsNullOrWhiteSpace(whatsappOptions.PhoneNumberId),
     !string.IsNullOrWhiteSpace(whatsappOptions.AppSecret));
 
+app.Logger.LogInformation(
+    "WhatsApp template configuration loaded. " +
+    "TemplateName: {TemplateName}; Language: {Language}; " +
+    "NamedParameterEnabled: {NamedParameterEnabled}",
+    whatsappOptions.Templates.InformationRequested.Name,
+    whatsappOptions.Templates.InformationRequested.Language,
+    !string.IsNullOrWhiteSpace(whatsappOptions.Templates.InformationRequested
+        .BodyParameterName));
+
 if (app.Environment.IsDevelopment())
 {
     await using var scope = app.Services.CreateAsyncScope();

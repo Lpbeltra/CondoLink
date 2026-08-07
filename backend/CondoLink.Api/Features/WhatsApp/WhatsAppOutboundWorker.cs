@@ -96,6 +96,7 @@ public sealed class WhatsAppOutboundWorker(
             {
                 IReadOnlyList<string> parameters = [];
                 IReadOnlyList<string> quickReplies = [];
+                string? bodyParameterName = null;
                 if (item.NotificationType == WhatsAppNotificationType.InformationRequested)
                 {
                     var fullName = await db.Set<ApplicationUser>().AsNoTracking()
@@ -104,10 +105,12 @@ public sealed class WhatsAppOutboundWorker(
                         .SingleAsync(ct);
                     parameters = [SafeFirstName(fullName)];
                     quickReplies = ["resident_reply_now", "resident_reply_later"];
+                    bodyParameterName = settings.Templates.InformationRequested
+                        .BodyParameterName;
                 }
                 result = await client.SendTemplateAsync(item.DestinationPhone,
                     item.TemplateName!, item.TemplateLanguage!, parameters,
-                    quickReplies, ct);
+                    quickReplies, ct, bodyParameterName);
             }
             result = EnsureFailureDiagnostic(result);
             logger.LogInformation(
