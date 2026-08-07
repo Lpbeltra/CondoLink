@@ -141,9 +141,13 @@ public sealed class WhatsAppNotificationDispatcher(
                     session.Identify(request.AuthorUserId);
                     db.WhatsAppSessions.Add(session);
                 }
-                // Keep the request correlation server-side before either free text
-                // or a template quick reply can be processed.
-                session.OfferResidentReply(request.Id, now, expires);
+                // Do not destroy an unrelated flow already in progress. The
+                // outbound row remains the server-side correlation fallback for
+                // the template button in that case.
+                if (session.State is WhatsAppConversationState.MainMenu
+                    or WhatsAppConversationState.Ended
+                    or WhatsAppConversationState.AwaitingResidentReplyChoice)
+                    session.OfferResidentReply(request.Id, now, expires);
             }
             stage = "saving_outbound";
             try

@@ -115,8 +115,22 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.reply-list", "2"));
         await PostAsync(TextPayload("wamid.reply-select", "1"));
         Assert.Contains("Qual foi o horário?", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            db.Entry(session).Property(x => x.State).CurrentValue =
+                WhatsAppConversationState.MainMenu;
+            await db.SaveChangesAsync();
+        });
         await PostAsync(InteractiveReplyPayload("wamid.reply-now",
             "resident_reply_now", "Responder agora"));
+        Assert.Contains("A administração precisa da seguinte informação:",
+            _fake.Messages.Last().Text);
+        Assert.Contains("Qual foi o horário?", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("Como posso ajudar?", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db => Assert.Equal(
+            WhatsAppConversationState.CollectingResidentReply,
+            (await db.WhatsAppSessions.SingleAsync()).State));
         await PostAsync(TextPayload("wamid.reply-text", "Foi por volta das 22h"));
         Assert.Contains("Você respondeu", _fake.Messages.Last().Text);
         await PostAsync(TextPayload("wamid.reply-review", "1"));
@@ -173,6 +187,27 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             Assert.Equal(WhatsAppConversationState.Ended, session.State);
             Assert.Null(session.RequestId);
         });
+    }
+
+    [Fact]
+    public async Task Known_title_is_not_used_when_button_id_is_unknown()
+    {
+        await PostAsync(TextPayload("wamid.unknown-button-menu", "Oi"));
+        await PostAsync(InteractiveReplyPayload("wamid.unknown-button",
+            "another_action", "Responder agora"));
+
+        Assert.Contains("Para abrir uma solicitação", _fake.Messages.Last().Text);
+    }
+
+    [Fact]
+    public async Task Known_title_is_fallback_when_button_id_is_absent()
+    {
+        await PostAsync(TextPayload("wamid.title-fallback-menu", "Oi"));
+        await PostAsync(InteractiveReplyPayload("wamid.title-fallback",
+            string.Empty, "Responder agora"));
+
+        Assert.Contains("Não foi possível continuar este atendimento",
+            _fake.Messages.Last().Text);
     }
 
     [Theory]

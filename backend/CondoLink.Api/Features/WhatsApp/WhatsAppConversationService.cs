@@ -246,9 +246,7 @@ public sealed class WhatsAppConversationService(
             return (MainMenu(identity.FullName), "main_menu");
         }
         var residentReplyButton = ResidentReplyButtonChoice(message);
-        if ((session.ExpiresAt <= now
-                && !(session.State == WhatsAppConversationState.AwaitingResidentReplyChoice
-                    && residentReplyButton is not null))
+        if ((session.ExpiresAt <= now && residentReplyButton is null)
             || session.State == WhatsAppConversationState.Ended)
         {
             var expired = session.State != WhatsAppConversationState.Ended;
@@ -263,6 +261,8 @@ public sealed class WhatsAppConversationService(
 
         var text = message.Text?.Trim();
         var command = NormalizeCommand(text);
+        var buttonReplyIdPresent = !string.IsNullOrWhiteSpace(
+            message.InteractiveReplyId);
         logger.LogInformation(
             "WhatsApp message routing. SessionState: {SessionState}; MessageType: {MessageType}; HasMediaId: {HasMediaId}; HasMimeType: {HasMimeType}; HasFileName: {HasFileName}; ProcessingBranch: {ProcessingBranch}.",
             session.State,
@@ -282,6 +282,39 @@ public sealed class WhatsAppConversationService(
             await DiscardDraftAttachments(session, ct);
             session.End(now);
             return ("Atendimento encerrado. Envie uma nova mensagem quando precisar.", "session_ended");
+        }
+
+        // Template quick replies carry their semantic value in button_reply.id.
+        // Route a known id before the state-specific/generic menu branches: the
+        // request correlation is server-side and may survive a state recovery.
+        if (residentReplyButton is not null)
+        {
+            var activeRequirement = await ActiveResidentReplyRequirement(
+                session.RequestId, identity, ct);
+            activeRequirement ??= await LatestNotifiedResidentReplyRequirement(
+                session.PhoneNumber, identity, ct);
+            logger.LogInformation(
+                "WhatsApp quick reply routing. MessageType: {MessageType}; ButtonReplyIdPresent: {ButtonReplyIdPresent}; ButtonReplyId: {ButtonReplyId}; SessionState: {SessionState}; RequestIdPresent: {RequestIdPresent}; ActiveRequirementFound: {ActiveRequirementFound}; Decision: {Decision}.",
+                message.MessageType,
+                buttonReplyIdPresent,
+                buttonReplyIdPresent ? "Known" : "TitleFallback",
+                session.State,
+                session.RequestId.HasValue,
+                activeRequirement is not null,
+                activeRequirement is null ? "Unavailable" : residentReplyButton == "1"
+                    ? "CollectResidentReply" : "DeferResidentReply");
+            if (activeRequirement is null)
+                return ResidentReplyNoLongerAvailable(
+                    session, identity.FullName, now, expires);
+            if (residentReplyButton == "1")
+            {
+                session.OfferResidentReply(activeRequirement.RequestId, now, expires);
+                session.BeginResidentReply(now, expires, true);
+                return (ResidentReplyInputPrompt(activeRequirement.Question),
+                    "collecting_resident_reply");
+            }
+            session.OfferResidentReply(activeRequirement.RequestId, now, expires);
+            return await DeferResidentReply(session, now, expires, ct, true);
         }
         if (command == "cancelar")
         {
@@ -313,8 +346,7 @@ public sealed class WhatsAppConversationService(
                 await OwnRequestUpdatesChoice(session, identity, text, now, expires, ct),
             WhatsAppConversationState.AwaitingResidentReplyChoice =>
                 await ResidentReplyChoice(session, identity,
-                    residentReplyButton ?? text, now, expires, ct,
-                    residentReplyButton is not null),
+                    text, now, expires, ct),
             WhatsAppConversationState.CollectingResidentReply =>
                 await CollectResidentReply(session, identity, message, now, expires, ct),
             WhatsAppConversationState.ReviewingResidentReply =>
@@ -615,7 +647,7 @@ public sealed class WhatsAppConversationService(
         if (text == "1")
         {
             session.BeginResidentReply(now, expires, true);
-            return (ResidentReplyInputPrompt(), "collecting_resident_reply");
+            return (ResidentReplyInputPrompt(requirement.Question), "collecting_resident_reply");
         }
         if (text == "2" && session.PreviousState == WhatsAppConversationState.ViewingOwnRequest)
         {
@@ -827,16 +859,18 @@ public sealed class WhatsAppConversationService(
         NormalizedWhatsAppMessage message)
     {
         if (message.MessageType != "interactive") return null;
-        return message.InteractiveReplyId switch
-        {
-            "resident_reply_now" => "1",
-            "resident_reply_later" => "2",
-            _ => message.InteractiveReplyTitle?.Trim() switch
+        if (!string.IsNullOrWhiteSpace(message.InteractiveReplyId))
+            return message.InteractiveReplyId switch
             {
-                "Responder agora" => "1",
-                "Responder depois" => "2",
+                "resident_reply_now" => "1",
+                "resident_reply_later" => "2",
                 _ => null
-            }
+            };
+        return message.InteractiveReplyTitle?.Trim() switch
+        {
+            "Responder agora" => "1",
+            "Responder depois" => "2",
+            _ => null
         };
     }
 
@@ -860,9 +894,29 @@ public sealed class WhatsAppConversationService(
             .Join(db.RequestResidentReplyRequirements.AsNoTracking()
                     .Where(x => x.IsActive && x.AnswerMessageId == null),
                 request => request.Id, requirement => requirement.RequestId,
-                (_, requirement) => new ResidentReplyRequirement(requirement.Id,
+                (request, requirement) => new ResidentReplyRequirement(request.Id,
+                    requirement.Id,
                     requirement.Question))
             .SingleOrDefaultAsync(ct);
+    }
+
+    private async Task<ResidentReplyRequirement?> LatestNotifiedResidentReplyRequirement(
+        string phone, ResolvedIdentity identity, CancellationToken ct)
+    {
+        var requestId = await db.WhatsAppOutboundMessages.AsNoTracking()
+            .Where(x => x.DestinationPhone == phone
+                && x.UserId == identity.UserId
+                && x.CondominiumId == identity.CondominiumId
+                && x.NotificationType == WhatsAppNotificationType.InformationRequested
+                && x.SendMode == WhatsAppSendMode.Template
+                && (x.Status == WhatsAppOutboundStatus.Sent
+                    || x.Status == WhatsAppOutboundStatus.Delivered
+                    || x.Status == WhatsAppOutboundStatus.Read)
+                && x.RequestId != null)
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(x => x.RequestId)
+            .FirstOrDefaultAsync(ct);
+        return await ActiveResidentReplyRequirement(requestId, identity, ct);
     }
 
     private async Task<(string, string)> CollectDescription(
@@ -1228,7 +1282,11 @@ public sealed class WhatsAppConversationService(
             ? "1 - Responder agora\n2 - Ver detalhes\n0 - Voltar ao menu"
             : "1 - Responder agora\n2 - Responder depois");
 
-    private static string ResidentReplyInputPrompt() =>
+    private static string ResidentReplyInputPrompt(string? question = null) =>
+        (string.IsNullOrWhiteSpace(question)
+            ? string.Empty
+            : "A administração precisa da seguinte informação:\n\n"
+                + question.Trim() + "\n\n") +
         "Envie sua resposta em uma mensagem de texto ou áudio.\n\n" +
         "Depois, você poderá adicionar fotos, vídeos ou documentos.";
 
@@ -1435,7 +1493,8 @@ public sealed class WhatsAppConversationService(
         bool HasNext);
     private sealed record OwnRequestUpdate(Guid Id, Guid AuthorUserId, string Content,
         DateTime CreatedAt);
-    private sealed record ResidentReplyRequirement(Guid Id, string Question);
+    private sealed record ResidentReplyRequirement(
+        Guid RequestId, Guid Id, string Question);
     private sealed record ResidentReplyReview(string Source, string Answer,
         Guid? OriginalAudioDraftId);
     private const string PendingAudioSource = "pending_audio";
