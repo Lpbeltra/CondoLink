@@ -281,11 +281,31 @@ public sealed class WhatsAppConversationService(
         {
             var activeRequirement = await ActiveResidentReplyRequirement(
                 session.RequestId, identity, ct);
-            activeRequirement ??= await CorrelatedResidentReplyRequirement(
-                message.ReplyToExternalMessageId, session.PhoneNumber,
-                identity, ct);
-            activeRequirement ??= await UniqueActiveResidentReplyRequirement(
-                identity, ct);
+            var correlationReason = activeRequirement is not null
+                ? "SessionRequestIdMatched"
+                : "NotAttempted";
+            var outboundMatched = false;
+            if (activeRequirement is null)
+            {
+                var correlated = await CorrelatedResidentReplyRequirement(
+                    message.ReplyToExternalMessageId, identity, ct);
+                activeRequirement = correlated.Requirement;
+                outboundMatched = correlated.OutboundMatched;
+                correlationReason = correlated.Reason;
+            }
+            if (activeRequirement is null)
+            {
+                activeRequirement = await UniqueActiveResidentReplyRequirement(
+                    identity, ct);
+                correlationReason = activeRequirement is null
+                    ? correlationReason + ";UniqueRequirementFallbackUnavailable"
+                    : correlationReason + ";UniqueRequirementFallbackMatched";
+            }
+            logger.LogInformation(
+                "WhatsApp quick reply correlation diagnostic. ReplyToExternalMessageIdPresent: {ReplyToExternalMessageIdPresent}; OutboundMatched: {OutboundMatched}; CorrelationReason: {CorrelationReason}.",
+                !string.IsNullOrWhiteSpace(message.ReplyToExternalMessageId),
+                outboundMatched,
+                correlationReason);
             if (activeRequirement is null)
                 return ResidentReplyCorrelationFailed(
                     session, identity.FullName, now, expires);
@@ -918,26 +938,46 @@ public sealed class WhatsAppConversationService(
         return matches.Length == 1 ? matches[0] : null;
     }
 
-    private async Task<ResidentReplyRequirement?> CorrelatedResidentReplyRequirement(
-        string? replyToExternalMessageId, string phone,
+    private async Task<OutboundCorrelationResult> CorrelatedResidentReplyRequirement(
+        string? replyToExternalMessageId,
         ResolvedIdentity identity,
         CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(replyToExternalMessageId)) return null;
-        var requestId = await db.WhatsAppOutboundMessages.AsNoTracking()
-            .Where(x => x.ExternalMessageId == replyToExternalMessageId
-                && x.DestinationPhone == phone
-                && x.UserId == identity.UserId
-                && x.CondominiumId == identity.CondominiumId
-                && x.NotificationType == WhatsAppNotificationType.InformationRequested
-                && x.SendMode == WhatsAppSendMode.Template
-                && (x.Status == WhatsAppOutboundStatus.Sent
-                    || x.Status == WhatsAppOutboundStatus.Delivered
-                    || x.Status == WhatsAppOutboundStatus.Read)
-                && x.RequestId != null)
-            .Select(x => x.RequestId)
+        if (string.IsNullOrWhiteSpace(replyToExternalMessageId))
+            return new(null, false, "ReplyContextMissing");
+        var outbound = await db.WhatsAppOutboundMessages.AsNoTracking()
+            .Where(x => x.ExternalMessageId == replyToExternalMessageId)
+            .Select(x => new
+            {
+                x.RequestId,
+                x.UserId,
+                x.CondominiumId,
+                x.NotificationType,
+                x.SendMode,
+                x.Status
+            })
             .SingleOrDefaultAsync(ct);
-        return await ActiveResidentReplyRequirement(requestId, identity, ct);
+        if (outbound is null)
+            return new(null, false, "OutboundExternalMessageIdNotFound");
+        if (outbound.UserId != identity.UserId)
+            return new(null, true, "OutboundUserMismatch");
+        if (outbound.CondominiumId != identity.CondominiumId)
+            return new(null, true, "OutboundCondominiumMismatch");
+        if (outbound.NotificationType != WhatsAppNotificationType.InformationRequested)
+            return new(null, true, "OutboundNotificationTypeMismatch");
+        if (outbound.SendMode != WhatsAppSendMode.Template)
+            return new(null, true, "OutboundSendModeMismatch");
+        if (outbound.Status is not WhatsAppOutboundStatus.Sent
+            and not WhatsAppOutboundStatus.Delivered
+            and not WhatsAppOutboundStatus.Read)
+            return new(null, true, "OutboundStatusNotCorrelatable");
+        if (!outbound.RequestId.HasValue)
+            return new(null, true, "OutboundRequestIdMissing");
+        var requirement = await ActiveResidentReplyRequirement(
+            outbound.RequestId, identity, ct);
+        return requirement is null
+            ? new(null, true, "RequirementNotActiveOrUnauthorized")
+            : new(requirement, true, "OutboundMatched");
     }
 
     private async Task<ResidentReplyRequirement?> UniqueActiveResidentReplyRequirement(
@@ -1534,6 +1574,9 @@ public sealed class WhatsAppConversationService(
         DateTime CreatedAt);
     private sealed record ResidentReplyRequirement(
         Guid RequestId, Guid Id, string Question);
+    private sealed record OutboundCorrelationResult(
+        ResidentReplyRequirement? Requirement, bool OutboundMatched,
+        string Reason);
     private sealed record ResidentReplyReview(string Source, string Answer,
         Guid? OriginalAudioDraftId);
     private const string PendingAudioSource = "pending_audio";

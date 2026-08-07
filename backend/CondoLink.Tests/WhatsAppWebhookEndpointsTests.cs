@@ -151,6 +151,60 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Template_quick_reply_correlates_outbound_across_brazilian_phone_variants()
+    {
+        var expectedRequestId = await _host.WithDbAsync(async db =>
+        {
+            var category = new Category(_condominiumId, "Portaria", null);
+            var manager = CoreTestSeed.User("Gestor", "template-manager@example.com");
+            var now = DateTime.UtcNow;
+            var expected = new CondoLink.Domain.Entities.Request(
+                _condominiumId, _userId, _unitId, category.Id,
+                "Acesso principal", "Relato principal");
+            expected.ChangeStatus(RequestStatus.WaitingForResident, now);
+            var expectedHistory = new RequestStatusHistory(expected.Id,
+                RequestStatus.InProgress, RequestStatus.WaitingForResident,
+                manager.Id, "Qual foi o horário do acesso?", now);
+            var other = new CondoLink.Domain.Entities.Request(
+                _condominiumId, _userId, _unitId, category.Id,
+                "Acesso secundário", "Outro relato");
+            other.ChangeStatus(RequestStatus.WaitingForResident, now);
+            var otherHistory = new RequestStatusHistory(other.Id,
+                RequestStatus.InProgress, RequestStatus.WaitingForResident,
+                manager.Id, "Qual foi o outro horário?", now);
+            var outbound = new WhatsAppOutboundMessage(
+                expected.Id, null, _userId, _condominiumId,
+                "+5511999990001", WhatsAppNotificationType.InformationRequested,
+                WhatsAppSendMode.Template, "template-correlation-test",
+                "content", "resident_reply_required", "pt_BR", now);
+            outbound.MarkSent("wamid.original-template", now);
+            db.AddRange(category, manager, expected, expectedHistory,
+                new RequestResidentReplyRequirement(expected.Id, manager.Id,
+                    expectedHistory.Id, expectedHistory.Reason!, now),
+                other, otherHistory,
+                new RequestResidentReplyRequirement(other.Id, manager.Id,
+                    otherHistory.Id, otherHistory.Reason!, now),
+                outbound);
+            await db.SaveChangesAsync();
+            return expected.Id;
+        });
+
+        await PostAsync(TemplateQuickReplyPayload(
+            "wamid.template-reply", "resident_reply_now", "Responder agora",
+            "wamid.original-template", "551199990001"));
+
+        Assert.Contains("Qual foi o horário do acesso?", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("Qual foi o outro horário?", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(expectedRequestId, session.RequestId);
+            Assert.Equal(WhatsAppConversationState.CollectingResidentReply,
+                session.State);
+        });
+    }
+
+    [Fact]
     public async Task Reply_later_button_keeps_requirement_active_and_ends_session()
     {
         var requestId = await _host.WithDbAsync(async db =>
@@ -1627,14 +1681,15 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         });
 
     private static string TemplateQuickReplyPayload(
-        string id, string replyId, string title, string? contextId = null) =>
+        string id, string replyId, string title, string? contextId = null,
+        string phone = "5511999990001") =>
         JsonSerializer.Serialize(new
         {
             entry = new[] { new { changes = new[] { new { value = new
             {
                 messages = new[] { new
                 {
-                    from = "5511999990001", id, timestamp = "1785236400",
+                    from = phone, id, timestamp = "1785236400",
                     type = "button",
                     context = contextId is null ? null : new { id = contextId },
                     button = new { payload = replyId, text = title }
