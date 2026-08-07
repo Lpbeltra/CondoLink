@@ -27,15 +27,19 @@ public sealed class WhatsAppContractTests
         using var document = JsonDocument.Parse("""
             {"entry":[{"changes":[{"value":{"messages":[{
               "from":"5511999990001","id":"wamid.reply","timestamp":"1785236400",
-              "type":"interactive","interactive":{"type":"button_reply",
-              "button_reply":{"id":"resident_reply_now","title":"Responder agora"}}
+              "type":"button","context":{"id":"wamid.original-template"},
+              "button":{"payload":"resident_reply_now","text":"Responder agora"}
             }]}}]}]}
             """);
 
         var message = Assert.Single(WhatsAppWebhookParser.Parse(document.RootElement));
 
-        Assert.Equal("resident_reply_now", message.InteractiveReplyId);
-        Assert.Equal("Responder agora", message.InteractiveReplyTitle);
+        Assert.Equal("button", message.RawMessageType);
+        Assert.Equal("quick_reply", message.ParsedMessageType);
+        Assert.Equal("resident_reply_now", message.QuickReplyId);
+        Assert.Equal("Responder agora", message.QuickReplyTitle);
+        Assert.Equal("wamid.original-template", message.ReplyToExternalMessageId);
+        Assert.True(message.HasButton);
     }
 
     [Theory]

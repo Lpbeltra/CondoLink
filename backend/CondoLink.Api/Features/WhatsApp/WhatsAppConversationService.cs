@@ -77,6 +77,8 @@ public sealed class WhatsAppConversationService(
 
         string response;
         string result;
+        var initialSessionState = session.State;
+        var initialRequestIdPresent = session.RequestId.HasValue;
         if (identity is null)
         {
             session.InvalidateIdentity(now, expires);
@@ -88,22 +90,9 @@ public sealed class WhatsAppConversationService(
         {
             try
             {
-                if (!isNewSession && session.State == WhatsAppConversationState.UnknownPhone)
-                {
-                    session.RecoverContext(
-                        identity.UserId, identity.CondominiumId, identity.UnitId,
-                        now, expires);
-                    logger.LogInformation(
-                        "WhatsApp session residential context recovered from UnknownPhone.");
-                    response = MainMenu(identity.FullName);
-                    result = "main_menu";
-                }
-                else
-                {
-                    session.ResolveContext(identity.UserId, identity.CondominiumId, identity.UnitId);
-                    (response, result) = await Respond(
-                        session, identity, message, now, expires, isNewSession, ct);
-                }
+                session.ResolveContext(identity.UserId, identity.CondominiumId, identity.UnitId);
+                (response, result) = await Respond(
+                    session, identity, message, now, expires, isNewSession, ct);
             }
             catch (DbUpdateConcurrencyException)
             {
@@ -119,6 +108,27 @@ public sealed class WhatsAppConversationService(
         }
 
         inbound.Complete(identity?.UserId, result, now);
+        var quickReplyRecognized = ResidentReplyButtonChoice(message) is not null;
+        var requirementFound = quickReplyRecognized
+            && result is "collecting_resident_reply" or "resident_reply_deferred";
+        var routingDecision = result switch
+        {
+            "collecting_resident_reply" when quickReplyRecognized =>
+                "CollectingResidentReply",
+            "resident_reply_deferred" when quickReplyRecognized =>
+                "DeferResidentReply",
+            "resident_reply_correlation_failed" => "CorrelationFailed",
+            _ => result
+        };
+        logger.LogInformation(
+            "WhatsApp inbound routing diagnostic. ParsedMessageType: {ParsedMessageType}; QuickReplyRecognized: {QuickReplyRecognized}; QuickReplyId: {QuickReplyId}; SessionState: {SessionState}; RequestIdPresent: {RequestIdPresent}; RequirementFound: {RequirementFound}; RoutingDecision: {RoutingDecision}.",
+            message.ParsedMessageType,
+            quickReplyRecognized,
+            KnownResidentReplyId(message),
+            initialSessionState,
+            initialRequestIdPresent,
+            requirementFound,
+            routingDecision);
         logger.LogInformation("WhatsApp inbound final processing result: {ProcessingResult}.", result);
         try
         {
@@ -240,29 +250,9 @@ public sealed class WhatsAppConversationService(
         NormalizedWhatsAppMessage message, DateTime now, DateTime expires,
         bool isNewSession, CancellationToken ct)
     {
-        if (isNewSession)
-        {
-            session.Restart(now, expires);
-            return (MainMenu(identity.FullName), "main_menu");
-        }
         var residentReplyButton = ResidentReplyButtonChoice(message);
-        if ((session.ExpiresAt <= now && residentReplyButton is null)
-            || session.State == WhatsAppConversationState.Ended)
-        {
-            var expired = session.State != WhatsAppConversationState.Ended;
-            if (expired) await DiscardDraftAttachments(session, ct);
-            session.Restart(now, expires);
-            logger.LogInformation(expired
-                ? "Expired WhatsApp session restarted for phone {Phone}."
-                : "Ended WhatsApp session restarted for phone {Phone}.",
-                PhoneNumberNormalizer.Mask(session.PhoneNumber));
-            return (MainMenu(identity.FullName), expired ? "session_expired" : "session_restarted");
-        }
-
         var text = message.Text?.Trim();
         var command = NormalizeCommand(text);
-        var buttonReplyIdPresent = !string.IsNullOrWhiteSpace(
-            message.InteractiveReplyId);
         logger.LogInformation(
             "WhatsApp message routing. SessionState: {SessionState}; MessageType: {MessageType}; HasMediaId: {HasMediaId}; HasMimeType: {HasMimeType}; HasFileName: {HasFileName}; ProcessingBranch: {ProcessingBranch}.",
             session.State,
@@ -284,27 +274,20 @@ public sealed class WhatsAppConversationService(
             return ("Atendimento encerrado. Envie uma nova mensagem quando precisar.", "session_ended");
         }
 
-        // Template quick replies carry their semantic value in button_reply.id.
-        // Route a known id before the state-specific/generic menu branches: the
-        // request correlation is server-side and may survive a state recovery.
+        // Template quick replies use button.payload/button.text, while regular
+        // interactive messages use interactive.button_reply.id/title. Both are
+        // normalized and routed before session-state and menu handling.
         if (residentReplyButton is not null)
         {
             var activeRequirement = await ActiveResidentReplyRequirement(
                 session.RequestId, identity, ct);
-            activeRequirement ??= await LatestNotifiedResidentReplyRequirement(
-                session.PhoneNumber, identity, ct);
-            logger.LogInformation(
-                "WhatsApp quick reply routing. MessageType: {MessageType}; ButtonReplyIdPresent: {ButtonReplyIdPresent}; ButtonReplyId: {ButtonReplyId}; SessionState: {SessionState}; RequestIdPresent: {RequestIdPresent}; ActiveRequirementFound: {ActiveRequirementFound}; Decision: {Decision}.",
-                message.MessageType,
-                buttonReplyIdPresent,
-                buttonReplyIdPresent ? "Known" : "TitleFallback",
-                session.State,
-                session.RequestId.HasValue,
-                activeRequirement is not null,
-                activeRequirement is null ? "Unavailable" : residentReplyButton == "1"
-                    ? "CollectResidentReply" : "DeferResidentReply");
+            activeRequirement ??= await CorrelatedResidentReplyRequirement(
+                message.ReplyToExternalMessageId, session.PhoneNumber,
+                identity, ct);
+            activeRequirement ??= await UniqueActiveResidentReplyRequirement(
+                identity, ct);
             if (activeRequirement is null)
-                return ResidentReplyNoLongerAvailable(
+                return ResidentReplyCorrelationFailed(
                     session, identity.FullName, now, expires);
             if (residentReplyButton == "1")
             {
@@ -315,6 +298,23 @@ public sealed class WhatsAppConversationService(
             }
             session.OfferResidentReply(activeRequirement.RequestId, now, expires);
             return await DeferResidentReply(session, now, expires, ct, true);
+        }
+        if (isNewSession)
+        {
+            session.Restart(now, expires);
+            return (MainMenu(identity.FullName), "main_menu");
+        }
+        if (session.ExpiresAt <= now
+            || session.State == WhatsAppConversationState.Ended)
+        {
+            var expired = session.State != WhatsAppConversationState.Ended;
+            if (expired) await DiscardDraftAttachments(session, ct);
+            session.Restart(now, expires);
+            logger.LogInformation(expired
+                ? "Expired WhatsApp session restarted for phone {Phone}."
+                : "Ended WhatsApp session restarted for phone {Phone}.",
+                PhoneNumberNormalizer.Mask(session.PhoneNumber));
+            return (MainMenu(identity.FullName), expired ? "session_expired" : "session_restarted");
         }
         if (command == "cancelar")
         {
@@ -858,20 +858,36 @@ public sealed class WhatsAppConversationService(
     private static string? ResidentReplyButtonChoice(
         NormalizedWhatsAppMessage message)
     {
-        if (message.MessageType != "interactive") return null;
-        if (!string.IsNullOrWhiteSpace(message.InteractiveReplyId))
-            return message.InteractiveReplyId switch
+        if (!string.IsNullOrWhiteSpace(message.QuickReplyId))
+            return message.QuickReplyId switch
             {
                 "resident_reply_now" => "1",
                 "resident_reply_later" => "2",
                 _ => null
             };
-        return message.InteractiveReplyTitle?.Trim() switch
+        return message.QuickReplyTitle?.Trim() switch
         {
             "Responder agora" => "1",
-            "Responder depois" => "2",
+            "Lembrar-me em 3 horas" => "2",
             _ => null
         };
+    }
+
+    private static string? KnownResidentReplyId(
+        NormalizedWhatsAppMessage message) => message.QuickReplyId switch
+        {
+            "resident_reply_now" => "resident_reply_now",
+            "resident_reply_later" => "resident_reply_later",
+            _ => null
+        };
+
+    private (string, string) ResidentReplyCorrelationFailed(
+        WhatsAppSession session, string fullName, DateTime now, DateTime expires)
+    {
+        session.Restart(now, expires);
+        return ("Não consegui localizar a solicitação que precisa da sua resposta.\n\n"
+            + "Você pode consultar suas solicitações para continuar.\n\n"
+            + MainMenu(fullName), "resident_reply_correlation_failed");
     }
 
     private (string, string) ResidentReplyNoLongerAvailable(WhatsAppSession session,
@@ -886,7 +902,7 @@ public sealed class WhatsAppConversationService(
         Guid? requestId, ResolvedIdentity identity, CancellationToken ct)
     {
         if (!requestId.HasValue) return null;
-        return await db.Requests.AsNoTracking()
+        var matches = await db.Requests.AsNoTracking()
             .Where(x => x.Id == requestId && x.AuthorUserId == identity.UserId
                 && x.CondominiumId == identity.CondominiumId
                 && (x.TargetUnitId == null || x.TargetUnitId == identity.UnitId)
@@ -897,14 +913,20 @@ public sealed class WhatsAppConversationService(
                 (request, requirement) => new ResidentReplyRequirement(request.Id,
                     requirement.Id,
                     requirement.Question))
-            .SingleOrDefaultAsync(ct);
+            .Take(2)
+            .ToArrayAsync(ct);
+        return matches.Length == 1 ? matches[0] : null;
     }
 
-    private async Task<ResidentReplyRequirement?> LatestNotifiedResidentReplyRequirement(
-        string phone, ResolvedIdentity identity, CancellationToken ct)
+    private async Task<ResidentReplyRequirement?> CorrelatedResidentReplyRequirement(
+        string? replyToExternalMessageId, string phone,
+        ResolvedIdentity identity,
+        CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(replyToExternalMessageId)) return null;
         var requestId = await db.WhatsAppOutboundMessages.AsNoTracking()
-            .Where(x => x.DestinationPhone == phone
+            .Where(x => x.ExternalMessageId == replyToExternalMessageId
+                && x.DestinationPhone == phone
                 && x.UserId == identity.UserId
                 && x.CondominiumId == identity.CondominiumId
                 && x.NotificationType == WhatsAppNotificationType.InformationRequested
@@ -913,10 +935,27 @@ public sealed class WhatsAppConversationService(
                     || x.Status == WhatsAppOutboundStatus.Delivered
                     || x.Status == WhatsAppOutboundStatus.Read)
                 && x.RequestId != null)
-            .OrderByDescending(x => x.CreatedAt)
             .Select(x => x.RequestId)
-            .FirstOrDefaultAsync(ct);
+            .SingleOrDefaultAsync(ct);
         return await ActiveResidentReplyRequirement(requestId, identity, ct);
+    }
+
+    private async Task<ResidentReplyRequirement?> UniqueActiveResidentReplyRequirement(
+        ResolvedIdentity identity, CancellationToken ct)
+    {
+        var matches = await db.Requests.AsNoTracking()
+            .Where(x => x.AuthorUserId == identity.UserId
+                && x.CondominiumId == identity.CondominiumId
+                && (x.TargetUnitId == null || x.TargetUnitId == identity.UnitId)
+                && x.Status == RequestStatus.WaitingForResident)
+            .Join(db.RequestResidentReplyRequirements.AsNoTracking()
+                    .Where(x => x.IsActive && x.AnswerMessageId == null),
+                request => request.Id, requirement => requirement.RequestId,
+                (request, requirement) => new ResidentReplyRequirement(request.Id,
+                    requirement.Id, requirement.Question))
+            .Take(2)
+            .ToArrayAsync(ct);
+        return matches.Length == 1 ? matches[0] : null;
     }
 
     private async Task<(string, string)> CollectDescription(
@@ -1287,8 +1326,7 @@ public sealed class WhatsAppConversationService(
             ? string.Empty
             : "A administração precisa da seguinte informação:\n\n"
                 + question.Trim() + "\n\n") +
-        "Envie sua resposta em uma mensagem de texto ou áudio.\n\n" +
-        "Depois, você poderá adicionar fotos, vídeos ou documentos.";
+        "Envie sua resposta por texto ou áudio.";
 
     private static string ResidentReplyReviewPrompt(ResidentReplyReview review) =>
         (review.Source == AiReviewSource
@@ -1342,6 +1380,7 @@ public sealed class WhatsAppConversationService(
                 when message.MessageType == "text" => "text",
             WhatsAppConversationState.CollectingAttachments
                 when message.MessageType is "image" or "video" or "document" => "attachment",
+            _ when message.ParsedMessageType == "quick_reply" => "quick_reply",
             _ when message.MessageType is "text" or "interactive" => "text",
             _ => "unsupported"
         };

@@ -122,7 +122,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 WhatsAppConversationState.MainMenu;
             await db.SaveChangesAsync();
         });
-        await PostAsync(InteractiveReplyPayload("wamid.reply-now",
+        await PostAsync(TemplateQuickReplyPayload("wamid.reply-now",
             "resident_reply_now", "Responder agora"));
         Assert.Contains("A administração precisa da seguinte informação:",
             _fake.Messages.Last().Text);
@@ -1622,6 +1622,22 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                         type = "button_reply",
                         button_reply = new { id = replyId, title }
                     }
+                } }
+            } } } } }
+        });
+
+    private static string TemplateQuickReplyPayload(
+        string id, string replyId, string title, string? contextId = null) =>
+        JsonSerializer.Serialize(new
+        {
+            entry = new[] { new { changes = new[] { new { value = new
+            {
+                messages = new[] { new
+                {
+                    from = "5511999990001", id, timestamp = "1785236400",
+                    type = "button",
+                    context = contextId is null ? null : new { id = contextId },
+                    button = new { payload = replyId, text = title }
                 } }
             } } } } }
         });

@@ -11,8 +11,22 @@ public sealed record NormalizedWhatsAppMessage(
     string? MediaId = null,
     string? FileName = null,
     string? MediaContentType = null,
-    string? InteractiveReplyId = null,
-    string? InteractiveReplyTitle = null);
+    string? QuickReplyId = null,
+    string? QuickReplyTitle = null,
+    string? ReplyToExternalMessageId = null,
+    string? RawMessageType = null,
+    bool HasInteractive = false,
+    bool HasButtonReply = false,
+    bool HasButton = false,
+    bool HasText = false)
+{
+    // Kept as read-only aliases for callers compiled against the former model.
+    public string? InteractiveReplyId => QuickReplyId;
+    public string? InteractiveReplyTitle => QuickReplyTitle;
+
+    public string ParsedMessageType => QuickReplyId is not null
+        || QuickReplyTitle is not null ? "quick_reply" : MessageType;
+}
 
 public sealed record NormalizedWhatsAppStatus(
     string ExternalMessageId,
@@ -45,11 +59,19 @@ public static class WhatsAppWebhookParser
                         || !message.TryGetProperty("from", out var from)
                         || !message.TryGetProperty("type", out var type)) continue;
                     var messageType = type.GetString() ?? "unknown";
+                    var hasInteractive = message.TryGetProperty(
+                        "interactive", out var interactiveContainer)
+                        && interactiveContainer.ValueKind == JsonValueKind.Object;
+                    var hasButtonReply = hasInteractive
+                        && interactiveContainer.TryGetProperty("button_reply", out _);
+                    var hasButton = message.TryGetProperty("button", out var buttonContainer)
+                        && buttonContainer.ValueKind == JsonValueKind.Object;
+                    var hasText = message.TryGetProperty("text", out _);
                     string? mediaId = null;
                     string? fileName = null;
                     string? mediaContentType = null;
-                    string? interactiveReplyId = null;
-                    string? interactiveReplyTitle = null;
+                    string? quickReplyId = null;
+                    string? quickReplyTitle = null;
                     string? text = messageType switch
                     {
                         "text" when message.TryGetProperty("text", out var body)
@@ -59,10 +81,11 @@ public static class WhatsAppWebhookParser
                             InteractiveText(interactive),
                         _ => null
                     };
-                    if (messageType == "interactive"
-                        && message.TryGetProperty("interactive", out var replyContainer))
-                        (interactiveReplyId, interactiveReplyTitle) =
-                            InteractiveReply(replyContainer);
+                    if (hasInteractive)
+                        (quickReplyId, quickReplyTitle) =
+                            InteractiveReply(interactiveContainer);
+                    else if (hasButton)
+                        (quickReplyId, quickReplyTitle) = ButtonReply(buttonContainer);
                     if (messageType is "image" or "video" or "document" or "audio"
                         && message.TryGetProperty(messageType, out var media))
                     {
@@ -77,6 +100,12 @@ public static class WhatsAppWebhookParser
                         && long.TryParse(timestampElement.GetString(), out var seconds)
                             ? DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime
                             : DateTime.UtcNow;
+                    var replyToExternalMessageId = message.TryGetProperty(
+                            "context", out var context)
+                        && context.ValueKind == JsonValueKind.Object
+                        && context.TryGetProperty("id", out var contextId)
+                            ? contextId.GetString()
+                            : null;
                     result.Add(new(
                         id.GetString() ?? string.Empty,
                         from.GetString() ?? string.Empty,
@@ -86,8 +115,14 @@ public static class WhatsAppWebhookParser
                         mediaId,
                         fileName,
                         mediaContentType,
-                        interactiveReplyId,
-                        interactiveReplyTitle));
+                        quickReplyId,
+                        quickReplyTitle,
+                        replyToExternalMessageId,
+                        messageType,
+                        hasInteractive,
+                        hasButtonReply,
+                        hasButton,
+                        hasText));
                 }
             }
         }
@@ -161,4 +196,12 @@ public static class WhatsAppWebhookParser
         }
         return (null, null);
     }
+
+    private static (string? Id, string? Title) ButtonReply(JsonElement button) =>
+        (
+            button.TryGetProperty("payload", out var payload)
+                ? payload.GetString() : null,
+            button.TryGetProperty("text", out var text)
+                ? text.GetString() : null
+        );
 }

@@ -126,6 +126,28 @@ public static class WhatsAppWebhookEndpoints
                     "WhatsApp webhook event ignored because it contains no processable message.");
             foreach (var message in messages)
             {
+                var knownQuickReplyId = message.QuickReplyId is
+                    "resident_reply_now" or "resident_reply_later"
+                        ? message.QuickReplyId
+                        : null;
+                var knownQuickReplyTitle = message.QuickReplyTitle?.Trim() switch
+                {
+                    "Responder agora" => "ReplyNow",
+                    "Lembrar-me em 3 horas" => "RemindInThreeHours",
+                    _ when string.IsNullOrWhiteSpace(message.QuickReplyTitle) => "Absent",
+                    _ => "Unknown"
+                };
+                logger.LogInformation(
+                    "WhatsApp normalized inbound payload. RawMessageType: {RawMessageType}; ParsedMessageType: {ParsedMessageType}; HasInteractive: {HasInteractive}; HasButtonReply: {HasButtonReply}; HasButton: {HasButton}; HasText: {HasText}; QuickReplyIdPresent: {QuickReplyIdPresent}; QuickReplyId: {QuickReplyId}; QuickReplyTitle: {QuickReplyTitle}.",
+                    message.RawMessageType,
+                    message.ParsedMessageType,
+                    message.HasInteractive,
+                    message.HasButtonReply,
+                    message.HasButton,
+                    message.HasText,
+                    !string.IsNullOrWhiteSpace(message.QuickReplyId),
+                    knownQuickReplyId,
+                    knownQuickReplyTitle);
                 logger.LogInformation(
                     "WhatsApp parsed message metadata. MessageType: {MessageType}; HasMediaId: {HasMediaId}; HasMimeType: {HasMimeType}; HasFileName: {HasFileName}.",
                     message.MessageType,
