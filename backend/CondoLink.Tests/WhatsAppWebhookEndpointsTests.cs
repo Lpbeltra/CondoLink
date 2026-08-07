@@ -495,6 +495,91 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Option_three_adds_multiple_spontaneous_updates_without_answering_requirement()
+    {
+        var requestId = await _host.WithDbAsync(async db =>
+        {
+            var category = new Category(_condominiumId, "Manutenção", null);
+            var manager = CoreTestSeed.User("Gestor", "updates-manager@example.com");
+            var now = DateTime.UtcNow;
+            var request = new CondoLink.Domain.Entities.Request(
+                _condominiumId, _userId, _unitId, category.Id,
+                "Portão da garagem", "Relato original");
+            request.ChangeStatus(RequestStatus.WaitingForResident, now);
+            var history = new RequestStatusHistory(request.Id,
+                RequestStatus.InProgress, RequestStatus.WaitingForResident,
+                manager.Id, "Informe o horário.", now);
+            var closed = new CondoLink.Domain.Entities.Request(
+                _condominiumId, _userId, _unitId, category.Id,
+                "Solicitação encerrada", "Não deve aparecer");
+            closed.ChangeStatus(RequestStatus.Resolved, now);
+            db.AddRange(category, manager, request, history,
+                new RequestResidentReplyRequirement(request.Id, manager.Id,
+                    history.Id, history.Reason!, now), closed);
+            await db.SaveChangesAsync();
+            return request.Id;
+        });
+
+        await PostAsync(TextPayload("wamid.update-menu", "Menu"));
+        await PostAsync(TextPayload("wamid.update-option", "3"));
+        Assert.Contains("Portão da garagem", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("Solicitação encerrada", _fake.Messages.Last().Text);
+        await PostAsync(TextPayload("wamid.update-select", "1"));
+        Assert.Contains("Envie sua mensagem", _fake.Messages.Last().Text);
+
+        await PostAsync(TextPayload("wamid.update-text-1", "Primeira atualização."));
+        await PostAsync(TextPayload("wamid.update-text-2", "Segunda atualização."));
+        _fake.Media = new WhatsAppMediaResult(
+            true, [0xFF, 0xD8, 0xFF, 0xD9], "image/jpeg", null);
+        await PostAsync(MediaPayload(
+            "wamid.update-image", "update-image", "image", "image/jpeg", "foto.jpg"));
+        _fake.Media = new WhatsAppMediaResult(
+            true, [1, 2, 3], "audio/ogg", null);
+        await PostAsync(MediaPayload(
+            "wamid.update-audio", "update-audio", "audio", "audio/ogg", "audio.ogg"));
+        await PostAsync(TextPayload("wamid.update-finish", "Finalizar"));
+
+        await _host.WithDbAsync(async db =>
+        {
+            var messages = await db.RequestMessages
+                .Where(x => x.RequestId == requestId)
+                .OrderBy(x => x.CreatedAt).ToArrayAsync();
+            Assert.Equal(4, messages.Length);
+            Assert.All(messages, message => Assert.Equal(
+                MessageChannel.WhatsAppResidentUpdate, message.Channel));
+            Assert.Equal(2, await db.RequestAttachments.CountAsync(x =>
+                x.RequestId == requestId && x.RequestMessageId != null));
+            Assert.True((await db.RequestResidentReplyRequirements.SingleAsync()).IsActive);
+            Assert.Equal(RequestStatus.WaitingForResident,
+                (await db.Requests.SingleAsync(x => x.Id == requestId)).Status);
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(WhatsAppConversationState.Ended, session.State);
+            Assert.Null(session.RequestId);
+        });
+        Assert.Equal(0, _transcription.Calls);
+    }
+
+    [Fact]
+    public async Task Cancelling_spontaneous_update_clears_only_session_context()
+    {
+        await SeedOwnRequests(2);
+        await PostAsync(TextPayload("wamid.update-cancel-menu", "Menu"));
+        await PostAsync(TextPayload("wamid.update-cancel-option", "3"));
+        await PostAsync(TextPayload("wamid.update-cancel-select", "1"));
+        await PostAsync(TextPayload("wamid.update-before-cancel", "Atualização já enviada."));
+        await PostAsync(TextPayload("wamid.update-cancel", "Cancelar"));
+
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Single(await db.RequestMessages.Where(x =>
+                x.Channel == MessageChannel.WhatsAppResidentUpdate).ToArrayAsync());
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(WhatsAppConversationState.MainMenu, session.State);
+            Assert.Null(session.RequestId);
+        });
+    }
+
+    [Fact]
     public async Task Own_requests_are_isolated_ordered_and_paginated_with_local_choices()
     {
         await SeedOwnRequests(7);

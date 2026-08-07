@@ -215,6 +215,27 @@ public sealed class WhatsAppSession
             CondominiumId);
     }
 
+    public void BeginExistingRequestSelection(DateTime now, DateTime expiresAt)
+    {
+        RequestId = null;
+        CategoryId = null;
+        DraftDescription = null;
+        DraftAiProposalJson = null;
+        Page = 0;
+        MoveTo(WhatsAppConversationState.SelectingOpenRequest, now, expiresAt,
+            CondominiumId);
+    }
+
+    public void BeginRequestUpdate(Guid requestId, DateTime now, DateTime expiresAt)
+    {
+        if (requestId == Guid.Empty)
+            throw new ArgumentException("RequestId is required.", nameof(requestId));
+        RequestId = requestId;
+        Page = 0;
+        MoveTo(WhatsAppConversationState.ReplyingToRequest, now, expiresAt,
+            CondominiumId);
+    }
+
     public void ShowOwnRequest(Guid requestId, DateTime now, DateTime expiresAt)
     {
         RequestId = requestId;

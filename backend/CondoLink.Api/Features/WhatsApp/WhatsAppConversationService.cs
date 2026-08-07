@@ -345,6 +345,12 @@ public sealed class WhatsAppConversationService(
             }
             if (IsResidentReplyFlow(session.State))
                 return await DeferResidentReply(session, now, expires, ct);
+            if (session.State == WhatsAppConversationState.ReplyingToRequest)
+            {
+                session.Restart(now, expires);
+                return ("Atualização encerrada.\n\n" + MainMenu(identity.FullName),
+                    "request_update_cancelled");
+            }
             var ownRequestFlow = IsOwnRequestFlow(session.State);
             await DiscardDraftAttachments(session, ct);
             session.Restart(now, expires);
@@ -360,6 +366,8 @@ public sealed class WhatsAppConversationService(
                 await MainMenuChoice(session, identity, text, now, expires, ct),
             WhatsAppConversationState.ListingOwnRequests =>
                 await OwnRequestsChoice(session, identity, text, now, expires, ct),
+            WhatsAppConversationState.SelectingOpenRequest =>
+                await ExistingRequestChoice(session, identity, text, now, expires, ct),
             WhatsAppConversationState.ViewingOwnRequest =>
                 await OwnRequestDetailsChoice(session, identity, text, now, expires, ct),
             WhatsAppConversationState.ViewingOwnRequestUpdates =>
@@ -373,6 +381,8 @@ public sealed class WhatsAppConversationService(
                 await ResidentReplyReviewChoice(session, identity, text, now, expires, ct),
             WhatsAppConversationState.CollectingResidentReplyAttachments =>
                 await CollectResidentReplyAttachments(session, identity, message, now, expires, ct),
+            WhatsAppConversationState.ReplyingToRequest =>
+                await CollectRequestUpdate(session, identity, message, now, expires, ct),
             WhatsAppConversationState.CollectingDescription =>
                 await CollectDescription(session, message, identity.FullName, now, expires, ct),
             WhatsAppConversationState.CollectingAttachments =>
@@ -400,7 +410,13 @@ public sealed class WhatsAppConversationService(
             return (await OwnRequestsPage(session, identity, now, expires, ct),
                 "listing_own_requests");
         }
-        if (text is "3" or "4")
+        if (text == "3")
+        {
+            session.BeginExistingRequestSelection(now, expires);
+            return (await EligibleRequestsPage(session, identity, now, expires, ct),
+                "selecting_existing_request");
+        }
+        if (text == "4")
         {
             session.Touch(now, expires);
             return ("Essa opção estará disponível em breve. Digite ‘menu’ para voltar.", "option_unavailable");
@@ -451,6 +467,43 @@ public sealed class WhatsAppConversationService(
         session.Touch(now, expires);
         return ("Escolha uma opção válida.\n\n" + OwnRequestsPageText(page),
             "invalid_own_request_choice");
+    }
+
+    private async Task<(string, string)> ExistingRequestChoice(
+        WhatsAppSession session, ResolvedIdentity identity, string? text,
+        DateTime now, DateTime expires, CancellationToken ct)
+    {
+        if (text == "0")
+        {
+            session.Restart(now, expires);
+            return (MainMenu(identity.FullName), "main_menu");
+        }
+        if (text == "6")
+        {
+            session.SetPage(session.Page + 1, now, expires);
+            return (await EligibleRequestsPage(session, identity, now, expires, ct),
+                "selecting_existing_request_next_page");
+        }
+        if (text == "7" && session.Page > 0)
+        {
+            session.SetPage(session.Page - 1, now, expires);
+            return (await EligibleRequestsPage(session, identity, now, expires, ct),
+                "selecting_existing_request_previous_page");
+        }
+
+        var page = await CurrentOwnRequestsPage(
+            session, identity, now, expires, ct, true);
+        if (int.TryParse(text, out var choice)
+            && choice >= 1 && choice <= page.Items.Length)
+        {
+            var selected = page.Items[choice - 1];
+            session.BeginRequestUpdate(selected.Id, now, expires);
+            return (RequestUpdatePrompt(), "collecting_request_update");
+        }
+
+        session.Touch(now, expires);
+        return ("Escolha uma opção válida.\n\n" + EligibleRequestsPageText(page),
+            "invalid_existing_request_choice");
     }
 
     private async Task<(string, string)> OwnRequestDetailsChoice(
@@ -521,11 +574,22 @@ public sealed class WhatsAppConversationService(
         OwnRequestsPageText(await CurrentOwnRequestsPage(
             session, identity, now, expires, ct));
 
+    private async Task<string> EligibleRequestsPage(
+        WhatsAppSession session, ResolvedIdentity identity,
+        DateTime now, DateTime expires, CancellationToken ct) =>
+        EligibleRequestsPageText(await CurrentOwnRequestsPage(
+            session, identity, now, expires, ct, true));
+
     private async Task<OwnRequestPage> CurrentOwnRequestsPage(
         WhatsAppSession session, ResolvedIdentity identity,
-        DateTime now, DateTime expires, CancellationToken ct)
+        DateTime now, DateTime expires, CancellationToken ct,
+        bool eligibleOnly = false)
     {
         var allowed = AllowedOwnRequests(identity);
+        if (eligibleOnly)
+            allowed = allowed.Where(x => x.Status == RequestStatus.Open
+                || x.Status == RequestStatus.InProgress
+                || x.Status == RequestStatus.WaitingForResident);
         var total = await allowed.CountAsync(ct);
         var lastPage = total == 0 ? 0 : (total - 1) / OwnRequestsPageSize;
         var page = Math.Clamp(session.Page, 0, lastPage);
@@ -562,6 +626,17 @@ public sealed class WhatsAppConversationService(
             .SingleOrDefaultAsync(ct);
     }
 
+    private async Task<OwnRequestItem?> AccessibleEligibleOwnRequest(
+        Guid? requestId, ResolvedIdentity identity, CancellationToken ct)
+    {
+        var request = await AccessibleOwnRequest(requestId, identity, ct);
+        return request?.Status is RequestStatus.Open
+            or RequestStatus.InProgress
+            or RequestStatus.WaitingForResident
+                ? request
+                : null;
+    }
+
     private static string OwnRequestsPageText(OwnRequestPage page)
     {
         if (page.Total == 0)
@@ -576,6 +651,24 @@ public sealed class WhatsAppConversationService(
         navigation.Add("0 - Voltar ao menu");
         return "Estas são suas solicitações mais recentes:\n\n"
             + items + "\n\nDigite o número para ver os detalhes.\n\n"
+            + string.Join('\n', navigation);
+    }
+
+    private static string EligibleRequestsPageText(OwnRequestPage page)
+    {
+        if (page.Total == 0)
+            return "Não há solicitações disponíveis para receber uma atualização.\n\n"
+                + "0 - Voltar ao menu";
+        var items = string.Join("\n\n", page.Items.Select((item, index) =>
+            $"{index + 1} - {item.Title}\n"
+            + $"Status: {FriendlyStatus(item.Status)}\n"
+            + $"Atualizada em: {LocalDateTime(item.UpdatedAt)}"));
+        var navigation = new List<string>();
+        if (page.HasNext) navigation.Add("6 - Ver mais");
+        if (page.Page > 0) navigation.Add("7 - Página anterior");
+        navigation.Add("0 - Voltar ao menu");
+        return "Sobre qual solicitação você deseja falar?\n\n"
+            + items + "\n\nDigite o número da solicitação.\n\n"
             + string.Join('\n', navigation);
     }
 
@@ -655,6 +748,128 @@ public sealed class WhatsAppConversationService(
         or WhatsAppConversationState.CollectingResidentReply
         or WhatsAppConversationState.ReviewingResidentReply
         or WhatsAppConversationState.CollectingResidentReplyAttachments;
+
+    private async Task<(string, string)> CollectRequestUpdate(
+        WhatsAppSession session, ResolvedIdentity identity,
+        NormalizedWhatsAppMessage message, DateTime now, DateTime expires,
+        CancellationToken ct)
+    {
+        var request = await AccessibleEligibleOwnRequest(
+            session.RequestId, identity, ct);
+        if (request is null)
+        {
+            session.Restart(now, expires);
+            return ("Esta solicitação não está mais disponível para atualização.\n\n"
+                + MainMenu(identity.FullName), "request_update_no_longer_available");
+        }
+
+        var text = message.Text?.Trim();
+        var command = NormalizeCommand(text);
+        if (command == "finalizar" || text == "1")
+        {
+            session.End(now);
+            return ("Atualização finalizada. Envie uma nova mensagem quando precisar.",
+                "request_update_finished");
+        }
+        if (message.MessageType == "text")
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return (RequestUpdatePrompt(), "request_update_content_required");
+            if (text.Length > 4000)
+            {
+                session.Touch(now, expires);
+                return ("A mensagem deve ter no máximo 4000 caracteres.",
+                    "request_update_too_long");
+            }
+            var requestMessage = new RequestMessage(
+                request.Id, identity.UserId, text,
+                MessageChannel.WhatsAppResidentUpdate);
+            db.RequestMessages.Add(requestMessage);
+            await db.SaveChangesAsync(ct);
+            await NotifyRequestUpdate(request, identity, requestMessage, ct);
+            session.Touch(now, expires);
+            return (RequestUpdateReceivedPrompt("Mensagem recebida."),
+                "request_update_message_received");
+        }
+
+        if (message.MessageType is not ("image" or "video" or "document" or "audio")
+            || string.IsNullOrWhiteSpace(message.MediaId))
+        {
+            session.Touch(now, expires);
+            return ("No momento este tipo de conteúdo ainda não é suportado.\n\n"
+                + RequestUpdatePrompt(), "unsupported_request_update_content");
+        }
+
+        var media = await client.DownloadMediaAsync(message.MediaId, ct);
+        if (!media.Succeeded || media.Content is null)
+        {
+            session.Touch(now, expires);
+            return ("Não foi possível baixar o arquivo. Tente enviá-lo novamente.",
+                "request_update_attachment_download_failed");
+        }
+        var contentType = media.ContentType ?? message.MediaContentType;
+        var extension = Path.GetExtension(message.FileName);
+        if (string.IsNullOrWhiteSpace(extension))
+            extension = AttachmentPolicy.PreferredExtension(contentType);
+        var fileName = string.IsNullOrWhiteSpace(message.FileName)
+            ? $"{message.MessageType}-{Guid.NewGuid():N}{extension}"
+            : message.FileName;
+        var validation = AttachmentPolicy.Validate(
+            fileName, media.Content.LongLength, contentType);
+        if (validation.Error is not null)
+        {
+            session.Touch(now, expires);
+            return (validation.Error, "request_update_attachment_rejected");
+        }
+
+        string? storageKey = null;
+        try
+        {
+            await using var stream = new MemoryStream(media.Content, writable: false);
+            storageKey = await storage.SaveAsync(
+                request.Id, stream, validation.Extension!, ct);
+            var description = message.MessageType == "audio"
+                ? "Áudio enviado pelo morador."
+                : "Anexo enviado pelo morador.";
+            var requestMessage = new RequestMessage(
+                request.Id, identity.UserId, description,
+                MessageChannel.WhatsAppResidentUpdate);
+            db.RequestMessages.Add(requestMessage);
+            db.RequestAttachments.Add(new RequestAttachment(
+                request.Id, identity.UserId, validation.Name!, storageKey,
+                validation.ContentType!, media.Content.LongLength,
+                requestMessage.Id));
+            await db.SaveChangesAsync(ct);
+            await NotifyRequestUpdate(request, identity, requestMessage, ct);
+        }
+        catch
+        {
+            if (storageKey is not null) storage.Delete(storageKey);
+            throw;
+        }
+        session.Touch(now, expires);
+        return (RequestUpdateReceivedPrompt(message.MessageType == "audio"
+                ? "Áudio recebido." : "Arquivo recebido."),
+            "request_update_attachment_received");
+    }
+
+    private async Task NotifyRequestUpdate(
+        OwnRequestItem request, ResolvedIdentity identity,
+        RequestMessage message, CancellationToken ct)
+    {
+        try
+        {
+            await notifications.NotifyMessageAsync(
+                request.Id, identity.CondominiumId, identity.UserId,
+                request.Title, identity.UserId, message.Content, ct,
+                message.Id, message.Channel);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception,
+                "Failed to notify spontaneous resident request update.");
+        }
+    }
 
     private async Task<(string, string)> ResidentReplyChoice(
         WhatsAppSession session, ResolvedIdentity identity, string? text,
@@ -1360,6 +1575,14 @@ public sealed class WhatsAppConversationService(
         (fromDetails
             ? "1 - Responder agora\n2 - Ver detalhes\n0 - Voltar ao menu"
             : "1 - Responder agora\n2 - Responder depois");
+
+    private static string RequestUpdatePrompt() =>
+        "Envie sua mensagem.\nVocê também pode enviar fotos, documentos, vídeos ou áudio.\n\n"
+        + "Quando terminar, envie ‘Finalizar’.\nPara encerrar este atendimento, envie ‘Cancelar’.";
+
+    private static string RequestUpdateReceivedPrompt(string confirmation) =>
+        confirmation + "\n\nVocê pode enviar outra mensagem ou arquivo.\n\n"
+        + "1 - Finalizar\nCancelar - Encerrar este atendimento";
 
     private static string ResidentReplyInputPrompt(string? question = null) =>
         (string.IsNullOrWhiteSpace(question)
