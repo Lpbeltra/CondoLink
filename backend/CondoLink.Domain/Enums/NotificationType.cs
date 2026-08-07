@@ -9,5 +9,6 @@ public enum NotificationType
     RequestCreated = 1,
     RequestStatusChanged = 2,
     RequestPriorityChanged = 3,
-    RequestMessageReceived = 4
+    RequestMessageReceived = 4,
+    ResidentRequestUpdated = 5
 }

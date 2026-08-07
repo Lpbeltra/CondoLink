@@ -105,6 +105,7 @@ export interface ManagementRequestItem extends RequestListItem {
   author: Person
   condominiumName: string
   hasUnreadResidentReply?: boolean
+  hasUnreadResidentUpdate?: boolean
 }
 
 export interface RequestCounts {

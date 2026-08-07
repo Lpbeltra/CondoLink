@@ -3,6 +3,7 @@ export type NotificationType =
   | 'RequestStatusChanged'
   | 'RequestPriorityChanged'
   | 'RequestMessageReceived'
+  | 'ResidentRequestUpdated'
 
 export interface AppNotification {
   id: string

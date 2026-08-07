@@ -32,6 +32,7 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
         {
             application.MapGetRequestById();
             application.MapUpdateRequestStatus();
+            application.MapListCondominiumRequests();
         });
 
         await _host.WithDbAsync(async db =>
@@ -125,6 +126,47 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Manager_view_marks_only_that_requests_resident_update_as_read()
+    {
+        Guid otherRequestId = Guid.Empty;
+        await _host.WithDbAsync(async db =>
+        {
+            var request = await db.Requests.SingleAsync(x => x.Id == _requestId);
+            var otherRequest = new DomainRequest(
+                request.CondominiumId, _authorId, null, request.CategoryId,
+                "Outra solicitação", "Sem relação com a atualização");
+            otherRequestId = otherRequest.Id;
+            db.Add(otherRequest);
+            db.AddRange(
+                new Notification(_managerId, request.CondominiumId,
+                    NotificationType.ResidentRequestUpdated,
+                    "Morador atualizou a solicitação", "Vazamento: nova foto", _requestId),
+                new Notification(_managerId, request.CondominiumId,
+                    NotificationType.ResidentRequestUpdated,
+                    "Morador atualizou a solicitação", "Outra: atualização", otherRequestId));
+            await db.SaveChangesAsync();
+        });
+
+        var before = await _host.ClientFor(_managerId)
+            .GetFromJsonAsync<ListCondominiumRequests.Response>("/management/requests");
+        Assert.True(before!.Items.Single(x => x.Id == _requestId).HasUnreadResidentUpdate);
+        Assert.True(before.Items.Single(x => x.Id == otherRequestId).HasUnreadResidentUpdate);
+
+        await _host.ClientFor(_managerId).GetAsync($"/requests/{_requestId}");
+
+        var after = await _host.ClientFor(_managerId)
+            .GetFromJsonAsync<ListCondominiumRequests.Response>("/management/requests");
+        Assert.False(after!.Items.Single(x => x.Id == _requestId).HasUnreadResidentUpdate);
+        Assert.True(after.Items.Single(x => x.Id == otherRequestId).HasUnreadResidentUpdate);
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.NotNull((await db.Notifications.SingleAsync(x =>
+                x.RequestId == _requestId)).ReadAt);
+            Assert.Null((await db.Notifications.SingleAsync(x =>
+                x.RequestId == otherRequestId)).ReadAt);
+        });
+    }
     [Fact]
     public async Task Manager_details_include_ai_analysis_and_original_whatsapp_report()
     {

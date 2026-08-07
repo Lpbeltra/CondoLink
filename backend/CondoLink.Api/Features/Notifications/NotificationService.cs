@@ -115,13 +115,20 @@ public sealed class NotificationService(
             ? await ManagerIdsAsync(condominiumId, messageAuthorUserId, cancellationToken)
             : [requestAuthorUserId];
 
+        var isSpontaneousResidentUpdate =
+            channel == MessageChannel.WhatsAppResidentUpdate;
+
         AddRange(recipients
             .Where(recipientId => recipientId != messageAuthorUserId)
             .Select(recipientId => new Notification(
                 recipientId,
                 condominiumId,
-                NotificationType.RequestMessageReceived,
-                "Nova mensagem",
+                isSpontaneousResidentUpdate
+                    ? NotificationType.ResidentRequestUpdated
+                    : NotificationType.RequestMessageReceived,
+                isSpontaneousResidentUpdate
+                    ? "Morador atualizou a solicitação"
+                    : "Nova mensagem",
                 $"{Shorten(requestTitle, 60)}: {Shorten(content, 90)}",
                 requestId)));
 

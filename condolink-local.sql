@@ -366,7 +366,7 @@ CREATE TABLE public.condominiums (
     is_remote_doorman boolean DEFAULT false NOT NULL,
     state character varying(2),
     whatsapp_display_name character varying(200),
-    whatsapp_updates_enabled boolean DEFAULT false NOT NULL
+    whatsapp_updates_enabled boolean DEFAULT fjNOT NULL
 );
 
 

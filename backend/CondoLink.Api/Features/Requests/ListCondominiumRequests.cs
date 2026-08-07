@@ -198,6 +198,11 @@ public static class ListCondominiumRequests
                     ,HasUnreadResidentReply = dbContext.RequestResidentReplyRequirements
                         .Any(requirement => requirement.RequestId == request.Id
                             && requirement.HasUnreadAnswer)
+                    ,HasUnreadResidentUpdate = dbContext.Notifications
+                        .Any(notification => notification.RequestId == request.Id
+                            && notification.RecipientUserId == authenticatedUserId
+                            && notification.Type == NotificationType.ResidentRequestUpdated
+                            && notification.ReadAt == null)
                 })
             .ToListAsync(cancellationToken);
 
@@ -220,7 +225,8 @@ public static class ListCondominiumRequests
                 item.CreatedAt,
                 item.UpdatedAt,
                 item.ResolvedAt,
-                item.HasUnreadResidentReply))
+                item.HasUnreadResidentReply,
+                item.HasUnreadResidentUpdate))
             .ToArray();
 
         return Results.Ok(new Response(rows.Count, counts, items));
@@ -292,7 +298,8 @@ public static class ListCondominiumRequests
         DateTime CreatedAt,
         DateTime UpdatedAt,
         DateTime? ResolvedAt,
-        bool HasUnreadResidentReply);
+        bool HasUnreadResidentReply,
+        bool HasUnreadResidentUpdate);
 
     public sealed record Response(
         int Total,

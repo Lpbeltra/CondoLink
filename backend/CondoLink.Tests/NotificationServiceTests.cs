@@ -222,6 +222,40 @@ public sealed class NotificationServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_spontaneous_whatsapp_update_has_its_own_manager_notification()
+    {
+        var request = await AddRequestAsync(_resident.Id);
+
+        await _service.NotifyMessageAsync(
+            request.Id, _condominium.Id, _resident.Id, request.Title,
+            _resident.Id, "O vazamento aumentou.", default,
+            channel: MessageChannel.WhatsAppResidentUpdate);
+
+        var notifications = await _db.Notifications.AsNoTracking().ToArrayAsync();
+        Assert.Equal(2, notifications.Length);
+        Assert.All(notifications, notification =>
+        {
+            Assert.Equal(NotificationType.ResidentRequestUpdated, notification.Type);
+            Assert.Equal("Morador atualizou a solicitação", notification.Title);
+            Assert.Null(notification.ReadAt);
+        });
+    }
+
+    [Fact]
+    public async Task A_requested_whatsapp_reply_remains_a_regular_message_notification()
+    {
+        var request = await AddRequestAsync(_resident.Id);
+
+        await _service.NotifyMessageAsync(
+            request.Id, _condominium.Id, _resident.Id, request.Title,
+            _resident.Id, "Segue a informação solicitada.", default,
+            channel: MessageChannel.WhatsApp);
+
+        var notifications = await _db.Notifications.AsNoTracking().ToArrayAsync();
+        Assert.All(notifications, notification =>
+            Assert.Equal(NotificationType.RequestMessageReceived, notification.Type));
+    }
+    [Fact]
     public async Task A_manager_replying_to_their_own_request_notifies_the_other_manager()
     {
         var request = await AddRequestAsync(_managerA.Id);

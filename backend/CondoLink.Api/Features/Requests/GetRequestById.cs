@@ -117,6 +117,23 @@ public static class GetRequestById
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
+        if (isCondominiumManager)
+        {
+            var viewedUpdates = await dbContext.Notifications
+                .Where(notification => notification.RequestId == id
+                    && notification.RecipientUserId == authenticatedUserId
+                    && notification.Type == NotificationType.ResidentRequestUpdated
+                    && notification.ReadAt == null)
+                .ToListAsync(cancellationToken);
+            if (viewedUpdates.Count > 0)
+            {
+                var viewedAt = DateTime.UtcNow;
+                foreach (var notification in viewedUpdates)
+                    notification.MarkAsRead(viewedAt);
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+        }
+
         TargetUnitResponse? targetUnit = null;
 
         if (request.TargetUnitId.HasValue)
