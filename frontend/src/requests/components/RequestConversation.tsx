@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useState, type FormEvent, type KeyboardEvent } from 'react'
 import SendRoundedIcon from '@mui/icons-material/SendRounded'
 import { Alert, Box, Button, CircularProgress, Stack, TextField, Typography } from '@mui/material'
 import { createRequestMessage } from '../api'
@@ -6,16 +6,23 @@ import { canSendMessage, formatDateTime, getRequestError } from '../presentation
 import { getUpdateMarkerColor } from '../requestUpdates'
 import type { RequestMessage, RequestStatus } from '../types'
 
-interface Props { requestId: string; status: RequestStatus; messages: RequestMessage[]; onMessageCreated: (message: RequestMessage) => void; readOnly?: boolean }
+interface Props { requestId: string; status: RequestStatus; messages: RequestMessage[]; onMessageCreated: (message: RequestMessage) => void; readOnly?: boolean; residentSummary?: string | null }
 
-export function RequestConversation({ requestId, status, messages, onMessageCreated, readOnly = false }: Props) {
+export function RequestConversation({ requestId, status, messages, onMessageCreated, readOnly = false, residentSummary }: Props) {
   const [content, setContent] = useState('')
   const [error, setError] = useState('')
   const [isSending, setIsSending] = useState(false)
-  const endRef = useRef<HTMLDivElement>(null)
-  const timelineMessages = messages.filter(message => message.author.isManager)
-
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }) }, [messages.length])
+  const orderedMessages = [...messages].sort((left, right) =>
+    right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id))
+  const latestResidentId = orderedMessages.find(message => !message.author.isManager)?.id
+  const seen = new Set<string>()
+  const timelineMessages = orderedMessages.filter(message => {
+    const text = (message.id === latestResidentId && residentSummary?.trim()
+      ? residentSummary : message.content).trim().toLocaleLowerCase('pt-BR')
+    if (seen.has(text)) return false
+    seen.add(text)
+    return true
+  })
 
   const send = async (event?: FormEvent) => {
     event?.preventDefault()
@@ -40,11 +47,10 @@ export function RequestConversation({ requestId, status, messages, onMessageCrea
         {timelineMessages.map((message) => (
           <Box key={message.id} borderLeft="4px solid" borderColor={getUpdateMarkerColor(message)} pl={2} py={.5}>
             <Typography fontWeight={750} fontSize=".8rem">{message.author.fullName}</Typography>
-            <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.content}</Typography>
+            <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.id === latestResidentId && residentSummary?.trim() ? residentSummary : message.content}</Typography>
             <Typography color="text.secondary" fontSize=".72rem" mt={.75}>{formatDateTime(message.createdAt)}</Typography>
           </Box>
         ))}
-        <div ref={endRef} />
       </Stack>
       {readOnly || !canSendMessage(status) ? <Alert severity="info">Esta solicitação está encerrada e disponível somente para consulta.</Alert> : (
         <Box component="form" onSubmit={send}>

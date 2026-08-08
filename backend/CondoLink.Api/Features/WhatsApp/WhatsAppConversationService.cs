@@ -690,7 +690,7 @@ public sealed class WhatsAppConversationService(
         RequestStatus.Open => "Aberta",
         RequestStatus.InProgress => "Em andamento",
         RequestStatus.WaitingForResident => "Aguardando informações do morador",
-        RequestStatus.WaitingForManager => "Aguardando administração",
+        RequestStatus.WaitingForManager => "Dar andamento",
         RequestStatus.WaitingForThirdParty => "Aguardando terceiro",
         RequestStatus.Resolved => "Resolvida",
         RequestStatus.Cancelled => "Cancelada",

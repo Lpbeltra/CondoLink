@@ -714,7 +714,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     [InlineData(RequestStatus.Open, "Aberta")]
     [InlineData(RequestStatus.InProgress, "Em andamento")]
     [InlineData(RequestStatus.WaitingForResident, "Aguardando informações do morador")]
-    [InlineData(RequestStatus.WaitingForManager, "Aguardando administração")]
+    [InlineData(RequestStatus.WaitingForManager, "Dar andamento")]
     [InlineData(RequestStatus.WaitingForThirdParty, "Aguardando terceiro")]
     [InlineData(RequestStatus.Resolved, "Resolvida")]
     [InlineData(RequestStatus.Cancelled, "Cancelada")]

@@ -58,8 +58,11 @@ export function RequestAttachments({
   const [deleting, setDeleting] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState('')
+  const imageItems = items.filter(item =>
+    item.contentType.toLowerCase().startsWith('image/'))
   const otherItems = items.filter(item =>
-    !item.contentType.toLowerCase().startsWith('audio/'))
+    !item.contentType.toLowerCase().startsWith('audio/')
+    && !item.contentType.toLowerCase().startsWith('image/'))
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -293,13 +296,32 @@ export function RequestAttachments({
           </Box>
         )}
 
+        {!loading && imageItems.length > 0 && <Box mb={2.5}>
+          <Typography variant="h3" mb={1.5}>Galeria de imagens</Typography>
+          <Box display="grid" gridTemplateColumns={{ xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }} gap={1.5}>
+            {imageItems.map(item => <Box key={item.id} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden', minWidth: 0 }}>
+              <Box component="button" type="button" aria-label={`Ampliar ${item.originalFileName}`} onClick={() => previews[item.id] && setDialogUrl(previews[item.id])} sx={{ p: 0, border: 0, background: 'action.hover', cursor: previews[item.id] ? 'pointer' : 'default', width: '100%', height: { xs: 132, sm: 168 }, display: 'block' }}>
+                {previews[item.id] && <Box component="img" src={previews[item.id]} alt={`Miniatura de ${item.originalFileName}`} sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+              </Box>
+              <Box p={1.25}>
+                <Typography fontWeight={700} noWrap title={item.originalFileName}>{item.originalFileName}</Typography>
+                <Typography color="text.secondary" fontSize=".75rem">{formatDateTime(item.createdAt)}</Typography>
+                <Stack direction="row" justifyContent="flex-end">
+                  <IconButton aria-label={`Baixar ${item.originalFileName}`} onClick={() => void download(item)}><DownloadRoundedIcon /></IconButton>
+                  {!readOnly && <IconButton aria-label={`Excluir ${item.originalFileName}`} onClick={() => setDeleteTarget(item)}><DeleteOutlineRoundedIcon /></IconButton>}
+                </Stack>
+              </Box>
+            </Box>)}
+          </Box>
+        </Box>}
+
         {loading ? (
           <CircularProgress size={24} />
-        ) : otherItems.length === 0 ? (
+        ) : otherItems.length === 0 && imageItems.length === 0 ? (
           <Typography color="text.secondary">
             Nenhum anexo enviado.
           </Typography>
-        ) : (
+        ) : otherItems.length > 0 ? (
           <Box
             display="grid"
             gridTemplateColumns={{
@@ -399,7 +421,7 @@ export function RequestAttachments({
               </Box>
             ))}
           </Box>
-        )}
+        ) : null}
       </CardContent>
 
       <Dialog

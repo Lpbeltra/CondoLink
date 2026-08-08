@@ -31,6 +31,9 @@ describe('RequestAttachments', () => {
   beforeEach(() => {
     attachmentApi.listRequestAttachments.mockResolvedValue([])
     attachmentApi.deleteRequestAttachment.mockResolvedValue(undefined)
+    attachmentApi.getRequestAttachmentBlob.mockResolvedValue(new Blob(['image'], { type: 'image/jpeg' }))
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:image') })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
   })
 
   it('selects multiple files and removes one before upload', async () => {
@@ -156,5 +159,18 @@ describe('RequestAttachments', () => {
     expect(screen.queryByText('audio.ogg')).not.toBeInTheDocument()
     expect(newest.compareDocumentPosition(oldest) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy()
+  })
+
+  it('presents images as a responsive clickable gallery', async () => {
+    attachmentApi.listRequestAttachments.mockResolvedValue([
+      { ...attachment('one'), originalFileName: 'fachada.jpg', contentType: 'image/jpeg' },
+      { ...attachment('two'), originalFileName: 'portão.jpg', contentType: 'image/jpeg' },
+    ])
+    render(<RequestAttachments requestId="request-id" readOnly />)
+
+    expect(await screen.findByText('Galeria de imagens')).toBeVisible()
+    expect(await screen.findByRole('button', { name: 'Ampliar fachada.jpg' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Ampliar portão.jpg' })).toBeVisible()
+    expect(screen.queryByText('Nenhum anexo enviado.')).not.toBeInTheDocument()
   })
 })

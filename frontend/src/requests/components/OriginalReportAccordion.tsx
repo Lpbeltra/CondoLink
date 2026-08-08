@@ -88,7 +88,7 @@ export function OriginalReportAccordion({ requestId, report, messages, authorId,
       .filter(message => message.author.id === authorId && !audioMessageIds.has(message.id))
       .map(message => ({ id: message.id, text: message.content, channel: message.channel ?? 'Portal', createdAt: message.createdAt }))
     if (!report) residentMessages.unshift({ id: 'portal-opening', text: portalDescription, channel: 'Portal', createdAt: requestCreatedAt })
-    return residentMessages.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    return residentMessages.sort((left, right) => right.createdAt.localeCompare(left.createdAt))
   }, [audioMessageIds, authorId, messages, portalDescription, report, requestCreatedAt])
 
   return <Accordion expanded={expanded} onChange={(_, value) => setExpanded(value)} disableGutters elevation={0} sx={{ mt: 3, border: '1px solid', borderColor: 'divider', borderRadius: '12px !important', '&::before': { display: 'none' } }}>

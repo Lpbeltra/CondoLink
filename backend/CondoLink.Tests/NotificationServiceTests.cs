@@ -239,7 +239,7 @@ public sealed class NotificationServiceTests : IAsyncLifetime
     {
         Assert.Contains("Aguardando morador", NotificationService.StatusChangedContent(
             "Vazamento", RequestStatus.InProgress, RequestStatus.WaitingForResident, null));
-        Assert.Contains("Aguardando você", NotificationService.StatusChangedContent(
+        Assert.Contains("Dar andamento", NotificationService.StatusChangedContent(
             "Vazamento", RequestStatus.InProgress, RequestStatus.WaitingForManager, null));
         Assert.Contains("Aguardando terceiro", NotificationService.StatusChangedContent(
             "Vazamento", RequestStatus.InProgress, RequestStatus.WaitingForThirdParty, null));

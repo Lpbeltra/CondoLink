@@ -1,11 +1,11 @@
 import axios from 'axios'
 import type { RequestListItem, RequestPriority, RequestStatus } from './types'
 
-export const statusPresentation: Record<RequestStatus, { label: string; color: 'info' | 'warning' | 'secondary' | 'success' | 'default' }> = {
+export const statusPresentation: Record<RequestStatus, { label: string; color: 'info' | 'warning' | 'secondary' | 'success' | 'error' | 'default' }> = {
   Open: { label: 'Aberta', color: 'info' },
   InProgress: { label: 'Em andamento', color: 'secondary' },
   WaitingForResident: { label: 'Aguardando morador', color: 'warning' },
-  WaitingForManager: { label: 'Aguardando você', color: 'warning' },
+  WaitingForManager: { label: 'Dar andamento', color: 'error' },
   WaitingForThirdParty: { label: 'Aguardando terceiro', color: 'warning' },
   Resolved: { label: 'Resolvida', color: 'success' },
   Cancelled: { label: 'Cancelada', color: 'default' },

@@ -62,12 +62,14 @@ describe('OriginalReportAccordion', () => {
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
   })
 
-  it('separates chronological textual reports from newest-first audio without duplication', async () => {
+  it('separates newest-first textual reports and audio without duplication', async () => {
     const user = userEvent.setup()
     render(<OriginalReportAccordion requestId="request-id" report={{ text: 'Relato de abertura', channel: 'WhatsApp', createdAt: '2026-08-01T10:00:00Z', audioAttachment: null }} messages={messages} authorId="resident" portalDescription="Descrição tratada" requestCreatedAt="2026-08-01T10:00:00Z" />)
     await user.click(screen.getByRole('button', { name: 'Relatos originais do morador' }))
     expect(await screen.findByText('Relato de abertura')).toBeVisible()
     expect(screen.getByText('Atualização textual')).toBeVisible()
+    const reports = screen.getAllByText(/Atualização textual|Relato de abertura/)
+    expect(reports[0]).toHaveTextContent('Atualização textual')
     const players = await screen.findAllByLabelText(/Áudio do morador/)
     expect(players[0].getAttribute('aria-label')).toContain('04/08/2026')
     expect(screen.getAllByText('Transcrição recente')).toHaveLength(1)

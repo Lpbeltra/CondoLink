@@ -246,7 +246,7 @@ public sealed class NotificationService(
         RequestStatus.Open => "Aberta",
         RequestStatus.InProgress => "Em andamento",
         RequestStatus.WaitingForResident => "Aguardando morador",
-        RequestStatus.WaitingForManager => "Aguardando você",
+        RequestStatus.WaitingForManager => "Dar andamento",
         RequestStatus.WaitingForThirdParty => "Aguardando terceiro",
         RequestStatus.Resolved => "Resolvida",
         RequestStatus.Cancelled => "Cancelada",
