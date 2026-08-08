@@ -1063,6 +1063,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         });
 
         Assert.Contains(requestId.ToString("N")[..8].ToUpperInvariant(), _fake.Messages.Last().Text);
+        Assert.Contains("histórico completo no Comvy", _fake.Messages.Last().Text);
+        Assert.Contains("https://www.comvy.com.br", _fake.Messages.Last().Text);
         Assert.Contains("basta chamar novamente", _fake.Messages.Last().Text);
         Assert.DoesNotContain("Digite ‘menu’", _fake.Messages.Last().Text);
 
@@ -1077,6 +1079,15 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             Assert.Equal(WhatsAppConversationState.MainMenu,
                 await db.WhatsAppSessions.Select(x => x.State).SingleAsync());
         });
+
+        await PostAsync(TextPayload("wamid.flow-second-1", "1"));
+        await PostAsync(TextPayload("wamid.flow-second-2", "Outra lâmpada queimada"));
+        await PostAsync(TextPayload("wamid.flow-second-3", "2"));
+        await PostAsync(TextPayload("wamid.flow-second-4", "1"));
+
+        Assert.Contains("Solicitação criada com sucesso", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("histórico completo no Comvy", _fake.Messages.Last().Text);
+        Assert.Equal(2, await _host.WithDbAsync(db => db.Requests.CountAsync()));
     }
 
     [Fact]

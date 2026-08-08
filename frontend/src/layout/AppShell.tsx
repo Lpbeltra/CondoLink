@@ -9,6 +9,7 @@ import { PageContainer } from '../components/PageContainer'
 import { useAuth } from '../auth/AuthContext'
 import { hasPlatformAdminAccess } from '../auth/permissions'
 import { useManagementContext } from '../management/ManagementContext'
+import { PwaInstallBanner } from '../pwa/PwaInstallBanner'
 
 export function AppShell() {
   const { currentCondominium, isLoading, error, refreshCondominiums } = useCondominium()
@@ -35,6 +36,7 @@ export function AppShell() {
       {showNavigation && <Sidebar />}
       <Box component="main" flex={1} minWidth={0} pb={{ xs: showNavigation ? 9 : 2, md: 0 }} sx={{ overflowX: 'hidden' }}>
         <Toolbar sx={{ minHeight: { xs: '64px !important', md: '72px !important' } }} />
+        <PwaInstallBanner />
         {content}
       </Box>
       {showNavigation && <MobileBottomNavigation />}

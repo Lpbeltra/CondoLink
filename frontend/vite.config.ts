@@ -41,6 +41,7 @@ export default defineConfig({
     strictPort: true,
     watch: {
       usePolling: true,
+      ignored: ['**/playwright-report/**', '**/test-results/**'],
     },
     proxy: {
       '/api': {

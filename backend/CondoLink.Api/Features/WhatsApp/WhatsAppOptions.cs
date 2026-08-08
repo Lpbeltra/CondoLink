@@ -16,6 +16,7 @@ public sealed class WhatsAppOptions
     public int OutboundPollingSeconds { get; set; } = 10;
     public int OutboundMaxAttempts { get; set; } = 5;
     public int OutboundInitialRetrySeconds { get; set; } = 30;
+    public string PortalUrl { get; set; } = "https://www.comvy.com.br";
     public WhatsAppTemplateOptions Templates { get; set; } = new();
 }
 

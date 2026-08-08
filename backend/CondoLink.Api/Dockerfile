@@ -5,14 +5,21 @@ WORKDIR /src
 COPY CondoLink.Api/CondoLink.Api.csproj CondoLink.Api/
 COPY CondoLink.Domain/CondoLink.Domain.csproj CondoLink.Domain/
 COPY CondoLink.Infrastructure/CondoLink.Infrastructure.csproj CondoLink.Infrastructure/
+COPY CondoLink.DataReset/CondoLink.DataReset.csproj CondoLink.DataReset/
 
 RUN dotnet restore CondoLink.Api/CondoLink.Api.csproj
+RUN dotnet restore CondoLink.DataReset/CondoLink.DataReset.csproj
 
 COPY . .
 
 RUN dotnet publish CondoLink.Api/CondoLink.Api.csproj \
     --configuration Release \
     --output /app/publish \
+    --no-restore
+
+RUN dotnet publish CondoLink.DataReset/CondoLink.DataReset.csproj \
+    --configuration Release \
+    --output /app/datareset \
     --no-restore
 
 # Instala a ferramenta do Entity Framework no estágio de build
@@ -35,6 +42,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
 COPY --from=build /app/publish .
+COPY --from=build /app/datareset /app/datareset
 
 RUN chmod +x /app/efbundle
 

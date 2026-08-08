@@ -1473,6 +1473,18 @@ public sealed class WhatsAppConversationService(
         var title = review.Source == FallbackReviewSource
             ? FallbackRequestTitle
             : review.Proposal!.Title;
+        var shouldIntroducePortal = false;
+        try
+        {
+            shouldIntroducePortal = !await db.Requests.AsNoTracking()
+                .AnyAsync(x => x.AuthorUserId == session.UserId.Value, ct);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception,
+                "Could not determine WhatsApp first-request onboarding eligibility; request creation will continue.");
+        }
+
         var request = new DomainRequest(
             session.CondominiumId!.Value, session.UserId!.Value, session.UnitId,
             session.CategoryId!.Value, title, description, RequestSource.WhatsApp);
@@ -1537,7 +1549,15 @@ public sealed class WhatsAppConversationService(
         {
             logger.LogError(exception, "Failed to notify creation of WhatsApp request {RequestId}.", request.Id);
         }
-        return ($"Solicitação criada com sucesso.\n\nProtocolo: {ShortId(request.Id)}\n\nPara iniciar outro atendimento, basta chamar novamente!", "request_created");
+        var response = $"Solicitação criada com sucesso.\n\nProtocolo: {ShortId(request.Id)}";
+        if (shouldIntroducePortal)
+        {
+            var portalUrl = options.Value.PortalUrl?.Trim().TrimEnd('/');
+            if (!string.IsNullOrWhiteSpace(portalUrl))
+                response += $"\n\nVocê pode acompanhar as atualizações por aqui. Se preferir, consulte também o histórico completo no Comvy:\n{portalUrl}";
+        }
+        response += "\n\nPara iniciar outro atendimento, basta chamar novamente!";
+        return (response, "request_created");
     }
 
     private static (string, string) Recover(
