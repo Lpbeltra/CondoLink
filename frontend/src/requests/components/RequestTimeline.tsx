@@ -4,9 +4,10 @@ import type { RequestMessage, StatusHistoryItem } from '../types'
 import { newestStatusHistoryFirst } from '../requestUpdates'
 
 export function RequestTimeline({ history, messages = [] }: { history: StatusHistoryItem[]; messages?: RequestMessage[] }) {
+  const correlatedAnswerIds = new Set(history.flatMap(item => item.answerMessageId ? [item.answerMessageId] : []))
   const orderedHistory = [
     ...newestStatusHistoryFirst(history).map(item => ({ kind: 'status' as const, item, createdAt: item.createdAt, id: item.id })),
-    ...messages.filter(message => message.channel === 'WhatsAppResidentUpdate')
+    ...messages.filter(message => message.channel === 'WhatsAppResidentUpdate' && !correlatedAnswerIds.has(message.id))
       .map(item => ({ kind: 'resident-update' as const, item, createdAt: item.createdAt, id: item.id })),
   ].sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id))
 
@@ -22,7 +23,9 @@ export function RequestTimeline({ history, messages = [] }: { history: StatusHis
             {entry.kind === 'status' ? <>
               <Typography fontWeight={700}>{entry.item.previousStatus === null ? 'Solicitação aberta' : `Status alterado para ${statusPresentation[entry.item.newStatus].label}`}</Typography>
               <Typography color="text.secondary" fontSize=".82rem">{entry.item.changedByFullName} · {formatDateTime(entry.item.createdAt)}</Typography>
-              {entry.item.reason && <Typography mt={.75}>{entry.item.reason}</Typography>}
+              {entry.item.answerMessageId ? <Typography mt={.75} sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                Resposta recebida do morador: {messages.find(message => message.id === entry.item.answerMessageId)?.content ?? 'conteúdo indisponível.'}
+              </Typography> : entry.item.reason && <Typography mt={.75}>{entry.item.reason}</Typography>}
             </> : <>
               <Typography fontWeight={700}>Atualização do morador</Typography>
               <Typography color="text.secondary" fontSize=".82rem">{entry.item.author.fullName} · {formatDateTime(entry.item.createdAt)}</Typography>

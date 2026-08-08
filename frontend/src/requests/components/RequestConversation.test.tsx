@@ -29,4 +29,16 @@ describe('RequestConversation', () => {
     expect(screen.getByText('Resumo contextual gerado pela IA.')).toBeVisible()
     expect(screen.queryByText('Transcrição extensa')).not.toBeInTheDocument()
   })
+
+  it('shows a requested resident reply in updates once and keeps the contextual label', () => {
+    render(<RequestConversation requestId="request-id" status="InProgress" readOnly
+      onMessageCreated={vi.fn()} messages={[
+        { id: 'original', requestId: 'request-id', author: { id: 'resident-id', fullName: 'Maria', isManager: false }, content: 'Relato original', channel: 'WhatsApp', createdAt: '2026-08-01T09:00:00Z' },
+        { id: 'reply', requestId: 'request-id', author: { id: 'resident-id', fullName: 'Maria', isManager: false }, content: 'O portão voltou a travar.', channel: 'Portal', createdAt: '2026-08-01T10:00:00Z', isResidentReply: true },
+      ]} />)
+
+    expect(screen.getByText('Resposta do morador')).toBeVisible()
+    expect(screen.getAllByText('O portão voltou a travar.')).toHaveLength(1)
+    expect(screen.queryByText('Relato original')).not.toBeInTheDocument()
+  })
 })

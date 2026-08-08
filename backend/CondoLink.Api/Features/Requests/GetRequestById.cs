@@ -155,15 +155,36 @@ public static class GetRequestById
             .ThenBy(history => history.Id)
             .ToListAsync(cancellationToken);
 
+        var answeredRequirements = await dbContext.RequestResidentReplyRequirements
+            .AsNoTracking()
+            .Where(requirement => requirement.RequestId == id
+                && requirement.AnswerMessageId != null
+                && requirement.AnsweredAt != null)
+            .Select(requirement => new
+            {
+                requirement.AnswerMessageId,
+                requirement.AnsweredAt
+            })
+            .ToListAsync(cancellationToken);
+
         var statusHistory = historyRows
-            .Select(history => new StatusHistoryResponse(
-                history.Id,
-                history.PreviousStatus?.ToString(),
-                history.NewStatus.ToString(),
-                history.ChangedByUserId,
-                history.ChangedByFullName,
-                history.Reason,
-                history.CreatedAt))
+            .Select(history =>
+            {
+                var answerMessageId = history.PreviousStatus == RequestStatus.WaitingForResident
+                    && history.NewStatus == RequestStatus.InProgress
+                    ? answeredRequirements.SingleOrDefault(requirement =>
+                        requirement.AnsweredAt == history.CreatedAt)?.AnswerMessageId
+                    : null;
+                return new StatusHistoryResponse(
+                    history.Id,
+                    history.PreviousStatus?.ToString(),
+                    history.NewStatus.ToString(),
+                    history.ChangedByUserId,
+                    history.ChangedByFullName,
+                    history.Reason,
+                    history.CreatedAt,
+                    answerMessageId);
+            })
             .ToArray();
 
         RequestAiAnalysisResponse? aiAnalysis = null;
@@ -308,7 +329,8 @@ public static class GetRequestById
         Guid ChangedByUserId,
         string ChangedByFullName,
         string? Reason,
-        DateTime CreatedAt);
+        DateTime CreatedAt,
+        Guid? AnswerMessageId);
 
     public sealed record Response(
         Guid Id,

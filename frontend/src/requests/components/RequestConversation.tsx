@@ -12,7 +12,11 @@ export function RequestConversation({ requestId, status, messages, onMessageCrea
   const [content, setContent] = useState('')
   const [error, setError] = useState('')
   const [isSending, setIsSending] = useState(false)
-  const orderedMessages = [...messages].sort((left, right) =>
+  const orderedMessages = [...messages]
+    .filter(message => message.author.isManager
+      || message.channel === 'WhatsAppResidentUpdate'
+      || message.isResidentReply)
+    .sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id))
   const latestResidentId = orderedMessages.find(message => !message.author.isManager)?.id
   const seen = new Set<string>()
@@ -46,7 +50,7 @@ export function RequestConversation({ requestId, status, messages, onMessageCrea
         {timelineMessages.length === 0 && <Typography color="text.secondary">Ainda não há atualizações nesta solicitação.</Typography>}
         {timelineMessages.map((message) => (
           <Box key={message.id} borderLeft="4px solid" borderColor={getUpdateMarkerColor(message)} pl={2} py={.5}>
-            <Typography fontWeight={750} fontSize=".8rem">{message.author.fullName}</Typography>
+            <Typography fontWeight={750} fontSize=".8rem">{message.isResidentReply ? 'Resposta do morador' : message.author.fullName}</Typography>
             <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.id === latestResidentId && residentSummary?.trim() ? residentSummary : message.content}</Typography>
             <Typography color="text.secondary" fontSize=".72rem" mt={.75}>{formatDateTime(message.createdAt)}</Typography>
           </Box>

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using CondoLink.Api.Features.RequestAttachments;
+using CondoLink.Api.Features.RequestMessages;
 using CondoLink.Api.Features.Requests;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
@@ -21,6 +22,7 @@ public sealed class ResidentReplyEndpointsTests : IAsyncLifetime
         host = await CoreEndpointTestHost.StartAsync(app =>
         {
             app.MapUpdateRequestStatus(); app.MapCreateResidentReply(); app.MapGetRequestById();
+            app.MapListRequestMessages();
             app.MapListCondominiumRequests();
         }, builder =>
         {
@@ -83,6 +85,15 @@ public sealed class ResidentReplyEndpointsTests : IAsyncLifetime
         var managerDetails = await host.ClientFor(managerId)
             .GetFromJsonAsync<GetRequestById.Response>($"/requests/{requestId}");
         Assert.True(managerDetails!.HasUnreadResidentReply);
+        var replyHistory = managerDetails.StatusHistory[^1];
+        Assert.Equal(residentId, replyHistory.ChangedByUserId);
+        Assert.NotNull(replyHistory.AnswerMessageId);
+        var messages = await host.ClientFor(managerId)
+            .GetFromJsonAsync<List<CondoLink.Api.Features.RequestMessages.ListRequestMessages.Response>>(
+                $"/requests/{requestId}/messages");
+        var replyMessage = Assert.Single(messages!);
+        Assert.True(replyMessage.IsResidentReply);
+        Assert.Equal(replyMessage.Id, replyHistory.AnswerMessageId);
         var managementList = await host.ClientFor(managerId)
             .GetFromJsonAsync<ListCondominiumRequests.Response>("/management/requests");
         Assert.True(Assert.Single(managementList!.Items).HasUnreadResidentReply);

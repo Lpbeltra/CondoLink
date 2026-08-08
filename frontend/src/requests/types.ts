@@ -28,6 +28,7 @@ export interface StatusHistoryItem {
   changedByFullName: string
   reason: string | null
   createdAt: string
+  answerMessageId?: string | null
 }
 
 export interface RequestDetails extends RequestListItem {
@@ -75,6 +76,7 @@ export interface RequestMessage {
   content: string
   channel?: 'Portal' | 'WhatsApp' | 'WhatsAppResidentUpdate'
   createdAt: string
+  isResidentReply?: boolean
 }
 
 export interface RequestAttachment {

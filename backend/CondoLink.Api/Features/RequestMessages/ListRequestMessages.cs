@@ -133,6 +133,13 @@ public static class ListRequestMessages
             .Distinct()
             .ToListAsync(cancellationToken);
 
+        var residentReplyMessageIds = await dbContext.RequestResidentReplyRequirements
+            .AsNoTracking()
+            .Where(requirement => requirement.RequestId == requestId
+                && requirement.AnswerMessageId != null)
+            .Select(requirement => requirement.AnswerMessageId!.Value)
+            .ToListAsync(cancellationToken);
+
         var messages = rows
             .Select(message => new Response(
                 message.Id,
@@ -143,7 +150,8 @@ public static class ListRequestMessages
                     managerUserIds.Contains(message.AuthorUserId)),
                 message.Content,
                 message.Channel.ToString(),
-                message.CreatedAt))
+                message.CreatedAt,
+                residentReplyMessageIds.Contains(message.Id)))
             .ToArray();
 
         return Results.Ok(messages);
@@ -157,5 +165,6 @@ public static class ListRequestMessages
         AuthorResponse Author,
         string Content,
         string Channel,
-        DateTime CreatedAt);
+        DateTime CreatedAt,
+        bool IsResidentReply);
 }

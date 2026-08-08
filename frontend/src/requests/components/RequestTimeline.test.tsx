@@ -14,4 +14,21 @@ describe('RequestTimeline', () => {
     expect(screen.getByText('Atualização do morador')).toBeVisible()
     expect(screen.getByText('O porteiro informou que a TAG já chegou.')).toBeVisible()
   })
+
+  it('correlates the requested reply with the automatic status event', () => {
+    render(<RequestTimeline history={[{
+      id: 'history', previousStatus: 'WaitingForResident', newStatus: 'InProgress',
+      changedByUserId: 'resident', changedByFullName: 'Maria', reason: 'Resposta recebida do morador.',
+      createdAt: '2026-08-10T17:30:00Z', answerMessageId: 'answer',
+    }]} messages={[{
+      id: 'answer', requestId: 'request',
+      author: { id: 'resident', fullName: 'Maria', isManager: false },
+      content: 'O portão voltou a travar.', channel: 'WhatsAppResidentUpdate',
+      createdAt: '2026-08-10T17:30:00Z', isResidentReply: true,
+    }]} />)
+
+    expect(screen.getByText('Status alterado para Em andamento')).toBeVisible()
+    expect(screen.getByText('Resposta recebida do morador: O portão voltou a travar.')).toBeVisible()
+    expect(screen.queryByText('Atualização do morador')).not.toBeInTheDocument()
+  })
 })
