@@ -54,6 +54,13 @@ public sealed class NotificationService(
         Guid? statusHistoryId = null,
         string? reason = null)
     {
+        if (!ShouldNotifyResident(previousStatus, request.Status))
+        {
+            logger?.LogInformation(
+                "Status notification skipped as internal or not meaningful to resident. RequestId: {RequestId}; PreviousStatus: {PreviousStatus}; NewStatus: {NewStatus}.",
+                request.Id, previousStatus, request.Status);
+            return;
+        }
         if (statusHistoryId.HasValue && await dbContext.WhatsAppOutboundMessages
             .AsNoTracking().AnyAsync(message => message.IdempotencyKey
                 == $"request-status:{statusHistoryId}", cancellationToken))
@@ -114,8 +121,7 @@ public sealed class NotificationService(
         RequestStatus previousStatus, string? reason,
         CancellationToken cancellationToken)
     {
-        if (request.Status != RequestStatus.WaitingForThirdParty
-            || string.IsNullOrWhiteSpace(reason))
+        if (string.IsNullOrWhiteSpace(reason))
             return StatusChangedContent(request.Title, previousStatus,
                 request.Status, reason);
         try
@@ -141,8 +147,8 @@ public sealed class NotificationService(
                 "Resident status synthesis used fallback. RequestId: {RequestId}; NewStatus: {NewStatus}; FailureType: {FailureType}; Delivery: {Delivery}.",
                 request.Id, request.Status, exception.GetType().Name, "Fallback");
         }
-        return $"Seu atendimento foi atualizado para '{Describe(request.Status)}'. "
-            + "A administração continuará acompanhando a solicitação.";
+        return StatusChangedContent(request.Title, previousStatus,
+            request.Status, reason);
     }
 
     /// <summary>
@@ -264,15 +270,43 @@ public sealed class NotificationService(
         _ => WhatsAppNotificationType.StatusChanged
     };
 
+    internal static bool ShouldNotifyResident(RequestStatus previousStatus,
+        RequestStatus newStatus) => newStatus switch
+    {
+        RequestStatus.WaitingForResident => true,
+        RequestStatus.WaitingForThirdParty => true,
+        RequestStatus.Resolved => true,
+        RequestStatus.Cancelled => true,
+        RequestStatus.Open => previousStatus is RequestStatus.Resolved
+            or RequestStatus.Cancelled,
+        RequestStatus.InProgress => previousStatus is
+            RequestStatus.WaitingForResident or RequestStatus.WaitingForThirdParty,
+        _ => false
+    };
+
     internal static string StatusChangedContent(string title,
         RequestStatus previousStatus, RequestStatus newStatus, string? reason)
     {
-        var content = $"A solicitação *\"{Shorten(title, 80)}\"* foi alterada de "
-            + $"*{Describe(previousStatus)}* para *{Describe(newStatus)}*.";
         var comment = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
-        return comment is null
-            ? content
-            : content + $"\n\nComentário da administração:\n\n{comment}";
+        var context = comment is null ? string.Empty : $" Contexto: {Shorten(comment, 300)}";
+        return newStatus switch
+        {
+            RequestStatus.WaitingForThirdParty =>
+                "Estamos aguardando uma etapa externa para continuar seu atendimento."
+                + context,
+            RequestStatus.InProgress =>
+                "A administração retomou o andamento do seu atendimento." + context,
+            RequestStatus.Resolved =>
+                "Seu atendimento foi encerrado pela administração." + context,
+            RequestStatus.Cancelled =>
+                "Seu atendimento foi cancelado pela administração." + context,
+            RequestStatus.Open when previousStatus is RequestStatus.Resolved
+                or RequestStatus.Cancelled =>
+                "Seu atendimento foi reaberto e voltará a ser analisado pela administração."
+                + context,
+            _ => $"Há uma atualização no atendimento *\"{Shorten(title, 80)}\"*."
+                + context
+        };
     }
 
     internal static string ResidentReplyRequestedContent(string title, string question) =>

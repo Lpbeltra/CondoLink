@@ -171,6 +171,7 @@ public sealed class WhatsAppNotificationDispatcherTests
         var outbound = await host.WithDbAsync(db =>
             db.WhatsAppOutboundMessages.AsNoTracking().SingleAsync());
         Assert.Equal(WhatsAppOutboundStatus.Pending, outbound.Status);
+        Assert.Equal(WhatsAppSendMode.SessionText, outbound.SendMode);
         Assert.Null(outbound.LastErrorDescription);
     }
 
@@ -222,6 +223,37 @@ public sealed class WhatsAppNotificationDispatcherTests
             db.WhatsAppOutboundMessages.AsNoTracking().SingleAsync());
         Assert.Equal(WhatsAppOutboundStatus.Skipped, outbound.Status);
         Assert.Equal("Template não configurado.", outbound.LastErrorDescription);
+    }
+
+    [Theory]
+    [InlineData(WhatsAppNotificationType.StatusChanged)]
+    [InlineData(WhatsAppNotificationType.RequestResolved)]
+    [InlineData(WhatsAppNotificationType.RequestCancelled)]
+    [InlineData(WhatsAppNotificationType.RequestReopened)]
+    public async Task Resident_status_movements_share_the_configured_status_template(
+        WhatsAppNotificationType type)
+    {
+        await using var host = await CoreEndpointTestHost.StartAsync(_ => { });
+        var requestId = await SeedAsync(host, UserCondition.OutsideSessionWindow);
+
+        await host.WithDbAsync(async db =>
+        {
+            var options = new WhatsAppOptions { Enabled = true };
+            options.Templates.StatusChanged.Name = "request_status_update";
+            options.Templates.StatusChanged.Language = "pt_BR";
+            await new WhatsAppNotificationDispatcher(db, Options.Create(options),
+                NullLogger<WhatsAppNotificationDispatcher>.Instance).EnqueueAsync(
+                    requestId, type, $"status:{Guid.NewGuid():N}", "Mensagem contextual",
+                    null, CancellationToken.None);
+        });
+
+        var outbound = await host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().SingleAsync());
+        Assert.Equal(WhatsAppOutboundStatus.Pending, outbound.Status);
+        Assert.Equal(WhatsAppSendMode.Template, outbound.SendMode);
+        Assert.Equal("request_status_update", outbound.TemplateName);
+        Assert.Equal("pt_BR", outbound.TemplateLanguage);
+        Assert.Equal("Mensagem contextual", outbound.Content);
     }
 
     [Theory]

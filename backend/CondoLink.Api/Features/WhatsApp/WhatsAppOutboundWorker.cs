@@ -108,6 +108,17 @@ public sealed class WhatsAppOutboundWorker(
                     bodyParameterName = settings.Templates.InformationRequested
                         .BodyParameterName;
                 }
+                else if (item.NotificationType is WhatsAppNotificationType.StatusChanged
+                    or WhatsAppNotificationType.RequestResolved
+                    or WhatsAppNotificationType.RequestCancelled
+                    or WhatsAppNotificationType.RequestReopened)
+                {
+                    var fullName = await db.Set<ApplicationUser>().AsNoTracking()
+                        .Where(x => x.Id == item.UserId)
+                        .Select(x => x.FullName)
+                        .SingleAsync(ct);
+                    parameters = StatusChangedTemplateParameters(fullName, content);
+                }
                 result = await client.SendTemplateAsync(item.DestinationPhone,
                     item.TemplateName!, item.TemplateLanguage!, parameters,
                     quickReplies, ct, bodyParameterName);
@@ -147,6 +158,9 @@ public sealed class WhatsAppOutboundWorker(
                 item.Status);
         }
     }
+
+    internal static IReadOnlyList<string> StatusChangedTemplateParameters(
+        string fullName, string content) => [SafeFirstName(fullName), content];
 
     internal static string SafeFirstName(string? fullName)
     {

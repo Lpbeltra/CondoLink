@@ -41,10 +41,13 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 
 WORKDIR /app
 
+ENV FileStorage__RootPath=/app/data/attachments
+
 COPY --from=build /app/publish .
 COPY --from=build /app/datareset /app/datareset
 
-RUN chmod +x /app/efbundle
+RUN chmod +x /app/efbundle \
+    && mkdir -p /app/data/attachments
 
 EXPOSE 8080
 

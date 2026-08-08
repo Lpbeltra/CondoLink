@@ -27,7 +27,7 @@ services:
       Jwt__Audience: CondoLink
       Jwt__Key: development-only-secret-key-change-in-production
       Jwt__ExpirationMinutes: 60
-      FileStorage__RootPath: /app/storage
+      FileStorage__RootPath: /app/data/attachments
       DataProtection__KeysPath: /app/data-protection-keys
     ports:
       - "8080:8080"
@@ -35,7 +35,7 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - condolink_file_storage:/app/storage
+      - condolink_file_storage:/app/data/attachments
       - condolink_data_protection_keys:/app/data-protection-keys
 
   db:

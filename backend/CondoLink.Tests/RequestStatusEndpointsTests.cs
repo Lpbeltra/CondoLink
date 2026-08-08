@@ -345,9 +345,8 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         Assert.Null(Assert.Single(await HistoryAsync()).Reason);
         var notification = Assert.Single(await _host.WithDbAsync(db =>
             db.Notifications.AsNoTracking().ToArrayAsync()));
-        Assert.Contains("Em andamento", notification.Body);
-        Assert.Contains("Aguardando terceiro", notification.Body);
-        Assert.DoesNotContain("Comentário da administração", notification.Body);
+        Assert.Equal("Estamos aguardando uma etapa externa para continuar seu atendimento.",
+            notification.Body);
     }
 
     [Fact]
@@ -390,6 +389,10 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Empty(await _host.WithDbAsync(db =>
             db.RequestResidentReplyRequirements.AsNoTracking().ToArrayAsync()));
+        Assert.Empty(await _host.WithDbAsync(db =>
+            db.Notifications.AsNoTracking().ToArrayAsync()));
+        Assert.Empty(await _host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync()));
         Assert.Equal(RequestStatus.WaitingForManager,
             await _host.WithDbAsync(db => db.Requests
                 .Where(x => x.Id == _requestId).Select(x => x.Status).SingleAsync()));

@@ -188,9 +188,6 @@ public sealed class WhatsAppNotificationDispatcher(
                 templates.AdministrationMessage,
             WhatsAppNotificationType.InformationRequested =>
                 templates.InformationRequested,
-            WhatsAppNotificationType.RequestResolved => templates.Resolved,
-            WhatsAppNotificationType.RequestCancelled => templates.Cancelled,
-            WhatsAppNotificationType.RequestReopened => templates.Reopened,
             _ => templates.StatusChanged
         };
 }

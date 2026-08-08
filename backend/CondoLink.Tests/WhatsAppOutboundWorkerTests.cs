@@ -7,6 +7,14 @@ namespace CondoLink.Tests;
 public sealed class WhatsAppOutboundWorkerTests
 {
     [Fact]
+    public void Status_template_maps_resident_name_and_context_in_meta_order()
+    {
+        Assert.Equal(["Tatiana", "Seu atendimento foi encerrado."],
+            WhatsAppOutboundWorker.StatusChangedTemplateParameters(
+                "Tatiana Custodio", "Seu atendimento foi encerrado."));
+    }
+
+    [Fact]
     public void Meta_diagnostic_is_persisted_and_permanent_failure_stops_retry()
     {
         var message = Message();
