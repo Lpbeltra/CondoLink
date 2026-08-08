@@ -38,6 +38,7 @@ export interface RequestDetails extends RequestListItem {
   originalReport: OriginalReport | null
   residentReplyRequirement: ResidentReplyRequirement | null
   hasUnreadResidentReply?: boolean
+  hasUnreadResidentUpdate?: boolean
 }
 
 export interface ResidentReplyRequirement { id: string; question: string; requestedAt: string; isActive: boolean }
@@ -72,12 +73,14 @@ export interface RequestMessage {
   requestId: string
   author: Person
   content: string
+  channel?: 'Portal' | 'WhatsApp' | 'WhatsAppResidentUpdate'
   createdAt: string
 }
 
 export interface RequestAttachment {
   id: string
   requestId: string
+  requestMessageId?: string | null
   originalFileName: string
   contentType: string
   fileSize: number

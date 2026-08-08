@@ -127,7 +127,7 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Manager_view_marks_only_that_requests_resident_update_as_read()
+    public async Task Resident_update_remains_until_manager_explicitly_acknowledges_it()
     {
         Guid otherRequestId = Guid.Empty;
         await _host.WithDbAsync(async db =>
@@ -153,18 +153,33 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
         Assert.True(before!.Items.Single(x => x.Id == _requestId).HasUnreadResidentUpdate);
         Assert.True(before.Items.Single(x => x.Id == otherRequestId).HasUnreadResidentUpdate);
 
-        await _host.ClientFor(_managerId).GetAsync($"/requests/{_requestId}");
+        var opened = await _host.ClientFor(_managerId)
+            .GetFromJsonAsync<GetRequestById.Response>($"/requests/{_requestId}");
+        Assert.True(opened!.HasUnreadResidentUpdate);
 
-        var after = await _host.ClientFor(_managerId)
+        var afterOpening = await _host.ClientFor(_managerId)
             .GetFromJsonAsync<ListCondominiumRequests.Response>("/management/requests");
-        Assert.False(after!.Items.Single(x => x.Id == _requestId).HasUnreadResidentUpdate);
-        Assert.True(after.Items.Single(x => x.Id == otherRequestId).HasUnreadResidentUpdate);
+        Assert.True(afterOpening!.Items.Single(x => x.Id == _requestId).HasUnreadResidentUpdate);
+
+        var acknowledgement = await _host.ClientFor(_managerId)
+            .PostAsync($"/requests/{_requestId}/resident-update-acknowledgement", null);
+        Assert.Equal(HttpStatusCode.NoContent, acknowledgement.StatusCode);
+
+        var afterAcknowledgement = await _host.ClientFor(_managerId)
+            .GetFromJsonAsync<ListCondominiumRequests.Response>("/management/requests");
+        Assert.False(afterAcknowledgement!.Items.Single(x => x.Id == _requestId).HasUnreadResidentUpdate);
+        Assert.True(afterAcknowledgement.Items.Single(x => x.Id == otherRequestId).HasUnreadResidentUpdate);
         await _host.WithDbAsync(async db =>
         {
             Assert.NotNull((await db.Notifications.SingleAsync(x =>
                 x.RequestId == _requestId)).ReadAt);
             Assert.Null((await db.Notifications.SingleAsync(x =>
                 x.RequestId == otherRequestId)).ReadAt);
+            Assert.Equal(RequestStatus.InProgress,
+                (await db.Requests.SingleAsync(x => x.Id == _requestId)).Status);
+            Assert.Equal("Tem água vazando no corredor desde ontem.",
+                (await db.RequestMessages.SingleAsync(x =>
+                    x.RequestId == _requestId)).Content);
         });
     }
     [Fact]

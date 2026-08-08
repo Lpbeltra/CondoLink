@@ -434,38 +434,9 @@ public sealed class WhatsAppConversationService(
             session.Restart(now, expires);
             return (MainMenu(identity.FullName), "main_menu");
         }
-        if (text == "6")
-        {
-            session.SetPage(session.Page + 1, now, expires);
-            return (await OwnRequestsPage(session, identity, now, expires, ct),
-                "listing_own_requests_next_page");
-        }
-        if (text == "7" && session.Page > 0)
-        {
-            session.SetPage(session.Page - 1, now, expires);
-            return (await OwnRequestsPage(session, identity, now, expires, ct),
-                "listing_own_requests_previous_page");
-        }
-
-        var page = await CurrentOwnRequestsPage(session, identity, now, expires, ct);
-        if (int.TryParse(text, out var choice)
-            && choice >= 1 && choice <= page.Items.Length)
-        {
-            var selected = page.Items[choice - 1];
-            session.ShowOwnRequest(selected.Id, now, expires);
-            var requirement = await ActiveResidentReplyRequirement(
-                selected.Id, identity, ct);
-            if (requirement is not null)
-            {
-                session.OfferResidentReply(selected.Id, now, expires);
-                return (ResidentReplyOfferPrompt(requirement.Question, true),
-                    "resident_reply_offered_from_request");
-            }
-            return (OwnRequestDetails(selected), "viewing_own_request");
-        }
-
         session.Touch(now, expires);
-        return ("Escolha uma opção válida.\n\n" + OwnRequestsPageText(page),
+        return ("Escolha uma opção válida.\n\n"
+                + await OwnRequestsPage(session, identity, now, expires, ct),
             "invalid_own_request_choice");
     }
 
@@ -570,9 +541,18 @@ public sealed class WhatsAppConversationService(
 
     private async Task<string> OwnRequestsPage(
         WhatsAppSession session, ResolvedIdentity identity,
-        DateTime now, DateTime expires, CancellationToken ct) =>
-        OwnRequestsPageText(await CurrentOwnRequestsPage(
-            session, identity, now, expires, ct));
+        DateTime now, DateTime expires, CancellationToken ct)
+    {
+        session.Touch(now, expires);
+        var items = await AllowedOwnRequests(identity)
+            .Where(request => request.Status != RequestStatus.Cancelled)
+            .OrderByDescending(request => request.UpdatedAt)
+            .ThenBy(request => request.Id)
+            .Select(request => new OwnRequestItem(request.Id, request.Title,
+                request.Description, request.Status, request.UpdatedAt))
+            .ToArrayAsync(ct);
+        return OwnRequestsStatusText(items);
+    }
 
     private async Task<string> EligibleRequestsPage(
         WhatsAppSession session, ResolvedIdentity identity,
@@ -637,21 +617,16 @@ public sealed class WhatsAppConversationService(
                 : null;
     }
 
-    private static string OwnRequestsPageText(OwnRequestPage page)
+    private static string OwnRequestsStatusText(IReadOnlyList<OwnRequestItem> items)
     {
-        if (page.Total == 0)
-            return "Você ainda não possui solicitações registradas.\n\n0 - Voltar ao menu";
-        var items = string.Join("\n\n", page.Items.Select((item, index) =>
-            $"{index + 1} - {item.Title}\n"
+        if (items.Count == 0)
+            return "Você ainda não possui solicitações para consultar.\n\n0 - Voltar ao menu";
+        var content = string.Join("\n\n", items.Select(item =>
+            $"• {item.Title}\n"
             + $"Status: {FriendlyStatus(item.Status)}\n"
             + $"Atualizada em: {LocalDateTime(item.UpdatedAt)}"));
-        var navigation = new List<string>();
-        if (page.HasNext) navigation.Add("6 - Ver mais");
-        if (page.Page > 0) navigation.Add("7 - Página anterior");
-        navigation.Add("0 - Voltar ao menu");
-        return "Estas são suas solicitações mais recentes:\n\n"
-            + items + "\n\nDigite o número para ver os detalhes.\n\n"
-            + string.Join('\n', navigation);
+        return "Status de suas solicitações:\n\n"
+            + content + "\n\n0 - Voltar ao menu";
     }
 
     private static string EligibleRequestsPageText(OwnRequestPage page)
@@ -831,6 +806,31 @@ public sealed class WhatsAppConversationService(
             var description = message.MessageType == "audio"
                 ? "Áudio enviado pelo morador."
                 : "Anexo enviado pelo morador.";
+            if (message.MessageType == "audio")
+            {
+                try
+                {
+                    var transcription = await audioTranscription.TranscribeAsync(
+                        media.Content, validation.Name!, validation.ContentType!, ct);
+                    if (transcription.Succeeded
+                        && !string.IsNullOrWhiteSpace(transcription.Text)
+                        && transcription.Text.Length <= 4000)
+                    {
+                        description = transcription.Text;
+                    }
+                    else
+                    {
+                        logger.LogWarning(
+                            "Resident update audio transcription failed. Code: {Code}.",
+                            transcription.Code);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    logger.LogWarning(exception,
+                        "Resident update audio transcription failed unexpectedly; audio will remain available.");
+                }
+            }
             var requestMessage = new RequestMessage(
                 request.Id, identity.UserId, description,
                 MessageChannel.WhatsAppResidentUpdate);
@@ -1552,7 +1552,7 @@ public sealed class WhatsAppConversationService(
     private static string MainMenu(string fullName) =>
         $"Olá, {FirstName(fullName)}! Como posso ajudar?\n\n" +
         "1 - Abrir uma solicitação\n" +
-        "2 - Acompanhar minhas solicitações\n" +
+        "2 - Ver os status de minhas solicitações\n" +
         "3 - Falar sobre uma solicitação existente\n" +
         "4 - Falar com a administração\n\n" +
         "Digite o número da opção.\n\n" +

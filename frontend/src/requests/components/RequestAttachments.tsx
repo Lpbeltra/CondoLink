@@ -58,6 +58,8 @@ export function RequestAttachments({
   const [deleting, setDeleting] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [error, setError] = useState('')
+  const otherItems = items.filter(item =>
+    !item.contentType.toLowerCase().startsWith('audio/'))
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -180,7 +182,7 @@ export function RequestAttachments({
           mb={2}
         >
           <Box>
-            <Typography variant="h2">Anexos</Typography>
+            <Typography variant="h2">Outros anexos</Typography>
             <Typography color="text.secondary" fontSize=".875rem">
               Imagens e PDFs. Até 6 arquivos por envio e 15 MB por arquivo.
             </Typography>
@@ -293,7 +295,7 @@ export function RequestAttachments({
 
         {loading ? (
           <CircularProgress size={24} />
-        ) : items.length === 0 ? (
+        ) : otherItems.length === 0 ? (
           <Typography color="text.secondary">
             Nenhum anexo enviado.
           </Typography>
@@ -306,7 +308,7 @@ export function RequestAttachments({
             }}
             gap={1.5}
           >
-            {items.map(item => (
+            {otherItems.map(item => (
               <Box
                 key={item.id}
                 sx={{

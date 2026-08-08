@@ -142,4 +142,19 @@ describe('RequestAttachments', () => {
       name: 'Adicionar anexos',
     })).not.toBeInTheDocument()
   })
+
+  it('separates audio and keeps other attachments newest first', async () => {
+    attachmentApi.listRequestAttachments.mockResolvedValue([
+      { ...attachment('new'), originalFileName: 'novo.pdf', createdAt: '2026-08-03T10:00:00Z' },
+      { ...attachment('audio'), originalFileName: 'audio.ogg', contentType: 'audio/ogg', createdAt: '2026-08-02T10:00:00Z' },
+      { ...attachment('old'), originalFileName: 'antigo.pdf', createdAt: '2026-08-01T10:00:00Z' },
+    ])
+    render(<RequestAttachments requestId="request-id" readOnly />)
+
+    const newest = await screen.findByText('novo.pdf')
+    const oldest = screen.getByText('antigo.pdf')
+    expect(screen.queryByText('audio.ogg')).not.toBeInTheDocument()
+    expect(newest.compareDocumentPosition(oldest) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy()
+  })
 })

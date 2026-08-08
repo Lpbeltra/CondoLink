@@ -14,6 +14,9 @@ public static class GetRequestById
     {
         endpoints.MapGet("/requests/{id:guid}", HandleAsync)
             .RequireAuthorization();
+        endpoints.MapPost("/requests/{id:guid}/resident-update-acknowledgement",
+                AcknowledgeResidentUpdateAsync)
+            .RequireAuthorization();
 
         return endpoints;
     }
@@ -117,23 +120,6 @@ public static class GetRequestById
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
-        if (isCondominiumManager)
-        {
-            var viewedUpdates = await dbContext.Notifications
-                .Where(notification => notification.RequestId == id
-                    && notification.RecipientUserId == authenticatedUserId
-                    && notification.Type == NotificationType.ResidentRequestUpdated
-                    && notification.ReadAt == null)
-                .ToListAsync(cancellationToken);
-            if (viewedUpdates.Count > 0)
-            {
-                var viewedAt = DateTime.UtcNow;
-                foreach (var notification in viewedUpdates)
-                    notification.MarkAsRead(viewedAt);
-                await dbContext.SaveChangesAsync(cancellationToken);
-            }
-        }
-
         TargetUnitResponse? targetUnit = null;
 
         if (request.TargetUnitId.HasValue)
@@ -184,6 +170,7 @@ public static class GetRequestById
         OriginalReportResponse? originalReport = null;
         ResidentReplyRequirementResponse? residentReplyRequirement = null;
         var hasUnreadResidentReply = false;
+        var hasUnreadResidentUpdate = false;
         if (request.AuthorUserId == authenticatedUserId)
         {
             residentReplyRequirement = await dbContext.RequestResidentReplyRequirements
@@ -193,6 +180,11 @@ public static class GetRequestById
         }
         if (isCondominiumManager)
         {
+            hasUnreadResidentUpdate = await dbContext.Notifications
+                .AsNoTracking().AnyAsync(notification => notification.RequestId == id
+                    && notification.RecipientUserId == authenticatedUserId
+                    && notification.Type == NotificationType.ResidentRequestUpdated
+                    && notification.ReadAt == null, cancellationToken);
             hasUnreadResidentReply = await dbContext.RequestResidentReplyRequirements
                 .AsNoTracking().AnyAsync(x => x.RequestId == id && x.HasUnreadAnswer,
                     cancellationToken);
@@ -252,9 +244,50 @@ public static class GetRequestById
             aiAnalysis,
             originalReport,
             residentReplyRequirement,
-            hasUnreadResidentReply);
+            hasUnreadResidentReply,
+            hasUnreadResidentUpdate);
 
         return Results.Ok(response);
+    }
+
+    private static async Task<IResult> AcknowledgeResidentUpdateAsync(
+        Guid id, ClaimsPrincipal principal, AppDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!Guid.TryParse(value, out var userId)) return Results.Unauthorized();
+
+        var request = await dbContext.Requests.AsNoTracking()
+            .Where(item => item.Id == id)
+            .Select(item => new { item.CondominiumId })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (request is null) return Results.NotFound(new { error = "Request not found." });
+
+        var isManager = await dbContext.CondominiumMemberships.AsNoTracking()
+            .Where(membership => membership.UserId == userId
+                && membership.CondominiumId == request.CondominiumId
+                && membership.IsActive && membership.EndedAt == null)
+            .Join(dbContext.CondominiumMembershipRoles.AsNoTracking().Where(role =>
+                    role.Role == CondominiumRole.Manager && role.IsActive
+                    && role.RevokedAt == null),
+                membership => membership.Id, role => role.CondominiumMembershipId,
+                (_, _) => true)
+            .AnyAsync(cancellationToken);
+        if (!isManager) return Results.Forbid();
+
+        var notifications = await dbContext.Notifications
+            .Where(notification => notification.RequestId == id
+                && notification.RecipientUserId == userId
+                && notification.Type == NotificationType.ResidentRequestUpdated
+                && notification.ReadAt == null)
+            .ToListAsync(cancellationToken);
+        var acknowledgedAt = DateTime.UtcNow;
+        foreach (var notification in notifications)
+            notification.MarkAsRead(acknowledgedAt);
+        if (notifications.Count > 0)
+            await dbContext.SaveChangesAsync(cancellationToken);
+        return Results.NoContent();
     }
 
     public sealed record AuthorResponse(Guid Id, string FullName);
@@ -294,5 +327,6 @@ public static class GetRequestById
         RequestAiAnalysisResponse? AiAnalysis,
         OriginalReportResponse? OriginalReport,
         ResidentReplyRequirementResponse? ResidentReplyRequirement,
-        bool HasUnreadResidentReply);
+        bool HasUnreadResidentReply,
+        bool HasUnreadResidentUpdate);
 }

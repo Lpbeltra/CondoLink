@@ -90,7 +90,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Active_requirement_from_option_two_accepts_text_through_resident_reply_service()
+    public async Task Active_requirement_quick_reply_accepts_text_through_resident_reply_service()
     {
         var requestId = await _host.WithDbAsync(async db =>
         {
@@ -111,17 +111,6 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             return request.Id;
         });
 
-        await PostAsync(TextPayload("wamid.reply-menu", "Oi"));
-        await PostAsync(TextPayload("wamid.reply-list", "2"));
-        await PostAsync(TextPayload("wamid.reply-select", "1"));
-        Assert.Contains("Qual foi o horário?", _fake.Messages.Last().Text);
-        await _host.WithDbAsync(async db =>
-        {
-            var session = await db.WhatsAppSessions.SingleAsync();
-            db.Entry(session).Property(x => x.State).CurrentValue =
-                WhatsAppConversationState.MainMenu;
-            await db.SaveChangesAsync();
-        });
         await PostAsync(TemplateQuickReplyPayload("wamid.reply-now",
             "resident_reply_now", "Responder agora"));
         Assert.Contains("A administração precisa da seguinte informação:",
@@ -488,7 +477,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.own-empty-menu", "Menu"));
         await PostAsync(TextPayload("wamid.own-empty", "2"));
 
-        Assert.Equal("Você ainda não possui solicitações registradas.\n\n0 - Voltar ao menu",
+        Assert.Equal("Você ainda não possui solicitações para consultar.\n\n0 - Voltar ao menu",
             _fake.Messages.Last().Text);
         Assert.Equal(WhatsAppConversationState.ListingOwnRequests,
             await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
@@ -556,7 +545,50 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             Assert.Equal(WhatsAppConversationState.Ended, session.State);
             Assert.Null(session.RequestId);
         });
-        Assert.Equal(0, _transcription.Calls);
+        Assert.Equal(1, _transcription.Calls);
+        await _host.WithDbAsync(async db =>
+        {
+            var audio = await db.RequestAttachments.SingleAsync(x =>
+                x.RequestId == requestId && x.ContentType == "audio/ogg");
+            var audioMessage = await db.RequestMessages.SingleAsync(x =>
+                x.Id == audio.RequestMessageId);
+            Assert.Equal("Transcrição do relato em áudio.", audioMessage.Content);
+            Assert.Equal(MessageChannel.WhatsAppResidentUpdate, audioMessage.Channel);
+        });
+    }
+
+    [Fact]
+    public async Task Spontaneous_update_keeps_audio_when_transcription_fails()
+    {
+        var requestId = await _host.WithDbAsync(async db =>
+        {
+            var category = new Category(_condominiumId, "Manutenção", null);
+            var request = new CondoLink.Domain.Entities.Request(
+                _condominiumId, _userId, _unitId, category.Id,
+                "Interfone", "Relato original");
+            db.AddRange(category, request);
+            await db.SaveChangesAsync();
+            return request.Id;
+        });
+        await PostAsync(TextPayload("wamid.failed-update-menu", "Menu"));
+        await PostAsync(TextPayload("wamid.failed-update-option", "3"));
+        await PostAsync(TextPayload("wamid.failed-update-select", "1"));
+        _transcription.Result = new(false, null, "provider_error");
+        _fake.Media = new WhatsAppMediaResult(true, [1, 2, 3], "audio/ogg", null);
+
+        await PostAsync(MediaPayload("wamid.failed-update-audio", "failed-update-audio",
+            "audio", "audio/ogg", "audio.ogg"));
+
+        await _host.WithDbAsync(async db =>
+        {
+            var attachment = await db.RequestAttachments.SingleAsync(x =>
+                x.RequestId == requestId && x.ContentType == "audio/ogg");
+            var message = await db.RequestMessages.SingleAsync(x =>
+                x.Id == attachment.RequestMessageId);
+            Assert.Equal("Áudio enviado pelo morador.", message.Content);
+            Assert.Equal(MessageChannel.WhatsAppResidentUpdate, message.Channel);
+        });
+        Assert.Equal(1, _transcription.Calls);
     }
 
     [Fact]
@@ -580,102 +612,45 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Own_requests_are_isolated_ordered_and_paginated_with_local_choices()
+    public async Task Status_query_lists_all_non_cancelled_requests_in_one_message_with_only_back()
     {
-        await SeedOwnRequests(7);
+        var requestIds = await SeedOwnRequests(7);
+        await _host.WithDbAsync(db => db.Requests
+            .Where(request => request.Id == requestIds[1])
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(request => request.Status, RequestStatus.Cancelled)));
         await SeedInaccessibleRequests();
         await PostAsync(TextPayload("wamid.own-list-menu", "Menu"));
         await PostAsync(TextPayload("wamid.own-list", "2"));
 
-        var first = _fake.Messages.Last().Text;
-        Assert.Contains("Estas são suas solicitações mais recentes", first);
-        Assert.Contains("1 - Solicitação 7", first);
-        Assert.Contains("5 - Solicitação 3", first);
-        Assert.Contains("Status: Aberta", first);
-        Assert.Contains("6 - Ver mais", first);
-        Assert.DoesNotContain("Solicitação externa", first);
-        Assert.DoesNotContain(_userId.ToString(), first);
-
-        await PostAsync(TextPayload("wamid.own-next", "6"));
-        var second = _fake.Messages.Last().Text;
-        Assert.Contains("1 - Solicitação 2", second);
-        Assert.Contains("2 - Solicitação 1", second);
-        Assert.Contains("Status: Resolvida", second);
-        Assert.Contains("7 - Página anterior", second);
-
-        await PostAsync(TextPayload("wamid.own-previous", "7"));
-        Assert.Contains("1 - Solicitação 7", _fake.Messages.Last().Text);
-        Assert.Equal(0, await _host.WithDbAsync(db => db.WhatsAppSessions
-            .Select(x => x.Page).SingleAsync()));
+        var result = _fake.Messages.Last().Text;
+        Assert.Contains("Status de suas solicitações", result);
+        Assert.Contains("Solicitação 7", result);
+        Assert.Contains("Solicitação 1", result);
+        Assert.DoesNotContain("Solicitação 2", result);
+        Assert.DoesNotContain("Solicitação externa", result);
+        Assert.Contains("Status: Aberta", result);
+        Assert.Contains("Status: Resolvida", result);
+        Assert.Contains("Atualizada em:", result);
+        Assert.EndsWith("0 - Voltar ao menu", result);
+        Assert.DoesNotContain("6 - Ver mais", result);
+        Assert.DoesNotContain("7 - Página anterior", result);
+        Assert.DoesNotContain("Digite o número", result);
     }
 
     [Fact]
-    public async Task Own_request_selection_shows_safe_details_and_handles_invalid_choice()
+    public async Task Status_query_does_not_open_a_request_or_start_a_conversation()
     {
         await SeedOwnRequests(1);
         await PostAsync(TextPayload("wamid.own-details-menu", "Menu"));
         await PostAsync(TextPayload("wamid.own-details-list", "2"));
-        await PostAsync(TextPayload("wamid.own-details-invalid", "5"));
-        Assert.Contains("Escolha uma opção válida", _fake.Messages.Last().Text);
-
         await PostAsync(TextPayload("wamid.own-details-select", "1"));
-        var details = _fake.Messages.Last().Text;
-        Assert.Contains("*Título:*\nSolicitação 1", details);
-        Assert.Contains("*Status:*\nResolvida", details);
-        Assert.Contains("*Descrição:*\nDescrição 1", details);
-        Assert.Contains("*Última atualização:*", details);
-        Assert.Contains("1 - Ver atualizações", details);
-        Assert.DoesNotContain("Prioridade", details);
-        Assert.DoesNotContain("Confidence", details);
-        Assert.Equal(WhatsAppConversationState.ViewingOwnRequest,
+        var response = _fake.Messages.Last().Text;
+        Assert.Contains("Escolha uma opção válida", response);
+        Assert.Contains("Status de suas solicitações", response);
+        Assert.DoesNotContain("*Descrição:*", response);
+        Assert.Equal(WhatsAppConversationState.ListingOwnRequests,
             await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
-    }
-
-    [Fact]
-    public async Task Own_request_updates_hide_original_report_and_staff_identity()
-    {
-        var requestId = Assert.Single(await SeedOwnRequests(1));
-        await _host.WithDbAsync(async db =>
-        {
-            var staff = CoreTestSeed.User("Funcionário Nome Completo", "staff-updates@example.com");
-            db.Users.Add(staff);
-            db.RequestMessages.Add(new RequestMessage(
-                requestId, _userId, "Relato original", MessageChannel.WhatsApp));
-            for (var index = 1; index <= 6; index++)
-                db.RequestMessages.Add(new RequestMessage(
-                    requestId, staff.Id, $"Atualização {index}"));
-            await db.SaveChangesAsync();
-        });
-        await PostAsync(TextPayload("wamid.updates-menu", "Menu"));
-        await PostAsync(TextPayload("wamid.updates-list", "2"));
-        await PostAsync(TextPayload("wamid.updates-details", "1"));
-        await PostAsync(TextPayload("wamid.updates-open", "1"));
-
-        var updates = _fake.Messages.Last().Text;
-        Assert.Contains("Atualizações da solicitação", updates);
-        Assert.DoesNotContain("Relato original", updates);
-        Assert.DoesNotContain("Atualização 1", updates);
-        Assert.Contains("Atualização 2", updates);
-        Assert.Contains("Atualização 6", updates);
-        Assert.Contains("Administração", updates);
-        Assert.DoesNotContain("Funcionário Nome Completo", updates);
-        Assert.True(updates.IndexOf("Atualização 2", StringComparison.Ordinal)
-            < updates.IndexOf("Atualização 6", StringComparison.Ordinal));
-
-        await PostAsync(TextPayload("wamid.updates-back", "1"));
-        Assert.Contains("*Título:*", _fake.Messages.Last().Text);
-    }
-
-    [Fact]
-    public async Task Own_request_without_messages_reports_no_updates()
-    {
-        await SeedOwnRequests(1);
-        await PostAsync(TextPayload("wamid.no-updates-menu", "Menu"));
-        await PostAsync(TextPayload("wamid.no-updates-list", "2"));
-        await PostAsync(TextPayload("wamid.no-updates-details", "1"));
-        await PostAsync(TextPayload("wamid.no-updates-open", "1"));
-
-        Assert.Contains("Ainda não há novas atualizações", _fake.Messages.Last().Text);
     }
 
     [Fact]
@@ -715,31 +690,6 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             .Select(x => x.State).SingleAsync()));
         Assert.Equal(0, await _host.WithDbAsync(db => db.WhatsAppSessions
             .Select(x => x.Page).SingleAsync()));
-    }
-
-    [Fact]
-    public async Task Invalid_persisted_page_is_clamped_and_duplicate_selection_is_idempotent()
-    {
-        await SeedOwnRequests(1);
-        await PostAsync(TextPayload("wamid.page-menu", "Menu"));
-        await PostAsync(TextPayload("wamid.page-list", "2"));
-        await _host.WithDbAsync(async db =>
-        {
-            var session = await db.WhatsAppSessions.SingleAsync();
-            session.SetPage(999, DateTime.UtcNow, DateTime.UtcNow.AddMinutes(30));
-            await db.SaveChangesAsync();
-        });
-        await PostAsync(TextPayload("wamid.page-invalid", "9"));
-        Assert.Equal(0, await _host.WithDbAsync(db => db.WhatsAppSessions
-            .Select(x => x.Page).SingleAsync()));
-
-        var payload = TextPayload("wamid.idempotent-own-selection", "1");
-        await PostAsync(payload);
-        var sent = _fake.Messages.Count;
-        await PostAsync(payload);
-        Assert.Equal(sent, _fake.Messages.Count);
-        Assert.Equal(WhatsAppConversationState.ViewingOwnRequest,
-            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
     }
 
     [Theory]

@@ -13,6 +13,7 @@ export function RequestConversation({ requestId, status, messages, onMessageCrea
   const [error, setError] = useState('')
   const [isSending, setIsSending] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
+  const timelineMessages = messages.filter(message => message.author.isManager)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }) }, [messages.length])
 
@@ -35,8 +36,8 @@ export function RequestConversation({ requestId, status, messages, onMessageCrea
   return (
     <Box>
       <Stack spacing={2} mb={3}>
-        {messages.length === 0 && <Typography color="text.secondary">Ainda não há atualizações nesta solicitação.</Typography>}
-        {messages.map((message) => (
+        {timelineMessages.length === 0 && <Typography color="text.secondary">Ainda não há atualizações nesta solicitação.</Typography>}
+        {timelineMessages.map((message) => (
           <Box key={message.id} borderLeft="4px solid" borderColor={getUpdateMarkerColor(message)} pl={2} py={.5}>
             <Typography fontWeight={750} fontSize=".8rem">{message.author.fullName}</Typography>
             <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.content}</Typography>

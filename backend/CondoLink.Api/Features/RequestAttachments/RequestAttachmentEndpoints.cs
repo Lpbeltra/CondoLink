@@ -92,7 +92,7 @@ public static class RequestAttachmentEndpoints
             .Where(x => x.RequestId == requestId)
             .Join(dbContext.Set<ApplicationUser>().AsNoTracking(), x => x.UploadedByUserId, u => u.Id,
                 (x, u) => new { Attachment = x, u.FullName })
-            .OrderBy(x => x.Attachment.CreatedAt).ThenBy(x => x.Attachment.Id)
+            .OrderByDescending(x => x.Attachment.CreatedAt).ThenByDescending(x => x.Attachment.Id)
             .ToListAsync(cancellationToken);
         return Results.Ok(rows.Select(x => ToResponse(x.Attachment, x.FullName)).ToArray());
     }
@@ -138,6 +138,7 @@ public static class RequestAttachmentEndpoints
     }
 
     private static Response ToResponse(RequestAttachment x, string fullName) => new(x.Id, x.RequestId,
+        x.RequestMessageId,
         x.OriginalFileName, x.ContentType, x.FileSize, new UploadedByResponse(x.UploadedByUserId, fullName),
         x.CreatedAt, $"/request-attachments/{x.Id}/content");
 
@@ -183,6 +184,7 @@ public static class RequestAttachmentEndpoints
         bool IsManager,
         IResult? Error);
     public sealed record UploadedByResponse(Guid Id, string FullName);
-    public sealed record Response(Guid Id, Guid RequestId, string OriginalFileName, string ContentType,
+    public sealed record Response(Guid Id, Guid RequestId, Guid? RequestMessageId,
+        string OriginalFileName, string ContentType,
         long FileSize, UploadedByResponse UploadedBy, DateTime CreatedAt, string ContentUrl);
 }

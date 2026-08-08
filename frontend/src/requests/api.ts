@@ -23,6 +23,10 @@ export async function getRequest(requestId: string) {
   return (await api.get<RequestDetails>(`/requests/${requestId}`)).data
 }
 
+export async function acknowledgeResidentUpdate(requestId: string) {
+  await api.post(`/requests/${requestId}/resident-update-acknowledgement`)
+}
+
 export async function listRequestMessages(requestId: string) {
   return (await api.get<RequestMessage[]>(`/requests/${requestId}/messages`)).data
 }
