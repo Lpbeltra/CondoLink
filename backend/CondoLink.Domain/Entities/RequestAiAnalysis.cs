@@ -40,6 +40,27 @@ public sealed class RequestAiAnalysis
     public string? AiModel { get; private set; }
     public DateTime CreatedAt { get; private set; }
 
+    public void Refresh(string generatedTitle, string generatedDescription,
+        string? suggestedCategoryName, double? confidence,
+        string missingInformationJson, string? aiModel)
+    {
+        if (string.IsNullOrWhiteSpace(generatedTitle))
+            throw new ArgumentException("GeneratedTitle is required.", nameof(generatedTitle));
+        if (string.IsNullOrWhiteSpace(generatedDescription))
+            throw new ArgumentException("GeneratedDescription is required.", nameof(generatedDescription));
+        if (string.IsNullOrWhiteSpace(missingInformationJson))
+            throw new ArgumentException("MissingInformationJson is required.", nameof(missingInformationJson));
+        if (confidence is < 0 or > 1)
+            throw new ArgumentOutOfRangeException(nameof(confidence));
+        GeneratedTitle = generatedTitle.Trim();
+        GeneratedDescription = generatedDescription.Trim();
+        SuggestedCategoryName = Optional(suggestedCategoryName);
+        Confidence = confidence;
+        MissingInformationJson = missingInformationJson;
+        AiModel = Optional(aiModel);
+        CreatedAt = DateTime.UtcNow;
+    }
+
     private static string? Optional(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

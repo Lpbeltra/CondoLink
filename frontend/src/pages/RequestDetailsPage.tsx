@@ -17,6 +17,7 @@ import { canViewInternalRequestDetails, RequestAiAssistant } from '../requests/c
 import { OriginalReportAccordion } from '../requests/components/OriginalReportAccordion'
 import { ResidentReplyPanel } from '../requests/components/ResidentReplyPanel'
 import { ResidentUpdateAcknowledgement } from '../requests/components/ResidentUpdateAcknowledgement'
+import { useVisiblePolling } from '../hooks/useVisiblePolling'
 
 interface RequestDetailsPageProps {
   managementCondominiumId?: string | null
@@ -36,19 +37,21 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
   const expectedCondominiumId = managementMode ? managementCondominiumId : currentCondominium?.condominium.id
   const returnPath = managementMode || (location.state as { fromManagement?: boolean } | null)?.fromManagement ? '/management/requests' : '/requests'
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     const version = ++loadVersion.current
     if (!managementMode && !expectedCondominiumId) { setDetails(null); setMessages([]); setIsLoading(false); return }
-    setIsLoading(true); setError(''); setDetails(null); setMessages([])
+    if (!silent) { setIsLoading(true); setError(''); setDetails(null); setMessages([]) }
     try {
       const [request, conversation] = await Promise.all([getRequest(requestId), listRequestMessages(requestId)])
       if (version !== loadVersion.current) return
       setDetails(request); setMessages(conversation)
-    } catch (requestError) { if (version === loadVersion.current) setError(getRequestError(requestError)) }
-    finally { if (version === loadVersion.current) setIsLoading(false) }
+    } catch (requestError) { if (!silent && version === loadVersion.current) setError(getRequestError(requestError)) }
+    finally { if (!silent && version === loadVersion.current) setIsLoading(false) }
   }, [expectedCondominiumId, managementMode, requestId])
 
   useEffect(() => { void load() }, [load])
+  const poll = useCallback(() => { void load(true) }, [load])
+  useVisiblePolling(poll)
   const wrongContext = !managementMode && details && details.condominiumId !== expectedCondominiumId
 
   if (isLoading) return <PageContainer><Skeleton variant="rounded" height={420} /></PageContainer>

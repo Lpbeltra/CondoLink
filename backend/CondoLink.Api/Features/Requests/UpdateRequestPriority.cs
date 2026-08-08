@@ -23,6 +23,7 @@ public static class UpdateRequestPriority
         RequestDto request,
         ClaimsPrincipal principal,
         AppDbContext dbContext,
+        IServiceProvider services,
         CancellationToken cancellationToken)
     {
         var authenticatedUserIdValue =
@@ -111,6 +112,9 @@ public static class UpdateRequestPriority
 
         targetRequest.ChangePriority(newPriority, DateTime.UtcNow);
         await dbContext.SaveChangesAsync(cancellationToken);
+        if (services.GetService<RequestAiAnalysisRefresher>() is { } refresher)
+            await refresher.RefreshAsync(targetRequest.Id, "priority_changed",
+                cancellationToken);
 
         return Results.Ok(new Response(
             targetRequest.Id,

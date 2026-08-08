@@ -9,7 +9,8 @@ using Microsoft.EntityFrameworkCore;
 namespace CondoLink.Api.Features.Requests;
 
 public sealed class ResidentReplyService(AppDbContext dbContext, LocalFileStorage storage,
-    NotificationService notifications)
+    NotificationService notifications,
+    RequestAiAnalysisRefresher? analysisRefresher = null)
 {
     public async Task<Result> ReplyAsync(Guid requestId, Guid userId, string? text,
         IReadOnlyList<ReplyFile> files, MessageChannel channel, CancellationToken cancellationToken)
@@ -86,6 +87,9 @@ public sealed class ResidentReplyService(AppDbContext dbContext, LocalFileStorag
                 request.AuthorUserId, request.Title, userId, content ?? "Anexo enviado pelo morador.",
                 cancellationToken, message.Id, channel);
             await transaction.CommitAsync(cancellationToken);
+            if (analysisRefresher is not null)
+                await analysisRefresher.RefreshAsync(requestId,
+                    "resident_reply", cancellationToken);
             return new(ResultCode.Succeeded, null, message.Id);
         }
         catch

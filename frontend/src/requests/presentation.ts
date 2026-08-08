@@ -4,7 +4,8 @@ import type { RequestListItem, RequestPriority, RequestStatus } from './types'
 export const statusPresentation: Record<RequestStatus, { label: string; color: 'info' | 'warning' | 'secondary' | 'success' | 'default' }> = {
   Open: { label: 'Aberta', color: 'info' },
   InProgress: { label: 'Em andamento', color: 'secondary' },
-  WaitingForResident: { label: 'Aguardando você', color: 'warning' },
+  WaitingForResident: { label: 'Aguardando morador', color: 'warning' },
+  WaitingForManager: { label: 'Aguardando você', color: 'warning' },
   WaitingForThirdParty: { label: 'Aguardando terceiro', color: 'warning' },
   Resolved: { label: 'Resolvida', color: 'success' },
   Cancelled: { label: 'Cancelada', color: 'default' },
@@ -45,9 +46,10 @@ export function isClosedRequest(status: RequestStatus) {
 
 export const allowedStatusTransitions: Record<RequestStatus, RequestStatus[]> = {
   Open: ['InProgress', 'Resolved', 'Cancelled'],
-  InProgress: ['WaitingForResident', 'WaitingForThirdParty', 'Resolved', 'Cancelled'],
+  InProgress: ['WaitingForResident', 'WaitingForManager', 'WaitingForThirdParty', 'Resolved', 'Cancelled'],
   WaitingForResident: ['InProgress', 'Resolved', 'Cancelled'],
   WaitingForThirdParty: ['InProgress', 'Resolved', 'Cancelled'],
+  WaitingForManager: ['InProgress', 'Resolved', 'Cancelled'],
   Resolved: ['Open'],
   Cancelled: ['Open'],
 }

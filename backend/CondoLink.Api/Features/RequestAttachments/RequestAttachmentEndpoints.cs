@@ -25,6 +25,7 @@ public static class RequestAttachmentEndpoints
 
     private static async Task<IResult> UploadAsync(Guid requestId, HttpRequest request,
         ClaimsPrincipal principal, AppDbContext dbContext, LocalFileStorage storage,
+        IServiceProvider services,
         CancellationToken cancellationToken)
     {
         var access = await CheckAccessAsync(requestId, principal, dbContext, cancellationToken);
@@ -72,6 +73,10 @@ public static class RequestAttachmentEndpoints
             }
             dbContext.RequestAttachments.AddRange(attachments);
             await dbContext.SaveChangesAsync(cancellationToken);
+            if (services.GetService<CondoLink.Api.Features.Requests.RequestAiAnalysisRefresher>()
+                is { } refresher)
+                await refresher.RefreshAsync(requestId, "attachments_uploaded",
+                    cancellationToken);
             return Results.Created($"/requests/{requestId}/attachments",
                 attachments.Select(x => ToResponse(x, access.FullName)).ToArray());
         }

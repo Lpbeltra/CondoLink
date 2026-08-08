@@ -696,6 +696,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     [InlineData(RequestStatus.Open, "Aberta")]
     [InlineData(RequestStatus.InProgress, "Em andamento")]
     [InlineData(RequestStatus.WaitingForResident, "Aguardando informações do morador")]
+    [InlineData(RequestStatus.WaitingForManager, "Aguardando administração")]
     [InlineData(RequestStatus.WaitingForThirdParty, "Aguardando terceiro")]
     [InlineData(RequestStatus.Resolved, "Resolvida")]
     [InlineData(RequestStatus.Cancelled, "Cancelada")]
@@ -1908,6 +1909,11 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             CondominiumName = condominiumName;
             return Task.FromResult(Result);
         }
+
+        public Task<ResidentStatusSynthesisResult> SynthesizeResidentStatusAsync(
+            string requestTitle, string newStatus, string reason,
+            CancellationToken cancellationToken) => Task.FromResult(
+                new ResidentStatusSynthesisResult(false, null, "not_configured"));
     }
 
     private sealed class FakeAudioTranscriptionService

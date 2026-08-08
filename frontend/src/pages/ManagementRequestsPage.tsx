@@ -14,9 +14,10 @@ import { applySummaryFilter, selectManagementRequests, sortManagementRequests } 
 import { getRequestError, priorityPresentation, statusPresentation } from '../requests/presentation'
 import type { ManagementRequestsResponse, RequestStatus } from '../requests/types'
 import { clearManagementRequestFilters, parseManagementRequestFilters, setManagementRequestFilter, syncCondominiumFilter } from '../requests/managementRequestFilters'
+import { useVisiblePolling } from '../hooks/useVisiblePolling'
 
 const summaries = [
-  ['Abertas', 'open', 'Open'], ['Em andamento', 'inProgress', 'InProgress'], ['Aguardando morador', 'waitingForResident', 'WaitingForResident'], ['Aguardando terceiro', 'waitingForThirdParty', 'WaitingForThirdParty'], ['Resolvidas', 'resolved', 'Resolved'], ['Canceladas', 'cancelled', 'Cancelled'],
+  ['Abertas', 'open', 'Open'], ['Em andamento', 'inProgress', 'InProgress'], ['Aguardando morador', 'waitingForResident', 'WaitingForResident'], ['Aguardando você', 'waitingForManager', 'WaitingForManager'], ['Aguardando terceiro', 'waitingForThirdParty', 'WaitingForThirdParty'], ['Resolvidas', 'resolved', 'Resolved'], ['Canceladas', 'cancelled', 'Cancelled'],
 ] as const
 
 export function ManagementRequestsPage() {
@@ -81,9 +82,9 @@ export function ManagementRequestsPage() {
 
   // The active condominium is both sent to the API and kept as a dependency:
   // without it, switching condominium left another tenant's requests on screen.
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     const version = ++loadVersion.current
-    setIsLoading(true); setError(''); setData(null)
+    if (!silent) { setIsLoading(true); setError(''); setData(null) }
     try { const result = await listManagementRequests({ status: status || undefined, priority: priority || undefined, condominiumId: activeCondominiumId ?? undefined }); if (version === loadVersion.current) setData(result) }
     catch (requestError) {
       if (version !== loadVersion.current) return
@@ -91,12 +92,14 @@ export function ManagementRequestsPage() {
         [403, 404, 409].includes(requestError.response?.status ?? 0)) {
         await refreshManagementContext()
       }
-      if (version === loadVersion.current) setError(getRequestError(requestError))
+      if (!silent && version === loadVersion.current) setError(getRequestError(requestError))
     }
-    finally { if (version === loadVersion.current) setIsLoading(false) }
+    finally { if (!silent && version === loadVersion.current) setIsLoading(false) }
   }, [activeCondominiumId, priority, refreshManagementContext, status])
 
   useEffect(() => { void load() }, [load])
+  const poll = useCallback(() => { void load(true) }, [load])
+  useVisiblePolling(poll)
   const setFilter=(key:'status'|'priority'|'categoryId'|'search'|'sort'|'direction',value:string)=>setSearchParams(setManagementRequestFilter(searchParams,key,value))
   const setCategory=(value:string)=>setFilter('categoryId',value)
   const clearFilters = () => setSearchParams(clearManagementRequestFilters(searchParams))

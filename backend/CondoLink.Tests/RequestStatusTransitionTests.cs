@@ -51,6 +51,7 @@ public sealed class RequestStatusTransitionTests
                      RequestStatus.Open,
                      RequestStatus.InProgress,
                      RequestStatus.WaitingForResident,
+                     RequestStatus.WaitingForManager,
                      RequestStatus.WaitingForThirdParty
                  })
         {

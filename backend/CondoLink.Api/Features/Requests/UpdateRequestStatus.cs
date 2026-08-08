@@ -26,6 +26,7 @@ public static class UpdateRequestStatus
         ClaimsPrincipal principal,
         AppDbContext dbContext,
         NotificationService notifications,
+        IServiceProvider services,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -184,6 +185,10 @@ public static class UpdateRequestStatus
                 NotificationService.StatusNotificationType(previousStatus, targetRequest.Status),
                 "Stopped", "NotificationServiceFailed");
         }
+
+        if (services.GetService<RequestAiAnalysisRefresher>() is { } refresher)
+            await refresher.RefreshAsync(targetRequest.Id, "status_changed",
+                cancellationToken);
 
         return Results.Ok(new Response(
             targetRequest.Id,

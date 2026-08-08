@@ -8,6 +8,7 @@ const statuses: RequestStatus[] = [
   'Open',
   'InProgress',
   'WaitingForResident',
+  'WaitingForManager',
   'WaitingForThirdParty',
   'Resolved',
   'Cancelled',

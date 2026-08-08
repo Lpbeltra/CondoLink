@@ -25,6 +25,7 @@ public static class RequestMetrics
         RequestStatus.Open,
         RequestStatus.InProgress,
         RequestStatus.WaitingForResident,
+        RequestStatus.WaitingForManager,
         RequestStatus.WaitingForThirdParty
     ];
 

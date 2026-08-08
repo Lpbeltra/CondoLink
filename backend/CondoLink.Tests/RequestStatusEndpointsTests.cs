@@ -377,6 +377,25 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Waiting_for_manager_does_not_create_a_resident_reply_requirement()
+    {
+        await _host.WithDbAsync(db => db.Requests.Where(x => x.Id == _requestId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.Status, RequestStatus.InProgress)));
+
+        var response = await _host.ClientFor(_managerId).PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "WaitingForManager" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(await _host.WithDbAsync(db =>
+            db.RequestResidentReplyRequirements.AsNoTracking().ToArrayAsync()));
+        Assert.Equal(RequestStatus.WaitingForManager,
+            await _host.WithDbAsync(db => db.Requests
+                .Where(x => x.Id == _requestId).Select(x => x.Status).SingleAsync()));
+    }
+
+    [Fact]
     public async Task Administrative_transition_away_from_waiting_closes_requirement_without_answer()
     {
         await _host.WithDbAsync(db => db.Requests.Where(x => x.Id == _requestId)

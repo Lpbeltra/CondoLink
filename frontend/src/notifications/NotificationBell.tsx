@@ -15,9 +15,7 @@ import {
   markAllReadLocally, markReadLocally, notificationLink,
 } from './presentation'
 import type { AppNotification } from './types'
-
-/** How often the unread count refreshes while the app is open. */
-const pollIntervalMs = 60_000
+import { useVisiblePolling } from '../hooks/useVisiblePolling'
 
 export function NotificationBell() {
   const navigate = useNavigate()
@@ -42,15 +40,14 @@ export function NotificationBell() {
     }
   }, [])
 
-  // Poll while mounted so the badge stays roughly current.
   useEffect(() => {
     void refresh()
-    const timer = window.setInterval(() => { void refresh() }, pollIntervalMs)
     return () => {
-      window.clearInterval(timer)
       loadVersion.current += 1
     }
   }, [refresh])
+  const poll = useCallback(() => { void refresh() }, [refresh])
+  useVisiblePolling(poll)
 
   const open = async (event: React.MouseEvent<HTMLElement>) => {
     setAnchor(event.currentTarget)

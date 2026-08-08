@@ -1,4 +1,4 @@
-export type RequestStatus = 'Open' | 'InProgress' | 'WaitingForResident' | 'WaitingForThirdParty' | 'Resolved' | 'Cancelled'
+export type RequestStatus = 'Open' | 'InProgress' | 'WaitingForResident' | 'WaitingForManager' | 'WaitingForThirdParty' | 'Resolved' | 'Cancelled'
 export type RequestPriority = 'Normal' | 'High' | 'Urgent'
 
 export interface Category { id: string; condominiumId: string; name: string; description: string | null }
@@ -115,6 +115,7 @@ export interface RequestCounts {
   open: number
   inProgress: number
   waitingForResident: number
+  waitingForManager: number
   waitingForThirdParty: number
   resolved: number
   cancelled: number

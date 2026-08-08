@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CondoLink.Api.Features.Notifications;
+using CondoLink.Api.Features.Requests;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
@@ -26,6 +27,7 @@ public static class CreateRequestMessage
         ClaimsPrincipal principal,
         AppDbContext dbContext,
         NotificationService notifications,
+        IServiceProvider services,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -159,6 +161,10 @@ public static class CreateRequestMessage
                     "Failed to notify message on request {RequestId}.",
                     requestId);
         }
+        if (services.GetService<RequestAiAnalysisRefresher>() is { } refresher)
+            await refresher.RefreshAsync(requestId,
+                isCondominiumManager ? "manager_message" : "resident_message",
+                cancellationToken);
 
         var authorIsManager = await dbContext.CondominiumMemberships
             .AsNoTracking()

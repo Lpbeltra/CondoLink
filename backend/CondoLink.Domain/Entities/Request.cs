@@ -134,6 +134,7 @@ public sealed class Request
                     or RequestStatus.Cancelled,
             RequestStatus.InProgress =>
                 newStatus is RequestStatus.WaitingForResident
+                    or RequestStatus.WaitingForManager
                     or RequestStatus.WaitingForThirdParty
                     or RequestStatus.Resolved
                     or RequestStatus.Cancelled,
@@ -142,6 +143,10 @@ public sealed class Request
                     or RequestStatus.Resolved
                     or RequestStatus.Cancelled,
             RequestStatus.WaitingForThirdParty =>
+                newStatus is RequestStatus.InProgress
+                    or RequestStatus.Resolved
+                    or RequestStatus.Cancelled,
+            RequestStatus.WaitingForManager =>
                 newStatus is RequestStatus.InProgress
                     or RequestStatus.Resolved
                     or RequestStatus.Cancelled,

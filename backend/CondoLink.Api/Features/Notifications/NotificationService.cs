@@ -16,7 +16,8 @@ namespace CondoLink.Api.Features.Notifications;
 public sealed class NotificationService(
     AppDbContext dbContext,
     WhatsAppNotificationDispatcher? whatsApp = null,
-    ILogger<NotificationService>? logger = null)
+    ILogger<NotificationService>? logger = null,
+    IRequestDraftAiService? ai = null)
 {
     /// <summary>
     /// Notifies the managers of a condominium that a new request was opened.
@@ -53,9 +54,19 @@ public sealed class NotificationService(
         Guid? statusHistoryId = null,
         string? reason = null)
     {
+        if (statusHistoryId.HasValue && await dbContext.WhatsAppOutboundMessages
+            .AsNoTracking().AnyAsync(message => message.IdempotencyKey
+                == $"request-status:{statusHistoryId}", cancellationToken))
+        {
+            logger?.LogInformation(
+                "Status notification skipped as duplicate. RequestId: {RequestId}; NewStatus: {NewStatus}.",
+                request.Id, request.Status);
+            return;
+        }
         var content = request.Status == RequestStatus.WaitingForResident
             ? ResidentReplyRequestedContent(request.Title, reason!)
-            : StatusChangedContent(request.Title, previousStatus, request.Status, reason);
+            : await StatusContentAsync(request, previousStatus, reason,
+                cancellationToken);
 
         dbContext.Notifications.Add(new Notification(
             request.AuthorUserId,
@@ -93,7 +104,45 @@ public sealed class NotificationService(
                 request.Id, type, $"request-status:{statusHistoryId}",
                 content,
                 null, cancellationToken);
+            logger?.LogInformation(
+                "WhatsApp notification enqueue completed. RequestId: {RequestId}; NewStatus: {NewStatus}; NotificationType: {NotificationType}.",
+                request.Id, request.Status, type);
         }
+    }
+
+    private async Task<string> StatusContentAsync(DomainRequest request,
+        RequestStatus previousStatus, string? reason,
+        CancellationToken cancellationToken)
+    {
+        if (request.Status != RequestStatus.WaitingForThirdParty
+            || string.IsNullOrWhiteSpace(reason))
+            return StatusChangedContent(request.Title, previousStatus,
+                request.Status, reason);
+        try
+        {
+            var result = ai is null
+                ? new ResidentStatusSynthesisResult(false, null, "unavailable")
+                : await ai.SynthesizeResidentStatusAsync(request.Title,
+                    Describe(request.Status), reason.Trim(), cancellationToken);
+            if (result.Succeeded && !string.IsNullOrWhiteSpace(result.Message))
+            {
+                logger?.LogInformation(
+                    "Resident status synthesis succeeded. RequestId: {RequestId}; NewStatus: {NewStatus}; Model: {Model}; Delivery: {Delivery}.",
+                    request.Id, request.Status, result.Model, "AI");
+                return result.Message;
+            }
+            logger?.LogWarning(
+                "Resident status synthesis used fallback. RequestId: {RequestId}; NewStatus: {NewStatus}; Outcome: {Outcome}; Delivery: {Delivery}.",
+                request.Id, request.Status, result.Outcome, "Fallback");
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger?.LogWarning(
+                "Resident status synthesis used fallback. RequestId: {RequestId}; NewStatus: {NewStatus}; FailureType: {FailureType}; Delivery: {Delivery}.",
+                request.Id, request.Status, exception.GetType().Name, "Fallback");
+        }
+        return $"Seu atendimento foi atualizado para '{Describe(request.Status)}'. "
+            + "A administração continuará acompanhando a solicitação.";
     }
 
     /// <summary>
@@ -197,6 +246,7 @@ public sealed class NotificationService(
         RequestStatus.Open => "Aberta",
         RequestStatus.InProgress => "Em andamento",
         RequestStatus.WaitingForResident => "Aguardando morador",
+        RequestStatus.WaitingForManager => "Aguardando você",
         RequestStatus.WaitingForThirdParty => "Aguardando terceiro",
         RequestStatus.Resolved => "Resolvida",
         RequestStatus.Cancelled => "Cancelada",

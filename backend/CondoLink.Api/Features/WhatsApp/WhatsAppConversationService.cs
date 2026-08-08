@@ -23,7 +23,8 @@ public sealed class WhatsAppConversationService(
     CondoLink.Api.Features.Requests.ResidentReplyService residentReplies,
     NotificationService notifications,
     IOptions<WhatsAppOptions> options,
-    ILogger<WhatsAppConversationService> logger)
+    ILogger<WhatsAppConversationService> logger,
+    CondoLink.Api.Features.Requests.RequestAiAnalysisRefresher? analysisRefresher = null)
 {
     private const string FallbackRequestTitle = "Solicitação recebida pelo WhatsApp";
     private const string AiReviewSource = "ai";
@@ -689,6 +690,7 @@ public sealed class WhatsAppConversationService(
         RequestStatus.Open => "Aberta",
         RequestStatus.InProgress => "Em andamento",
         RequestStatus.WaitingForResident => "Aguardando informações do morador",
+        RequestStatus.WaitingForManager => "Aguardando administração",
         RequestStatus.WaitingForThirdParty => "Aguardando terceiro",
         RequestStatus.Resolved => "Resolvida",
         RequestStatus.Cancelled => "Cancelada",
@@ -762,6 +764,9 @@ public sealed class WhatsAppConversationService(
             db.RequestMessages.Add(requestMessage);
             await db.SaveChangesAsync(ct);
             await NotifyRequestUpdate(request, identity, requestMessage, ct);
+            if (analysisRefresher is not null)
+                await analysisRefresher.RefreshAsync(request.Id,
+                    "whatsapp_resident_update", ct);
             session.Touch(now, expires);
             return (RequestUpdateReceivedPrompt("Mensagem recebida."),
                 "request_update_message_received");
@@ -841,6 +846,9 @@ public sealed class WhatsAppConversationService(
                 requestMessage.Id));
             await db.SaveChangesAsync(ct);
             await NotifyRequestUpdate(request, identity, requestMessage, ct);
+            if (analysisRefresher is not null)
+                await analysisRefresher.RefreshAsync(request.Id,
+                    "whatsapp_resident_update", ct);
         }
         catch
         {

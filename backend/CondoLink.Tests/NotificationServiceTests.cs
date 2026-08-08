@@ -1,10 +1,13 @@
 using CondoLink.Api.Features.Notifications;
+using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using DomainRequest = CondoLink.Domain.Entities.Request;
 
 namespace CondoLink.Tests;
@@ -160,8 +163,59 @@ public sealed class NotificationServiceTests : IAsyncLifetime
 
         var notification = await _db.Notifications.AsNoTracking().SingleAsync();
         Assert.Equal(_managerA.Id, notification.RecipientUserId);
-        Assert.Contains("Comentário da administração", notification.Body);
-        Assert.Contains("Aguardando fornecedor", notification.Body);
+        Assert.Contains("Aguardando terceiro", notification.Body);
+        Assert.DoesNotContain("Aguardando fornecedor", notification.Body);
+    }
+
+    [Fact]
+    public async Task Waiting_for_third_party_uses_ai_synthesis_and_enqueues_once()
+    {
+        var ai = new FakeAi(new(true,
+            "Estamos aguardando a emissão da TAG para a portaria. Você será avisado quando houver novidade.",
+            "succeeded", "model-test"));
+        var dispatcher = new WhatsAppNotificationDispatcher(_db,
+            Options.Create(new WhatsAppOptions()),
+            NullLogger<WhatsAppNotificationDispatcher>.Instance);
+        var service = new NotificationService(_db, dispatcher,
+            NullLogger<NotificationService>.Instance, ai);
+        var request = await AddRequestAsync(_resident.Id, "TAG de acesso");
+        request.ChangeStatus(RequestStatus.WaitingForThirdParty, DateTime.UtcNow);
+        var historyId = Guid.NewGuid();
+
+        await service.NotifyStatusChangedAsync(request, RequestStatus.InProgress,
+            _managerA.Id, default, historyId, "Solicitada a TAG para a portaria");
+        await service.NotifyStatusChangedAsync(request, RequestStatus.InProgress,
+            _managerA.Id, default, historyId, "Solicitada a TAG para a portaria");
+
+        Assert.Equal(1, ai.SynthesisCalls);
+        var outbound = Assert.Single(await _db.WhatsAppOutboundMessages
+            .AsNoTracking().ToArrayAsync());
+        Assert.Contains("aguardando a emissão da TAG", outbound.Content);
+        Assert.DoesNotContain("prazo", outbound.Content,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(WhatsAppNotificationType.StatusChanged, outbound.NotificationType);
+    }
+
+    [Fact]
+    public async Task Waiting_for_third_party_ai_failure_uses_deterministic_fallback()
+    {
+        var ai = new FakeAi(new(false, null, "provider_error"));
+        var dispatcher = new WhatsAppNotificationDispatcher(_db,
+            Options.Create(new WhatsAppOptions()),
+            NullLogger<WhatsAppNotificationDispatcher>.Instance);
+        var service = new NotificationService(_db, dispatcher,
+            NullLogger<NotificationService>.Instance, ai);
+        var request = await AddRequestAsync(_resident.Id);
+        request.ChangeStatus(RequestStatus.WaitingForThirdParty, DateTime.UtcNow);
+
+        await service.NotifyStatusChangedAsync(request, RequestStatus.InProgress,
+            _managerA.Id, default, Guid.NewGuid(), "Fornecedor acionado");
+
+        var notification = await _db.Notifications.AsNoTracking().SingleAsync();
+        Assert.Equal("Seu atendimento foi atualizado para 'Aguardando terceiro'. "
+            + "A administração continuará acompanhando a solicitação.",
+            notification.Body);
+        Assert.Single(await _db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync());
     }
 
     [Fact]
@@ -178,6 +232,17 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             + "*Em andamento* para *Aguardando terceiro*.", withoutComment);
         Assert.DoesNotContain("Comentário", withoutComment);
         Assert.Contains("Comentário da administração:\n\nEnvie uma foto.", withComment);
+    }
+
+    [Fact]
+    public void Status_notification_uses_the_revised_semantic_labels()
+    {
+        Assert.Contains("Aguardando morador", NotificationService.StatusChangedContent(
+            "Vazamento", RequestStatus.InProgress, RequestStatus.WaitingForResident, null));
+        Assert.Contains("Aguardando você", NotificationService.StatusChangedContent(
+            "Vazamento", RequestStatus.InProgress, RequestStatus.WaitingForManager, null));
+        Assert.Contains("Aguardando terceiro", NotificationService.StatusChangedContent(
+            "Vazamento", RequestStatus.InProgress, RequestStatus.WaitingForThirdParty, null));
     }
 
     [Fact]
@@ -389,5 +454,22 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         user.NormalizedUserName = email.ToUpperInvariant();
         user.NormalizedEmail = email.ToUpperInvariant();
         return user;
+    }
+
+    private sealed class FakeAi(ResidentStatusSynthesisResult synthesis)
+        : IRequestDraftAiService
+    {
+        public int SynthesisCalls { get; private set; }
+        public Task<RequestDraftAiResult> ProposeAsync(string originalReport,
+            IReadOnlyCollection<string> activeCategories, string condominiumName,
+            CancellationToken cancellationToken) => Task.FromResult(
+                new RequestDraftAiResult(false, null, "unused"));
+        public Task<ResidentStatusSynthesisResult> SynthesizeResidentStatusAsync(
+            string requestTitle, string newStatus, string reason,
+            CancellationToken cancellationToken)
+        {
+            SynthesisCalls++;
+            return Task.FromResult(synthesis);
+        }
     }
 }
