@@ -67,7 +67,8 @@ public static class RequestDraftAiPrompt
         Crie um título curto. Organize o relato, remova repetições e melhore a escrita,
         preservando integralmente o significado. Nunca invente fatos, prioridade, datas,
         valores, medidas, nomes, apartamentos, blocos ou locais. SuggestedCategory deve
-        ser exatamente uma das categorias fornecidas ou null. Use MissingInformation
+        ser exatamente uma das categorias fornecidas. Se nenhuma categoria específica
+        for adequada, retorne Outros. Use MissingInformation
         apenas para apontar informação importante ausente. Confidence deve estar entre
         0 e 1 ou ser null.
         """;

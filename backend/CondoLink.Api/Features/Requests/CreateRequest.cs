@@ -1,11 +1,13 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using CondoLink.Api.Features.Categories;
 using CondoLink.Api.Features.Notifications;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Mvc;
 using DomainRequest = CondoLink.Domain.Entities.Request;
 
 namespace CondoLink.Api.Features.Requests;
@@ -28,6 +30,7 @@ public static class CreateRequest
         RequestDto request,
         ClaimsPrincipal principal,
         AppDbContext dbContext,
+        [FromServices] RequestCategoryResolver requestCategories,
         NotificationService notifications,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
@@ -97,10 +100,10 @@ public static class CreateRequest
                 new { error = "Inactive condominium cannot receive new requests." });
         }
 
-        if (request.CategoryId == Guid.Empty)
-        {
-            return Results.BadRequest(new { error = "Category is required." });
-        }
+        var categoryId = request.CategoryId == Guid.Empty
+            ? (await requestCategories.GetOrCreateOtherAsync(
+                condominiumId, cancellationToken)).Id
+            : request.CategoryId;
 
         if (string.IsNullOrWhiteSpace(request.Title))
         {
@@ -129,7 +132,7 @@ public static class CreateRequest
 
         var category = await dbContext.Categories
             .AsNoTracking()
-            .Where(category => category.Id == request.CategoryId)
+            .Where(category => category.Id == categoryId)
             .Select(category => new
             {
                 category.CondominiumId,
@@ -218,7 +221,7 @@ public static class CreateRequest
             condominiumId,
             authenticatedUserId,
             targetUnitId,
-            request.CategoryId,
+            categoryId,
             title,
             description);
 

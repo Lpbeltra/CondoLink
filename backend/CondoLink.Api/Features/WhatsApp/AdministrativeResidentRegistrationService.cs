@@ -82,7 +82,7 @@ public sealed class AdministrativeResidentRegistrationService(
             return new("Não consegui interpretar os dados do cadastro. Nenhuma alteração foi realizada. Tente novamente mais tarde.",
                 "admin_extraction_failed");
         }
-        if (!inFlow && ai.Data.Intent != "register_resident") return null;
+        if (!command && !inFlow && ai.Data.Intent != "register_resident") return null;
         draft = draft with { Extraction = Merge(draft.Extraction, ai.Data) };
         return await ValidateAndPrompt(administrator, session, draft, scope, now, expires, ct);
     }

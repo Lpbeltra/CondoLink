@@ -29,6 +29,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddComvyDataProtection(builder.Configuration);
 builder.Services.AddOpenApi();
 builder.Services.AddScoped<CondominiumMembershipService>();
+builder.Services.AddScoped<CondoLink.Api.Features.Categories.RequestCategoryResolver>();
 builder.Services.AddScoped<ManagerOnboardingService>();
 builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<RequestAiAnalysisRefresher>();

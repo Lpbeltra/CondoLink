@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using CondoLink.Api.Features.Categories;
 using CondoLink.Api.Features.Notifications;
 using CondoLink.Api.Features.RequestAttachments;
 using CondoLink.Domain.Entities;
@@ -25,6 +26,7 @@ public sealed class WhatsAppConversationService(
     IOptions<WhatsAppOptions> options,
     ILogger<WhatsAppConversationService> logger,
     AdministrativeResidentRegistrationService administrativeResidents,
+    RequestCategoryResolver requestCategories,
     CondoLink.Api.Features.Requests.RequestAiAnalysisRefresher? analysisRefresher = null)
 {
     private const string FallbackRequestTitle = "Solicitação recebida pelo WhatsApp";
@@ -1444,20 +1446,10 @@ public sealed class WhatsAppConversationService(
         var review = Review(session);
         if (review is null)
             return await GenerateAiProposal(session, now, expires, ct);
-        var categories = await ActiveCategories(session.CondominiumId!.Value, ct);
-        var suggested = categories.SingleOrDefault(x => string.Equals(
-            x.Name, review.Proposal?.SuggestedCategory, StringComparison.OrdinalIgnoreCase));
-        suggested ??= categories.SingleOrDefault(x => string.Equals(
-            x.Name, "Outros", StringComparison.OrdinalIgnoreCase));
-        suggested ??= categories.FirstOrDefault();
-        if (suggested is not null)
-        {
-            session.ChooseCategory(suggested.Id, now, expires);
-            return await CreateRequest(session, suggested.Name, now, expires, ct);
-        }
-        session.Touch(now, expires);
-        return ("Não há uma categoria ativa disponível para concluir a solicitação. Digite ‘menu’ para voltar.",
-            "category_unavailable");
+        var category = await requestCategories.ResolveForClassificationAsync(
+            session.CondominiumId!.Value, review.Proposal?.SuggestedCategory, ct);
+        session.ChooseCategory(category.Id, now, expires);
+        return await CreateRequest(session, category.Name, now, expires, ct);
     }
 
     private async Task<(string, string)> ResumeLegacyCategorySession(
@@ -1712,6 +1704,8 @@ public sealed class WhatsAppConversationService(
     private async Task<(string, string)> GenerateAiProposal(
         WhatsAppSession session, DateTime now, DateTime expires, CancellationToken ct)
     {
+        await requestCategories.GetOrCreateOtherAsync(
+            session.CondominiumId!.Value, ct);
         var categories = await ActiveCategories(session.CondominiumId!.Value, ct);
         var condominiumName = await db.Condominiums.AsNoTracking()
             .Where(x => x.Id == session.CondominiumId.Value)

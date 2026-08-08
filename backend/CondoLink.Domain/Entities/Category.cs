@@ -47,6 +47,12 @@ public sealed class Category
         Name = name.Trim(); NormalizedName = Name.ToUpperInvariant(); UpdatedAt = DateTime.UtcNow;
     }
 
+    public void Activate()
+    {
+        IsActive = true;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     private static string? NormalizeOptional(string? value)
     {
         var trimmed = value?.Trim();
