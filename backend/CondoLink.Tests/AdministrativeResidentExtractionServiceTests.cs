@@ -1,0 +1,59 @@
+using System.Net;
+using System.Text;
+using CondoLink.Api.Features.WhatsApp;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+
+namespace CondoLink.Tests;
+
+public sealed class AdministrativeResidentExtractionServiceTests
+{
+    [Fact]
+    public async Task Valid_structured_response_is_deserialized_without_free_text_parsing()
+    {
+        var payload = """
+            {"intent":"register_resident","fullName":"João da Silva","phone":"47999998888","email":"joao@example.com","condominium":"Monticello","block":"B","unit":"302","relationship":"Owner","isResident":true,"isPrimaryResidence":true}
+            """;
+        var service = Create(Envelope(payload));
+
+        var result = await service.ExtractAsync("Cadastre João", null, default);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("302", result.Data!.Unit);
+        Assert.Equal("Owner", result.Data.Relationship);
+    }
+
+    [Fact]
+    public async Task Invalid_ai_payload_is_rejected_as_untrusted_data()
+    {
+        var service = Create(Envelope("{\"intent\":\"register_resident\",\"unexpected\":true}"));
+
+        var result = await service.ExtractAsync("Cadastrar morador", null, default);
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Data);
+    }
+
+    private static AdministrativeResidentExtractionService Create(string response)
+    {
+        var client = new HttpClient(new Handler(response))
+        { BaseAddress = new Uri("https://api.openai.test/") };
+        return new(client, Options.Create(new RequestDraftAiOptions
+        { Enabled = true, ApiKey = "test", Model = "test" }),
+            NullLogger<AdministrativeResidentExtractionService>.Instance);
+    }
+
+    private static string Envelope(string content) =>
+        System.Text.Json.JsonSerializer.Serialize(new
+        {
+            choices = new[] { new { message = new { content } } }
+        });
+
+    private sealed class Handler(string response) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            { Content = new StringContent(response, Encoding.UTF8, "application/json") });
+    }
+}

@@ -10,10 +10,11 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { EmptyState } from '../../components/EmptyState'
 import { TransientFeedback } from '../../components/TransientFeedback'
+import { useManagementContext } from '../../management/ManagementContext'
 import {
   getCondominiumManager,
   linkManager,
-  listManagers,
+  listManagerCandidates,
   removeManagerLink,
   replaceCondominiumManager,
 } from '../managers/api'
@@ -34,6 +35,7 @@ export function CondominiumManagers({
   onChanged?: () => void
 }) {
   const navigate = useNavigate()
+  const { refresh: refreshManagementContext } = useManagementContext()
   const [manager, setManager] = useState<CondominiumManager | null>(null)
   const [options, setOptions] = useState<OverwatchManager[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -51,7 +53,7 @@ export function CondominiumManagers({
     try {
       const [linkedManager, managers] = await Promise.all([
         getCondominiumManager(condominiumId),
-        listManagers(),
+        listManagerCandidates(),
       ])
       setManager(linkedManager)
       setOptions(managers)
@@ -88,6 +90,7 @@ export function CondominiumManagers({
         : await linkManager(selectedId, condominiumId)
       setManager(saved)
       setMode(null)
+      await refreshManagementContext()
       setFeedback(mode === 'replace'
         ? 'Síndico trocado com sucesso.'
         : 'Síndico vinculado com sucesso.')
@@ -107,6 +110,7 @@ export function CondominiumManagers({
       await removeManagerLink(manager.userId, condominiumId)
       setManager(null)
       setRemoveOpen(false)
+      await refreshManagementContext()
       setFeedback('Síndico desvinculado com sucesso.')
       onChanged?.()
     } catch (requestError) {

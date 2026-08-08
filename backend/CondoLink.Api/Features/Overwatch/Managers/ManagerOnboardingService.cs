@@ -377,8 +377,10 @@ public sealed class ManagerOnboardingService(AppDbContext dbContext)
                 from user in dbContext.Users
                 join userRole in dbContext.UserRoles on user.Id equals userRole.UserId
                 join role in dbContext.Roles on userRole.RoleId equals role.Id
-                where user.Id == managerId && role.Name == "Manager"
+                where user.Id == managerId &&
+                    (role.Name == "Manager" || role.Name == "PlatformAdmin")
                 select new { user.IsActive })
+            .Distinct()
             .SingleOrDefaultAsync(cancellationToken);
         if (manager is null)
         {

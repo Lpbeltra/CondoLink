@@ -201,6 +201,105 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Platform_admin_is_an_eligible_manager_candidate_and_keeps_platform_access()
+    {
+        Guid platformAdminId;
+        Guid condominiumId;
+        await using (var scope = _application!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var platformAdmin = new ApplicationUser(
+                "Bootstrap Admin", "bootstrap@example.com", null);
+            platformAdmin.NormalizedUserName = "BOOTSTRAP@EXAMPLE.COM";
+            platformAdmin.NormalizedEmail = "BOOTSTRAP@EXAMPLE.COM";
+            var role = new IdentityRole<Guid>("PlatformAdmin")
+            {
+                NormalizedName = "PLATFORMADMIN"
+            };
+            var condominium = new Condominium("Bootstrap", null, null);
+            db.AddRange(platformAdmin, role, condominium);
+            db.UserRoles.Add(new IdentityUserRole<Guid>
+            {
+                UserId = platformAdmin.Id,
+                RoleId = role.Id
+            });
+            await db.SaveChangesAsync();
+            platformAdminId = platformAdmin.Id;
+            condominiumId = condominium.Id;
+        }
+
+        var regularManagers = await _admin.GetFromJsonAsync<List<ManagerResponse>>(
+            "/overwatch/managers");
+        var candidates = await _admin.GetFromJsonAsync<List<ManagerResponse>>(
+            "/overwatch/managers?eligibleForAssignment=true");
+        var response = await LinkAsync(platformAdminId, condominiumId);
+
+        Assert.DoesNotContain(regularManagers!, item => item.Id == platformAdminId);
+        Assert.Contains(candidates!, item => item.Id == platformAdminId);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        await using var verifyScope = _application.Services.CreateAsyncScope();
+        var verify = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var user = await verify.Users.SingleAsync();
+        var membership = await verify.CondominiumMemberships.SingleAsync();
+        var membershipRole = await verify.CondominiumMembershipRoles.SingleAsync();
+        var identityRoleNames = await (
+                from userRole in verify.UserRoles
+                join identityRole in verify.Roles on userRole.RoleId equals identityRole.Id
+                where userRole.UserId == platformAdminId
+                select identityRole.Name)
+            .ToListAsync();
+
+        Assert.Equal(platformAdminId, user.Id);
+        Assert.Equal(condominiumId, user.ActiveManagementCondominiumId);
+        Assert.Equal(platformAdminId, membership.UserId);
+        Assert.Equal(condominiumId, membership.CondominiumId);
+        Assert.True(membership.IsActive);
+        Assert.Equal(CondominiumRole.Manager, membershipRole.Role);
+        Assert.True(membershipRole.IsActive);
+        Assert.Contains("PlatformAdmin", identityRoleNames);
+        Assert.DoesNotContain("Manager", identityRoleNames);
+    }
+
+    [Fact]
+    public async Task Inactive_platform_admin_is_not_eligible_for_manager_assignment()
+    {
+        Guid platformAdminId;
+        Guid condominiumId;
+        await using (var scope = _application!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var platformAdmin = new ApplicationUser(
+                "Inactive Admin", "inactive-admin@example.com", null);
+            platformAdmin.NormalizedUserName = "INACTIVE-ADMIN@EXAMPLE.COM";
+            platformAdmin.NormalizedEmail = "INACTIVE-ADMIN@EXAMPLE.COM";
+            platformAdmin.SetActiveStatus(false);
+            var role = new IdentityRole<Guid>("PlatformAdmin")
+            {
+                NormalizedName = "PLATFORMADMIN"
+            };
+            var condominium = new Condominium("Inactive target", null, null);
+            db.AddRange(platformAdmin, role, condominium);
+            db.UserRoles.Add(new IdentityUserRole<Guid>
+            {
+                UserId = platformAdmin.Id,
+                RoleId = role.Id
+            });
+            await db.SaveChangesAsync();
+            platformAdminId = platformAdmin.Id;
+            condominiumId = condominium.Id;
+        }
+
+        var response = await LinkAsync(platformAdminId, condominiumId);
+        var candidates = await _admin.GetFromJsonAsync<List<ManagerResponse>>(
+            "/overwatch/managers?eligibleForAssignment=true");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("inativo", await response.Content.ReadAsStringAsync());
+        Assert.DoesNotContain(candidates!, item => item.Id == platformAdminId);
+    }
+
+    [Fact]
     public async Task Links_one_manager_to_many_condominiums_and_rejects_second_manager()
     {
         var manager = await CreateManagerAsync("Linked", "linked@example.com");

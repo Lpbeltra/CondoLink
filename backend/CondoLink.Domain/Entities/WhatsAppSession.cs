@@ -289,6 +289,15 @@ public sealed class WhatsAppSession
         MoveTo(WhatsAppConversationState.CollectingResidentReplyAttachments,
             now, expiresAt, CondominiumId);
 
+    public void SetAdministrativeDraft(string draftJson,
+        WhatsAppConversationState state, DateTime now, DateTime expiresAt,
+        Guid? condominiumId = null, Guid? unitId = null)
+    {
+        DraftAiProposalJson = draftJson;
+        UnitId = unitId;
+        MoveTo(state, now, expiresAt, condominiumId);
+    }
+
     public bool HasDraft => CategoryId.HasValue || !string.IsNullOrWhiteSpace(DraftDescription);
 
     public void ClearDraft()

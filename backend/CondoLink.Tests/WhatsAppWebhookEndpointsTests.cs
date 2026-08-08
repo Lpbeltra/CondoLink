@@ -24,6 +24,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     private FakeRequestDraftAiService _ai = null!;
     private FakeResidentReplyAiService _replyAi = null!;
     private FakeAudioTranscriptionService _transcription = null!;
+    private FakeAdministrativeResidentExtractionService _administrativeExtraction = null!;
     private Guid _userId;
     private Guid _condominiumId;
     private Guid _unitId;
@@ -34,6 +35,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         _ai = new FakeRequestDraftAiService();
         _replyAi = new FakeResidentReplyAiService();
         _transcription = new FakeAudioTranscriptionService();
+        _administrativeExtraction = new FakeAdministrativeResidentExtractionService();
         _host = await CoreEndpointTestHost.StartAsync(
             app => app.MapWhatsAppWebhook(),
             builder =>
@@ -49,8 +51,10 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 builder.Services.AddSingleton<IRequestDraftAiService>(_ai);
                 builder.Services.AddSingleton<IResidentReplyAiService>(_replyAi);
                 builder.Services.AddSingleton<IWhatsAppAudioTranscriptionService>(_transcription);
+                builder.Services.AddSingleton<IAdministrativeResidentExtractionService>(_administrativeExtraction);
                 builder.Services.AddSingleton<LocalFileStorage>();
                 builder.Services.AddScoped<ResidentReplyService>();
+                builder.Services.AddScoped<AdministrativeResidentRegistrationService>();
                 builder.Services.AddScoped<WhatsAppConversationService>();
             });
         await _host.WithDbAsync(async db =>
@@ -255,6 +259,210 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             await _host.WithDbAsync(db => db.WhatsAppInboundMessages
                 .Where(x => x.ExternalMessageId == "wamid.title-fallback")
                 .Select(x => x.ProcessingResult).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Platform_admin_confirms_resident_registration_and_replay_is_idempotent()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var role = new IdentityRole<Guid>(DependencyInjection.PlatformAdminRole)
+            {
+                Id = Guid.NewGuid(), NormalizedName = "PLATFORMADMIN"
+            };
+            db.Roles.Add(role);
+            db.UserRoles.Add(new IdentityUserRole<Guid> { UserId = _userId, RoleId = role.Id });
+            await db.SaveChangesAsync();
+        });
+        _administrativeExtraction.Result = new(true,
+            new("register_resident", "João da Silva", "47999998888",
+                "joao@example.com", null, null, "101",
+                "Owner", false, null), "succeeded");
+
+        await PostAsync(TextPayload("wamid.admin-register", "Cadastrar morador"));
+
+        Assert.Contains("1 - Confirmar", _fake.Messages.Last().Text);
+        Assert.Contains("Condomínio: Residencial Teste", _fake.Messages.Last().Text);
+        Assert.Contains("Relação: Proprietário", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("IsResident", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("IsPrimaryResidence", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("Owner", _fake.Messages.Last().Text);
+        Assert.Equal(0, await _host.WithDbAsync(db => db.Users.CountAsync(x => x.Email == "joao@example.com")));
+
+        await PostAsync(TextPayload("wamid.admin-confirm", "1"));
+        await PostAsync(TextPayload("wamid.admin-confirm", "1"));
+
+        Assert.Contains("Cadastro concluído", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var user = await db.Users.SingleAsync(x => x.Email == "joao@example.com");
+            Assert.True(user.MustChangePassword);
+            var unitMembership = await db.UnitMemberships.SingleAsync(x =>
+                x.UserId == user.Id && x.UnitId == _unitId);
+            Assert.True(unitMembership.IsResident);
+            Assert.False(unitMembership.IsPrimaryResidence);
+        });
+    }
+
+    [Fact]
+    public async Task Administrative_registration_requires_phone()
+    {
+        await _host.WithDbAsync(AddPlatformAdminRole);
+        _administrativeExtraction.Result = new(true,
+            new("register_resident", "Sem Telefone", null,
+                "sem-telefone@example.com", null, null, "101",
+                "Tenant", null, null), "succeeded");
+
+        await PostAsync(TextPayload("wamid.admin-phone-required", "Cadastrar morador"));
+
+        Assert.Contains("telefone do morador", _fake.Messages.Last().Text);
+        Assert.Equal(0, await _host.WithDbAsync(db =>
+            db.Users.CountAsync(x => x.Email == "sem-telefone@example.com")));
+    }
+
+    [Fact]
+    public async Task Resident_cannot_start_administrative_registration()
+    {
+        await PostAsync(TextPayload("wamid.admin-forbidden", "Cadastrar morador"));
+
+        Assert.Contains("somente para administradores autorizados", _fake.Messages.Last().Text);
+        Assert.Equal(1, await _host.WithDbAsync(db => db.Users.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Authorized_manager_gets_only_missing_data_and_can_cancel_without_writes()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var membershipId = await db.CondominiumMemberships
+                .Where(x => x.UserId == _userId && x.CondominiumId == _condominiumId)
+                .Select(x => x.Id).SingleAsync();
+            db.CondominiumMembershipRoles.Add(new CondominiumMembershipRole(
+                membershipId, CondominiumRole.Manager));
+            await db.SaveChangesAsync();
+        });
+        _administrativeExtraction.Result = new(true,
+            new("register_resident", null, null, null, null, null, null,
+                null, null, null), "succeeded");
+
+        await PostAsync(TextPayload("wamid.admin-manager-start", "Novo morador"));
+        Assert.Contains("nome completo", _fake.Messages.Last().Text);
+        Assert.Equal(WhatsAppConversationState.CollectingAdminResidentData,
+            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
+
+        await PostAsync(TextPayload("wamid.admin-manager-cancel", "0"));
+        Assert.Contains("Nenhuma alteração", _fake.Messages.Last().Text);
+        Assert.Equal(1, await _host.WithDbAsync(db => db.Users.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Ambiguous_units_require_selection_before_confirmation()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var role = new IdentityRole<Guid>(DependencyInjection.PlatformAdminRole)
+            { Id = Guid.NewGuid(), NormalizedName = "PLATFORMADMIN" };
+            var blockA = new CondominiumBlock(_condominiumId, "A");
+            var blockB = new CondominiumBlock(_condominiumId, "B");
+            db.AddRange(role, blockA, blockB,
+                new Unit(_condominiumId, "302", blockA.Id, null, null),
+                new Unit(_condominiumId, "302", blockB.Id, null, null));
+            db.UserRoles.Add(new IdentityUserRole<Guid> { UserId = _userId, RoleId = role.Id });
+            await db.SaveChangesAsync();
+        });
+        _administrativeExtraction.Result = new(true,
+            new("register_resident", "Ana Souza", "47999995555", "ana@example.com",
+                "Residencial Teste", null, "302", "Tenant", true, true), "succeeded");
+
+        await PostAsync(TextPayload("wamid.admin-ambiguous", "Cadastrar morador"));
+        Assert.Contains("Bloco A - 302", _fake.Messages.Last().Text);
+        Assert.Contains("Bloco B - 302", _fake.Messages.Last().Text);
+        Assert.Equal(0, await _host.WithDbAsync(db => db.Users.CountAsync(x => x.Email == "ana@example.com")));
+
+        await PostAsync(TextPayload("wamid.admin-unit-choice", "2"));
+        Assert.Contains("1 - Confirmar", _fake.Messages.Last().Text);
+        Assert.Contains("Bloco B - 302", _fake.Messages.Last().Text);
+    }
+
+    [Fact]
+    public async Task Extraction_failure_never_writes_registration_data()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var role = new IdentityRole<Guid>(DependencyInjection.PlatformAdminRole)
+            { Id = Guid.NewGuid(), NormalizedName = "PLATFORMADMIN" };
+            db.Add(role);
+            db.UserRoles.Add(new IdentityUserRole<Guid> { UserId = _userId, RoleId = role.Id });
+            await db.SaveChangesAsync();
+        });
+
+        await PostAsync(TextPayload("wamid.admin-ai-failure", "Cadastrar morador"));
+
+        Assert.Contains("Nenhuma alteração", _fake.Messages.Last().Text);
+        Assert.Equal(1, await _host.WithDbAsync(db => db.Users.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Existing_user_is_reused_and_only_linked_after_confirmation()
+    {
+        Guid existingId = Guid.Empty;
+        await _host.WithDbAsync(async db =>
+        {
+            await AddPlatformAdminRole(db);
+            var existing = CoreTestSeed.User("Carlos Existente", "carlos@example.com");
+            existing.Update("Carlos Existente", "(47) 99999-7777");
+            db.Add(existing);
+            await db.SaveChangesAsync();
+            existingId = existing.Id;
+        });
+        _administrativeExtraction.Result = new(true,
+            new("register_resident", "Nome ignorado", "47999997777",
+                "carlos@example.com", "Residencial Teste", null, "101",
+                "AuthorizedOccupant", true, false), "succeeded");
+
+        await PostAsync(TextPayload("wamid.admin-existing", "Cadastrar morador"));
+        Assert.Contains("Já encontrei Carlos Existente", _fake.Messages.Last().Text);
+        Assert.False(await _host.WithDbAsync(db => db.UnitMemberships.AnyAsync(x => x.UserId == existingId)));
+
+        await PostAsync(TextPayload("wamid.admin-existing-confirm", "1"));
+        Assert.Equal(2, await _host.WithDbAsync(db => db.Users.CountAsync()));
+        Assert.True(await _host.WithDbAsync(db => db.UnitMemberships.AnyAsync(x =>
+            x.UserId == existingId && x.UnitId == _unitId)));
+    }
+
+    [Fact]
+    public async Task Correction_replaces_draft_and_expired_confirmation_writes_nothing()
+    {
+        await _host.WithDbAsync(AddPlatformAdminRole);
+        _administrativeExtraction.Result = new(true,
+            new("register_resident", "Beatriz Lima", "47999996666",
+                "bia@example.com", "Residencial Teste", null, "101",
+                "Owner", true, true), "succeeded");
+        await PostAsync(TextPayload("wamid.admin-correction-start", "Cadastrar morador"));
+        await PostAsync(TextPayload("wamid.admin-correction-choice", "2"));
+
+        _administrativeExtraction.Result = new(true,
+            new("register_resident", null, "47988885555", null, null, null,
+                null, "Tenant", null, false), "succeeded");
+        await PostAsync(TextPayload("wamid.admin-correction-data", "Telefone correto e relação inquilino"));
+        Assert.Contains("47988885555", _fake.Messages.Last().Text);
+        Assert.Contains("Inquilino", _fake.Messages.Last().Text);
+        Assert.Equal(0, await _host.WithDbAsync(db => db.Users.CountAsync(x => x.Email == "bia@example.com")));
+
+        await _host.WithDbAsync(db => db.WhatsAppSessions.ExecuteUpdateAsync(setters =>
+            setters.SetProperty(x => x.ExpiresAt, DateTime.UtcNow.AddMinutes(-1))));
+        await PostAsync(TextPayload("wamid.admin-expired-confirm", "1"));
+        Assert.Contains("expirou", _fake.Messages.Last().Text);
+        Assert.Equal(0, await _host.WithDbAsync(db => db.Users.CountAsync(x => x.Email == "bia@example.com")));
+    }
+
+    private async Task AddPlatformAdminRole(AppDbContext db)
+    {
+        var role = new IdentityRole<Guid>(DependencyInjection.PlatformAdminRole)
+        { Id = Guid.NewGuid(), NormalizedName = "PLATFORMADMIN" };
+        db.Add(role);
+        db.UserRoles.Add(new IdentityUserRole<Guid> { UserId = _userId, RoleId = role.Id });
+        await db.SaveChangesAsync();
     }
 
     [Fact]
@@ -1966,5 +2174,15 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         public Task<ResidentReplyAiResult> OrganizeAsync(string question,
             string originalAnswer, CancellationToken cancellationToken) =>
             Task.FromResult(Result);
+    }
+
+    private sealed class FakeAdministrativeResidentExtractionService
+        : IAdministrativeResidentExtractionService
+    {
+        public AdministrativeResidentExtractionResult Result { get; set; } =
+            new(false, null, "not_configured");
+        public Task<AdministrativeResidentExtractionResult> ExtractAsync(
+            string message, AdministrativeResidentExtraction? current,
+            CancellationToken cancellationToken) => Task.FromResult(Result);
     }
 }

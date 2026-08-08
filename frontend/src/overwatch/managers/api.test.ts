@@ -17,6 +17,7 @@ import {
   listAvailableCondominiums,
   listCondominiumManagers,
   listManagerCondominiums,
+  listManagerCandidates,
   listManagers,
   removeManagerLink,
   replaceCondominiumManager,
@@ -29,6 +30,7 @@ describe('Overwatch manager API', () => {
   it('uses the real list, details and relationships endpoints', async () => {
     http.get.mockResolvedValue({ data: [] })
     await listManagers()
+    await listManagerCandidates()
     await getManager('manager-id')
     await listManagerCondominiums('manager-id')
     await listCondominiumManagers('condominium-id')
@@ -36,17 +38,20 @@ describe('Overwatch manager API', () => {
     await listAvailableCondominiums()
 
     expect(http.get).toHaveBeenNthCalledWith(1, '/overwatch/managers')
-    expect(http.get).toHaveBeenNthCalledWith(2, '/overwatch/managers/manager-id')
     expect(http.get).toHaveBeenNthCalledWith(
-      3, '/overwatch/managers/manager-id/condominiums',
+      2, '/overwatch/managers?eligibleForAssignment=true',
+    )
+    expect(http.get).toHaveBeenNthCalledWith(3, '/overwatch/managers/manager-id')
+    expect(http.get).toHaveBeenNthCalledWith(
+      4, '/overwatch/managers/manager-id/condominiums',
     )
     expect(http.get).toHaveBeenNthCalledWith(
-      4, '/overwatch/condominiums/condominium-id/managers',
+      5, '/overwatch/condominiums/condominium-id/managers',
     )
     expect(http.get).toHaveBeenNthCalledWith(
-      5, '/overwatch/condominiums/condominium-id/manager',
+      6, '/overwatch/condominiums/condominium-id/manager',
     )
-    expect(http.get).toHaveBeenNthCalledWith(6, '/overwatch/condominiums')
+    expect(http.get).toHaveBeenNthCalledWith(7, '/overwatch/condominiums')
   })
 
   it('sends the complete profile on creation', async () => {

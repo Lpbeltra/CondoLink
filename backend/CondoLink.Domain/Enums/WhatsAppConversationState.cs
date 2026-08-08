@@ -27,4 +27,8 @@ public enum WhatsAppConversationState
     ,CollectingResidentReply = 22
     ,ReviewingResidentReply = 23
     ,CollectingResidentReplyAttachments = 24
+    ,CollectingAdminResidentData = 25
+    ,SelectingAdminResidentUnit = 26
+    ,ConfirmingAdminResident = 27
+    ,CorrectingAdminResident = 28
 }

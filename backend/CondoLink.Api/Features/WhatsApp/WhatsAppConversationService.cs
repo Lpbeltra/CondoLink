@@ -24,6 +24,7 @@ public sealed class WhatsAppConversationService(
     NotificationService notifications,
     IOptions<WhatsAppOptions> options,
     ILogger<WhatsAppConversationService> logger,
+    AdministrativeResidentRegistrationService administrativeResidents,
     CondoLink.Api.Features.Requests.RequestAiAnalysisRefresher? analysisRefresher = null)
 {
     private const string FallbackRequestTitle = "Solicitação recebida pelo WhatsApp";
@@ -66,6 +67,12 @@ public sealed class WhatsAppConversationService(
         var now = DateTime.UtcNow;
         var expires = now.AddMinutes(Math.Clamp(options.Value.SessionExpirationMinutes, 30, 30));
         var identity = await ResolveIdentity(phone, ct);
+        var identificationCandidates = PhoneNumberNormalizer.IdentificationCandidates(phone);
+        var identifiedUsers = await db.Set<ApplicationUser>()
+            .Where(x => x.NormalizedPhoneNumber != null
+                && identificationCandidates.Contains(x.NormalizedPhoneNumber) && x.IsActive)
+            .Take(2).ToArrayAsync(ct);
+        var identifiedUser = identifiedUsers.Length == 1 ? identifiedUsers[0] : null;
         var session = await db.WhatsAppSessions.SingleOrDefaultAsync(x => x.PhoneNumber == phone, ct);
         var isNewSession = session is null;
         if (session is null)
@@ -80,7 +87,17 @@ public sealed class WhatsAppConversationService(
         string result;
         var initialSessionState = session.State;
         var initialRequestIdPresent = session.RequestId.HasValue;
-        if (identity is null)
+        var administrativeResponse = identifiedUser is null ? null
+            : await administrativeResidents.TryHandleAsync(
+                identifiedUser, session, message.Text, now, expires, ct);
+        Guid? identifiedUserId = identity?.UserId;
+        if (administrativeResponse is not null)
+        {
+            identifiedUserId = identifiedUser!.Id;
+            response = administrativeResponse.Text;
+            result = administrativeResponse.Result;
+        }
+        else if (identity is null)
         {
             session.InvalidateIdentity(now, expires);
             logger.LogWarning("WhatsApp session state assigned after context validation: {State}.", session.State);
@@ -108,7 +125,7 @@ public sealed class WhatsAppConversationService(
             }
         }
 
-        inbound.Complete(identity?.UserId, result, now);
+        inbound.Complete(identifiedUserId, result, now);
         var quickReplyRecognized = ResidentReplyButtonChoice(message) is not null;
         var requirementFound = quickReplyRecognized
             && result is "collecting_resident_reply" or "resident_reply_deferred";

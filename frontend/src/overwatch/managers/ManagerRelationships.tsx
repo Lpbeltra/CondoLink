@@ -9,13 +9,14 @@ import {
 } from '@mui/material'
 import { EmptyState } from '../../components/EmptyState'
 import { TransientFeedback } from '../../components/TransientFeedback'
+import { useManagementContext } from '../../management/ManagementContext'
 import { formatDateTime } from '../../requests/presentation'
 import {
   linkManager,
   listAvailableCondominiums,
   listCondominiumManagers,
   listManagerCondominiums,
-  listManagers,
+  listManagerCandidates,
   removeManagerLink,
 } from './api'
 import { managerError } from './errors'
@@ -38,6 +39,7 @@ interface Option {
 
 export function ManagerRelationships(props: Props) {
   const managerPerspective = Boolean(props.managerId)
+  const { refresh: refreshManagementContext } = useManagementContext()
   const [managerLinks, setManagerLinks] = useState<ManagerCondominium[]>([])
   const [condominiumLinks, setCondominiumLinks] = useState<CondominiumManager[]>([])
   const [managerOptions, setManagerOptions] = useState<OverwatchManager[]>([])
@@ -65,7 +67,7 @@ export function ManagerRelationships(props: Props) {
       } else {
         const [links, managers] = await Promise.all([
           listCondominiumManagers(props.condominiumId!),
-          listManagers(),
+          listManagerCandidates(),
         ])
         setCondominiumLinks(links)
         setManagerOptions(managers)
@@ -122,7 +124,7 @@ export function ManagerRelationships(props: Props) {
       await linkManager(managerId, condominiumId)
       setDialogOpen(false)
       setFeedback('Vínculo criado.')
-      await load()
+      await Promise.all([load(), refreshManagementContext()])
       props.onChanged?.()
     } catch (requestError) {
       setError(managerError(requestError))
@@ -141,7 +143,7 @@ export function ManagerRelationships(props: Props) {
       await removeManagerLink(managerId, condominiumId)
       setPendingRemove(null)
       setFeedback('Vínculo removido.')
-      await load()
+      await Promise.all([load(), refreshManagementContext()])
       props.onChanged?.()
     } catch (requestError) {
       setError(managerError(requestError))

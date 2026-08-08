@@ -12,6 +12,12 @@ export async function listManagers() {
   return (await api.get<OverwatchManager[]>('/overwatch/managers')).data
 }
 
+export async function listManagerCandidates() {
+  return (await api.get<OverwatchManager[]>(
+    '/overwatch/managers?eligibleForAssignment=true',
+  )).data
+}
+
 export async function getManager(id: string) {
   return (await api.get<OverwatchManager>(`/overwatch/managers/${id}`)).data
 }

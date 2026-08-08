@@ -22,26 +22,25 @@ public static class ListOverwatchManagers
 
     private static async Task<IResult> HandleAsync(
         string? search,
+        bool? eligibleForAssignment,
         AppDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        var managerRole = await dbContext.Roles
+        var eligibleRoleNames = eligibleForAssignment is true
+            ? new[] { "Manager", "PlatformAdmin" }
+            : new[] { "Manager" };
+        var query = dbContext.Users
             .AsNoTracking()
-            .FirstOrDefaultAsync(
-                role => role.Name == "Manager",
-                cancellationToken);
+            .Where(user => dbContext.UserRoles.Any(userRole =>
+                userRole.UserId == user.Id &&
+                dbContext.Roles.Any(role =>
+                    role.Id == userRole.RoleId &&
+                    eligibleRoleNames.Contains(role.Name!))));
 
-        if (managerRole is null)
+        if (eligibleForAssignment is true)
         {
-            return Results.Ok(Array.Empty<OverwatchManagerResponse>());
+            query = query.Where(user => user.IsActive);
         }
-
-        var query =
-            from user in dbContext.Users.AsNoTracking()
-            join userRole in dbContext.UserRoles
-                on user.Id equals userRole.UserId
-            where userRole.RoleId == managerRole.Id
-            select user;
 
         if (!string.IsNullOrWhiteSpace(search))
         {
