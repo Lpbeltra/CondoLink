@@ -33,7 +33,7 @@ export function createAppTheme(mode: ThemeMode): Theme {
       fontFamily:
         'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       h1: {
-        fontSize: 'clamp(1.75rem, 6vw, 2.5rem)',
+        fontSize: 'clamp(1.75rem, 3vw, 2.25rem)',
         fontWeight: 750,
         lineHeight: 1.15,
         letterSpacing: '-0.035em',
@@ -105,10 +105,13 @@ export function createAppTheme(mode: ThemeMode): Theme {
         styleOverrides: {
           root: {
             border: `1px solid ${t.divider}`,
-            boxShadow: shadow[3],
+            boxShadow: shadow[1],
             backgroundImage: 'none',
           },
         },
+      },
+      MuiChip: {
+        styleOverrides: { root: { borderRadius: radii.sm, fontWeight: 650 } },
       },
       MuiPaper: {
         styleOverrides: {

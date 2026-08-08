@@ -3,10 +3,10 @@ import type { RequestListItem, RequestPriority, RequestStatus } from './types'
 
 export const statusPresentation: Record<RequestStatus, { label: string; color: 'info' | 'warning' | 'secondary' | 'success' | 'error' | 'default' }> = {
   Open: { label: 'Aberta', color: 'info' },
-  InProgress: { label: 'Em andamento', color: 'secondary' },
+  InProgress: { label: 'Em andamento', color: 'info' },
   WaitingForResident: { label: 'Aguardando morador', color: 'warning' },
-  WaitingForManager: { label: 'Dar andamento', color: 'error' },
-  WaitingForThirdParty: { label: 'Aguardando terceiro', color: 'warning' },
+  WaitingForManager: { label: 'Dar andamento', color: 'secondary' },
+  WaitingForThirdParty: { label: 'Aguardando terceiro', color: 'default' },
   Resolved: { label: 'Resolvida', color: 'success' },
   Cancelled: { label: 'Cancelada', color: 'default' },
 }

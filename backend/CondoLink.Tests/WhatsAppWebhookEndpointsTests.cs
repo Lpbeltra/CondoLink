@@ -239,7 +239,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(InteractiveReplyPayload("wamid.unknown-button",
             "another_action", "Responder agora"));
 
-        Assert.Contains("Para abrir uma solicitação", _fake.Messages.Last().Text);
+        Assert.Contains("Não reconheci essa opção", _fake.Messages.Last().Text);
     }
 
     [Fact]
@@ -264,7 +264,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(InteractiveReplyPayload("wamid.arbitrary-title",
             string.Empty, "Quero falar com alguém"));
 
-        Assert.Contains("Para abrir uma solicitação", _fake.Messages.Last().Text);
+        Assert.Contains("Não reconheci essa opção", _fake.Messages.Last().Text);
         Assert.Equal(WhatsAppConversationState.MainMenu,
             await _host.WithDbAsync(db => db.WhatsAppSessions
                 .Select(x => x.State).SingleAsync()));
@@ -476,8 +476,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("4", "disponível em breve")]
-    [InlineData("9", "Para abrir uma solicitação")]
+    [InlineData("4", "ainda não está disponível")]
+    [InlineData("9", "Não reconheci essa opção")]
     public async Task Unavailable_menu_options_do_not_advance_the_session(
         string option, string expectedResponse)
     {
@@ -713,7 +713,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     [Theory]
     [InlineData(RequestStatus.Open, "Aberta")]
     [InlineData(RequestStatus.InProgress, "Em andamento")]
-    [InlineData(RequestStatus.WaitingForResident, "Aguardando informações do morador")]
+    [InlineData(RequestStatus.WaitingForResident, "Aguardando morador")]
     [InlineData(RequestStatus.WaitingForManager, "Dar andamento")]
     [InlineData(RequestStatus.WaitingForThirdParty, "Aguardando terceiro")]
     [InlineData(RequestStatus.Resolved, "Resolvida")]
@@ -965,7 +965,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         });
 
         await PostAsync(TextPayload("wamid.edit-9", "1"));
-        Assert.Contains("Descreva o que aconteceu em uma só mensagem", _fake.Messages.Last().Text);
+        Assert.Contains("Conte o que aconteceu em uma mensagem", _fake.Messages.Last().Text);
         Assert.Equal(WhatsAppConversationState.CollectingDescription,
             await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
     }
@@ -1600,7 +1600,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Empty(await _host.WithDbAsync(db => db.Requests.ToArrayAsync()));
         Assert.Empty(await _host.WithDbAsync(db => db.WhatsAppDraftAttachments.ToArrayAsync()));
         await PostAsync(TextPayload($"wamid.audio-write-{code}", "2"));
-        Assert.Contains("Descreva o que aconteceu", _fake.Messages.Last().Text);
+        Assert.Contains("Conte o que aconteceu", _fake.Messages.Last().Text);
         await PostAsync(TextPayload($"wamid.audio-written-{code}", "Relato escrito após a falha."));
         Assert.Equal(WhatsAppConversationState.CollectingAttachments,
             await _host.WithDbAsync(db => db.WhatsAppSessions

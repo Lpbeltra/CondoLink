@@ -5,8 +5,8 @@ export function PageContainer(props: BoxProps) {
     <Box
       width="100%"
       maxWidth={1440}
-      mx={{ xs: 'auto', md: 0 }}
-      px={{ xs: 2, sm: 3, lg: 1.5 }}
+      mx="auto"
+      px={{ xs: 2, sm: 3, lg: 4 }}
       py={{ xs: 3, md: 4 }}
       {...props}
     />

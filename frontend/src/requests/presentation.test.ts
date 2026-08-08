@@ -14,7 +14,7 @@ describe('request presentation', () => {
   it('translates statuses and priorities', () => {
     expect(statusPresentation.WaitingForResident.label).toBe('Aguardando morador')
     expect(statusPresentation.WaitingForManager.label).toBe('Dar andamento')
-    expect(statusPresentation.WaitingForManager.color).toBe('error')
+    expect(statusPresentation.WaitingForManager.color).toBe('secondary')
     expect(priorityPresentation.Urgent.label).toBe('Urgente')
   })
 

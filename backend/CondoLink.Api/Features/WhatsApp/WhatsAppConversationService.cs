@@ -420,10 +420,10 @@ public sealed class WhatsAppConversationService(
         if (text == "4")
         {
             session.Touch(now, expires);
-            return ("Essa opção estará disponível em breve. Digite ‘menu’ para voltar.", "option_unavailable");
+            return ("Essa opção ainda não está disponível. Escolha 1, 2 ou 3, ou envie ‘menu’ para recomeçar.", "option_unavailable");
         }
         session.Touch(now, expires);
-        return ("Para abrir uma solicitação, digite 1.", "invalid_main_menu_choice");
+        return ("Não reconheci essa opção. Escolha 1, 2 ou 3, ou envie ‘menu’ para recomeçar.", "invalid_main_menu_choice");
     }
 
     private async Task<(string, string)> OwnRequestsChoice(
@@ -689,7 +689,7 @@ public sealed class WhatsAppConversationService(
     {
         RequestStatus.Open => "Aberta",
         RequestStatus.InProgress => "Em andamento",
-        RequestStatus.WaitingForResident => "Aguardando informações do morador",
+        RequestStatus.WaitingForResident => "Aguardando morador",
         RequestStatus.WaitingForManager => "Dar andamento",
         RequestStatus.WaitingForThirdParty => "Aguardando terceiro",
         RequestStatus.Resolved => "Resolvida",
@@ -1567,9 +1567,8 @@ public sealed class WhatsAppConversationService(
         "A qualquer momento, envie ‘menu’ para recomeçar ou ‘sair’ para encerrar.";
 
     private static string DescriptionPrompt() =>
-        "Descreva o que aconteceu em uma só mensagem, com o máximo de detalhes que puder. Se quiser, você também pode mandar um audio.\n\n" +
-        "Pode escrever o quanto precisar, se for um audio tente não passar de 2 minutos. Usaremos essas informações para abrir sua solicitação.\n\n" +
-        "Depois da descrição da sua solicitação/duvida, você poderá adicionar fotos e vídeos.";
+        "Conte o que aconteceu em uma mensagem. Você também pode enviar um áudio de até 2 minutos.\n\n" +
+        "Depois, você poderá adicionar fotos, vídeos ou documentos.";
 
     private static string AttachmentPrompt() =>
         "Deseja adicionar fotos, vídeos ou documentos?\n\n" +

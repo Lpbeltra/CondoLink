@@ -55,8 +55,8 @@ export function LoginPage() {
         <Stack alignItems="center" mb={3}><Brand /></Stack>
         <Card>
           <CardContent sx={{ p: { xs: 3, sm: 4.5 }, '&:last-child': { pb: { xs: 3, sm: 4.5 } } }}>
-            <Typography variant="h3" textAlign="center">Comunicação clara!</Typography>
-            <Typography color="text.secondary" textAlign="center" mt={1}>Centralizando solicitações e informações</Typography>
+            <Typography variant="h2" textAlign="center">Entre na sua conta</Typography>
+            <Typography color="text.secondary" textAlign="center" mt={1}>Acesse seus atendimentos e informações do condomínio.</Typography>
             <Box component="form" onSubmit={handleSubmit} mt={4} noValidate>
               <Stack spacing={2.25}>
                 {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
