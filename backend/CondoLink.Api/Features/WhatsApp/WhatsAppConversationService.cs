@@ -38,6 +38,8 @@ public sealed class WhatsAppConversationService(
     {
         var phone = PhoneNumberNormalizer.NormalizeWhatsAppIdentifier(message.PhoneNumber);
         if (phone is null || string.IsNullOrWhiteSpace(message.ExternalMessageId)) return;
+        var canonicalPhone = PhoneNumberNormalizer.NormalizeBrazilian(phone);
+        if (canonicalPhone is null) return;
 
         var inbound = await db.WhatsAppInboundMessages
             .SingleOrDefaultAsync(x => x.ExternalMessageId == message.ExternalMessageId, ct);
@@ -67,10 +69,9 @@ public sealed class WhatsAppConversationService(
         var now = DateTime.UtcNow;
         var expires = now.AddMinutes(Math.Clamp(options.Value.SessionExpirationMinutes, 30, 30));
         var identity = await ResolveIdentity(phone, ct);
-        var identificationCandidates = PhoneNumberNormalizer.IdentificationCandidates(phone);
         var identifiedUsers = await db.Set<ApplicationUser>()
             .Where(x => x.NormalizedPhoneNumber != null
-                && identificationCandidates.Contains(x.NormalizedPhoneNumber) && x.IsActive)
+                && x.NormalizedPhoneNumber == canonicalPhone && x.IsActive)
             .Take(2).ToArrayAsync(ct);
         var identifiedUser = identifiedUsers.Length == 1 ? identifiedUsers[0] : null;
         var session = await db.WhatsAppSessions.SingleOrDefaultAsync(x => x.PhoneNumber == phone, ct);
@@ -164,12 +165,14 @@ public sealed class WhatsAppConversationService(
             result, PhoneNumberNormalizer.Mask(phone));
     }
 
-    private async Task<ResolvedIdentity?> ResolveIdentity(string phone, CancellationToken ct)
+    private async Task<ResolvedIdentity?> ResolveIdentity(
+        string phone, CancellationToken ct)
     {
-        var candidates = PhoneNumberNormalizer.IdentificationCandidates(phone);
+        var canonicalPhone = PhoneNumberNormalizer.NormalizeBrazilian(phone);
+        if (canonicalPhone is null) return null;
         var users = await db.Set<ApplicationUser>().AsNoTracking()
             .Where(x => x.NormalizedPhoneNumber != null
-                && candidates.Contains(x.NormalizedPhoneNumber))
+                && x.NormalizedPhoneNumber == canonicalPhone)
             .Select(x => new { x.Id, x.FullName, x.IsActive, x.NormalizedPhoneNumber })
             .Take(3).ToArrayAsync(ct);
         var activeUsers = users.Where(x => x.IsActive).DistinctBy(x => x.Id).Take(2).ToArray();
@@ -187,9 +190,7 @@ public sealed class WhatsAppConversationService(
             return null;
         }
         var user = activeUsers[0];
-        logger.LogInformation(user.NormalizedPhoneNumber == phone
-            ? "Exact WhatsApp phone match found."
-            : "Brazilian WhatsApp phone variant match found.");
+        logger.LogInformation("Exact canonical WhatsApp phone match found.");
         logger.LogInformation("Unique WhatsApp user found by canonical phone.");
 
         var unitLinks = await db.UnitMemberships.AsNoTracking()

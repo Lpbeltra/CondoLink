@@ -53,6 +53,15 @@ public static class PlatformAdminInitializer
 
         if (user is null)
         {
+            var activePlatformAdminExists = (await userManager.GetUsersInRoleAsync(
+                    DependencyInjection.PlatformAdminRole))
+                .Any(existing => existing.IsActive
+                    && !string.IsNullOrWhiteSpace(existing.NormalizedEmail));
+            if (activePlatformAdminExists)
+            {
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(password))
             {
                 throw new InvalidOperationException(

@@ -112,27 +112,18 @@ public sealed class WhatsAppContractTests
         Assert.Equal(expected, PhoneNumberNormalizer.NormalizeBrazilian(input));
 
     [Fact]
-    public void Legacy_brazilian_mobile_produces_only_the_official_ninth_digit_variant()
+    public void Canonical_brazilian_mobile_uses_only_exact_identification()
     {
         Assert.Equal(
-            ["+554497562161", "+5544997562161"],
-            PhoneNumberNormalizer.IdentificationCandidates("+554497562161"));
-    }
-
-    [Fact]
-    public void Official_brazilian_mobile_produces_the_inverse_legacy_variant()
-    {
-        Assert.Equal(
-            ["+5544997562161", "+554497562161"],
+            ["+5544997562161"],
             PhoneNumberNormalizer.IdentificationCandidates("+5544997562161"));
     }
 
     [Fact]
-    public void Foreign_number_is_not_transformed()
+    public void Foreign_number_is_not_a_valid_brazilian_whatsapp_identifier()
     {
-        Assert.Equal(
-            ["+14155552671"],
-            PhoneNumberNormalizer.IdentificationCandidates("+14155552671"));
+        Assert.Null(PhoneNumberNormalizer.NormalizeBrazilian(
+            "+14155552671"));
     }
 
     private static JsonDocument ReadFixture(string name)

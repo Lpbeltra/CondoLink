@@ -279,7 +279,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 "joao@example.com", null, null, "101",
                 "Owner", false, null), "succeeded");
 
-        await PostAsync(TextPayload("wamid.admin-register", "Cadastrar morador"));
+        await PostAsync(TextPayload(
+            "wamid.admin-register", "Cadastrar morador", "551199990001"));
 
         Assert.Contains("1 - Confirmar", _fake.Messages.Last().Text);
         Assert.Contains("Condomínio: Residencial Teste", _fake.Messages.Last().Text);
@@ -288,9 +289,15 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.DoesNotContain("IsPrimaryResidence", _fake.Messages.Last().Text);
         Assert.DoesNotContain("Owner", _fake.Messages.Last().Text);
         Assert.Equal(0, await _host.WithDbAsync(db => db.Users.CountAsync(x => x.Email == "joao@example.com")));
+        Assert.Equal(_userId, await _host.WithDbAsync(db =>
+            db.WhatsAppInboundMessages
+                .Where(x => x.ExternalMessageId == "wamid.admin-register")
+                .Select(x => x.IdentifiedUserId).SingleAsync()));
 
-        await PostAsync(TextPayload("wamid.admin-confirm", "1"));
-        await PostAsync(TextPayload("wamid.admin-confirm", "1"));
+        await PostAsync(TextPayload(
+            "wamid.admin-confirm", "1", "551199990001"));
+        await PostAsync(TextPayload(
+            "wamid.admin-confirm", "1", "551199990001"));
 
         Assert.Contains("Cadastro concluído", _fake.Messages.Last().Text);
         await _host.WithDbAsync(async db =>
@@ -602,7 +609,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Brazilian_phone_variants_pointing_to_different_users_are_ambiguous()
+    public async Task Noncanonical_stored_number_does_not_override_exact_canonical_match()
     {
         await _host.WithDbAsync(async db =>
         {
@@ -619,8 +626,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload("wamid.ambiguous-variant", "Oi", "554497562161"));
 
-        Assert.Contains("Não consegui identificar", Assert.Single(_fake.Messages).Text);
-        Assert.Equal(WhatsAppConversationState.UnknownPhone,
+        Assert.Contains("Como posso ajudar", Assert.Single(_fake.Messages).Text);
+        Assert.Equal(WhatsAppConversationState.MainMenu,
             await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
     }
 

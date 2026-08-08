@@ -6,7 +6,11 @@ public static class BrazilianPhoneNumber
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
 
+        var trimmed = value.Trim();
         var digits = new string(value.Where(char.IsAsciiDigit).ToArray());
+        if (trimmed.StartsWith('+')
+            && !digits.StartsWith("55", StringComparison.Ordinal))
+            return null;
         if (digits.StartsWith("00", StringComparison.Ordinal))
         {
             digits = digits.Length >= 6

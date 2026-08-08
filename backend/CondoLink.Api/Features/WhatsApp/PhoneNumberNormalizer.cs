@@ -16,21 +16,7 @@ public static class PhoneNumberNormalizer
 
     public static string[] IdentificationCandidates(string normalizedIdentifier)
     {
-        var candidates = new List<string> { normalizedIdentifier };
-        if (!normalizedIdentifier.StartsWith("+55", StringComparison.Ordinal))
-            return [.. candidates];
-
-        // +55 + DDD + 8 digits: only legacy mobile ranges are eligible.
-        if (normalizedIdentifier.Length == 13
-            && normalizedIdentifier[5] is >= '6' and <= '9')
-            candidates.Add(normalizedIdentifier.Insert(5, "9"));
-        // Inverse comparison is restricted to the official mobile ninth digit.
-        else if (normalizedIdentifier.Length == 14
-            && normalizedIdentifier[5] == '9'
-            && normalizedIdentifier[6] is >= '6' and <= '9')
-            candidates.Add(normalizedIdentifier.Remove(5, 1));
-
-        return [.. candidates.Distinct(StringComparer.Ordinal)];
+        return [normalizedIdentifier];
     }
 
     public static string Mask(string phoneNumber) =>
