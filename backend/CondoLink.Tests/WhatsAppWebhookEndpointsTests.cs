@@ -467,6 +467,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         var sent = Assert.Single(_fake.Messages);
         Assert.Contains("Olá, Maria!", sent.Text);
         Assert.Contains("Como posso ajudar", sent.Text);
+        Assert.DoesNotContain("Falar com a administração", sent.Text);
+        Assert.DoesNotContain("4 -", sent.Text);
         await _host.WithDbAsync(async db =>
         {
             var session = await db.WhatsAppSessions.SingleAsync();
@@ -475,16 +477,13 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         });
     }
 
-    [Theory]
-    [InlineData("4", "ainda não está disponível")]
-    [InlineData("9", "Não reconheci essa opção")]
-    public async Task Unavailable_menu_options_do_not_advance_the_session(
-        string option, string expectedResponse)
+    [Fact]
+    public async Task Invalid_menu_option_does_not_advance_the_session()
     {
         await PostAsync(TextPayload("wamid.unavailable-menu", "Menu"));
-        await PostAsync(TextPayload($"wamid.unavailable-{option}", option));
+        await PostAsync(TextPayload("wamid.unavailable-4", "4"));
 
-        Assert.Contains(expectedResponse, _fake.Messages.Last().Text);
+        Assert.Contains("Não reconheci essa opção", _fake.Messages.Last().Text);
         Assert.Equal(WhatsAppConversationState.MainMenu,
             await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
     }

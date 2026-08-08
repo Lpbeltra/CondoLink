@@ -417,11 +417,6 @@ public sealed class WhatsAppConversationService(
             return (await EligibleRequestsPage(session, identity, now, expires, ct),
                 "selecting_existing_request");
         }
-        if (text == "4")
-        {
-            session.Touch(now, expires);
-            return ("Essa opção ainda não está disponível. Escolha 1, 2 ou 3, ou envie ‘menu’ para recomeçar.", "option_unavailable");
-        }
         session.Touch(now, expires);
         return ("Não reconheci essa opção. Escolha 1, 2 ou 3, ou envie ‘menu’ para recomeçar.", "invalid_main_menu_choice");
     }
@@ -1561,10 +1556,8 @@ public sealed class WhatsAppConversationService(
         $"Olá, {FirstName(fullName)}! Como posso ajudar?\n\n" +
         "1 - Abrir uma solicitação\n" +
         "2 - Ver os status de minhas solicitações\n" +
-        "3 - Falar sobre uma solicitação existente\n" +
-        "4 - Falar com a administração\n\n" +
-        "Digite o número da opção.\n\n" +
-        "A qualquer momento, envie ‘menu’ para recomeçar ou ‘sair’ para encerrar.";
+        "3 - Falar sobre uma solicitação existente\n\n" +
+        "Digite uma opção. Você também pode enviar ‘menu’ para recomeçar ou ‘sair’ para encerrar.";
 
     private static string DescriptionPrompt() =>
         "Conte o que aconteceu em uma mensagem. Você também pode enviar um áudio de até 2 minutos.\n\n" +
