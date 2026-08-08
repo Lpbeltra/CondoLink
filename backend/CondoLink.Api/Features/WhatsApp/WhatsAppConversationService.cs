@@ -33,6 +33,8 @@ public sealed class WhatsAppConversationService(
     private const int OwnRequestsPageSize = 5;
     private const string IdentificationFailure =
         "Não consegui identificar seu cadastro. Entre em contato com a administração do condomínio para verificar seu número.";
+    private const string ResidentialContextFailure =
+        "Seu cadastro foi identificado, mas não há uma unidade residencial ativa disponível para este atendimento.";
 
     public async Task ProcessAsync(NormalizedWhatsAppMessage message, CancellationToken ct)
     {
@@ -68,12 +70,7 @@ public sealed class WhatsAppConversationService(
 
         var now = DateTime.UtcNow;
         var expires = now.AddMinutes(Math.Clamp(options.Value.SessionExpirationMinutes, 30, 30));
-        var identity = await ResolveIdentity(phone, ct);
-        var identifiedUsers = await db.Set<ApplicationUser>()
-            .Where(x => x.NormalizedPhoneNumber != null
-                && x.NormalizedPhoneNumber == canonicalPhone && x.IsActive)
-            .Take(2).ToArrayAsync(ct);
-        var identifiedUser = identifiedUsers.Length == 1 ? identifiedUsers[0] : null;
+        var identifiedUser = await ResolveUser(canonicalPhone, ct);
         var session = await db.WhatsAppSessions.SingleOrDefaultAsync(x => x.PhoneNumber == phone, ct);
         var isNewSession = session is null;
         if (session is null)
@@ -91,38 +88,53 @@ public sealed class WhatsAppConversationService(
         var administrativeResponse = identifiedUser is null ? null
             : await administrativeResidents.TryHandleAsync(
                 identifiedUser, session, message.Text, now, expires, ct);
-        Guid? identifiedUserId = identity?.UserId;
+        Guid? identifiedUserId = identifiedUser?.Id;
         if (administrativeResponse is not null)
         {
             identifiedUserId = identifiedUser!.Id;
             response = administrativeResponse.Text;
             result = administrativeResponse.Result;
+            if (result == "admin_command_forbidden")
+                logger.LogWarning("AdministrativeAuthorizationRejected for WhatsApp user.");
+            else
+                logger.LogInformation("AdministrativeContextResolved for WhatsApp user.");
         }
-        else if (identity is null)
+        else if (identifiedUser is null)
         {
             session.InvalidateIdentity(now, expires);
-            logger.LogWarning("WhatsApp session state assigned after context validation: {State}.", session.State);
+            logger.LogWarning("UserResolved: false. WhatsApp session state: {State}.", session.State);
             response = IdentificationFailure;
             result = "identity_not_resolved";
         }
         else
         {
-            try
+            var identity = await ResolveResidentialContext(identifiedUser, ct);
+            if (identity is null)
             {
-                session.ResolveContext(identity.UserId, identity.CondominiumId, identity.UnitId);
-                (response, result) = await Respond(
-                    session, identity, message, now, expires, isNewSession, ct);
+                session.Restart(now, expires);
+                logger.LogInformation("ResidentialContextUnavailable for identified WhatsApp user.");
+                response = ResidentialContextFailure;
+                result = "residential_context_unavailable";
             }
-            catch (DbUpdateConcurrencyException)
+            else
             {
-                throw;
-            }
-            catch
-            {
-                await DiscardDraftAttachments(session, ct);
-                session.End(now);
-                await db.SaveChangesAsync(ct);
-                throw;
+                try
+                {
+                    session.ResolveContext(identity.UserId, identity.CondominiumId, identity.UnitId);
+                    (response, result) = await Respond(
+                        session, identity, message, now, expires, isNewSession, ct);
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    await DiscardDraftAttachments(session, ct);
+                    session.End(now);
+                    await db.SaveChangesAsync(ct);
+                    throw;
+                }
             }
         }
 
@@ -165,16 +177,13 @@ public sealed class WhatsAppConversationService(
             result, PhoneNumberNormalizer.Mask(phone));
     }
 
-    private async Task<ResolvedIdentity?> ResolveIdentity(
-        string phone, CancellationToken ct)
+    private async Task<ApplicationUser?> ResolveUser(
+        string canonicalPhone, CancellationToken ct)
     {
-        var canonicalPhone = PhoneNumberNormalizer.NormalizeBrazilian(phone);
-        if (canonicalPhone is null) return null;
-        var users = await db.Set<ApplicationUser>().AsNoTracking()
+        var users = await db.Set<ApplicationUser>()
             .Where(x => x.NormalizedPhoneNumber != null
                 && x.NormalizedPhoneNumber == canonicalPhone)
-            .Select(x => new { x.Id, x.FullName, x.IsActive, x.NormalizedPhoneNumber })
-            .Take(3).ToArrayAsync(ct);
+            .Take(2).ToArrayAsync(ct);
         var activeUsers = users.Where(x => x.IsActive).DistinctBy(x => x.Id).Take(2).ToArray();
         if (activeUsers.Length == 0)
         {
@@ -190,23 +199,27 @@ public sealed class WhatsAppConversationService(
             return null;
         }
         var user = activeUsers[0];
-        logger.LogInformation("Exact canonical WhatsApp phone match found.");
-        logger.LogInformation("Unique WhatsApp user found by canonical phone.");
+        logger.LogInformation("UserResolved by exact canonical WhatsApp phone.");
+        return user;
+    }
 
+    private async Task<ResolvedIdentity?> ResolveResidentialContext(
+        ApplicationUser user, CancellationToken ct)
+    {
         var unitLinks = await db.UnitMemberships.AsNoTracking()
             .Where(x => x.UserId == user.Id && x.IsActive && x.EndedAt == null)
             .Select(x => new { x.UnitId, x.IsResident, x.IsPrimaryResidence })
             .ToArrayAsync(ct);
         if (unitLinks.Length == 0)
         {
-            logger.LogWarning("No active unit membership found for WhatsApp user.");
+            logger.LogInformation("NoResidentialMembership for identified WhatsApp user.");
             return null;
         }
 
         var residentialLinks = unitLinks.Where(x => x.IsResident).ToArray();
         if (residentialLinks.Length == 0)
         {
-            logger.LogWarning("No eligible residential membership found for WhatsApp user.");
+            logger.LogInformation("ResidentialContextUnavailable: no resident unit membership.");
             return null;
         }
 
@@ -242,7 +255,7 @@ public sealed class WhatsAppConversationService(
             .DistinctBy(x => new { x.CondominiumId, x.UnitId }).ToArray();
         if (contexts.Length == 0)
         {
-            logger.LogWarning("No eligible residential membership found for WhatsApp user.");
+            logger.LogInformation("ResidentialContextUnavailable: no active residential context.");
             return null;
         }
 
@@ -259,7 +272,7 @@ public sealed class WhatsAppConversationService(
             return null;
         }
 
-        logger.LogInformation("WhatsApp residential context resolved successfully.");
+        logger.LogInformation("ResidentialContextResolved for WhatsApp user.");
         return new ResolvedIdentity(user.Id, user.FullName,
             resolved.CondominiumId, resolved.UnitId);
     }
@@ -1469,7 +1482,13 @@ public sealed class WhatsAppConversationService(
         WhatsAppSession session, string categoryName,
         DateTime now, DateTime expires, CancellationToken ct)
     {
-        var identityStillValid = await ResolveIdentity(session.PhoneNumber, ct);
+        var canonicalPhone = PhoneNumberNormalizer.NormalizeBrazilian(session.PhoneNumber);
+        var userStillValid = canonicalPhone is null
+            ? null
+            : await ResolveUser(canonicalPhone, ct);
+        var identityStillValid = userStillValid is null
+            ? null
+            : await ResolveResidentialContext(userStillValid, ct);
         var categoryValid = await db.Categories.AsNoTracking().AnyAsync(x =>
             x.Id == session.CategoryId && x.CondominiumId == session.CondominiumId && x.IsActive, ct);
         var review = Review(session);

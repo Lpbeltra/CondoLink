@@ -272,6 +272,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             };
             db.Roles.Add(role);
             db.UserRoles.Add(new IdentityUserRole<Guid> { UserId = _userId, RoleId = role.Id });
+            db.UnitMemberships.RemoveRange(db.UnitMemberships.Where(x =>
+                x.UserId == _userId));
             await db.SaveChangesAsync();
         });
         _administrativeExtraction.Result = new(true,
@@ -346,6 +348,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 .Select(x => x.Id).SingleAsync();
             db.CondominiumMembershipRoles.Add(new CondominiumMembershipRole(
                 membershipId, CondominiumRole.Manager));
+            db.UnitMemberships.RemoveRange(db.UnitMemberships.Where(x =>
+                x.UserId == _userId));
             await db.SaveChangesAsync();
         });
         _administrativeExtraction.Result = new(true,
@@ -360,6 +364,55 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.admin-manager-cancel", "0"));
         Assert.Contains("Nenhuma alteração", _fake.Messages.Last().Text);
         Assert.Equal(1, await _host.WithDbAsync(db => db.Users.CountAsync()));
+
+        await PostAsync(TextPayload("wamid.admin-manager-resident-menu", "Oi"));
+        Assert.Contains("unidade residencial ativa", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("identificar seu cadastro", _fake.Messages.Last().Text);
+    }
+
+    [Fact]
+    public async Task Administrative_resident_uses_intent_to_select_context()
+    {
+        await _host.WithDbAsync(AddPlatformAdminRole);
+        _administrativeExtraction.Result = new(true,
+            new("register_resident", null, null, null, null, null, null,
+                null, null, null), "succeeded");
+
+        await PostAsync(TextPayload("wamid.admin-resident-command", "Cadastrar morador"));
+        Assert.Contains("nome completo", _fake.Messages.Last().Text);
+
+        await PostAsync(TextPayload("wamid.admin-resident-cancel", "0"));
+        await PostAsync(TextPayload("wamid.admin-resident-menu", "menu"));
+
+        Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("unidade residencial ativa", _fake.Messages.Last().Text);
+    }
+
+    [Fact]
+    public async Task Manager_without_unit_cannot_register_in_another_condominium()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var membershipId = await db.CondominiumMemberships
+                .Where(x => x.UserId == _userId && x.CondominiumId == _condominiumId)
+                .Select(x => x.Id).SingleAsync();
+            var outside = new Condominium("Condomínio fora do escopo", null, null);
+            db.AddRange(outside, new Unit(outside.Id, "202", null, null, null),
+                new CondominiumMembershipRole(membershipId, CondominiumRole.Manager));
+            db.UnitMemberships.RemoveRange(db.UnitMemberships.Where(x =>
+                x.UserId == _userId));
+            await db.SaveChangesAsync();
+        });
+        _administrativeExtraction.Result = new(true,
+            new("register_resident", "Fora do Escopo", "11988887777",
+                "fora@example.com", "Condomínio fora do escopo", null, "202",
+                "Tenant", null, null), "succeeded");
+
+        await PostAsync(TextPayload("wamid.admin-manager-outside", "Cadastrar morador"));
+
+        Assert.Contains("dentro do seu acesso administrativo", _fake.Messages.Last().Text);
+        Assert.Equal(0, await _host.WithDbAsync(db =>
+            db.Users.CountAsync(x => x.Email == "fora@example.com")));
     }
 
     [Fact]
@@ -966,10 +1019,10 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.multi", "Menu"));
 
         var text = Assert.Single(_fake.Messages).Text;
-        Assert.Contains("Não consegui identificar seu cadastro", text);
+        Assert.Contains("unidade residencial ativa", text);
         Assert.DoesNotContain("Residencial Teste", text);
         Assert.DoesNotContain("Condomínio B", text);
-        Assert.Equal(WhatsAppConversationState.UnknownPhone,
+        Assert.Equal(WhatsAppConversationState.MainMenu,
             await _host.WithDbAsync(db => db.WhatsAppSessions
                 .Select(item => item.State).SingleAsync()));
     }
@@ -1058,7 +1111,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Inactive_residential_membership_is_not_identified()
+    public async Task Inactive_residential_membership_has_no_residential_context()
     {
         await _host.WithDbAsync(async db =>
         {
@@ -1069,7 +1122,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload("wamid.inactive-unit-membership", "Menu"));
 
-        Assert.Contains("Não consegui identificar", Assert.Single(_fake.Messages).Text);
+        Assert.Contains("unidade residencial ativa", Assert.Single(_fake.Messages).Text);
+        Assert.DoesNotContain("identificar seu cadastro", _fake.Messages.Last().Text);
     }
 
     [Fact]
@@ -1078,11 +1132,10 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await SetCondominiumMembershipActive(false);
         await PostAsync(TextPayload("wamid.unknown-old", "Oi"));
         var sessionId = await _host.WithDbAsync(db => db.WhatsAppSessions
-            .Where(x => x.State == WhatsAppConversationState.UnknownPhone)
             .Select(x => x.Id).SingleAsync());
 
         await SetCondominiumMembershipActive(true);
-        await PostAsync(TextPayload("wamid.unknown-recovered", "Oi novamente"));
+        await PostAsync(TextPayload("wamid.unknown-recovered", "reiniciar"));
 
         Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
         await _host.WithDbAsync(async db =>
@@ -1098,7 +1151,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Unknown_phone_session_stays_unknown_while_context_is_invalid()
+    public async Task Identified_session_stays_without_residential_context_while_invalid()
     {
         await SetCondominiumMembershipActive(false);
         await PostAsync(TextPayload("wamid.unknown-still-1", "Oi"));
@@ -1107,11 +1160,11 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload("wamid.unknown-still-2", "reiniciar"));
 
-        Assert.Contains("Não consegui identificar", _fake.Messages.Last().Text);
+        Assert.Contains("unidade residencial ativa", _fake.Messages.Last().Text);
         await _host.WithDbAsync(async db =>
         {
             var session = await db.WhatsAppSessions.SingleAsync();
-            Assert.Equal(WhatsAppConversationState.UnknownPhone, session.State);
+            Assert.Equal(WhatsAppConversationState.MainMenu, session.State);
             Assert.Null(session.UserId);
             Assert.True(session.ExpiresAt >= previousExpiry);
             Assert.Equal(1, await db.WhatsAppSessions.CountAsync());
@@ -1134,12 +1187,12 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Inactive_unit_or_condominium_is_not_identified()
+    public async Task Inactive_unit_or_condominium_makes_residential_context_unavailable()
     {
         await _host.WithDbAsync(db => db.Units.Where(x => x.Id == _unitId)
             .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.IsActive, false)));
         await PostAsync(TextPayload("wamid.inactive-unit", "Menu"));
-        Assert.Contains("Não consegui identificar", _fake.Messages.Last().Text);
+        Assert.Contains("unidade residencial ativa", _fake.Messages.Last().Text);
 
         await _host.WithDbAsync(async db =>
         {
@@ -1150,7 +1203,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             await db.SaveChangesAsync();
         });
         await PostAsync(TextPayload("wamid.inactive-condominium", "Menu"));
-        Assert.Contains("Não consegui identificar", _fake.Messages.Last().Text);
+        Assert.Contains("unidade residencial ativa", _fake.Messages.Last().Text);
     }
 
     [Fact]
