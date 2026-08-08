@@ -281,7 +281,10 @@ public sealed class MetaWhatsAppClientTests
         Assert.DoesNotContain(phone.TrimStart('+'), logs);
         Assert.DoesNotContain(name, logs);
         Assert.DoesNotContain(handler.Body!, logs);
-        Assert.Contains("completed", logs);
+        Assert.Contains("FailureStage: building_payload", logs);
+        Assert.Contains("FailureStage: completed", logs);
+        Assert.Contains("HttpStatus: 400", logs);
+        Assert.Contains("MetaErrorCode: 132001", logs);
     }
 
     [Fact]

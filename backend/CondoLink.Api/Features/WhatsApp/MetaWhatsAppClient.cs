@@ -144,7 +144,7 @@ public sealed class MetaWhatsAppClient(
             LogTemplateEvent(result.Succeeded ? LogLevel.Information :
                 result.IsTransient ? LogLevel.Warning : LogLevel.Error,
                 templateName, language, namedParameterEnabled, httpStatus,
-                result.ErrorCode, result.FailureStage ?? stage);
+                result.ErrorCode, stage);
             return result;
         }
         catch (OperationCanceledException exception)

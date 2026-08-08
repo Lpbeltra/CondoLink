@@ -249,8 +249,25 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(InteractiveReplyPayload("wamid.title-fallback",
             string.Empty, "Responder agora"));
 
-        Assert.Contains("Não foi possível continuar este atendimento",
+        Assert.Contains("Não consegui localizar a solicitação que precisa da sua resposta",
             _fake.Messages.Last().Text);
+        Assert.Equal("resident_reply_correlation_failed",
+            await _host.WithDbAsync(db => db.WhatsAppInboundMessages
+                .Where(x => x.ExternalMessageId == "wamid.title-fallback")
+                .Select(x => x.ProcessingResult).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Arbitrary_title_is_not_a_button_when_button_id_is_absent()
+    {
+        await PostAsync(TextPayload("wamid.arbitrary-title-menu", "Oi"));
+        await PostAsync(InteractiveReplyPayload("wamid.arbitrary-title",
+            string.Empty, "Quero falar com alguém"));
+
+        Assert.Contains("Para abrir uma solicitação", _fake.Messages.Last().Text);
+        Assert.Equal(WhatsAppConversationState.MainMenu,
+            await _host.WithDbAsync(db => db.WhatsAppSessions
+                .Select(x => x.State).SingleAsync()));
     }
 
     [Theory]
@@ -459,14 +476,15 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("3")]
-    [InlineData("4")]
-    public async Task Unavailable_menu_options_do_not_advance_the_session(string option)
+    [InlineData("4", "disponível em breve")]
+    [InlineData("9", "Para abrir uma solicitação")]
+    public async Task Unavailable_menu_options_do_not_advance_the_session(
+        string option, string expectedResponse)
     {
         await PostAsync(TextPayload("wamid.unavailable-menu", "Menu"));
         await PostAsync(TextPayload($"wamid.unavailable-{option}", option));
 
-        Assert.Contains("disponível em breve", _fake.Messages.Last().Text);
+        Assert.Contains(expectedResponse, _fake.Messages.Last().Text);
         Assert.Equal(WhatsAppConversationState.MainMenu,
             await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
     }
