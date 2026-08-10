@@ -119,6 +119,12 @@ public sealed class WhatsAppOutboundWorker(
                         .SingleAsync(ct);
                     parameters = StatusChangedTemplateParameters(fullName, content);
                 }
+                else if (item.NotificationType == WhatsAppNotificationType.ManagerNewRequest)
+                {
+                    parameters = [content];
+                    bodyParameterName = settings.Templates.ManagerNewRequest
+                        .BodyParameterName;
+                }
                 result = await client.SendTemplateAsync(item.DestinationPhone,
                     item.TemplateName!, item.TemplateLanguage!, parameters,
                     quickReplies, ct, bodyParameterName);

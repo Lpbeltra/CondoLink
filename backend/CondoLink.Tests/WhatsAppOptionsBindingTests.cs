@@ -38,6 +38,33 @@ public sealed class WhatsAppOptionsBindingTests
     }
 
     [Fact]
+    public void Manager_new_request_template_binds_from_expected_tree()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["WhatsApp:Templates:ManagerNewRequest:Name"] =
+                    "manager_new_request",
+                ["WhatsApp:Templates:ManagerNewRequest:Language"] = "pt_BR",
+                ["WhatsApp:Templates:ManagerNewRequest:BodyParameterName"] =
+                    "request_summary"
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddOptions();
+        services.Configure<WhatsAppOptions>(configuration.GetSection(
+            WhatsAppOptions.SectionName));
+        using var provider = services.BuildServiceProvider();
+
+        var template = provider.GetRequiredService<IOptions<WhatsAppOptions>>()
+            .Value.Templates.ManagerNewRequest;
+
+        Assert.Equal("manager_new_request", template.Name);
+        Assert.Equal("pt_BR", template.Language);
+        Assert.Equal("request_summary", template.BodyParameterName);
+    }
+
+    [Fact]
     public void Scoped_consumers_resolve_the_same_options_and_value_instances()
     {
         var services = new ServiceCollection();

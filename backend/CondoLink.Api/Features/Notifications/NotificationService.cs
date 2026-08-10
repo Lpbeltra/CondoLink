@@ -40,6 +40,45 @@ public sealed class NotificationService(
             request.Id)));
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        if (managerIds.Length != 1)
+        {
+            logger?.LogInformation(
+                "Manager new request WhatsApp notification skipped. RequestId: {RequestId}; CondominiumId: {CondominiumId}; ActiveManagerCount: {ActiveManagerCount}; Reason: {Reason}.",
+                request.Id, request.CondominiumId, managerIds.Length,
+                managerIds.Length == 0 ? "ManagerNotFound" : "ManagerAmbiguous");
+            return;
+        }
+        if (whatsApp is null)
+        {
+            logger?.LogInformation(
+                "Manager new request WhatsApp notification skipped. RequestId: {RequestId}; CondominiumId: {CondominiumId}; ActiveManagerCount: {ActiveManagerCount}; Reason: {Reason}.",
+                request.Id, request.CondominiumId, managerIds.Length,
+                "WhatsAppDispatcherUnavailable");
+            return;
+        }
+        var residentName = await dbContext
+            .Set<CondoLink.Infrastructure.Identity.ApplicationUser>()
+            .AsNoTracking().Where(x => x.Id == request.AuthorUserId)
+            .Select(x => x.FullName).SingleAsync(cancellationToken);
+        var location = request.TargetUnitId.HasValue
+            ? await (from unit in dbContext.Units.AsNoTracking()
+                where unit.Id == request.TargetUnitId.Value
+                join block in dbContext.CondominiumBlocks.AsNoTracking()
+                    on unit.BlockId equals block.Id into blocks
+                from block in blocks.DefaultIfEmpty()
+                select new
+                {
+                    Unit = unit.Identifier,
+                    Block = block == null ? null : block.Identifier
+                }).SingleOrDefaultAsync(cancellationToken)
+            : null;
+        var content = ManagerNewRequestContent(residentName, location?.Unit,
+            location?.Block, request.Title);
+        var managerId = managerIds[0];
+        await whatsApp.EnqueueForUserAsync(request.Id, managerId,
+            WhatsAppNotificationType.ManagerNewRequest,
+            $"manager-new-request:{request.Id}:{managerId}", content, null,
+            cancellationToken);
     }
 
     /// <summary>
@@ -337,4 +376,23 @@ public sealed class NotificationService(
         "A administração precisa de uma informação sua sobre a solicitação:\n\n" +
         $"*\"{Shorten(title, 120)}\"*\n\n{question.Trim()}\n\n" +
         "1 - Responder agora\n2 - Responder depois";
+
+    internal static string ManagerNewRequestContent(string residentName,
+        string? unit, string? block, string? title)
+    {
+        var location = string.IsNullOrWhiteSpace(unit)
+            ? "Unidade não informada"
+            : $"Apto {unit.Trim()}";
+        if (!string.IsNullOrWhiteSpace(block))
+        {
+            var blockLabel = block.Trim().StartsWith("Bloco ",
+                StringComparison.OrdinalIgnoreCase)
+                ? block.Trim()[6..].Trim() : block.Trim();
+            location += $" · Bloco {blockLabel}";
+        }
+        var subject = string.IsNullOrWhiteSpace(title)
+            ? "Solicitação sem assunto" : Shorten(title, 160);
+        return $"*Nova solicitação recebida*\n\n{Shorten(residentName, 160)}\n"
+            + $"{location}\nAssunto: {subject}";
+    }
 }

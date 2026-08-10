@@ -133,6 +133,75 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         Assert.False(notification.IsRead);
     }
 
+    [Fact]
+    public async Task New_request_enqueues_one_manager_whatsapp_with_operational_content()
+    {
+        _managerA.Update("Síndico A", "11988887777");
+        var managerBMembership = await _db.CondominiumMemberships
+            .SingleAsync(x => x.UserId == _managerB.Id);
+        (await _db.CondominiumMembershipRoles.SingleAsync(x =>
+            x.CondominiumMembershipId == managerBMembership.Id)).Deactivate();
+        var block = new CondominiumBlock(_condominium.Id, "Bloco 1");
+        var unit = new Unit(_condominium.Id, "1201", block.Id, null, null);
+        _db.AddRange(block, unit);
+        await _db.SaveChangesAsync();
+        var request = await AddRequestAsync(_resident.Id, "TAG da garagem", unit.Id);
+        var options = new WhatsAppOptions { Enabled = true };
+        options.Templates.ManagerNewRequest.Name = "manager_new_request";
+        options.Templates.ManagerNewRequest.Language = "pt_BR";
+        var dispatcher = new WhatsAppNotificationDispatcher(_db,
+            Options.Create(options),
+            NullLogger<WhatsAppNotificationDispatcher>.Instance);
+        var service = new NotificationService(_db, dispatcher,
+            NullLogger<NotificationService>.Instance);
+
+        await service.NotifyRequestCreatedAsync(request, _category.Name, default);
+        await service.NotifyRequestCreatedAsync(request, _category.Name, default);
+
+        var outbound = Assert.Single(await _db.WhatsAppOutboundMessages
+            .AsNoTracking().ToArrayAsync());
+        Assert.Equal(_managerA.Id, outbound.UserId);
+        Assert.NotEqual(_resident.Id, outbound.UserId);
+        Assert.Equal(WhatsAppNotificationType.ManagerNewRequest,
+            outbound.NotificationType);
+        Assert.Equal("manager_new_request", outbound.TemplateName);
+        Assert.Equal(WhatsAppSendMode.Template, outbound.SendMode);
+        Assert.Contains("*Nova solicitação recebida*", outbound.Content);
+        Assert.Contains(_resident.FullName, outbound.Content);
+        Assert.Contains("Apto 1201 · Bloco 1", outbound.Content);
+        Assert.Contains("Assunto: TAG da garagem", outbound.Content);
+        Assert.DoesNotContain("Descrição", outbound.Content);
+    }
+
+    [Fact]
+    public async Task Missing_active_manager_does_not_create_manager_outbound()
+    {
+        foreach (var role in await _db.CondominiumMembershipRoles
+            .Where(x => x.Role == CondominiumRole.Manager).ToArrayAsync())
+            role.Deactivate();
+        await _db.SaveChangesAsync();
+        var request = await AddRequestAsync(_resident.Id);
+        var dispatcher = new WhatsAppNotificationDispatcher(_db,
+            Options.Create(new WhatsAppOptions { Enabled = true }),
+            NullLogger<WhatsAppNotificationDispatcher>.Instance);
+        var service = new NotificationService(_db, dispatcher,
+            NullLogger<NotificationService>.Instance);
+
+        await service.NotifyRequestCreatedAsync(request, _category.Name, default);
+
+        Assert.Empty(await _db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync());
+        Assert.True(await _db.Requests.AnyAsync(x => x.Id == request.Id));
+    }
+
+    [Fact]
+    public void Manager_new_request_content_works_without_block()
+    {
+        Assert.Equal("*Nova solicitação recebida*\n\nTatiana Custódio\n"
+            + "Apto 1201\nAssunto: TAG da garagem",
+            NotificationService.ManagerNewRequestContent(
+                "Tatiana Custódio", "1201", null, "TAG da garagem"));
+    }
+
     // ---- status changed ----
 
     [Fact]
@@ -533,10 +602,11 @@ public sealed class NotificationServiceTests : IAsyncLifetime
 
     // ---- helpers ----
 
-    private async Task<DomainRequest> AddRequestAsync(Guid authorId, string title = "Vazamento")
+    private async Task<DomainRequest> AddRequestAsync(Guid authorId,
+        string title = "Vazamento", Guid? unitId = null)
     {
         var request = new DomainRequest(
-            _condominium.Id, authorId, null, _category.Id, title, "Descrição");
+            _condominium.Id, authorId, unitId, _category.Id, title, "Descrição");
         _db.Requests.Add(request);
         await _db.SaveChangesAsync();
         return request;

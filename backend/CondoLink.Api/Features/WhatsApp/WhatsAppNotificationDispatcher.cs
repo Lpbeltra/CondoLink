@@ -21,6 +21,19 @@ public sealed class WhatsAppNotificationDispatcher(
         string content,
         Guid? requestMessageId,
         CancellationToken ct)
+        => await EnqueueCoreAsync(requestId, null, type, idempotencyKey,
+            content, requestMessageId, ct);
+
+    public async Task EnqueueForUserAsync(
+        Guid requestId, Guid userId, WhatsAppNotificationType type,
+        string idempotencyKey, string content, Guid? requestMessageId,
+        CancellationToken ct) => await EnqueueCoreAsync(requestId, userId,
+            type, idempotencyKey, content, requestMessageId, ct);
+
+    private async Task EnqueueCoreAsync(
+        Guid requestId, Guid? recipientUserId, WhatsAppNotificationType type,
+        string idempotencyKey, string content, Guid? requestMessageId,
+        CancellationToken ct)
     {
         var stage = "loading_request";
         var condominiumId = Guid.Empty;
@@ -43,6 +56,7 @@ public sealed class WhatsAppNotificationDispatcher(
                 return;
             }
             condominiumId = request.CondominiumId;
+            var userId = recipientUserId ?? request.AuthorUserId;
 
             stage = "checking_idempotency";
             if (await db.WhatsAppOutboundMessages.AsNoTracking()
@@ -67,7 +81,7 @@ public sealed class WhatsAppNotificationDispatcher(
 
             stage = "checking_user";
             var user = await db.Set<ApplicationUser>().AsNoTracking()
-                .Where(x => x.Id == request.AuthorUserId)
+                .Where(x => x.Id == userId)
                 .Select(x => new
                 {
                     x.IsActive,
@@ -78,7 +92,7 @@ public sealed class WhatsAppNotificationDispatcher(
             var phone = user?.NormalizedPhoneNumber;
             stage = "checking_membership";
             var activeMembership = user is not null && await db.CondominiumMemberships
-                .AsNoTracking().AnyAsync(x => x.UserId == request.AuthorUserId
+                .AsNoTracking().AnyAsync(x => x.UserId == userId
                     && x.CondominiumId == request.CondominiumId
                     && x.IsActive && x.EndedAt == null, ct);
             var ambiguous = phone is not null && await db.Set<ApplicationUser>()
@@ -121,7 +135,7 @@ public sealed class WhatsAppNotificationDispatcher(
                 ? WhatsAppOutboundStatus.Pending : WhatsAppOutboundStatus.Skipped;
             stage = "creating_outbound";
             db.WhatsAppOutboundMessages.Add(new WhatsAppOutboundMessage(
-                request.Id, requestMessageId, request.AuthorUserId,
+                request.Id, requestMessageId, userId,
                 request.CondominiumId, phone ?? string.Empty, type, mode,
                 idempotencyKey, content, template.Name, template.Language,
                 DateTime.UtcNow, status, skipReason));
@@ -188,6 +202,8 @@ public sealed class WhatsAppNotificationDispatcher(
                 templates.AdministrationMessage,
             WhatsAppNotificationType.InformationRequested =>
                 templates.InformationRequested,
+            WhatsAppNotificationType.ManagerNewRequest =>
+                templates.ManagerNewRequest,
             _ => templates.StatusChanged
         };
 }
