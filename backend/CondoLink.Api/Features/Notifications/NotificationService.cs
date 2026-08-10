@@ -132,10 +132,11 @@ public sealed class NotificationService(
                     Describe(request.Status), reason.Trim(), cancellationToken);
             if (result.Succeeded && !string.IsNullOrWhiteSpace(result.Message))
             {
+                var content = TerminalContent(request.Status, result.Message);
                 logger?.LogInformation(
                     "Resident status synthesis succeeded. RequestId: {RequestId}; NewStatus: {NewStatus}; Model: {Model}; Delivery: {Delivery}.",
                     request.Id, request.Status, result.Model, "AI");
-                return result.Message;
+                return content;
             }
             logger?.LogWarning(
                 "Resident status synthesis used fallback. RequestId: {RequestId}; NewStatus: {NewStatus}; Outcome: {Outcome}; Delivery: {Delivery}.",
@@ -147,8 +148,10 @@ public sealed class NotificationService(
                 "Resident status synthesis used fallback. RequestId: {RequestId}; NewStatus: {NewStatus}; FailureType: {FailureType}; Delivery: {Delivery}.",
                 request.Id, request.Status, exception.GetType().Name, "Fallback");
         }
+        var fallbackReason = request.Status is RequestStatus.Resolved
+            or RequestStatus.Cancelled ? null : reason;
         return StatusChangedContent(request.Title, previousStatus,
-            request.Status, reason);
+            request.Status, fallbackReason);
     }
 
     /// <summary>
@@ -279,8 +282,7 @@ public sealed class NotificationService(
         RequestStatus.Cancelled => true,
         RequestStatus.Open => previousStatus is RequestStatus.Resolved
             or RequestStatus.Cancelled,
-        RequestStatus.InProgress => previousStatus is
-            RequestStatus.WaitingForResident or RequestStatus.WaitingForThirdParty,
+        RequestStatus.InProgress => false,
         _ => false
     };
 
@@ -297,9 +299,15 @@ public sealed class NotificationService(
             RequestStatus.InProgress =>
                 "A administração retomou o andamento do seu atendimento." + context,
             RequestStatus.Resolved =>
-                "Seu atendimento foi encerrado pela administração." + context,
+                "*Seu atendimento foi finalizado.*\n\n"
+                + (comment is null
+                    ? "A administração concluiu esta solicitação."
+                    : Shorten(comment, 300)),
             RequestStatus.Cancelled =>
-                "Seu atendimento foi cancelado pela administração." + context,
+                "*Seu atendimento foi cancelado.*\n\n"
+                + (comment is null
+                    ? "A administração encerrou esta solicitação."
+                    : Shorten(comment, 300)),
             RequestStatus.Open when previousStatus is RequestStatus.Resolved
                 or RequestStatus.Cancelled =>
                 "Seu atendimento foi reaberto e voltará a ser analisado pela administração."
@@ -307,6 +315,22 @@ public sealed class NotificationService(
             _ => $"Há uma atualização no atendimento *\"{Shorten(title, 80)}\"*."
                 + context
         };
+    }
+
+    private static string TerminalContent(RequestStatus status, string message)
+    {
+        if (status is not (RequestStatus.Resolved or RequestStatus.Cancelled))
+            return message.Trim();
+
+        var heading = status == RequestStatus.Resolved
+            ? "*Seu atendimento foi finalizado.*"
+            : "*Seu atendimento foi cancelado.*";
+        var trimmed = message.Trim();
+        if (trimmed.StartsWith(heading, StringComparison.OrdinalIgnoreCase))
+            trimmed = trimmed[heading.Length..].TrimStart('\r', '\n', ' ');
+        return string.IsNullOrWhiteSpace(trimmed)
+            ? StatusChangedContent(string.Empty, RequestStatus.InProgress, status, null)
+            : $"{heading}\n\n{trimmed}";
     }
 
     internal static string ResidentReplyRequestedContent(string title, string question) =>

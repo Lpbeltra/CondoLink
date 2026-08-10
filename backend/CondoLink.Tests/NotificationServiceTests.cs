@@ -223,8 +223,11 @@ public sealed class NotificationServiceTests : IAsyncLifetime
     [InlineData(RequestStatus.Cancelled)]
     public async Task Terminal_status_with_reason_uses_ai_synthesis(RequestStatus status)
     {
+        var heading = status == RequestStatus.Resolved
+            ? "*Seu atendimento foi finalizado.*"
+            : "*Seu atendimento foi cancelado.*";
         var ai = new FakeAi(new(true,
-            "Seu atendimento foi encerrado. A TAG está disponível na portaria.",
+            "A TAG está disponível na portaria.",
             "succeeded", "model-test"));
         var dispatcher = new WhatsAppNotificationDispatcher(_db,
             Options.Create(new WhatsAppOptions()),
@@ -238,7 +241,7 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             _managerA.Id, default, Guid.NewGuid(), "TAG entregue na portaria");
 
         Assert.Equal(1, ai.SynthesisCalls);
-        Assert.Equal("Seu atendimento foi encerrado. A TAG está disponível na portaria.",
+        Assert.Equal($"{heading}\n\nA TAG está disponível na portaria.",
             Assert.Single(await _db.Notifications.AsNoTracking().ToArrayAsync()).Body);
     }
 
@@ -263,7 +266,7 @@ public sealed class NotificationServiceTests : IAsyncLifetime
     {
         Assert.Contains("etapa externa", NotificationService.StatusChangedContent(
             "Vazamento", RequestStatus.InProgress, RequestStatus.WaitingForThirdParty, null));
-        Assert.Contains("encerrado", NotificationService.StatusChangedContent(
+        Assert.Contains("finalizado", NotificationService.StatusChangedContent(
             "Vazamento", RequestStatus.InProgress, RequestStatus.Resolved, null));
         Assert.DoesNotContain("WaitingFor", NotificationService.StatusChangedContent(
             "Vazamento", RequestStatus.InProgress, RequestStatus.WaitingForThirdParty, null));
@@ -286,11 +289,31 @@ public sealed class NotificationServiceTests : IAsyncLifetime
     [InlineData(RequestStatus.Resolved, true)]
     [InlineData(RequestStatus.Cancelled, true)]
     [InlineData(RequestStatus.WaitingForManager, false)]
+    [InlineData(RequestStatus.InProgress, false)]
     public void Only_resident_relevant_statuses_generate_notifications(
         RequestStatus status, bool expected)
     {
         Assert.Equal(expected, NotificationService.ShouldNotifyResident(
             RequestStatus.InProgress, status));
+    }
+
+    [Theory]
+    [InlineData(RequestStatus.WaitingForResident)]
+    [InlineData(RequestStatus.WaitingForThirdParty)]
+    [InlineData(RequestStatus.WaitingForManager)]
+    public async Task In_progress_never_creates_resident_noise(RequestStatus previousStatus)
+    {
+        var dispatcher = new WhatsAppNotificationDispatcher(_db,
+            Options.Create(new WhatsAppOptions()),
+            NullLogger<WhatsAppNotificationDispatcher>.Instance);
+        var service = new NotificationService(_db, dispatcher);
+        var request = await AddRequestAsync(_resident.Id);
+
+        await service.NotifyStatusChangedAsync(request, previousStatus,
+            _managerA.Id, default, Guid.NewGuid());
+
+        Assert.Empty(await _db.Notifications.AsNoTracking().ToArrayAsync());
+        Assert.Empty(await _db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync());
     }
 
     [Fact]
@@ -311,13 +334,34 @@ public sealed class NotificationServiceTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData(RequestStatus.Resolved, "Seu atendimento foi encerrado pela administração.")]
-    [InlineData(RequestStatus.Cancelled, "Seu atendimento foi cancelado pela administração.")]
+    [InlineData(RequestStatus.Resolved, "*Seu atendimento foi finalizado.*\n\nA administração concluiu esta solicitação.")]
+    [InlineData(RequestStatus.Cancelled, "*Seu atendimento foi cancelado.*\n\nA administração encerrou esta solicitação.")]
     public void Terminal_statuses_have_deterministic_resident_fallbacks(
         RequestStatus status, string expected)
     {
         Assert.Equal(expected, NotificationService.StatusChangedContent(
             "Vazamento", RequestStatus.InProgress, status, null));
+    }
+
+    [Fact]
+    public async Task Terminal_ai_failure_uses_deterministic_fallback()
+    {
+        var ai = new FakeAi(new(false, null, "provider_error"));
+        var dispatcher = new WhatsAppNotificationDispatcher(_db,
+            Options.Create(new WhatsAppOptions()),
+            NullLogger<WhatsAppNotificationDispatcher>.Instance);
+        var service = new NotificationService(_db, dispatcher,
+            NullLogger<NotificationService>.Instance, ai);
+        var request = await AddRequestAsync(_resident.Id);
+        request.ChangeStatus(RequestStatus.Resolved, DateTime.UtcNow);
+
+        await service.NotifyStatusChangedAsync(request, RequestStatus.InProgress,
+            _managerA.Id, default, Guid.NewGuid(), "O reparo foi concluído");
+
+        var outbound = Assert.Single(await _db.WhatsAppOutboundMessages
+            .AsNoTracking().ToArrayAsync());
+        Assert.Equal("*Seu atendimento foi finalizado.*\n\n"
+            + "A administração concluiu esta solicitação.", outbound.Content);
     }
 
     // ---- messages ----

@@ -10,6 +10,43 @@ namespace CondoLink.Tests;
 
 public sealed class RequestDraftAiServiceTests
 {
+    [Fact]
+    public async Task Resident_status_prompt_forbids_unfounded_courtesy_and_requires_terminal_heading()
+    {
+        string? requestBody = null;
+        var service = Service(async (request, ct) =>
+        {
+            requestBody = await request.Content!.ReadAsStringAsync(ct);
+            return Response("""{"message":"*Seu atendimento foi finalizado.*\\n\\nO reparo foi concluído."}""");
+        });
+
+        var result = await service.SynthesizeResidentStatusAsync(
+            "Vazamento", "Resolvida", "O reparo foi concluído", CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        using var payload = JsonDocument.Parse(requestBody!);
+        var prompt = payload.RootElement.GetProperty("messages")[0]
+            .GetProperty("content").GetString();
+        Assert.Contains("*Seu atendimento foi finalizado.*", prompt);
+        Assert.Contains("*Seu atendimento foi cancelado.*", prompt);
+        Assert.Contains("agradecemos pela compreensão", prompt,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Não invente", prompt);
+    }
+
+    [Fact]
+    public async Task Resident_status_rejects_courtesy_absent_from_source()
+    {
+        var service = Service((_, _) => Task.FromResult(Response(
+            """{"message":"O reparo foi concluído. Agradecemos pela compreensão."}"")));
+
+        var result = await service.SynthesizeResidentStatusAsync(
+            "Vazamento", "Resolvida", "O reparo foi concluído", CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("invalid_response", result.Outcome);
+    }
+
     [Theory]
     [InlineData(false, "test-key")]
     [InlineData(true, null)]
