@@ -13,6 +13,7 @@ using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace CondoLink.Tests;
 
@@ -26,6 +27,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     private FakeResidentReplyAiService _replyAi = null!;
     private FakeAudioTranscriptionService _transcription = null!;
     private FakeAdministrativeResidentExtractionService _administrativeExtraction = null!;
+    private FakeAdministrativeResidentLookupExtractionService _administrativeLookupExtraction = null!;
+    private RecordingLogger<AdministrativeResidentLookupService> _administrativeLookupLogger = null!;
     private Guid _userId;
     private Guid _condominiumId;
     private Guid _unitId;
@@ -37,6 +40,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         _replyAi = new FakeResidentReplyAiService();
         _transcription = new FakeAudioTranscriptionService();
         _administrativeExtraction = new FakeAdministrativeResidentExtractionService();
+        _administrativeLookupExtraction = new FakeAdministrativeResidentLookupExtractionService();
+        _administrativeLookupLogger = new RecordingLogger<AdministrativeResidentLookupService>();
         _host = await CoreEndpointTestHost.StartAsync(
             app => app.MapWhatsAppWebhook(),
             builder =>
@@ -53,9 +58,12 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 builder.Services.AddSingleton<IResidentReplyAiService>(_replyAi);
                 builder.Services.AddSingleton<IWhatsAppAudioTranscriptionService>(_transcription);
                 builder.Services.AddSingleton<IAdministrativeResidentExtractionService>(_administrativeExtraction);
+                builder.Services.AddSingleton<IAdministrativeResidentLookupExtractionService>(_administrativeLookupExtraction);
+                builder.Services.AddSingleton<ILogger<AdministrativeResidentLookupService>>(_administrativeLookupLogger);
                 builder.Services.AddSingleton<LocalFileStorage>();
                 builder.Services.AddScoped<ResidentReplyService>();
                 builder.Services.AddScoped<AdministrativeResidentRegistrationService>();
+                builder.Services.AddScoped<AdministrativeResidentLookupService>();
                 builder.Services.AddScoped<WhatsAppConversationService>();
             });
         await _host.WithDbAsync(async db =>
@@ -356,6 +364,166 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Contains("telefone do morador", _fake.Messages.Last().Text);
         Assert.Equal(0, await _host.WithDbAsync(db =>
             db.Users.CountAsync(x => x.Email == "sem-telefone@example.com")));
+    }
+
+    [Fact]
+    public async Task Platform_admin_looks_up_unit_residents_with_default_safe_fields()
+    {
+        await _host.WithDbAsync(AddPlatformAdminRole);
+        _administrativeLookupExtraction.Result = new(true,
+            new("unit_residents_lookup", null, null, null, "101", ["phone"]),
+            "succeeded");
+
+        await PostAsync(TextPayload("wamid.admin-unit-lookup",
+            "Quem mora na unidade 101?"));
+
+        var response = _fake.Messages.Last().Text;
+        Assert.Contains("Moradores da unidade 101", response);
+        Assert.Contains("Maria Silva", response);
+        Assert.Contains("Proprietário", response);
+        Assert.Contains("Telefone: (11) 99999-0001", response);
+        Assert.DoesNotContain("maria@example.com", response);
+        Assert.DoesNotContain("MustChangePassword", response);
+        var logs = string.Join('\n', _administrativeLookupLogger.Messages);
+        Assert.DoesNotContain("maria@example.com", logs);
+        Assert.DoesNotContain("99999-0001", logs);
+        Assert.DoesNotContain(response, logs);
+
+        _administrativeLookupExtraction.Result = new(true,
+            new("resident_lookup", "Maria Silva", null, null, "101",
+                ["phone", "email"]), "succeeded");
+        await PostAsync(TextPayload("wamid.admin-resident-lookup",
+            "Preciso dos dados da moradora Maria Silva da unidade 101"));
+        var residentResponse = _fake.Messages.Last().Text;
+        Assert.Contains("Maria Silva", residentResponse);
+        Assert.Contains("Unidade: 101", residentResponse);
+        Assert.Contains("Telefone: (11) 99999-0001", residentResponse);
+        Assert.Contains("E-mail: maria@example.com", residentResponse);
+    }
+
+    [Fact]
+    public async Task Manager_without_unit_membership_queries_only_authorized_scope()
+    {
+        Guid outsideId = Guid.Empty;
+        await _host.WithDbAsync(async db =>
+        {
+            var membershipId = await db.CondominiumMemberships
+                .Where(x => x.UserId == _userId && x.CondominiumId == _condominiumId)
+                .Select(x => x.Id).SingleAsync();
+            db.CondominiumMembershipRoles.Add(new CondominiumMembershipRole(
+                membershipId, CondominiumRole.Manager));
+            db.UnitMemberships.RemoveRange(db.UnitMemberships.Where(x => x.UserId == _userId));
+            var resident = CoreTestSeed.User("Morador Consultado", "consultado@example.com");
+            resident.Update("Morador Consultado", "11977776666");
+            db.AddRange(resident, new UnitMembership(resident.Id, _unitId,
+                UnitRelationshipType.Tenant, true, false));
+            var outside = new Condominium("Fora do Escopo", null, null);
+            outsideId = outside.Id;
+            db.Add(outside);
+            await db.SaveChangesAsync();
+        });
+        _administrativeLookupExtraction.Result = new(true,
+            new("unit_residents_lookup", null, null, null, "101", ["phone"]),
+            "succeeded");
+
+        await PostAsync(TextPayload("wamid.manager-authorized-lookup",
+            "Moradores da unidade 101"));
+        Assert.Contains("Moradores da unidade 101", _fake.Messages.Last().Text);
+
+        _administrativeLookupExtraction.Result = new(true,
+            new("unit_residents_lookup", null, "Fora do Escopo", null, "101",
+                ["phone"]), "succeeded");
+        await PostAsync(TextPayload("wamid.manager-outside-lookup",
+            "Moradores da unidade 101 no Fora do Escopo"));
+        Assert.Contains("apenas para a administração", _fake.Messages.Last().Text);
+        Assert.DoesNotContain(outsideId.ToString(), _fake.Messages.Last().Text);
+    }
+
+    [Fact]
+    public async Task Resident_cannot_use_administrative_lookup()
+    {
+        _administrativeLookupExtraction.Result = new(true,
+            new("resident_lookup", "Maria Silva", null, null, "101",
+                ["phone", "email"]), "succeeded");
+
+        await PostAsync(TextPayload("wamid.resident-forbidden-lookup",
+            "Qual o telefone da Maria Silva da unidade 101?"));
+
+        Assert.Equal("Esse recurso está disponível apenas para a administração do condomínio.",
+            _fake.Messages.Last().Text);
+        Assert.DoesNotContain("maria@example.com", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("99999", _fake.Messages.Last().Text);
+    }
+
+    [Fact]
+    public async Task Lookup_handles_condominium_unit_and_resident_ambiguity()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            await AddPlatformAdminRole(db);
+            var secondCondominium = new Condominium("Residencial Dois", null, null);
+            var blockA = new CondominiumBlock(_condominiumId, "A");
+            var blockB = new CondominiumBlock(_condominiumId, "B");
+            var unitA = new Unit(_condominiumId, "302", blockA.Id, null, null);
+            var unitB = new Unit(_condominiumId, "302", blockB.Id, null, null);
+            var secondResident = CoreTestSeed.User("Maria Souza", "maria.souza@example.com");
+            secondResident.Update("Maria Souza", "11988887777");
+            db.AddRange(secondCondominium, blockA, blockB, unitA, unitB,
+                secondResident, new UnitMembership(secondResident.Id, _unitId,
+                    UnitRelationshipType.Tenant, true, false));
+            await db.SaveChangesAsync();
+        });
+        _administrativeLookupExtraction.Result = new(true,
+            new("unit_residents_lookup", null, null, null, "302", ["phone"]),
+            "succeeded");
+
+        await PostAsync(TextPayload("wamid.lookup-condo-ambiguous",
+            "Moradores da unidade 302"));
+        Assert.Contains("Em qual condomínio?", _fake.Messages.Last().Text);
+        Assert.Contains("Residencial Teste", _fake.Messages.Last().Text);
+        Assert.Contains("Residencial Dois", _fake.Messages.Last().Text);
+
+        await PostAsync(TextPayload("wamid.lookup-condo-choice", "2"));
+        Assert.Contains("Bloco A - 302", _fake.Messages.Last().Text);
+        Assert.Contains("Bloco B - 302", _fake.Messages.Last().Text);
+
+        await PostAsync(TextPayload("wamid.lookup-cancel", "0"));
+        Assert.Contains("Consulta cancelada", _fake.Messages.Last().Text);
+
+        _administrativeLookupExtraction.Result = new(true,
+            new("resident_lookup", "Maria", "Residencial Teste", null, null,
+                ["phone", "email"]), "succeeded");
+        await PostAsync(TextPayload("wamid.lookup-resident-ambiguous",
+            "Dados da moradora Maria no Residencial Teste"));
+        Assert.Contains("Encontrei mais de um morador", _fake.Messages.Last().Text);
+        Assert.Contains("Maria Silva", _fake.Messages.Last().Text);
+        Assert.Contains("Maria Souza", _fake.Messages.Last().Text);
+    }
+
+    [Fact]
+    public async Task Lookup_reports_missing_unit_and_empty_unit_without_creating_data()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            await AddPlatformAdminRole(db);
+            db.Add(new Unit(_condominiumId, "404", null, null, null));
+            await db.SaveChangesAsync();
+        });
+        var unitsBefore = await _host.WithDbAsync(db => db.Units.CountAsync());
+        _administrativeLookupExtraction.Result = new(true,
+            new("unit_residents_lookup", null, null, null, "999", ["phone"]),
+            "succeeded");
+        await PostAsync(TextPayload("wamid.lookup-unit-missing",
+            "Moradores da unidade 999"));
+        Assert.Contains("Não encontrei essa unidade", _fake.Messages.Last().Text);
+
+        _administrativeLookupExtraction.Result = new(true,
+            new("unit_residents_lookup", null, null, null, "404", ["phone"]),
+            "succeeded");
+        await PostAsync(TextPayload("wamid.lookup-unit-empty",
+            "Moradores da unidade 404"));
+        Assert.Contains("Não há moradores ativos", _fake.Messages.Last().Text);
+        Assert.Equal(unitsBefore, await _host.WithDbAsync(db => db.Units.CountAsync()));
     }
 
     [Fact]
@@ -2362,5 +2530,25 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         public Task<AdministrativeResidentExtractionResult> ExtractAsync(
             string message, AdministrativeResidentExtraction? current,
             CancellationToken cancellationToken) => Task.FromResult(Result);
+    }
+
+    private sealed class FakeAdministrativeResidentLookupExtractionService
+        : IAdministrativeResidentLookupExtractionService
+    {
+        public AdministrativeResidentLookupExtractionResult Result { get; set; } =
+            new(true, new("unknown", null, null, null, null, []), "succeeded");
+        public Task<AdministrativeResidentLookupExtractionResult> ExtractAsync(
+            string message, AdministrativeResidentLookupExtraction? current,
+            CancellationToken cancellationToken) => Task.FromResult(Result);
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Messages.Add(formatter(state, exception));
     }
 }

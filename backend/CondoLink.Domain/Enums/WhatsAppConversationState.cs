@@ -31,4 +31,8 @@ public enum WhatsAppConversationState
     ,SelectingAdminResidentUnit = 26
     ,ConfirmingAdminResident = 27
     ,CorrectingAdminResident = 28
+    ,CollectingAdminResidentLookup = 29
+    ,SelectingAdminLookupCondominium = 30
+    ,SelectingAdminLookupUnit = 31
+    ,SelectingAdminLookupResident = 32
 }
