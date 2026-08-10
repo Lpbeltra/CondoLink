@@ -8,6 +8,7 @@ using CondoLink.Api.Features.RequestAttachments;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure;
+using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -283,6 +284,9 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload(
             "wamid.admin-register", "Cadastrar morador", "551199990001"));
+        Assert.Contains("Envie os dados do morador em uma única mensagem", _fake.Messages.Last().Text);
+        await PostAsync(TextPayload(
+            "wamid.admin-register-data", "Cadastre o João da Silva como proprietário da unidade 101. E-mail joao@example.com e telefone 47999998888.", "551199990001"));
 
         Assert.Contains("1 - Confirmar", _fake.Messages.Last().Text);
         Assert.Contains("Condomínio: Residencial Teste", _fake.Messages.Last().Text);
@@ -298,10 +302,33 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload(
             "wamid.admin-confirm", "1", "551199990001"));
+        var messageCountAfterConfirmation = _fake.Messages.Count;
         await PostAsync(TextPayload(
             "wamid.admin-confirm", "1", "551199990001"));
+        Assert.Equal(messageCountAfterConfirmation, _fake.Messages.Count);
 
-        Assert.Contains("Cadastro concluído", _fake.Messages.Last().Text);
+        var completed = _fake.Messages.Last().Text;
+        Assert.Contains("Morador cadastrado com sucesso", completed);
+        Assert.Contains("Senha temporária:", completed);
+        Assert.Contains("Mensagem para o morador:", completed);
+        var passwords = completed.Split('\n')
+            .Where(line => line.StartsWith("Senha temporária: "))
+            .Select(line => line["Senha temporária: ".Length..])
+            .Distinct().ToArray();
+        var temporaryPassword = Assert.Single(passwords);
+        await _host.WithServicesAsync(async services =>
+        {
+            var manager = services.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await manager.FindByEmailAsync("joao@example.com");
+            Assert.True(await manager.CheckPasswordAsync(user!, temporaryPassword));
+        });
+        var messagesBeforeDistinctReplay = _fake.Messages.Count;
+        await PostAsync(TextPayload(
+            "wamid.admin-confirm-replay", "1", "551199990001"));
+        if (_fake.Messages.Count > messagesBeforeDistinctReplay)
+            Assert.DoesNotContain("Senha temporária", _fake.Messages.Last().Text);
+        Assert.Equal(1, await _host.WithDbAsync(db =>
+            db.Users.CountAsync(x => x.Email == "joao@example.com")));
         await _host.WithDbAsync(async db =>
         {
             var user = await db.Users.SingleAsync(x => x.Email == "joao@example.com");
@@ -323,10 +350,41 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 "Tenant", null, null), "succeeded");
 
         await PostAsync(TextPayload("wamid.admin-phone-required", "Cadastrar morador"));
+        await PostAsync(TextPayload("wamid.admin-phone-required-data",
+            "Sem Telefone, sem-telefone@example.com, unidade 101, inquilino"));
 
         Assert.Contains("telefone do morador", _fake.Messages.Last().Text);
         Assert.Equal(0, await _host.WithDbAsync(db =>
             db.Users.CountAsync(x => x.Email == "sem-telefone@example.com")));
+    }
+
+    [Fact]
+    public async Task Missing_fields_are_grouped_and_complement_preserves_the_draft()
+    {
+        await _host.WithDbAsync(AddPlatformAdminRole);
+        _administrativeExtraction.Result = new(true,
+            new("register_resident", "Zemilto Custódio", null,
+                "zemilto@example.com", null, null, "101",
+                null, null, null), "succeeded");
+
+        await PostAsync(TextPayload("wamid.admin-missing-start", "Cadastrar morador"));
+        await PostAsync(TextPayload("wamid.admin-missing-data",
+            "Zemilto Custódio, zemilto@example.com, unidade 101"));
+
+        Assert.Contains("• telefone", _fake.Messages.Last().Text);
+        Assert.Contains("• relação com a unidade", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("• nome", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("• e-mail", _fake.Messages.Last().Text);
+
+        _administrativeExtraction.Result = new(true,
+            new("register_resident", null, "44999999999", null,
+                null, null, null, "Owner", null, null), "succeeded");
+        await PostAsync(TextPayload("wamid.admin-missing-complement",
+            "44999999999, proprietário"));
+
+        Assert.Contains("Nome: Zemilto Custódio", _fake.Messages.Last().Text);
+        Assert.Contains("E-mail: zemilto@example.com", _fake.Messages.Last().Text);
+        Assert.Contains("Relação: Proprietário", _fake.Messages.Last().Text);
     }
 
     [Fact]
@@ -345,8 +403,10 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload(
             "wamid.admin-explicit-unknown-ai", "Cadastrar morador"));
+        await PostAsync(TextPayload(
+            "wamid.admin-explicit-unknown-ai-data", "dados incompletos"));
 
-        Assert.Contains("nome completo", _fake.Messages.Last().Text);
+        Assert.Contains("• nome", _fake.Messages.Last().Text);
         Assert.DoesNotContain("unidade residencial ativa", _fake.Messages.Last().Text);
     }
 
@@ -378,12 +438,12 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 null, null, null), "succeeded");
 
         await PostAsync(TextPayload("wamid.admin-manager-start", "Novo morador"));
-        Assert.Contains("nome completo", _fake.Messages.Last().Text);
+        Assert.Contains("Envie os dados do morador em uma única mensagem", _fake.Messages.Last().Text);
         Assert.Equal(WhatsAppConversationState.CollectingAdminResidentData,
             await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
 
         await PostAsync(TextPayload("wamid.admin-manager-cancel", "0"));
-        Assert.Contains("Nenhuma alteração", _fake.Messages.Last().Text);
+        Assert.Contains("rascunho foi mantido", _fake.Messages.Last().Text);
         Assert.Equal(1, await _host.WithDbAsync(db => db.Users.CountAsync()));
 
         await PostAsync(TextPayload("wamid.admin-manager-resident-menu", "Oi"));
@@ -400,7 +460,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 null, null, null), "succeeded");
 
         await PostAsync(TextPayload("wamid.admin-resident-command", "Cadastrar morador"));
-        Assert.Contains("nome completo", _fake.Messages.Last().Text);
+        Assert.Contains("Envie os dados do morador em uma única mensagem", _fake.Messages.Last().Text);
 
         await PostAsync(TextPayload("wamid.admin-resident-cancel", "0"));
         await PostAsync(TextPayload("wamid.admin-resident-menu", "menu"));
@@ -430,6 +490,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 "Tenant", null, null), "succeeded");
 
         await PostAsync(TextPayload("wamid.admin-manager-outside", "Cadastrar morador"));
+        await PostAsync(TextPayload("wamid.admin-manager-outside-data",
+            "Fora do Escopo, fora@example.com, 11988887777, unidade 202, inquilino"));
 
         Assert.Contains("dentro do seu acesso administrativo", _fake.Messages.Last().Text);
         Assert.Equal(0, await _host.WithDbAsync(db =>
@@ -456,6 +518,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 "Residencial Teste", null, "302", "Tenant", true, true), "succeeded");
 
         await PostAsync(TextPayload("wamid.admin-ambiguous", "Cadastrar morador"));
+        await PostAsync(TextPayload("wamid.admin-ambiguous-data",
+            "Ana Souza, ana@example.com, 47999995555, unidade 302, inquilina"));
         Assert.Contains("Bloco A - 302", _fake.Messages.Last().Text);
         Assert.Contains("Bloco B - 302", _fake.Messages.Last().Text);
         Assert.Equal(0, await _host.WithDbAsync(db => db.Users.CountAsync(x => x.Email == "ana@example.com")));
@@ -478,6 +542,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         });
 
         await PostAsync(TextPayload("wamid.admin-ai-failure", "Cadastrar morador"));
+        await PostAsync(TextPayload("wamid.admin-ai-failure-data", "Dados do morador"));
 
         Assert.Contains("Nenhuma alteração", _fake.Messages.Last().Text);
         Assert.Equal(1, await _host.WithDbAsync(db => db.Users.CountAsync()));
@@ -502,10 +567,14 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 "AuthorizedOccupant", true, false), "succeeded");
 
         await PostAsync(TextPayload("wamid.admin-existing", "Cadastrar morador"));
-        Assert.Contains("Já encontrei Carlos Existente", _fake.Messages.Last().Text);
+        await PostAsync(TextPayload("wamid.admin-existing-data",
+            "Carlos, carlos@example.com, 47999997777, unidade 101, ocupante autorizado"));
+        Assert.Contains("já possui cadastro no Comvy", _fake.Messages.Last().Text);
         Assert.False(await _host.WithDbAsync(db => db.UnitMemberships.AnyAsync(x => x.UserId == existingId)));
 
         await PostAsync(TextPayload("wamid.admin-existing-confirm", "1"));
+        Assert.Contains("Morador vinculado com sucesso", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("Senha temporária", _fake.Messages.Last().Text);
         Assert.Equal(2, await _host.WithDbAsync(db => db.Users.CountAsync()));
         Assert.True(await _host.WithDbAsync(db => db.UnitMemberships.AnyAsync(x =>
             x.UserId == existingId && x.UnitId == _unitId)));
@@ -520,7 +589,10 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 "bia@example.com", "Residencial Teste", null, "101",
                 "Owner", true, true), "succeeded");
         await PostAsync(TextPayload("wamid.admin-correction-start", "Cadastrar morador"));
+        await PostAsync(TextPayload("wamid.admin-correction-start-data",
+            "Beatriz Lima, bia@example.com, 47999996666, unidade 101, proprietária"));
         await PostAsync(TextPayload("wamid.admin-correction-choice", "2"));
+        Assert.Contains("Envie apenas o que deseja corrigir", _fake.Messages.Last().Text);
 
         _administrativeExtraction.Result = new(true,
             new("register_resident", null, "47988885555", null, null, null,
@@ -528,6 +600,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.admin-correction-data", "Telefone correto e relação inquilino"));
         Assert.Contains("47988885555", _fake.Messages.Last().Text);
         Assert.Contains("Inquilino", _fake.Messages.Last().Text);
+        Assert.Contains("Nome: Beatriz Lima", _fake.Messages.Last().Text);
+        Assert.Contains("E-mail: bia@example.com", _fake.Messages.Last().Text);
         Assert.Equal(0, await _host.WithDbAsync(db => db.Users.CountAsync(x => x.Email == "bia@example.com")));
 
         await _host.WithDbAsync(db => db.WhatsAppSessions.ExecuteUpdateAsync(setters =>

@@ -9,6 +9,7 @@ using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace CondoLink.Api.Features.WhatsApp;
 
@@ -17,7 +18,8 @@ public sealed record AdministrativeWhatsAppResponse(string Text, string Result);
 public sealed class AdministrativeResidentRegistrationService(
     AppDbContext db, UserManager<ApplicationUser> userManager,
     IAdministrativeResidentExtractionService extraction,
-    ILogger<AdministrativeResidentRegistrationService> logger)
+    ILogger<AdministrativeResidentRegistrationService> logger,
+    IOptions<WhatsAppOptions> options)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -52,6 +54,16 @@ public sealed class AdministrativeResidentRegistrationService(
         }
 
         var draft = ReadDraft(session.DraftAiProposalJson);
+        if (command)
+        {
+            draft = new();
+            session.SetAdministrativeDraft(JsonSerializer.Serialize(draft, JsonOptions),
+                WhatsAppConversationState.CollectingAdminResidentData, now, expires);
+            return new("Envie os dados do morador em uma única mensagem.\n\n"
+                + "Preciso de nome, e-mail, telefone, unidade e relação com a unidade.\n\n"
+                + "Você pode escrever normalmente. Eu organizo os dados para você.\n\n"
+                + "0 - Cancelar", "admin_registration_started");
+        }
         if (session.State == WhatsAppConversationState.SelectingAdminResidentUnit
             && int.TryParse(text?.Trim(), out var choice))
         {
@@ -70,7 +82,9 @@ public sealed class AdministrativeResidentRegistrationService(
                 session.SetAdministrativeDraft(JsonSerializer.Serialize(draft, JsonOptions),
                     WhatsAppConversationState.CorrectingAdminResident, now, expires,
                     draft.CondominiumId, draft.UnitId);
-                return new("Envie somente a correção necessária.", "admin_registration_correcting");
+                return new("Envie apenas o que deseja corrigir.\n\n"
+                    + "Exemplo:\nTelefone: 44988887777\nRelação: Inquilino\n\n"
+                    + "0 - Cancelar", "admin_registration_correcting");
             }
             return new(Confirmation(draft), "admin_confirmation_invalid");
         }
@@ -78,11 +92,15 @@ public sealed class AdministrativeResidentRegistrationService(
         var ai = await extraction.ExtractAsync(text ?? string.Empty, draft.Extraction, ct);
         if (!ai.Succeeded || ai.Data is null)
         {
-            session.Restart(now, expires);
-            return new("Não consegui interpretar os dados do cadastro. Nenhuma alteração foi realizada. Tente novamente mais tarde.",
+            session.SetAdministrativeDraft(JsonSerializer.Serialize(draft, JsonOptions),
+                session.State == WhatsAppConversationState.CorrectingAdminResident
+                    ? WhatsAppConversationState.CorrectingAdminResident
+                    : WhatsAppConversationState.CollectingAdminResidentData,
+                now, expires, draft.CondominiumId, draft.UnitId);
+            return new("Não consegui interpretar esses dados. O rascunho foi mantido. Tente novamente.",
                 "admin_extraction_failed");
         }
-        if (!command && !inFlow && ai.Data.Intent != "register_resident") return null;
+        if (!inFlow && ai.Data.Intent != "register_resident") return null;
         draft = draft with { Extraction = Merge(draft.Extraction, ai.Data) };
         return await ValidateAndPrompt(administrator, session, draft, scope, now, expires, ct);
     }
@@ -92,19 +110,23 @@ public sealed class AdministrativeResidentRegistrationService(
         IReadOnlyList<ScopedCondominium> scope, DateTime now, DateTime expires, CancellationToken ct)
     {
         var data = draft.Extraction;
-        if (data is null) return Missing(session, draft, "Envie os dados do morador.", now, expires);
-        if (string.IsNullOrWhiteSpace(data.FullName)) return Missing(session, draft, "Qual é o nome completo do morador?", now, expires);
+        if (data is null) return Missing(session, draft,
+            ["nome", "e-mail", "telefone", "unidade", "relação com a unidade"], now, expires);
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(data.FullName)) missing.Add("nome");
+        if (string.IsNullOrWhiteSpace(data.Email)) missing.Add("e-mail");
+        if (string.IsNullOrWhiteSpace(data.Phone)) missing.Add("telefone");
+        if (scope.Count > 1 && string.IsNullOrWhiteSpace(data.Condominium))
+            missing.Add("condomínio");
+        if (string.IsNullOrWhiteSpace(data.Unit)) missing.Add("unidade");
+        if (string.IsNullOrWhiteSpace(data.Relationship)) missing.Add("relação com a unidade");
+        if (missing.Count > 0) return Missing(session, draft, missing, now, expires);
         if (data.FullName.Trim().Length > 200) return Missing(session, draft, "O nome deve ter no máximo 200 caracteres. Envie o nome correto.", now, expires);
-        if (string.IsNullOrWhiteSpace(data.Email)) return Missing(session, draft, "Qual é o e-mail do morador?", now, expires);
         var email = data.Email.Trim().ToLowerInvariant();
         if (email.Length > 254 || !new EmailAddressAttribute().IsValid(email))
             return Missing(session, draft, "O e-mail informado não é válido. Qual é o e-mail correto?", now, expires);
-        if (string.IsNullOrWhiteSpace(data.Phone))
-            return Missing(session, draft, "Qual é o telefone do morador?", now, expires);
         if (BrazilianPhoneNumber.Normalize(data.Phone) is null)
             return Missing(session, draft, "O telefone informado não é um número brasileiro válido. Qual é o telefone correto?", now, expires);
-        if (string.IsNullOrWhiteSpace(data.Relationship))
-            return Missing(session, draft, "Qual é a relação com a unidade?\n\n1 - Proprietário\n2 - Inquilino\n3 - Ocupante autorizado", now, expires);
         if (!TryRelationship(data.Relationship, out _))
             return Missing(session, draft, "Relação inválida. Escolha: Proprietário, Inquilino ou Ocupante autorizado.", now, expires);
 
@@ -143,7 +165,8 @@ public sealed class AdministrativeResidentRegistrationService(
             .Take(10).ToArrayAsync(ct);
         if (units.Length == 0)
             return Missing(session, draft with { CondominiumId = condominium.Id },
-                "Não encontrei essa unidade no condomínio. Confira o bloco e o número ou cadastre a unidade pelo portal.", now, expires);
+                "Não encontrei essa unidade. Confira o bloco e o número.\n\n"
+                + "Se ela ainda não estiver cadastrada, faça o cadastro pelo portal.", now, expires);
         if (units.Length > 1)
         {
             draft = draft with { CondominiumId = condominium.Id, CondominiumName = condominium.Name,
@@ -199,11 +222,13 @@ public sealed class AdministrativeResidentRegistrationService(
                 ? await db.Users.SingleOrDefaultAsync(x => x.Id == id, ct)
                 : null;
             var isNew = user is null;
+            string? temporaryPassword = null;
             if (user is null)
             {
                 user = new ApplicationUser(data.FullName!, data.Email!, data.Phone);
                 user.RequirePasswordChange();
-                var created = await userManager.CreateAsync(user, GeneratePassword());
+                temporaryPassword = GeneratePassword();
+                var created = await userManager.CreateAsync(user, temporaryPassword);
                 if (!created.Succeeded) throw new InvalidOperationException("Identity rejected resident creation.");
             }
             if (await db.UnitMemberships.AnyAsync(x => x.UserId == user.Id
@@ -234,8 +259,13 @@ public sealed class AdministrativeResidentRegistrationService(
             await db.SaveChangesAsync(ct);
             logger.LogInformation("Administrative WhatsApp mutation completed. AdministratorUserId: {AdministratorUserId}; Action: {Action}; AffectedUserId: {AffectedUserId}; CondominiumId: {CondominiumId}; UnitId: {UnitId}; IsNewUser: {IsNewUser}; OccurredAt: {OccurredAt}.",
                 administrator.Id, "RegisterResident", user.Id, draft.CondominiumId, draft.UnitId, isNew, now);
-            return new($"Cadastro concluído.\n\n{user.FullName} foi vinculado à unidade {draft.UnitDisplay}."
-                + (data.Phone is null ? "" : "\n\nO telefone já está habilitado para usar o WhatsApp do Comvy."),
+            var portalUrl = options.Value.PortalUrl.Trim().TrimEnd('/');
+            if (isNew)
+                return new(NewUserSuccess(user.FullName, user.Email!, temporaryPassword!, portalUrl),
+                    "admin_registration_completed");
+            return new("Morador vinculado com sucesso. ✓\n\n"
+                + "Ele já possui acesso ao Comvy.\n\n"
+                + $"Portal: {portalUrl}\nE-mail: {user.Email}",
                 "admin_registration_completed");
         }
         catch (Exception exception)
@@ -271,11 +301,38 @@ public sealed class AdministrativeResidentRegistrationService(
             WhatsAppConversationState.CollectingAdminResidentData, now, expires, draft.CondominiumId);
         return new(prompt + "\n\n0 - Cancelar", "admin_registration_missing_data");
     }
+    private static AdministrativeWhatsAppResponse Missing(WhatsAppSession session, AdminDraft draft,
+        IReadOnlyList<string> fields, DateTime now, DateTime expires)
+    {
+        var prompt = fields.Count == 1
+            ? $"Falta apenas {MissingSingle(fields[0])}. Qual é {MissingQuestion(fields[0])}?"
+            : "Entendi quase tudo. Faltam:\n\n"
+                + string.Join("\n", fields.Select(field => $"• {field}"))
+                + "\n\nPode enviar esses dados em uma única mensagem.";
+        return Missing(session, draft, prompt, now, expires);
+    }
+    private static string MissingSingle(string field) => field switch
+    {
+        "nome" => "o nome do morador",
+        "e-mail" => "o e-mail do morador",
+        "telefone" => "o telefone do morador",
+        "condomínio" => "o condomínio",
+        "unidade" => "a unidade do morador",
+        _ => "a relação com a unidade"
+    };
+    private static string MissingQuestion(string field) => field switch
+    {
+        "nome" => "o nome completo",
+        "e-mail" => "o e-mail",
+        "telefone" => "o número",
+        "condomínio" => "o condomínio",
+        "unidade" => "a unidade",
+        _ => "a relação com a unidade"
+    };
     private static bool IsCommand(string? text)
     {
         var value = text?.Trim().ToLowerInvariant();
-        return value is not null && (value == "cadastrar morador" || value == "novo morador"
-            || value.StartsWith("cadastrar morador\n") || value.StartsWith("cadastre "));
+        return value is "cadastrar morador" or "novo morador";
     }
     private static bool Equivalent(string left, string right) =>
         string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
@@ -306,8 +363,29 @@ public sealed class AdministrativeResidentRegistrationService(
     private static string Confirmation(AdminDraft draft)
     {
         var d = draft.Extraction!;
-        var existing = draft.ExistingUserId is null ? "Vou cadastrar:" : $"Já encontrei {draft.ExistingUserName} no Comvy. Vou apenas vinculá-lo à unidade.";
-        return $"{existing}\n\n{d.FullName}\nTelefone: {d.Phone}\nE-mail: {d.Email}\n\nCondomínio: {draft.CondominiumName}\nUnidade: {draft.UnitDisplay}\nRelação: {RelationshipLabel(d.Relationship)}\nResidência principal: {(d.IsPrimaryResidence == true ? "Sim" : "Não")}\n\n1 - Confirmar\n2 - Corrigir\n0 - Cancelar";
+        var existing = draft.ExistingUserId is null ? "" : "\n\nEste usuário já possui cadastro no Comvy e será vinculado à unidade.";
+        return $"Confira os dados:\n\nNome: {d.FullName}\nE-mail: {d.Email}\nTelefone: {FormatPhone(d.Phone!)}\nCondomínio: {draft.CondominiumName}\nUnidade: {draft.UnitDisplay}\nRelação: {RelationshipLabel(d.Relationship)}\nResidência principal: {(d.IsPrimaryResidence == true ? "Sim" : "Não")}{existing}\n\n1 - Confirmar\n2 - Corrigir\n0 - Cancelar";
+    }
+    private static string FormatPhone(string value)
+    {
+        var normalized = BrazilianPhoneNumber.Normalize(value);
+        if (normalized is null) return value.Trim();
+        var digits = normalized[3..];
+        return digits.Length == 11
+            ? $"({digits[..2]}) {digits.Substring(2, 5)}-{digits[7..]}"
+            : $"({digits[..2]}) {digits.Substring(2, 4)}-{digits[6..]}";
+    }
+    private static string NewUserSuccess(string fullName, string email,
+        string temporaryPassword, string portalUrl)
+    {
+        var firstName = fullName.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
+        return "Morador cadastrado com sucesso. ✓\n\n"
+            + $"Acesso ao Comvy:\n\nPortal: {portalUrl}\nE-mail: {email}\n"
+            + $"Senha temporária: {temporaryPassword}\n\n"
+            + "No primeiro acesso, será necessário criar uma nova senha.\n\n"
+            + $"Mensagem para o morador:\n\nOlá, {firstName}! Seu acesso ao Comvy foi criado.\n\n"
+            + $"Portal: {portalUrl}\nE-mail: {email}\nSenha temporária: {temporaryPassword}\n\n"
+            + "No primeiro acesso, você deverá criar uma nova senha.";
     }
     private static string RelationshipLabel(string? value) => TryRelationship(value, out var parsed) ? parsed switch
     { UnitRelationshipType.Owner => "Proprietário", UnitRelationshipType.Tenant => "Inquilino", _ => "Ocupante autorizado" } : value ?? "";
