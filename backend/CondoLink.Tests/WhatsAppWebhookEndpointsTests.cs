@@ -29,6 +29,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     private FakeAdministrativeResidentExtractionService _administrativeExtraction = null!;
     private FakeAdministrativeResidentLookupExtractionService _administrativeLookupExtraction = null!;
     private RecordingLogger<AdministrativeResidentLookupService> _administrativeLookupLogger = null!;
+    private FakeAdministrativeResidentMutationExtractionService _administrativeMutationExtraction = null!;
     private Guid _userId;
     private Guid _condominiumId;
     private Guid _unitId;
@@ -42,6 +43,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         _administrativeExtraction = new FakeAdministrativeResidentExtractionService();
         _administrativeLookupExtraction = new FakeAdministrativeResidentLookupExtractionService();
         _administrativeLookupLogger = new RecordingLogger<AdministrativeResidentLookupService>();
+        _administrativeMutationExtraction = new FakeAdministrativeResidentMutationExtractionService();
         _host = await CoreEndpointTestHost.StartAsync(
             app => app.MapWhatsAppWebhook(),
             builder =>
@@ -60,11 +62,13 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 builder.Services.AddSingleton<IAdministrativeResidentExtractionService>(_administrativeExtraction);
                 builder.Services.AddSingleton<IAdministrativeResidentLookupExtractionService>(_administrativeLookupExtraction);
                 builder.Services.AddSingleton<ILogger<AdministrativeResidentLookupService>>(_administrativeLookupLogger);
+                builder.Services.AddSingleton<IAdministrativeResidentMutationExtractionService>(_administrativeMutationExtraction);
                 builder.Services.AddSingleton<LocalFileStorage>();
                 builder.Services.AddScoped<ResidentReplyService>();
                 builder.Services.AddScoped<AdministrativeResidentRegistrationService>();
                 builder.Services.AddScoped<AdministrativeResidentLookupService>();
                 builder.Services.AddScoped<AdministrativeUnitResolver>();
+                builder.Services.AddScoped<AdministrativeResidentMembershipMutationService>();
                 builder.Services.AddScoped<WhatsAppConversationService>();
             });
         await _host.WithDbAsync(async db =>
@@ -546,6 +550,121 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.True(AdministrativeResidentRegistrationService.TryRelationship(
             value, out var relationship));
         Assert.Equal(expected, relationship);
+    }
+
+    [Fact]
+    public async Task Platform_admin_deactivates_only_confirmed_unit_membership()
+    {
+        Guid targetMembershipId = Guid.Empty;
+        Guid targetUserId = Guid.Empty;
+        await _host.WithDbAsync(async db =>
+        {
+            await AddPlatformAdminRole(db);
+            db.UnitMemberships.RemoveRange(db.UnitMemberships.Where(x => x.UserId == _userId));
+            var block = new CondominiumBlock(_condominiumId, "Bloco 1");
+            var unit = new Unit(_condominiumId, "105", block.Id, null, null);
+            var otherUnit = new Unit(_condominiumId, "106", block.Id, null, null);
+            var target = CoreTestSeed.User("Fulano Silva", "fulano@example.com");
+            var membership = new UnitMembership(target.Id, unit.Id,
+                UnitRelationshipType.AuthorizedOccupant, true, false);
+            db.AddRange(block, unit, otherUnit, target, membership,
+                new UnitMembership(target.Id, otherUnit.Id,
+                    UnitRelationshipType.Tenant, true, false));
+            await db.SaveChangesAsync();
+            targetMembershipId = membership.Id;
+            targetUserId = target.Id;
+        });
+        _administrativeMutationExtraction.Result = new(true,
+            new("resident_membership_deactivate", "Fulano", null,
+                "1", "105", null, null, null), "succeeded");
+
+        await PostAsync(TextPayload("wamid.deactivate-membership",
+            "Inative o morador Fulano do 105 bloco 1"));
+        Assert.Contains("Confirme a alteração", _fake.Messages.Last().Text);
+        Assert.True(await _host.WithDbAsync(db => db.UnitMemberships
+            .Where(x => x.Id == targetMembershipId).Select(x => x.IsActive).SingleAsync()));
+
+        await PostAsync(TextPayload("wamid.deactivate-membership-confirm", "1"));
+        Assert.Contains("Vínculo encerrado", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var ended = await db.UnitMemberships.SingleAsync(x => x.Id == targetMembershipId);
+            Assert.False(ended.IsActive);
+            Assert.NotNull(ended.EndedAt);
+            Assert.True(await db.UnitMemberships.AnyAsync(x => x.UserId == targetUserId
+                && x.IsActive));
+            Assert.True((await db.Users.SingleAsync(x => x.Id == targetUserId)).IsActive);
+        });
+        var activeCount = await _host.WithDbAsync(db => db.UnitMemberships
+            .CountAsync(x => x.UserId == targetUserId && x.IsActive));
+        await PostAsync(TextPayload("wamid.deactivate-membership-replay", "1"));
+        Assert.Equal(activeCount, await _host.WithDbAsync(db => db.UnitMemberships
+            .CountAsync(x => x.UserId == targetUserId && x.IsActive)));
+    }
+
+    [Fact]
+    public async Task Confirmed_move_ends_origin_and_creates_destination_atomically()
+    {
+        Guid targetUserId = Guid.Empty;
+        Guid sourceId = Guid.Empty;
+        Guid destinationId = Guid.Empty;
+        await _host.WithDbAsync(async db =>
+        {
+            await AddPlatformAdminRole(db);
+            var block1 = new CondominiumBlock(_condominiumId, "Bloco 1");
+            var block2 = new CondominiumBlock(_condominiumId, "Bloco 2");
+            var source = new Unit(_condominiumId, "105", block1.Id, null, null);
+            var destination = new Unit(_condominiumId, "405", block2.Id, null, null);
+            var target = CoreTestSeed.User("Ciclano Souza", "ciclano@example.com");
+            db.AddRange(block1, block2, source, destination, target,
+                new UnitMembership(target.Id, source.Id,
+                    UnitRelationshipType.Owner, true, true));
+            await db.SaveChangesAsync();
+            targetUserId = target.Id;
+            sourceId = source.Id;
+            destinationId = destination.Id;
+        });
+        _administrativeMutationExtraction.Result = new(true,
+            new("resident_membership_move", "Ciclano", null,
+                "1", "105", "2", "405", "Tenant"), "succeeded");
+        _fake.Media = new WhatsAppMediaResult(true, [1, 2, 3], "audio/ogg", null);
+        _transcription.Result = new(true,
+            "Mude o Ciclano do 105/1 para o 405/2 como inquilino", "succeeded");
+
+        await PostAsync(MediaPayload("wamid.move-membership", "move-membership-audio",
+            "audio", "audio/ogg", "mudanca.ogg"));
+        Assert.Contains("De:\nBloco 1 - 105", _fake.Messages.Last().Text);
+        Assert.Contains("Para:\nBloco 2 - 405", _fake.Messages.Last().Text);
+        Assert.Contains("Relação: Inquilino", _fake.Messages.Last().Text);
+        Assert.True(await _host.WithDbAsync(db => db.UnitMemberships.AnyAsync(x =>
+            x.UserId == targetUserId && x.UnitId == sourceId && x.IsActive)));
+
+        await PostAsync(TextPayload("wamid.move-membership-confirm", "1"));
+
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.True(await db.UnitMemberships.AnyAsync(x => x.UserId == targetUserId
+                && x.UnitId == sourceId && !x.IsActive && x.EndedAt != null));
+            var moved = await db.UnitMemberships.SingleAsync(x => x.UserId == targetUserId
+                && x.UnitId == destinationId && x.IsActive);
+            Assert.Equal(UnitRelationshipType.Tenant, moved.RelationshipType);
+            Assert.True(moved.IsResident);
+            Assert.True(moved.IsPrimaryResidence);
+        });
+    }
+
+    [Fact]
+    public async Task Resident_cannot_start_membership_mutation()
+    {
+        _administrativeMutationExtraction.Result = new(true,
+            new("resident_membership_deactivate", "Maria", null,
+                null, "101", null, null, null), "succeeded");
+
+        await PostAsync(TextPayload("wamid.resident-mutation-forbidden",
+            "Remova a Maria da unidade 101"));
+
+        Assert.Equal("Esse recurso está disponível apenas para a administração do condomínio.",
+            _fake.Messages.Last().Text);
     }
 
     [Fact]
@@ -2671,6 +2790,17 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         public Task<AdministrativeResidentLookupExtractionResult> ExtractAsync(
             string message, AdministrativeResidentLookupExtraction? current,
             CancellationToken cancellationToken) => Task.FromResult(Result);
+    }
+
+    private sealed class FakeAdministrativeResidentMutationExtractionService
+        : IAdministrativeResidentMutationExtractionService
+    {
+        public AdministrativeResidentMutationExtractionResult Result { get; set; } =
+            new(true, new("unknown", null, null, null, null, null, null, null),
+                "succeeded");
+        public Task<AdministrativeResidentMutationExtractionResult> ExtractAsync(
+            string message, AdministrativeResidentMutationExtraction? current,
+            CancellationToken ct) => Task.FromResult(Result);
     }
 
     private sealed class RecordingLogger<T> : ILogger<T>

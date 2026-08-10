@@ -41,6 +41,7 @@ builder.Services.AddScoped<WhatsAppConversationService>();
 builder.Services.AddScoped<AdministrativeResidentRegistrationService>();
 builder.Services.AddScoped<AdministrativeResidentLookupService>();
 builder.Services.AddScoped<AdministrativeUnitResolver>();
+builder.Services.AddScoped<AdministrativeResidentMembershipMutationService>();
 builder.Services.Configure<RequestDraftAiOptions>(
     builder.Configuration.GetSection(RequestDraftAiOptions.SectionName));
 builder.Services.AddHttpClient<IRequestDraftAiService, RequestDraftAiService>((services, client) =>
@@ -58,6 +59,13 @@ builder.Services.AddHttpClient<IAdministrativeResidentExtractionService,
 });
 builder.Services.AddHttpClient<IAdministrativeResidentLookupExtractionService,
     AdministrativeResidentLookupExtractionService>((services, client) =>
+{
+    var settings = services.GetRequiredService<
+        Microsoft.Extensions.Options.IOptions<RequestDraftAiOptions>>().Value;
+    client.BaseAddress = new Uri(settings.BaseUrl);
+});
+builder.Services.AddHttpClient<IAdministrativeResidentMutationExtractionService,
+    AdministrativeResidentMutationExtractionService>((services, client) =>
 {
     var settings = services.GetRequiredService<
         Microsoft.Extensions.Options.IOptions<RequestDraftAiOptions>>().Value;

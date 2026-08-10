@@ -35,4 +35,10 @@ public enum WhatsAppConversationState
     ,SelectingAdminLookupCondominium = 30
     ,SelectingAdminLookupUnit = 31
     ,SelectingAdminLookupResident = 32
+    ,CollectingAdminResidentMutation = 33
+    ,SelectingAdminMutationCondominium = 34
+    ,SelectingAdminMutationResident = 35
+    ,SelectingAdminMutationSourceUnit = 36
+    ,SelectingAdminMutationDestinationUnit = 37
+    ,ConfirmingAdminResidentMutation = 38
 }

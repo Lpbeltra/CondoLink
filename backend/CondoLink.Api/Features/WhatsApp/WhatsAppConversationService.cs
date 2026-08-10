@@ -27,6 +27,7 @@ public sealed class WhatsAppConversationService(
     ILogger<WhatsAppConversationService> logger,
     AdministrativeResidentRegistrationService administrativeResidents,
     AdministrativeResidentLookupService administrativeResidentLookup,
+    AdministrativeResidentMembershipMutationService administrativeResidentMutation,
     RequestCategoryResolver requestCategories,
     CondoLink.Api.Features.Requests.RequestAiAnalysisRefresher? analysisRefresher = null)
 {
@@ -104,6 +105,9 @@ public sealed class WhatsAppConversationService(
         }
         var administrativeResponse = identifiedUser is null ? null
             : administrativeAudioFailure ?? await administrativeResidents.TryHandleAsync(
+                identifiedUser, session, administrativeText, now, expires, ct);
+        administrativeResponse ??= identifiedUser is null ? null
+            : await administrativeResidentMutation.TryHandleAsync(
                 identifiedUser, session, administrativeText, now, expires, ct);
         administrativeResponse ??= identifiedUser is null ? null
             : await administrativeResidentLookup.TryHandleAsync(
