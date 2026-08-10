@@ -2,6 +2,9 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Globalization;
+using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 
 namespace CondoLink.Api.Features.WhatsApp;
@@ -31,7 +34,7 @@ public sealed class AdministrativeResidentLookupExtractionService(
     {
         var settings = options.Value;
         if (!settings.Enabled || string.IsNullOrWhiteSpace(settings.ApiKey))
-            return new(false, null, settings.Enabled ? "not_configured" : "disabled");
+            return Fallback(message, settings.Enabled ? "not_configured" : "disabled");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(settings.TimeoutSeconds, 1, 60)));
         using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions");
@@ -66,7 +69,7 @@ public sealed class AdministrativeResidentLookupExtractionService(
         {
             using var response = await httpClient.SendAsync(request, timeout.Token);
             if (!response.IsSuccessStatusCode)
-                return new(false, null, $"http_{(int)response.StatusCode}");
+                return Fallback(message, $"http_{(int)response.StatusCode}");
             using var envelope = await JsonDocument.ParseAsync(
                 await response.Content.ReadAsStreamAsync(timeout.Token),
                 cancellationToken: timeout.Token);
@@ -77,17 +80,98 @@ public sealed class AdministrativeResidentLookupExtractionService(
             if (data is null || data.Intent is not
                 ("resident_lookup" or "unit_residents_lookup" or "unknown")
                 || data.RequestedFields.Any(x => x is not ("phone" or "email")))
-                return new(false, null, "schema_validation_failed");
+                return Fallback(message, "schema_validation_failed");
+            if (data.Intent == "unknown")
+                return Fallback(message, "ai_unknown");
             return new(true, data, "succeeded");
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        { return new(false, null, "timeout"); }
+        { return Fallback(message, "timeout"); }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             logger.LogWarning("Administrative resident lookup extraction failed. FailureType: {FailureType}.",
                 exception.GetType().Name);
-            return new(false, null, "provider_error");
+            return Fallback(message, "provider_error");
         }
+    }
+
+    private static AdministrativeResidentLookupExtractionResult Fallback(
+        string message, string failureOutcome)
+    {
+        var normalized = Search(message);
+        var unitResidents = normalized.Contains("quem mora")
+            || normalized.Contains("moradores");
+        var residentLookup = normalized.Contains("infos")
+            || normalized.Contains("informacoes") || normalized.Contains("dados")
+            || normalized.Contains("contato") || normalized.Contains("telefone")
+            || normalized.Contains("quem e ");
+        if (!unitResidents && !residentLookup)
+            return new(false, null, failureOutcome);
+
+        string? unit = null;
+        string? block = null;
+        var slash = Regex.Match(message,
+            @"(?<unit>[\p{L}\p{N}-]+)\s*/\s*(?<block>[\p{L}\p{N}-]+)",
+            RegexOptions.IgnoreCase);
+        if (slash.Success)
+        {
+            unit = slash.Groups["unit"].Value;
+            block = slash.Groups["block"].Value;
+        }
+        else
+        {
+            var blockUnit = Regex.Match(message,
+                @"bloco\s+(?<block>\S+)\s+(?:(?:apto|apartamento|unidade)\s+)?(?<unit>[\p{L}\p{N}-]+)",
+                RegexOptions.IgnoreCase);
+            if (!blockUnit.Success)
+                blockUnit = Regex.Match(message,
+                    @"(?:apto|apartamento|unidade)\s+(?<unit>[\p{L}\p{N}-]+)(?:\s+do)?\s+bloco\s+(?<block>\S+)",
+                    RegexOptions.IgnoreCase);
+            if (blockUnit.Success)
+            {
+                unit = blockUnit.Groups["unit"].Value.TrimEnd('?', '.', ',');
+                block = blockUnit.Groups["block"].Value.TrimEnd('?', '.', ',');
+            }
+        }
+        string? name = null;
+        if (residentLookup)
+        {
+            var nameMatch = Regex.Match(message,
+                @"(?:infos?|informa[cç][oõ]es|dados|contato)(?:\s+(?:da|do|de))?\s+(?<name>.+?)\s+d[oa]\s+(?:(?:bloco|apto|apartamento|unidade)\s+)?[\p{L}\p{N}]",
+                RegexOptions.IgnoreCase);
+            if (!nameMatch.Success)
+                nameMatch = Regex.Match(message,
+                    @"quem\s+[ée]\s+(?:a|o)?\s*(?<name>.+?)\s+d[oa]\s+(?:(?:bloco|apto|apartamento|unidade)\s+)?[\p{L}\p{N}]",
+                    RegexOptions.IgnoreCase);
+            if (nameMatch.Success) name = nameMatch.Groups["name"].Value.Trim();
+        }
+        if (string.IsNullOrWhiteSpace(unit))
+        {
+            var trailingUnit = Regex.Match(message,
+                @"(?:do|da|no|na)\s+(?:apto|apartamento|unidade)?\s*(?<unit>[\p{L}\p{N}-]+)[?.!]*$",
+                RegexOptions.IgnoreCase);
+            if (trailingUnit.Success)
+                unit = trailingUnit.Groups["unit"].Value;
+        }
+        var complete = normalized.Contains("infos") || normalized.Contains("dados")
+            || normalized.Contains("informacoes");
+        string[] requested = complete ? ["phone", "email"]
+            : normalized.Contains("telefone") || normalized.Contains("contato")
+                ? ["phone"] : unitResidents ? ["phone"] : [];
+        var intent = unitResidents ? "unit_residents_lookup" : "resident_lookup";
+        return new(true, new(intent, name, null, block, unit, requested),
+            $"fallback_{failureOutcome}");
+    }
+
+    private static string Search(string value)
+    {
+        var decomposed = value.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(decomposed.Length);
+        foreach (var character in decomposed)
+            if (CharUnicodeInfo.GetUnicodeCategory(character)
+                != UnicodeCategory.NonSpacingMark)
+                builder.Append(character);
+        return builder.ToString().Normalize(NormalizationForm.FormC);
     }
 
     private static object NullableString() => new { type = new[] { "string", "null" } };

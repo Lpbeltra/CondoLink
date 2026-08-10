@@ -46,6 +46,11 @@ public sealed class AdministrativeResidentLookupService(
 
         var draft = ReadDraft(session.DraftAiProposalJson);
         var scope = await AdministrativeScope(administrator.Id, ct);
+        if (scope.Count == 0)
+        {
+            session.Restart(now, expires);
+            return new(Forbidden, "admin_lookup_forbidden");
+        }
 
         if (session.State == WhatsAppConversationState.SelectingAdminLookupCondominium
             && int.TryParse(text?.Trim(), out var condominiumChoice))
@@ -85,17 +90,16 @@ public sealed class AdministrativeResidentLookupService(
         var extracted = await extraction.ExtractAsync(text ?? string.Empty,
             draft.Extraction, ct);
         if (!extracted.Succeeded || extracted.Data is null)
+        {
+            Save(session, draft, WhatsAppConversationState.CollectingAdminResidentLookup,
+                now, expires);
             return new("Não consegui interpretar essa consulta. Tente informar o nome ou a unidade.",
                 "admin_lookup_extraction_failed");
+        }
         if (extracted.Data.Intent == "unknown") return inFlow
             ? new("Não consegui completar a consulta. Informe o dado solicitado ou envie 0 para cancelar.",
                 "admin_lookup_unknown")
             : null;
-        if (scope.Count == 0)
-        {
-            session.Restart(now, expires);
-            return new(Forbidden, "admin_lookup_forbidden");
-        }
         draft = draft with { Extraction = Merge(draft.Extraction, extracted.Data) };
         return await ResolveAndRespond(administrator.Id, session, draft, scope,
             now, expires, ct);

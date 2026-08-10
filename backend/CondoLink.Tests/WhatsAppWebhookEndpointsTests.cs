@@ -483,6 +483,56 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.DoesNotContain("unidade residencial ativa", _fake.Messages.Last().Text);
     }
 
+    [Fact]
+    public async Task Administrative_audio_is_transcribed_and_routed_before_residential_context()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            await AddPlatformAdminRole(db);
+            db.UnitMemberships.RemoveRange(db.UnitMemberships.Where(x => x.UserId == _userId));
+            var block = new CondominiumBlock(_condominiumId, "Bloco 1");
+            var unit = new Unit(_condominiumId, "1201", block.Id, null, null);
+            var resident = CoreTestSeed.User("Tatiana Áudio", "tatiana.audio@example.com");
+            resident.Update("Tatiana Áudio", "44988887777");
+            db.AddRange(block, unit, resident, new UnitMembership(resident.Id, unit.Id,
+                UnitRelationshipType.Tenant, true, false));
+            await db.SaveChangesAsync();
+        });
+        _fake.Media = new WhatsAppMediaResult(true, [1, 2, 3], "audio/ogg", null);
+        _transcription.Result = new(true,
+            "Me passe os moradores do bloco 1 apartamento 1201 com telefone.",
+            "succeeded");
+        _administrativeLookupExtraction.Result = new(true,
+            new("unit_residents_lookup", null, null, "1", "1201", ["phone"]),
+            "succeeded");
+
+        await PostAsync(MediaPayload("wamid.admin-audio-lookup", "admin-audio",
+            "audio", "audio/ogg", "consulta.ogg"));
+
+        Assert.Contains("Tatiana Áudio", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("unidade residencial ativa", _fake.Messages.Last().Text);
+        Assert.Equal(1, _transcription.Calls);
+    }
+
+    [Fact]
+    public async Task Administrative_user_without_unit_gets_role_oriented_fallback()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            await AddPlatformAdminRole(db);
+            db.UnitMemberships.RemoveRange(db.UnitMemberships.Where(x => x.UserId == _userId));
+            await db.SaveChangesAsync();
+        });
+
+        await PostAsync(TextPayload("wamid.admin-unknown-action",
+            "Quais os contextos estão disponíveis?"));
+
+        var response = _fake.Messages.Last().Text;
+        Assert.Contains("Não consegui identificar o que você deseja fazer", response);
+        Assert.Contains("Cadastrar morador", response);
+        Assert.DoesNotContain("unidade residencial ativa", response);
+    }
+
     [Theory]
     [InlineData("proprietário", UnitRelationshipType.Owner)]
     [InlineData("proprietária", UnitRelationshipType.Owner)]

@@ -88,12 +88,26 @@ public sealed class WhatsAppConversationService(
         string result;
         var initialSessionState = session.State;
         var initialRequestIdPresent = session.RequestId.HasValue;
+        var hasAdministrativeAccess = identifiedUser is not null
+            && await HasAdministrativeAccess(identifiedUser.Id, ct);
+        var administrativeText = message.Text;
+        AdministrativeWhatsAppResponse? administrativeAudioFailure = null;
+        if (identifiedUser is not null && hasAdministrativeAccess
+            && message.MessageType == "audio")
+        {
+            var transcription = await TranscribeAdministrativeAudio(message, ct);
+            if (transcription.Text is not null)
+                administrativeText = transcription.Text;
+            else
+                administrativeAudioFailure = new(transcription.Error!,
+                    "admin_audio_transcription_failed");
+        }
         var administrativeResponse = identifiedUser is null ? null
-            : await administrativeResidents.TryHandleAsync(
-                identifiedUser, session, message.Text, now, expires, ct);
+            : administrativeAudioFailure ?? await administrativeResidents.TryHandleAsync(
+                identifiedUser, session, administrativeText, now, expires, ct);
         administrativeResponse ??= identifiedUser is null ? null
             : await administrativeResidentLookup.TryHandleAsync(
-                identifiedUser, session, message.Text, now, expires, ct);
+                identifiedUser, session, administrativeText, now, expires, ct);
         Guid? identifiedUserId = identifiedUser?.Id;
         if (administrativeResponse is not null)
         {
@@ -119,8 +133,12 @@ public sealed class WhatsAppConversationService(
             {
                 session.Restart(now, expires);
                 logger.LogInformation("ResidentialContextUnavailable for identified WhatsApp user.");
-                response = ResidentialContextFailure;
-                result = "residential_context_unavailable";
+                response = hasAdministrativeAccess
+                    ? AdministrativeFallback()
+                    : ResidentialContextFailure;
+                result = hasAdministrativeAccess
+                    ? "administrative_action_not_recognized"
+                    : "residential_context_unavailable";
             }
             else
             {
@@ -182,6 +200,54 @@ public sealed class WhatsAppConversationService(
             "WhatsApp message processed with result {Result} for phone {Phone}.",
             result, PhoneNumberNormalizer.Mask(phone));
     }
+
+    private async Task<bool> HasAdministrativeAccess(Guid userId, CancellationToken ct)
+    {
+        var platformAdmin = await db.UserRoles.AsNoTracking()
+            .Join(db.Roles.AsNoTracking(), link => link.RoleId, role => role.Id,
+                (link, role) => new { link.UserId, role.NormalizedName })
+            .AnyAsync(x => x.UserId == userId
+                && x.NormalizedName == CondoLink.Infrastructure.DependencyInjection
+                    .PlatformAdminRole.ToUpper(), ct);
+        if (platformAdmin) return true;
+        return await (from membership in db.CondominiumMemberships.AsNoTracking()
+            join role in db.CondominiumMembershipRoles.AsNoTracking()
+                on membership.Id equals role.CondominiumMembershipId
+            where membership.UserId == userId && membership.IsActive
+                && membership.EndedAt == null && role.Role == CondominiumRole.Manager
+                && role.IsActive && role.RevokedAt == null
+            select membership.Id).AnyAsync(ct);
+    }
+
+    private async Task<(string? Text, string? Error)> TranscribeAdministrativeAudio(
+        NormalizedWhatsAppMessage message, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(message.MediaId))
+            return (null, "Não consegui acessar esse áudio. Envie novamente ou escreva a consulta.");
+        var media = await client.DownloadMediaAsync(message.MediaId, ct);
+        if (!media.Succeeded || media.Content is null)
+            return (null, "Não consegui acessar esse áudio. Envie novamente ou escreva a consulta.");
+        var contentType = media.ContentType ?? message.MediaContentType
+            ?? "application/octet-stream";
+        var extension = AttachmentPolicy.PreferredExtension(contentType);
+        var fileName = string.IsNullOrWhiteSpace(message.FileName)
+            ? $"audio{extension}" : message.FileName;
+        var validation = AttachmentPolicy.Validate(
+            fileName, media.Content.LongLength, contentType);
+        if (validation.Error is not null) return (null, validation.Error);
+        var transcription = await audioTranscription.TranscribeAsync(
+            media.Content, validation.Name!, validation.ContentType!, ct);
+        return transcription.Succeeded && !string.IsNullOrWhiteSpace(transcription.Text)
+            ? (transcription.Text.Trim(), null)
+            : (null, "Não consegui transcrever esse áudio. Envie novamente ou escreva a consulta.");
+    }
+
+    private static string AdministrativeFallback() =>
+        "Não consegui identificar o que você deseja fazer.\n\n"
+        + "Você pode pedir, por exemplo:\n"
+        + "• \"Cadastrar morador\"\n"
+        + "• \"Me passe os moradores do bloco 1 apto 1201\"\n"
+        + "• \"Qual o telefone da Tatiana do 1201/1?\"";
 
     private async Task<ApplicationUser?> ResolveUser(
         string canonicalPhone, CancellationToken ct)
