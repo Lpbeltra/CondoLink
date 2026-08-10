@@ -14,7 +14,8 @@ namespace CondoLink.Api.Features.WhatsApp;
 public sealed class AdministrativeResidentLookupService(
     AppDbContext db,
     IAdministrativeResidentLookupExtractionService extraction,
-    ILogger<AdministrativeResidentLookupService> logger)
+    ILogger<AdministrativeResidentLookupService> logger,
+    AdministrativeUnitResolver unitResolver)
 {
     private const string Forbidden =
         "Esse recurso está disponível apenas para a administração do condomínio.";
@@ -142,9 +143,9 @@ public sealed class AdministrativeResidentLookupService(
 
         if (!string.IsNullOrWhiteSpace(data.Unit) || draft.UnitId.HasValue)
         {
-            var units = draft.UnitId is Guid unitId
-                ? await UnitChoices(condominium.Id, unitId, null, null, ct)
-                : await UnitChoices(condominium.Id, null, data.Block, data.Unit, ct);
+            var units = (await unitResolver.ResolveAsync(condominium.Id, draft.UnitId,
+                data.Unit, data.Block, ct)).Select(x => new UnitChoice(x.Id, x.Display))
+                .ToArray();
             if (units.Length == 0)
             {
                 session.Restart(now, expires);
@@ -275,21 +276,6 @@ public sealed class AdministrativeResidentLookupService(
             block == null ? unit.Identifier : $"Bloco {block.Identifier} - {unit.Identifier}"))
         .ToArrayAsync(ct);
 
-    private Task<UnitChoice[]> UnitChoices(Guid condominiumId, Guid? unitId,
-        string? blockFilter, string? unitFilter, CancellationToken ct) =>
-        (from unit in db.Units.AsNoTracking()
-         join block in db.CondominiumBlocks.AsNoTracking() on unit.BlockId equals block.Id into blocks
-         from block in blocks.DefaultIfEmpty()
-         where unit.CondominiumId == condominiumId && unit.IsActive
-            && (!unitId.HasValue || unit.Id == unitId)
-            && (unitId.HasValue || unit.Identifier.ToLower() == unitFilter!.Trim().ToLower())
-            && (string.IsNullOrWhiteSpace(blockFilter)
-                || (block != null && block.Identifier.ToLower() == blockFilter.Trim().ToLower()))
-         orderby block == null ? "" : block.Identifier, unit.Identifier
-         select new UnitChoice(unit.Id,
-            block == null ? unit.Identifier : $"Bloco {block.Identifier} - {unit.Identifier}"))
-        .Take(20).ToArrayAsync(ct);
-
     private async Task<IReadOnlyList<ScopedCondominium>> AdministrativeScope(
         Guid userId, CancellationToken ct)
     {
@@ -333,7 +319,11 @@ public sealed class AdministrativeResidentLookupService(
     {
         var value = Search(text ?? string.Empty);
         return value.Contains("morador") || value.Contains("quem mora")
-            || value.Contains("telefone") || value.Contains("dados do");
+            || value.Contains("telefone") || value.Contains("dados")
+            || value.Contains("infos") || value.Contains("informacoes")
+            || value.Contains("quem e ") || value.Contains("apto")
+            || value.Contains("apartamento") || value.Contains("bloco")
+            || value.Contains('/');
     }
     private static string Search(string value)
     {

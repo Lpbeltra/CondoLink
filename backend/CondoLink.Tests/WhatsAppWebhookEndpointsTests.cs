@@ -64,6 +64,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 builder.Services.AddScoped<ResidentReplyService>();
                 builder.Services.AddScoped<AdministrativeResidentRegistrationService>();
                 builder.Services.AddScoped<AdministrativeResidentLookupService>();
+                builder.Services.AddScoped<AdministrativeUnitResolver>();
                 builder.Services.AddScoped<WhatsAppConversationService>();
             });
         await _host.WithDbAsync(async db =>
@@ -456,6 +457,48 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Platform_admin_without_unit_routes_natural_infos_lookup_before_residential_context()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            await AddPlatformAdminRole(db);
+            db.UnitMemberships.RemoveRange(db.UnitMemberships.Where(x => x.UserId == _userId));
+            var block = new CondominiumBlock(_condominiumId, "Bloco 1");
+            var unit = new Unit(_condominiumId, "1201", block.Id, null, null);
+            var tatiana = CoreTestSeed.User("Tatiana Lima", "tatiana@example.com");
+            tatiana.Update("Tatiana Lima", "44999998888");
+            db.AddRange(block, unit, tatiana, new UnitMembership(tatiana.Id, unit.Id,
+                UnitRelationshipType.AuthorizedOccupant, true, false));
+            await db.SaveChangesAsync();
+        });
+        _administrativeLookupExtraction.Result = new(true,
+            new("resident_lookup", "Tatiana", null, "1", "1201",
+                ["phone", "email"]), "succeeded");
+
+        await PostAsync(TextPayload("wamid.platform-infos-no-unit",
+            "Oi, me dê as infos da Tatiana do 1201/1"));
+
+        Assert.Contains("Tatiana Lima", _fake.Messages.Last().Text);
+        Assert.Contains("Unidade: Bloco 1 - 1201", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("unidade residencial ativa", _fake.Messages.Last().Text);
+    }
+
+    [Theory]
+    [InlineData("proprietário", UnitRelationshipType.Owner)]
+    [InlineData("proprietária", UnitRelationshipType.Owner)]
+    [InlineData("inquilino", UnitRelationshipType.Tenant)]
+    [InlineData("inquilina", UnitRelationshipType.Tenant)]
+    [InlineData("morador", UnitRelationshipType.AuthorizedOccupant)]
+    [InlineData("moradora", UnitRelationshipType.AuthorizedOccupant)]
+    public void Administrative_relationship_synonyms_map_deterministically(
+        string value, UnitRelationshipType expected)
+    {
+        Assert.True(AdministrativeResidentRegistrationService.TryRelationship(
+            value, out var relationship));
+        Assert.Equal(expected, relationship);
+    }
+
+    [Fact]
     public async Task Lookup_handles_condominium_unit_and_resident_ambiguity()
     {
         await _host.WithDbAsync(async db =>
@@ -553,6 +596,44 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Contains("Nome: Zemilto Custódio", _fake.Messages.Last().Text);
         Assert.Contains("E-mail: zemilto@example.com", _fake.Messages.Last().Text);
         Assert.Contains("Relação: Proprietário", _fake.Messages.Last().Text);
+    }
+
+    [Fact]
+    public async Task Unit_clarification_preserves_registration_draft_and_relationship()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            await AddPlatformAdminRole(db);
+            var block1 = new CondominiumBlock(_condominiumId, "Bloco 1");
+            var block2 = new CondominiumBlock(_condominiumId, "Bloco 2");
+            db.AddRange(block1, block2,
+                new Unit(_condominiumId, "1201", block1.Id, null, null),
+                new Unit(_condominiumId, "1201", block2.Id, null, null));
+            await db.SaveChangesAsync();
+        });
+        _administrativeExtraction.Result = new(true,
+            new("register_resident", "Tatiana Lima", "44999998888",
+                "tatiana.cadastro@example.com", null, null, "1201",
+                "morador", null, null), "succeeded");
+
+        await PostAsync(TextPayload("wamid.registration-unit-start", "Cadastrar morador"));
+        await PostAsync(TextPayload("wamid.registration-unit-data",
+            "Tatiana Lima, tatiana.cadastro@example.com, 44999998888, 1201/1, morador"));
+        Assert.Contains("Encontrei mais de uma unidade", _fake.Messages.Last().Text);
+
+        _administrativeExtraction.Result = new(true,
+            new("register_resident", null, null, null, null, "1", "1201",
+                null, null, null), "succeeded");
+        await PostAsync(TextPayload("wamid.registration-unit-clarification",
+            "bloco 1 apto 1201"));
+
+        var confirmation = _fake.Messages.Last().Text;
+        Assert.Contains("Nome: Tatiana Lima", confirmation);
+        Assert.Contains("E-mail: tatiana.cadastro@example.com", confirmation);
+        Assert.Contains("Telefone: (44) 99999-8888", confirmation);
+        Assert.Contains("Relação: Ocupante autorizado", confirmation);
+        Assert.Contains("Unidade: Bloco 1 - 1201", confirmation);
+        Assert.Contains("1 - Confirmar", confirmation);
     }
 
     [Fact]

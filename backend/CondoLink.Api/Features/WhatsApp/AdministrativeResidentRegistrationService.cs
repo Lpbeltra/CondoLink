@@ -19,7 +19,8 @@ public sealed class AdministrativeResidentRegistrationService(
     AppDbContext db, UserManager<ApplicationUser> userManager,
     IAdministrativeResidentExtractionService extraction,
     ILogger<AdministrativeResidentRegistrationService> logger,
-    IOptions<WhatsAppOptions> options)
+    IOptions<WhatsAppOptions> options,
+    AdministrativeUnitResolver unitResolver)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -144,25 +145,9 @@ public sealed class AdministrativeResidentRegistrationService(
         if (string.IsNullOrWhiteSpace(data.Unit))
             return Missing(session, draft with { CondominiumId = condominium.Id }, "Qual é a unidade do morador?", now, expires);
 
-        var units = draft.UnitId is Guid selectedUnitId
-            ? await (from unit in db.Units.AsNoTracking()
-                join block in db.CondominiumBlocks.AsNoTracking() on unit.BlockId equals block.Id into blocks
-                from block in blocks.DefaultIfEmpty()
-                where unit.Id == selectedUnitId && unit.CondominiumId == condominium.Id && unit.IsActive
-                select new UnitChoice(unit.Id,
-                    block == null ? unit.Identifier : $"Bloco {block.Identifier} - {unit.Identifier}"))
-                .ToArrayAsync(ct)
-            : await (from unit in db.Units.AsNoTracking()
-            join block in db.CondominiumBlocks.AsNoTracking() on unit.BlockId equals block.Id into blocks
-            from block in blocks.DefaultIfEmpty()
-            where unit.CondominiumId == condominium.Id && unit.IsActive
-                && unit.Identifier.ToLower() == data.Unit.Trim().ToLower()
-                && (string.IsNullOrWhiteSpace(data.Block)
-                    || (block != null && block.Identifier.ToLower() == data.Block.Trim().ToLower()))
-            orderby block == null ? "" : block.Identifier, unit.Identifier
-            select new UnitChoice(unit.Id,
-                block == null ? unit.Identifier : $"Bloco {block.Identifier} - {unit.Identifier}"))
-            .Take(10).ToArrayAsync(ct);
+        var units = (await unitResolver.ResolveAsync(condominium.Id, draft.UnitId,
+            data.Unit, data.Block, ct)).Select(x => new UnitChoice(x.Id, x.Display))
+            .ToArray();
         if (units.Length == 0)
             return Missing(session, draft with { CondominiumId = condominium.Id },
                 "Não encontrei essa unidade. Confira o bloco e o número.\n\n"
@@ -336,13 +321,18 @@ public sealed class AdministrativeResidentRegistrationService(
     }
     private static bool Equivalent(string left, string right) =>
         string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
-    private static bool TryRelationship(string? value, out UnitRelationshipType relationship)
+    internal static bool TryRelationship(string? value, out UnitRelationshipType relationship)
     {
         relationship = value?.Trim().ToLowerInvariant() switch
         {
-            "owner" or "proprietário" or "proprietario" or "1" => UnitRelationshipType.Owner,
-            "tenant" or "inquilino" or "2" => UnitRelationshipType.Tenant,
-            "authorizedoccupant" or "morador autorizado" or "ocupante autorizado" or "3" => UnitRelationshipType.AuthorizedOccupant,
+            "owner" or "proprietário" or "proprietario" or "proprietária"
+                or "proprietaria" or "dono" or "dona" or "1" => UnitRelationshipType.Owner,
+            "tenant" or "inquilino" or "inquilina" or "locatário" or "locatario"
+                or "locatária" or "locataria" or "2" => UnitRelationshipType.Tenant,
+            "authorizedoccupant" or "morador autorizado" or "moradora autorizada"
+                or "ocupante autorizado" or "ocupante autorizada" or "morador"
+                or "moradora" or "residente" or "autorizado" or "autorizada"
+                or "3" => UnitRelationshipType.AuthorizedOccupant,
             _ => 0
         };
         return relationship != 0;

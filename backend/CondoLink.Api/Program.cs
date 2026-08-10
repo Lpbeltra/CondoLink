@@ -40,6 +40,7 @@ builder.Services.Configure<WhatsAppOptions>(
 builder.Services.AddScoped<WhatsAppConversationService>();
 builder.Services.AddScoped<AdministrativeResidentRegistrationService>();
 builder.Services.AddScoped<AdministrativeResidentLookupService>();
+builder.Services.AddScoped<AdministrativeUnitResolver>();
 builder.Services.Configure<RequestDraftAiOptions>(
     builder.Configuration.GetSection(RequestDraftAiOptions.SectionName));
 builder.Services.AddHttpClient<IRequestDraftAiService, RequestDraftAiService>((services, client) =>
