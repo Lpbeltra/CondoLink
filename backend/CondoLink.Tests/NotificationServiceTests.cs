@@ -304,6 +304,9 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         var service = new NotificationService(_db, dispatcher,
             NullLogger<NotificationService>.Instance, ai);
         var request = await AddRequestAsync(_resident.Id);
+        if (status == RequestStatus.Resolved)
+            request.ChangeStatus(RequestStatus.WaitingForResidentClosure,
+                DateTime.UtcNow);
         request.ChangeStatus(status, DateTime.UtcNow);
 
         await service.NotifyStatusChangedAsync(request, RequestStatus.InProgress,

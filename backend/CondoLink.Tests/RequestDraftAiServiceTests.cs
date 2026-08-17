@@ -29,7 +29,9 @@ public sealed class RequestDraftAiServiceTests
             .GetProperty("content").GetString();
         Assert.Contains("*Seu atendimento foi finalizado.*", prompt);
         Assert.Contains("*Seu atendimento foi cancelado.*", prompt);
-        Assert.Contains("agradecemos pela compreensão", prompt,
+        Assert.Contains("agradecimentos", prompt,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("cortesia sem valor informativo", prompt,
             StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Não invente", prompt);
     }

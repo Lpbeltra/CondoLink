@@ -277,7 +277,10 @@ public sealed class AdministrativeResidentLookupService(
          orderby user.FullName, user.Id
          select new ResidentRow(user.Id, link.Id, unit.Id, user.FullName,
             user.Email!, user.PhoneNumber, link.RelationshipType,
-            block == null ? unit.Identifier : $"Bloco {block.Identifier} - {unit.Identifier}"))
+            block == null ? unit.Identifier
+                : block.Identifier.ToLower().StartsWith("bloco ")
+                    ? $"Bloco {block.Identifier.Substring(6)} - {unit.Identifier}"
+                    : $"Bloco {block.Identifier} - {unit.Identifier}"))
         .ToArrayAsync(ct);
 
     private async Task<IReadOnlyList<ScopedCondominium>> AdministrativeScope(

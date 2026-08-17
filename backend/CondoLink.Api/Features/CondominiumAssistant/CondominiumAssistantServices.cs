@@ -17,9 +17,11 @@ namespace CondoLink.Api.Features.CondominiumAssistant;
 public sealed class CondominiumAssistantOptions
 {
     public const string SectionName = "CondominiumAssistant";
+    public const int MaximumFileSizeMegabytes = 25;
+    public const int DefaultMaximumFileBytes = MaximumFileSizeMegabytes * 1024 * 1024;
     public bool Enabled { get; set; } = true;
     public string ChatModel { get; set; } = "gpt-4.1-mini";
-    public int MaximumFileBytes { get; set; } = 10 * 1024 * 1024;
+    public int MaximumFileBytes { get; set; } = DefaultMaximumFileBytes;
     public int MaximumQuestionCharacters { get; set; } = 2000;
     public int TopChunks { get; set; } = 8;
 }

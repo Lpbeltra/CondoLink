@@ -6,6 +6,7 @@ using CondoLink.Api.Features.Categories;
 using CondoLink.Api.Features.CondominiumMemberRoles;
 using CondoLink.Api.Features.CondominiumMembers;
 using CondoLink.Api.Features.Condominiums;
+using CondoLink.Api.Features.CondominiumAssistant;
 using CondoLink.Api.Features.CondominiumSetup;
 using CondoLink.Api.Features.Management;
 using CondoLink.Api.Features.Notifications;
@@ -173,6 +174,7 @@ public sealed class EndpointAuthorizationCoverageTests
         builder.Services.AddScoped<CondominiumMembershipService>();
         builder.Services.AddScoped<ManagerOnboardingService>();
         builder.Services.AddScoped<NotificationService>();
+        builder.Services.AddScoped<CondominiumAssistantService>();
         builder.Services.AddAuthorization();
         builder.Services.AddSingleton<LocalFileStorage>();
 
@@ -232,6 +234,7 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapResetMemberTemporaryPassword();
         app.MapUpdateCondominiumMember();
         app.MapCondominiumSetup();
+        app.MapCondominiumAssistant();
 
         app.MapManagementContext();
         app.MapCondominiumBlocks();

@@ -46,24 +46,43 @@ public static class CondominiumAssistantEndpoints
         CancellationToken ct)
     {
         var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
-        if (!request.HasFormContentType) return Results.BadRequest(new { error = "Envie multipart/form-data." });
+        if (!request.HasFormContentType) return UploadBadRequest(
+            "DocumentMultipartRequired", "Envie o documento como multipart/form-data.");
         var form = await request.ReadFormAsync(ct); var file = form.Files.GetFile("file");
-        if (file is null || file.Length == 0) return Results.BadRequest(new { error = "Selecione um arquivo." });
-        if (file.Length > options.Value.MaximumFileBytes) return Results.BadRequest(new { error = "O arquivo excede o limite de 10 MB." });
-        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (extension is not (".pdf" or ".docx" or ".txt")) return Results.BadRequest(new { error = "Use PDF, DOCX ou TXT." });
+        var fileError = ValidateDocumentFile(file, options.Value.MaximumFileBytes);
+        if (fileError is not null) return UploadBadRequest(fileError.Code, fileError.Message);
+        var uploadedFile = file!;
+        var extension = Path.GetExtension(uploadedFile.FileName).ToLowerInvariant();
         if (!Enum.TryParse<CondominiumDocumentType>(form["documentType"].FirstOrDefault(), true, out var type)) type = CondominiumDocumentType.Other;
-        var name = form["name"].FirstOrDefault()?.Trim(); if (string.IsNullOrWhiteSpace(name) || name.Length > 200) return Results.BadRequest(new { error = "Informe um nome de até 200 caracteres." });
+        var name = form["name"].FirstOrDefault()?.Trim(); if (string.IsNullOrWhiteSpace(name) || name.Length > 200) return UploadBadRequest(
+            "DocumentNameInvalid", "Informe um nome de até 200 caracteres.");
         var version = int.TryParse(form["version"].FirstOrDefault(), out var parsedVersion) && parsedVersion > 0 ? parsedVersion : 1;
         DateOnly? date = DateOnly.TryParse(form["documentDate"].FirstOrDefault(), out var parsedDate) ? parsedDate : null;
-        var document = new CondominiumDocument(condominiumId, name, type, Path.GetFileName(file.FileName),
-            string.Empty, file.ContentType ?? "application/octet-stream", version, date, access.UserId);
-        await using var input = file.OpenReadStream();
+        var document = new CondominiumDocument(condominiumId, name, type, Path.GetFileName(uploadedFile.FileName),
+            string.Empty, uploadedFile.ContentType ?? "application/octet-stream", version, date, access.UserId);
+        await using var input = uploadedFile.OpenReadStream();
         var key = await storage.SaveCondominiumDocumentAsync(condominiumId, document.Id, input, extension, ct);
         document.SetStorageKey(key); db.CondominiumDocuments.Add(document); await db.SaveChangesAsync(ct);
         await using var saved = storage.OpenRead(key)!; await processor.ProcessAsync(document, saved, extension, ct);
         return Results.Created($"/condominiums/{condominiumId}/documents/{document.Id}", new { document.Id, document.ProcessingStatus, document.ProcessingError });
     }
+
+    private static IResult UploadBadRequest(string code, string message) =>
+        Results.BadRequest(new { code, message });
+
+    internal static DocumentUploadValidationError? ValidateDocumentFile(IFormFile? file, long maximumFileBytes)
+    {
+        if (file is null || file.Length == 0)
+            return new("DocumentFileRequired", "Selecione um arquivo válido.");
+        if (file.Length > maximumFileBytes)
+            return new("DocumentFileTooLarge",
+                $"O arquivo excede o limite de {CondominiumAssistantOptions.MaximumFileSizeMegabytes} MB.");
+        if (Path.GetExtension(file.FileName).ToLowerInvariant() is not (".pdf" or ".docx" or ".txt"))
+            return new("DocumentFileTypeUnsupported", "Formato não suportado. Envie um arquivo PDF, DOCX ou TXT.");
+        return null;
+    }
+
+    internal sealed record DocumentUploadValidationError(string Code, string Message);
 
     private static async Task<IResult> DownloadDocument(Guid condominiumId, Guid documentId,
         ClaimsPrincipal principal, AppDbContext db, LocalFileStorage storage, CancellationToken ct)

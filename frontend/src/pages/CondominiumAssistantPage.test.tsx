@@ -2,11 +2,12 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CondominiumAssistantPage } from './CondominiumAssistantPage'
+import { CondominiumAssistantPage, CondominiumDocumentsPage } from './CondominiumAssistantPage'
 
 const assistant = vi.hoisted(() => ({
   listConversations: vi.fn(), getConversation: vi.fn(), startConversation: vi.fn(),
   askAssistant: vi.fn(), removeRequestContext: vi.fn(), deleteConversation: vi.fn(),
+  listDocuments: vi.fn(), uploadDocument: vi.fn(),
 }))
 vi.mock('../assistant/api', async importOriginal => ({ ...(await importOriginal<typeof import('../assistant/api')>()), ...assistant }))
 vi.mock('../management/ManagementContext', () => ({ useManagementContext: () => ({ activeCondominiumId: 'condo-1' }) }))
@@ -15,6 +16,61 @@ describe('CondominiumAssistantPage', () => {
   beforeEach(() => {
     Object.values(assistant).forEach(mock => mock.mockReset())
     assistant.listConversations.mockResolvedValue({ items: [], hasMore: false, total: 0 })
+    assistant.listDocuments.mockResolvedValue([])
+  })
+
+  it('rejects documents above 25 MB before upload', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<MemoryRouter><CondominiumDocumentsPage /></MemoryRouter>)
+    const file = new File(['pdf'], 'large.pdf', { type: 'application/pdf' })
+    Object.defineProperty(file, 'size', { value: 25 * 1024 * 1024 + 1 })
+
+    await user.upload(container.querySelector('input[type="file"]')!, file)
+
+    expect(await screen.findByText('O arquivo excede o limite de 25 MB.')).toBeInTheDocument()
+    expect(assistant.uploadDocument).not.toHaveBeenCalled()
+  })
+
+  it('shows the structured backend upload error', async () => {
+    const user = userEvent.setup()
+    assistant.uploadDocument.mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 400, data: { code: 'DocumentFileTooLarge', message: 'O arquivo excede o limite de 25 MB.' } },
+    })
+    const { container } = render(<MemoryRouter><CondominiumDocumentsPage /></MemoryRouter>)
+    await user.type(screen.getByRole('textbox', { name: 'Nome' }), 'Regimento')
+    await user.upload(container.querySelector('input[type="file"]')!,
+      new File(['pdf'], 'rules.pdf', { type: 'application/pdf' }))
+    await user.click(screen.getByRole('button', { name: 'Enviar' }))
+
+    expect(await screen.findByText('O arquivo excede o limite de 25 MB.')).toBeInTheDocument()
+  })
+
+  it('uploads a valid document', async () => {
+    const user = userEvent.setup()
+    assistant.uploadDocument.mockResolvedValue({})
+    const { container } = render(<MemoryRouter><CondominiumDocumentsPage /></MemoryRouter>)
+    await user.type(screen.getByRole('textbox', { name: 'Nome' }), 'Regimento')
+    await user.upload(container.querySelector('input[type="file"]')!,
+      new File(['pdf'], 'rules.pdf', { type: 'application/pdf' }))
+
+    await user.click(screen.getByRole('button', { name: 'Enviar' }))
+
+    await waitFor(() => expect(assistant.uploadDocument).toHaveBeenCalledTimes(1))
+  })
+
+  it('uses the safe fallback for an unknown upload error', async () => {
+    const user = userEvent.setup()
+    assistant.uploadDocument.mockRejectedValue(new Error('internal detail'))
+    const { container } = render(<MemoryRouter><CondominiumDocumentsPage /></MemoryRouter>)
+    await user.type(screen.getByRole('textbox', { name: 'Nome' }), 'Regimento')
+    await user.upload(container.querySelector('input[type="file"]')!,
+      new File(['pdf'], 'rules.pdf', { type: 'application/pdf' }))
+
+    await user.click(screen.getByRole('button', { name: 'Enviar' }))
+
+    expect(await screen.findByText('Não foi possível enviar o documento. Tente novamente.')).toBeInTheDocument()
+    expect(screen.queryByText('internal detail')).not.toBeInTheDocument()
   })
 
   it('shows empty history and does not persist an empty new conversation', async () => {

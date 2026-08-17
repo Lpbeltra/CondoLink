@@ -872,11 +872,13 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
 
         await PostAsync(TextPayload("wamid.admin-manager-cancel", "0"));
-        Assert.Contains("rascunho foi mantido", _fake.Messages.Last().Text);
+        Assert.Contains("Nenhuma alteração foi realizada", _fake.Messages.Last().Text);
         Assert.Equal(1, await _host.WithDbAsync(db => db.Users.CountAsync()));
 
         await PostAsync(TextPayload("wamid.admin-manager-resident-menu", "Oi"));
-        Assert.Contains("unidade residencial ativa", _fake.Messages.Last().Text);
+        Assert.Contains("Cadastrar morador", _fake.Messages.Last().Text);
+        Assert.Contains("moradores do bloco", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("unidade residencial ativa", _fake.Messages.Last().Text);
         Assert.DoesNotContain("identificar seu cadastro", _fake.Messages.Last().Text);
     }
 
@@ -973,7 +975,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.admin-ai-failure", "Cadastrar morador"));
         await PostAsync(TextPayload("wamid.admin-ai-failure-data", "Dados do morador"));
 
-        Assert.Contains("Nenhuma alteração", _fake.Messages.Last().Text);
+        Assert.Contains("rascunho foi mantido", _fake.Messages.Last().Text);
         Assert.Equal(1, await _host.WithDbAsync(db => db.Users.CountAsync()));
     }
 
@@ -1027,7 +1029,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             new("register_resident", null, "47988885555", null, null, null,
                 null, "Tenant", null, false), "succeeded");
         await PostAsync(TextPayload("wamid.admin-correction-data", "Telefone correto e relação inquilino"));
-        Assert.Contains("47988885555", _fake.Messages.Last().Text);
+        Assert.Contains("(47) 98888-5555", _fake.Messages.Last().Text);
         Assert.Contains("Inquilino", _fake.Messages.Last().Text);
         Assert.Contains("Nome: Beatriz Lima", _fake.Messages.Last().Text);
         Assert.Contains("E-mail: bia@example.com", _fake.Messages.Last().Text);

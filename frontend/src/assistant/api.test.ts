@@ -11,7 +11,8 @@ describe('condominium assistant API', () => {
     http.post.mockResolvedValue({ data: { id: 'doc-1' } })
     const form = new FormData(); form.append('file', new File(['rules'], 'rules.txt'))
     await uploadDocument('condo-1', form)
-    expect(http.post).toHaveBeenCalledWith('/condominiums/condo-1/documents', form)
+    expect(http.post).toHaveBeenCalledWith('/condominiums/condo-1/documents', form,
+      { timeout: 5 * 60 * 1000 })
   })
 
   it('keeps request context on conversation and sends question separately', async () => {

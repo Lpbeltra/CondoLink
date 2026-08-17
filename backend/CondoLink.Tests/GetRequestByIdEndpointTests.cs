@@ -302,7 +302,7 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
         Assert.Equal("Equipe acionada", body.StatusHistory[0].Reason);
         Assert.Equal("Sindico Alfa", body.StatusHistory[0].ChangedByFullName);
         Assert.Equal("WaitingForThirdParty", body.StatusHistory[1].PreviousStatus);
-        Assert.Equal("Resolved", body.StatusHistory[1].NewStatus);
+        Assert.Equal("WaitingForResidentClosure", body.StatusHistory[1].NewStatus);
         Assert.Equal("Serviço concluído", body.StatusHistory[1].Reason);
     }
 }

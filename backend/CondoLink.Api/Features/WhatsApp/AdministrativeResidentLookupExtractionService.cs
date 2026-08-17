@@ -155,9 +155,7 @@ public sealed class AdministrativeResidentLookupExtractionService(
         }
         var complete = normalized.Contains("infos") || normalized.Contains("dados")
             || normalized.Contains("informacoes");
-        string[] requested = complete ? ["phone", "email"]
-            : normalized.Contains("telefone") || normalized.Contains("contato")
-                ? ["phone"] : unitResidents ? ["phone"] : [];
+        string[] requested = complete ? ["phone", "email"] : ["phone"];
         var intent = unitResidents ? "unit_residents_lookup" : "resident_lookup";
         return new(true, new(intent, name, null, block, unit, requested),
             $"fallback_{failureOutcome}");

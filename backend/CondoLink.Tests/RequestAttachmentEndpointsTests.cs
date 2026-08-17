@@ -345,6 +345,9 @@ public sealed class RequestAttachmentEndpointsTests : IAsyncLifetime
         await _host.WithDbAsync(async db =>
         {
             var request = await db.Requests.SingleAsync(item => item.Id == _requestId);
+            if (status == RequestStatus.Resolved)
+                request.ChangeStatus(RequestStatus.WaitingForResidentClosure,
+                    DateTime.UtcNow);
             request.ChangeStatus(status, DateTime.UtcNow);
             await db.SaveChangesAsync();
         });
