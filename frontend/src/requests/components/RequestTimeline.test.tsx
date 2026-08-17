@@ -31,4 +31,13 @@ describe('RequestTimeline', () => {
     expect(screen.getByText('Resposta recebida do morador: O portão voltou a travar.')).toBeVisible()
     expect(screen.queryByText('Atualização do morador')).not.toBeInTheDocument()
   })
+
+  it('distinguishes proposed and automatic closure events', () => {
+    render(<RequestTimeline history={[
+      { id: 'proposal', previousStatus: 'InProgress', newStatus: 'WaitingForResidentClosure', changedByUserId: 'manager', changedByFullName: 'Ana', reason: 'Tag entregue.', createdAt: '2026-08-17T11:35:00Z' },
+      { id: 'automatic', previousStatus: 'WaitingForResidentClosure', newStatus: 'Resolved', changedByUserId: 'manager', changedByFullName: 'Ana', reason: 'O prazo para manifestação foi encerrado.', createdAt: '2026-08-17T12:35:00Z' },
+    ]} />)
+    expect(screen.getByText('Concluído pela administração — aguardando confirmação')).toBeVisible()
+    expect(screen.getByText('Atendimento finalizado automaticamente')).toBeVisible()
+  })
 })

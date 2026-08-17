@@ -15,6 +15,7 @@ describe('request presentation', () => {
     expect(statusPresentation.WaitingForResident.label).toBe('Aguardando morador')
     expect(statusPresentation.WaitingForManager.label).toBe('Dar andamento')
     expect(statusPresentation.WaitingForManager.color).toBe('secondary')
+    expect(statusPresentation.WaitingForResidentClosure.color).toBe('warning')
     expect(priorityPresentation.Urgent.label).toBe('Urgente')
   })
 
@@ -35,6 +36,7 @@ describe('request presentation', () => {
   it('exposes only valid workflow transitions', () => {
     expect(allowedStatusTransitions.Open).toEqual(['InProgress', 'Resolved', 'Cancelled'])
     expect(allowedStatusTransitions.InProgress).toContain('WaitingForManager')
+    expect(allowedStatusTransitions.WaitingForResidentClosure).toEqual(['InProgress', 'Cancelled'])
     expect(allowedStatusTransitions.Resolved).toEqual(['Open'])
     expect(allowedStatusTransitions.Cancelled).toEqual(['Open'])
   })

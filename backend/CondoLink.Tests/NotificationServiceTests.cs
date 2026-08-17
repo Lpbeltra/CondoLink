@@ -350,11 +350,21 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         Assert.Equal(WhatsAppNotificationType.StatusChanged,
             NotificationService.StatusNotificationType(
                 RequestStatus.InProgress, RequestStatus.WaitingForThirdParty));
+        Assert.Equal(WhatsAppNotificationType.StatusChanged,
+            NotificationService.StatusNotificationType(
+                RequestStatus.InProgress, RequestStatus.WaitingForResidentClosure));
+        var content = NotificationService.StatusChangedContent("Tag",
+            RequestStatus.InProgress, RequestStatus.WaitingForResidentClosure,
+            "Tag entregue na portaria.");
+        Assert.Contains("Tag entregue na portaria.", content);
+        Assert.Contains("1 - Sim, finalizar", content);
+        Assert.Contains("2 - Tenho uma nova dÃºvida", content);
     }
 
     [Theory]
     [InlineData(RequestStatus.WaitingForResident, true)]
     [InlineData(RequestStatus.WaitingForThirdParty, true)]
+    [InlineData(RequestStatus.WaitingForResidentClosure, true)]
     [InlineData(RequestStatus.Resolved, true)]
     [InlineData(RequestStatus.Cancelled, true)]
     [InlineData(RequestStatus.WaitingForManager, false)]
@@ -422,7 +432,8 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         var service = new NotificationService(_db, dispatcher,
             NullLogger<NotificationService>.Instance, ai);
         var request = await AddRequestAsync(_resident.Id);
-        request.ChangeStatus(RequestStatus.Resolved, DateTime.UtcNow);
+        request.ChangeStatus(RequestStatus.WaitingForResidentClosure, DateTime.UtcNow);
+        request.ChangeStatus(RequestStatus.Resolved, DateTime.UtcNow.AddMilliseconds(1));
 
         await service.NotifyStatusChangedAsync(request, RequestStatus.InProgress,
             _managerA.Id, default, Guid.NewGuid(), "O reparo foi concluído");

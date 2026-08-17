@@ -728,6 +728,74 @@ namespace CondoLink.Infrastructure.Migrations
                     b.ToTable("request_messages", (string)null);
                 });
 
+            modelBuilder.Entity("CondoLink.Domain.Entities.RequestClosureConfirmation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Conclusion")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("conclusion");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<bool>("FinalizedAutomatically")
+                        .HasColumnType("boolean")
+                        .HasColumnName("finalized_automatically");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.Property<Guid>("RequestStatusHistoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_status_history_id");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("requested_at");
+
+                    b.Property<Guid?>("ResponseMessageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("response_message_id");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestId")
+                        .IsUnique()
+                        .HasFilter("status = 1");
+
+                    b.HasIndex("RequestStatusHistoryId");
+
+                    b.HasIndex("ResponseMessageId");
+
+                    b.HasIndex("Status", "ExpiresAt");
+
+                    b.ToTable("request_closure_confirmations", (string)null);
+                });
+
             modelBuilder.Entity("CondoLink.Domain.Entities.RequestResidentReplyRequirement", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1853,6 +1921,26 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasForeignKey("RequestId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("CondoLink.Domain.Entities.RequestClosureConfirmation", b =>
+                {
+                    b.HasOne("CondoLink.Domain.Entities.Request", null)
+                        .WithMany()
+                        .HasForeignKey("RequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CondoLink.Domain.Entities.RequestStatusHistory", null)
+                        .WithMany()
+                        .HasForeignKey("RequestStatusHistoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CondoLink.Domain.Entities.RequestMessage", null)
+                        .WithMany()
+                        .HasForeignKey("ResponseMessageId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("CondoLink.Domain.Entities.RequestResidentReplyRequirement", b =>

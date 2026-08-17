@@ -65,6 +65,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 builder.Services.AddSingleton<IAdministrativeResidentMutationExtractionService>(_administrativeMutationExtraction);
                 builder.Services.AddSingleton<LocalFileStorage>();
                 builder.Services.AddScoped<ResidentReplyService>();
+                builder.Services.AddScoped<RequestClosureService>();
                 builder.Services.AddScoped<AdministrativeResidentRegistrationService>();
                 builder.Services.AddScoped<AdministrativeResidentLookupService>();
                 builder.Services.AddScoped<AdministrativeUnitResolver>();
@@ -142,6 +143,12 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Contains("Você respondeu", _fake.Messages.Last().Text);
         await PostAsync(TextPayload("wamid.reply-review", "1"));
         await PostAsync(TextPayload("wamid.reply-no-files", "2"));
+        var sentCount = _fake.Messages.Count;
+        await PostAsync(TextPayload("wamid.reply-no-files", "2"));
+
+        Assert.Equal(sentCount, _fake.Messages.Count);
+        Assert.Contains("Resposta enviada.", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("Como posso ajudar", _fake.Messages.Last().Text);
 
         await _host.WithDbAsync(async db =>
         {
@@ -154,6 +161,10 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 .Where(x => x.RequestId == requestId).ToArrayAsync());
             Assert.Equal("Foi por volta das 22h", message.Content);
             Assert.Equal(MessageChannel.WhatsApp, message.Channel);
+            Assert.Equal(WhatsAppConversationState.Ended,
+                (await db.WhatsAppSessions.SingleAsync()).State);
+            Assert.Single(await db.RequestStatusHistories.Where(x => x.RequestId == requestId
+                && x.NewStatus == RequestStatus.InProgress).ToArrayAsync());
         });
     }
 
@@ -1299,7 +1310,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             var closed = new CondoLink.Domain.Entities.Request(
                 _condominiumId, _userId, _unitId, category.Id,
                 "Solicitação encerrada", "Não deve aparecer");
-            closed.ChangeStatus(RequestStatus.Resolved, now);
+            closed.ChangeStatus(RequestStatus.WaitingForResidentClosure, now);
+            closed.ChangeStatus(RequestStatus.Resolved, now.AddMilliseconds(1));
             db.AddRange(category, manager, request, history,
                 new RequestResidentReplyRequirement(request.Id, manager.Id,
                     history.Id, history.Reason!, now), closed);
@@ -2725,6 +2737,26 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 cancellationToken);
     }
 
+    private async Task<Guid> ArrangeClosureAsync(DateTime? requestedAt = null)
+    {
+        return await _host.WithDbAsync(async db =>
+        {
+            var at = requestedAt ?? DateTime.UtcNow;
+            var category = new Category(_condominiumId, "Portaria", null);
+            var request = new CondoLink.Domain.Entities.Request(_condominiumId,
+                _userId, _unitId, category.Id, "Tag", "SolicitaÃ§Ã£o de tag");
+            request.ChangeStatus(RequestStatus.WaitingForResidentClosure, at);
+            var history = new RequestStatusHistory(request.Id, RequestStatus.InProgress,
+                RequestStatus.WaitingForResidentClosure, _userId,
+                "Tag entregue na portaria.", at);
+            db.AddRange(category, request, history,
+                new RequestClosureConfirmation(request.Id, history.Id,
+                    history.Reason!, at));
+            await db.SaveChangesAsync();
+            return request.Id;
+        });
+    }
+
     private sealed class FakeRequestDraftAiService : IRequestDraftAiService
     {
         public RequestDraftAiResult Result { get; set; } =
@@ -2780,6 +2812,64 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         public Task<AdministrativeResidentExtractionResult> ExtractAsync(
             string message, AdministrativeResidentExtraction? current,
             CancellationToken cancellationToken) => Task.FromResult(Result);
+    }
+
+    [Fact]
+    public async Task Closure_confirmation_is_consumed_once_and_ends_session()
+    {
+        var requestId = await ArrangeClosureAsync();
+        await PostAsync(TextPayload("wamid.closure-confirm", "1"));
+        await PostAsync(TextPayload("wamid.closure-confirm", "1"));
+
+        Assert.Equal("Atendimento finalizado. âœ“", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(RequestStatus.Resolved,
+                await db.Requests.Where(x => x.Id == requestId).Select(x => x.Status).SingleAsync());
+            Assert.Equal(WhatsAppConversationState.Ended,
+                await db.WhatsAppSessions.Select(x => x.State).SingleAsync());
+            Assert.Single(await db.RequestStatusHistories.Where(x => x.RequestId == requestId
+                && x.NewStatus == RequestStatus.Resolved).ToArrayAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Closure_question_is_linked_once_to_same_request_and_ends_session()
+    {
+        var requestId = await ArrangeClosureAsync();
+        await PostAsync(TextPayload("wamid.closure-question-choice", "2"));
+        Assert.Equal(WhatsAppConversationState.AwaitingClosureQuestion,
+            await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
+
+        await PostAsync(TextPayload("wamid.closure-question", "Funciona no portÃ£o lateral?"));
+        await PostAsync(TextPayload("wamid.closure-question", "Funciona no portÃ£o lateral?"));
+
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(RequestStatus.InProgress,
+                await db.Requests.Where(x => x.Id == requestId).Select(x => x.Status).SingleAsync());
+            var message = Assert.Single(await db.RequestMessages.ToArrayAsync());
+            Assert.Equal(requestId, message.RequestId);
+            Assert.Equal(MessageChannel.WhatsAppResidentUpdate, message.Channel);
+            Assert.Equal(WhatsAppConversationState.Ended,
+                await db.WhatsAppSessions.Select(x => x.State).SingleAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Late_closure_response_does_not_confirm_expired_requirement()
+    {
+        var requestId = await ArrangeClosureAsync(DateTime.UtcNow.AddHours(-2));
+        await _host.WithServicesAsync(async provider =>
+            Assert.Equal(1, await provider.GetRequiredService<RequestClosureService>()
+                .ExpireBatchAsync(DateTime.UtcNow, 100, default)));
+
+        await PostAsync(TextPayload("wamid.closure-late", "1"));
+
+        Assert.DoesNotContain("Atendimento finalizado", _fake.Messages.Last().Text);
+        Assert.Equal(RequestStatus.Resolved,
+            await _host.WithDbAsync(db => db.Requests.Where(x => x.Id == requestId)
+                .Select(x => x.Status).SingleAsync()));
     }
 
     private sealed class FakeAdministrativeResidentLookupExtractionService

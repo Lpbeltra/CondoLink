@@ -6,13 +6,14 @@ export function isClosedRequest(status: RequestStatus) {
 
 export function getRequestActionVisibility(status: RequestStatus) {
   const closed = isClosedRequest(status)
-  return { reopen: closed, changeStatus: !closed, changePriority: !closed, resolve: !closed, cancel: !closed }
+  const awaitingClosure = status === 'WaitingForResidentClosure'
+  return { reopen: closed, changeStatus: !closed, changePriority: !closed, resolve: !closed && !awaitingClosure, cancel: !closed }
 }
 
 export const requestShortcutStatuses = { resolve: 'Resolved', cancel: 'Cancelled' } as const
 
 export function getStatusConfirmation(status: RequestStatus) {
-  if (status === 'Resolved') return 'Deseja marcar esta solicitação como resolvida?'
+  if (status === 'Resolved') return 'A conclusão será enviada ao morador para confirmação.'
   if (status === 'Cancelled') return 'Deseja cancelar esta solicitação?'
   return null
 }

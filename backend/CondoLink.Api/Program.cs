@@ -34,6 +34,7 @@ builder.Services.AddScoped<ManagerOnboardingService>();
 builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<RequestAiAnalysisRefresher>();
 builder.Services.AddScoped<ResidentReplyService>();
+builder.Services.AddScoped<RequestClosureService>();
 builder.Services.AddScoped<WhatsAppNotificationDispatcher>();
 builder.Services.Configure<WhatsAppOptions>(
     builder.Configuration.GetSection(WhatsAppOptions.SectionName));
@@ -91,6 +92,7 @@ builder.Services.AddSingleton<IPhoneVerificationMessageProtector,
     PhoneVerificationMessageProtector>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHostedService<WhatsAppOutboundWorker>();
+builder.Services.AddHostedService<RequestClosureWorker>();
 builder.Services.AddHttpClient<IWhatsAppClient, MetaWhatsAppClient>(client =>
 {
     client.BaseAddress = new Uri("https://graph.facebook.com/");

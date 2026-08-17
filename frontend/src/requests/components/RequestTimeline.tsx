@@ -3,6 +3,15 @@ import { formatDateTime, statusPresentation } from '../presentation'
 import type { RequestMessage, StatusHistoryItem } from '../types'
 import { newestStatusHistoryFirst } from '../requestUpdates'
 
+function historyTitle(item: StatusHistoryItem) {
+  if (item.newStatus === 'WaitingForResidentClosure') return 'Concluído pela administração — aguardando confirmação'
+  if (item.previousStatus === 'WaitingForResidentClosure' && item.newStatus === 'Resolved')
+    return item.reason?.includes('prazo') ? 'Atendimento finalizado automaticamente' : 'Atendimento finalizado pelo morador'
+  if (item.previousStatus === 'WaitingForResidentClosure' && item.newStatus === 'InProgress')
+    return 'Atendimento voltou para Em andamento'
+  return item.previousStatus === null ? 'Solicitação aberta' : `Status alterado para ${statusPresentation[item.newStatus].label}`
+}
+
 export function RequestTimeline({ history, messages = [] }: { history: StatusHistoryItem[]; messages?: RequestMessage[] }) {
   const correlatedAnswerIds = new Set(history.flatMap(item => item.answerMessageId ? [item.answerMessageId] : []))
   const orderedHistory = [
@@ -21,7 +30,7 @@ export function RequestTimeline({ history, messages = [] }: { history: StatusHis
           </Box>
           <Box pb={index < orderedHistory.length - 1 ? 2.5 : 0}>
             {entry.kind === 'status' ? <>
-              <Typography fontWeight={700}>{entry.item.previousStatus === null ? 'Solicitação aberta' : `Status alterado para ${statusPresentation[entry.item.newStatus].label}`}</Typography>
+              <Typography fontWeight={700}>{historyTitle(entry.item)}</Typography>
               <Typography color="text.secondary" fontSize=".82rem">{entry.item.changedByFullName} · {formatDateTime(entry.item.createdAt)}</Typography>
               {entry.item.answerMessageId ? <Typography mt={.75} sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
                 Resposta recebida do morador: {messages.find(message => message.id === entry.item.answerMessageId)?.content ?? 'conteúdo indisponível.'}

@@ -68,6 +68,7 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
       <Button startIcon={<ArrowBackRoundedIcon />} color="inherit" onClick={() => navigate(returnPath)} sx={{ mb: 2 }}>Voltar</Button>
       {(location.state as { created?: boolean } | null)?.created && <Alert severity="success" sx={{ mb: 2 }}>Solicitação aberta com sucesso.</Alert>}
       {residentReadOnly && <Alert severity="info" sx={{ mb: 2 }}>Esta solicitação está encerrada e disponível somente para consulta.</Alert>}
+      {details.status === 'WaitingForResidentClosure' && <Alert severity="warning" sx={{ mb: 2 }}>A administração concluiu este atendimento e aguarda a confirmação do morador.</Alert>}
       {managementMode && details.hasUnreadResidentReply && <Alert severity="warning" sx={{ mb: 2 }}>Morador respondeu — requer andamento.</Alert>}
       {managementMode && <ResidentUpdateAcknowledgement requestId={details.id} visible={Boolean(details.hasUnreadResidentUpdate)} onAcknowledged={() => setDetails(current => current ? { ...current, hasUnreadResidentUpdate: false } : current)} />}
       <Grid container spacing={3}>

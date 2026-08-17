@@ -125,6 +125,8 @@ public static class UpdateRequestStatus
                 error = "A comment is required for the selected status."
             });
         }
+        if (newStatus == RequestStatus.Resolved)
+            newStatus = RequestStatus.WaitingForResidentClosure;
 
         if (targetRequest.Status == newStatus)
         {
@@ -211,6 +213,7 @@ public static class UpdateRequestStatus
     private static bool RequiresReason(RequestStatus status) => status is
         RequestStatus.WaitingForResident
         or RequestStatus.Resolved
+        or RequestStatus.WaitingForResidentClosure
         or RequestStatus.Cancelled;
 
     internal static async Task<bool> TryPersistStatusChangeAsync(
@@ -249,9 +252,23 @@ public static class UpdateRequestStatus
                     new RequestResidentReplyRequirement(request.Id, history.ChangedByUserId,
                         history.Id, history.Reason!, history.CreatedAt));
             }
+            else if (request.Status == RequestStatus.WaitingForResidentClosure)
+            {
+                activeRequirement?.CloseWithoutAnswer(history.CreatedAt);
+                dbContext.RequestMessages.Add(new RequestMessage(request.Id,
+                    history.ChangedByUserId, history.Reason!, MessageChannel.Portal));
+                dbContext.RequestClosureConfirmations.Add(new RequestClosureConfirmation(
+                    request.Id, history.Id, history.Reason!, history.CreatedAt));
+            }
             else
             {
                 activeRequirement?.CloseWithoutAnswer(history.CreatedAt);
+                await dbContext.RequestClosureConfirmations
+                    .Where(item => item.RequestId == request.Id && item.Status == RequestClosureConfirmationStatus.Pending)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(item => item.Status, RequestClosureConfirmationStatus.Cancelled)
+                        .SetProperty(item => item.DecidedAt, history.CreatedAt)
+                        .SetProperty(item => item.UpdatedAt, history.CreatedAt), cancellationToken);
                 var unreadRequirements = await dbContext.RequestResidentReplyRequirements
                     .Where(item => item.RequestId == request.Id && item.HasUnreadAnswer)
                     .ToListAsync(cancellationToken);

@@ -185,12 +185,12 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         Assert.Equal("Equipe acionada", history[0].Reason);
         Assert.Equal(_managerId, history[0].ChangedByUserId);
         Assert.Equal(RequestStatus.InProgress, history[1].PreviousStatus);
-        Assert.Equal(RequestStatus.Resolved, history[1].NewStatus);
+        Assert.Equal(RequestStatus.WaitingForResidentClosure, history[1].NewStatus);
         Assert.Equal("Serviço concluído", history[1].Reason);
     }
 
     [Fact]
-    public async Task Resolving_a_request_stamps_resolved_at_and_reopening_clears_it()
+    public async Task Manager_completion_creates_confirmation_and_keeps_resolved_at_null()
     {
         var manager = _host.ClientFor(_managerId);
 
@@ -199,14 +199,19 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
             new { status = "Resolved", reason = "Problema corrigido" });
         var resolvedBody = await resolved.Content
             .ReadFromJsonAsync<UpdateRequestStatus.Response>();
-        Assert.NotNull(resolvedBody!.ResolvedAt);
-
-        var reopened = await manager.PatchAsJsonAsync(
-            $"/requests/{_requestId}/status", new { status = "Open" });
-        var reopenedBody = await reopened.Content
-            .ReadFromJsonAsync<UpdateRequestStatus.Response>();
-        Assert.Equal(HttpStatusCode.OK, reopened.StatusCode);
-        Assert.Null(reopenedBody!.ResolvedAt);
+        Assert.Equal("WaitingForResidentClosure", resolvedBody!.Status);
+        Assert.Null(resolvedBody.ResolvedAt);
+        var confirmation = Assert.Single(await _host.WithDbAsync(db =>
+            db.RequestClosureConfirmations.AsNoTracking().ToArrayAsync()));
+        Assert.Equal("Problema corrigido", confirmation.Conclusion);
+        Assert.Equal(TimeSpan.FromHours(1), confirmation.ExpiresAt - confirmation.RequestedAt);
+        Assert.Equal(RequestClosureConfirmationStatus.Pending, confirmation.Status);
+        var conclusion = Assert.Single(await _host.WithDbAsync(db =>
+            db.RequestMessages.AsNoTracking().ToArrayAsync()));
+        Assert.Equal("Problema corrigido", conclusion.Content);
+        Assert.Equal(_managerId, conclusion.AuthorUserId);
+        Assert.Single(await _host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync()));
     }
 
     [Fact]
@@ -463,7 +468,7 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         {
             var first = await db.Requests.AsNoTracking().SingleAsync(x => x.Id == _requestId);
             var second = await db.Requests.AsNoTracking().SingleAsync(x => x.Id == _requestId);
-            first.ChangeStatus(RequestStatus.Resolved, DateTime.UtcNow);
+            first.ChangeStatus(RequestStatus.WaitingForResidentClosure, DateTime.UtcNow);
             second.ChangeStatus(RequestStatus.Cancelled, DateTime.UtcNow.AddMilliseconds(1));
             var firstHistory = new RequestStatusHistory(first.Id, RequestStatus.Open,
                 first.Status, _managerId, "Concluída", first.UpdatedAt);

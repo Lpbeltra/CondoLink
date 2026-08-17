@@ -8,5 +8,6 @@ public enum RequestStatus
     WaitingForThirdParty = 4,
     Resolved = 5,
     Cancelled = 6,
-    WaitingForManager = 7
+    WaitingForManager = 7,
+    WaitingForResidentClosure = 8
 }

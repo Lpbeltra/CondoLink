@@ -18,8 +18,10 @@ public sealed class RequestStatusTransitionTests
         var request = NewRequest();
         var t0 = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
 
-        request.ChangeStatus(RequestStatus.Resolved, t0);
-        Assert.Equal(t0, request.ResolvedAt);
+        request.ChangeStatus(RequestStatus.WaitingForResidentClosure, t0);
+        Assert.Null(request.ResolvedAt);
+        request.ChangeStatus(RequestStatus.Resolved, t0.AddMinutes(1));
+        Assert.Equal(t0.AddMinutes(1), request.ResolvedAt);
 
         // Reopen -> ResolvedAt must be cleared.
         request.ChangeStatus(RequestStatus.Open, t0.AddHours(1));
@@ -45,7 +47,7 @@ public sealed class RequestStatusTransitionTests
     [Fact]
     public void Terminal_transition_matrix_matches_documented_workflow()
     {
-        // Resolved should be reachable from every active state.
+        // Manager completion enters a non-terminal confirmation state.
         foreach (var from in new[]
                  {
                      RequestStatus.Open,
@@ -60,15 +62,17 @@ public sealed class RequestStatusTransitionTests
 
             if (from == RequestStatus.Open)
             {
-                request.ChangeStatus(RequestStatus.Resolved, t0);
-                request.ChangeStatus(RequestStatus.Open, t0.AddMinutes(1));
+                request.ChangeStatus(RequestStatus.WaitingForResidentClosure, t0);
+                request.ChangeStatus(RequestStatus.InProgress, t0.AddMinutes(1));
             }
             else if (from != RequestStatus.InProgress)
             {
                 request.ChangeStatus(from, t0.AddMinutes(1));
             }
 
-            request.ChangeStatus(RequestStatus.Resolved, t0.AddMinutes(3));
+            request.ChangeStatus(RequestStatus.WaitingForResidentClosure, t0.AddMinutes(3));
+            Assert.Null(request.ResolvedAt);
+            request.ChangeStatus(RequestStatus.Resolved, t0.AddMinutes(4));
             Assert.Equal(RequestStatus.Resolved, request.Status);
         }
     }

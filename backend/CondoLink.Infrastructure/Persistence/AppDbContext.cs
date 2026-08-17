@@ -34,6 +34,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RequestAiAnalysis> RequestAiAnalyses => Set<RequestAiAnalysis>();
     public DbSet<RequestResidentReplyRequirement> RequestResidentReplyRequirements =>
         Set<RequestResidentReplyRequirement>();
+    public DbSet<RequestClosureConfirmation> RequestClosureConfirmations =>
+        Set<RequestClosureConfirmation>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<WhatsAppInboundMessage> WhatsAppInboundMessages =>
         Set<WhatsAppInboundMessage>();

@@ -41,4 +41,6 @@ public enum WhatsAppConversationState
     ,SelectingAdminMutationSourceUnit = 36
     ,SelectingAdminMutationDestinationUnit = 37
     ,ConfirmingAdminResidentMutation = 38
+    ,AwaitingClosureConfirmation = 39
+    ,AwaitingClosureQuestion = 40
 }

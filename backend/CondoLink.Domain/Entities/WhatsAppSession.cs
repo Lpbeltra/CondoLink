@@ -289,6 +289,11 @@ public sealed class WhatsAppSession
         MoveTo(WhatsAppConversationState.CollectingResidentReplyAttachments,
             now, expiresAt, CondominiumId);
 
+    public void AwaitClosure(Guid requestId, DateTime now, DateTime expiresAt)
+    { RequestId = requestId; MoveTo(WhatsAppConversationState.AwaitingClosureConfirmation, now, expiresAt, CondominiumId); }
+    public void AwaitClosureQuestion(DateTime now, DateTime expiresAt) =>
+        MoveTo(WhatsAppConversationState.AwaitingClosureQuestion, now, expiresAt, CondominiumId);
+
     public void SetAdministrativeDraft(string draftJson,
         WhatsAppConversationState state, DateTime now, DateTime expiresAt,
         Guid? condominiumId = null, Guid? unitId = null)

@@ -296,6 +296,7 @@ public sealed class NotificationService(
         RequestStatus.WaitingForResident => "Aguardando morador",
         RequestStatus.WaitingForManager => "Dar andamento",
         RequestStatus.WaitingForThirdParty => "Aguardando terceiro",
+        RequestStatus.WaitingForResidentClosure => "ConcluÃ­do pela administraÃ§Ã£o â€” aguardando sua confirmaÃ§Ã£o",
         RequestStatus.Resolved => "Resolvida",
         RequestStatus.Cancelled => "Cancelada",
         _ => status.ToString()
@@ -305,6 +306,7 @@ public sealed class NotificationService(
         RequestStatus previousStatus, RequestStatus currentStatus) => currentStatus switch
     {
         RequestStatus.WaitingForResident => WhatsAppNotificationType.InformationRequested,
+        RequestStatus.WaitingForResidentClosure => WhatsAppNotificationType.StatusChanged,
         RequestStatus.Resolved => WhatsAppNotificationType.RequestResolved,
         RequestStatus.Cancelled => WhatsAppNotificationType.RequestCancelled,
         RequestStatus.Open when previousStatus is RequestStatus.Resolved
@@ -317,6 +319,7 @@ public sealed class NotificationService(
     {
         RequestStatus.WaitingForResident => true,
         RequestStatus.WaitingForThirdParty => true,
+        RequestStatus.WaitingForResidentClosure => true,
         RequestStatus.Resolved => true,
         RequestStatus.Cancelled => true,
         RequestStatus.Open => previousStatus is RequestStatus.Resolved
@@ -335,6 +338,10 @@ public sealed class NotificationService(
             RequestStatus.WaitingForThirdParty =>
                 "Estamos aguardando uma etapa externa para continuar seu atendimento."
                 + context,
+            RequestStatus.WaitingForResidentClosure =>
+                "*A administraÃ§Ã£o concluiu sua solicitaÃ§Ã£o.*\n\n"
+                + (comment ?? "A atuaÃ§Ã£o da administraÃ§Ã£o foi concluÃ­da.")
+                + "\n\nEsse atendimento pode ser encerrado?\n\n1 - Sim, finalizar\n2 - Tenho uma nova dÃºvida",
             RequestStatus.InProgress =>
                 "A administração retomou o andamento do seu atendimento." + context,
             RequestStatus.Resolved =>

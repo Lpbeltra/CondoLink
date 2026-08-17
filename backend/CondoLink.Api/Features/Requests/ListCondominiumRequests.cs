@@ -132,6 +132,7 @@ public static class ListCondominiumRequests
             await condominiumRequests.CountAsync(item => item.Status == RequestStatus.WaitingForResident, cancellationToken),
             await condominiumRequests.CountAsync(item => item.Status == RequestStatus.WaitingForManager, cancellationToken),
             await condominiumRequests.CountAsync(item => item.Status == RequestStatus.WaitingForThirdParty, cancellationToken),
+            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.WaitingForResidentClosure, cancellationToken),
             await condominiumRequests.CountAsync(item => item.Status == RequestStatus.Resolved, cancellationToken),
             await condominiumRequests.CountAsync(item => item.Status == RequestStatus.Cancelled, cancellationToken));
 
@@ -284,6 +285,7 @@ public static class ListCondominiumRequests
         int WaitingForResident,
         int WaitingForManager,
         int WaitingForThirdParty,
+        int WaitingForResidentClosure,
         int Resolved,
         int Cancelled);
 

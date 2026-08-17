@@ -17,7 +17,7 @@ import { clearManagementRequestFilters, parseManagementRequestFilters, setManage
 import { useVisiblePolling } from '../hooks/useVisiblePolling'
 
 const summaries = [
-  ['Abertas', 'open', 'Open'], ['Em andamento', 'inProgress', 'InProgress'], ['Aguardando morador', 'waitingForResident', 'WaitingForResident'], ['Dar andamento', 'waitingForManager', 'WaitingForManager'], ['Aguardando terceiro', 'waitingForThirdParty', 'WaitingForThirdParty'], ['Resolvidas', 'resolved', 'Resolved'], ['Canceladas', 'cancelled', 'Cancelled'],
+  ['Abertas', 'open', 'Open'], ['Em andamento', 'inProgress', 'InProgress'], ['Aguardando morador', 'waitingForResident', 'WaitingForResident'], ['Dar andamento', 'waitingForManager', 'WaitingForManager'], ['Aguardando terceiro', 'waitingForThirdParty', 'WaitingForThirdParty'], ['ConclusÃ£o pendente', 'waitingForResidentClosure', 'WaitingForResidentClosure'], ['Resolvidas', 'resolved', 'Resolved'], ['Canceladas', 'cancelled', 'Cancelled'],
 ] as const
 
 export function ManagementRequestsPage() {

@@ -10,6 +10,7 @@ const statuses: RequestStatus[] = [
   'WaitingForResident',
   'WaitingForManager',
   'WaitingForThirdParty',
+  'WaitingForResidentClosure',
   'Resolved',
   'Cancelled',
 ]

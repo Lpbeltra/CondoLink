@@ -107,11 +107,12 @@ public sealed class RequestMetricsTests
             Sample(RequestStatus.InProgress),
             Sample(RequestStatus.WaitingForResident),
             Sample(RequestStatus.WaitingForThirdParty),
+            Sample(RequestStatus.WaitingForResidentClosure),
             Sample(RequestStatus.Resolved, resolvedAfterHours: 1),
             Sample(RequestStatus.Cancelled),
         };
 
-        Assert.Equal(4, CountOpen(samples));
+        Assert.Equal(5, CountOpen(samples));
     }
 
     [Fact]
@@ -121,12 +122,13 @@ public sealed class RequestMetricsTests
         {
             Sample(RequestStatus.Open),                              // counts
             Sample(RequestStatus.InProgress),                        // counts
+            Sample(RequestStatus.WaitingForResidentClosure),         // counts
             Sample(RequestStatus.Open, firstReplyAfterHours: 2),     // answered
             Sample(RequestStatus.Resolved, resolvedAfterHours: 3),   // not open
             Sample(RequestStatus.Cancelled),                         // not open
         };
 
-        Assert.Equal(2, CountAwaitingFirstResponse(samples));
+        Assert.Equal(3, CountAwaitingFirstResponse(samples));
     }
 
     // ---- resolution rate ----

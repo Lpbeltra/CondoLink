@@ -22,6 +22,7 @@ public sealed class WhatsAppConversationService(
     IResidentReplyAiService residentReplyAi,
     IWhatsAppAudioTranscriptionService audioTranscription,
     CondoLink.Api.Features.Requests.ResidentReplyService residentReplies,
+    CondoLink.Api.Features.Requests.RequestClosureService closures,
     NotificationService notifications,
     IOptions<WhatsAppOptions> options,
     ILogger<WhatsAppConversationService> logger,
@@ -361,6 +362,23 @@ public sealed class WhatsAppConversationService(
         var residentReplyButton = ResidentReplyButtonChoice(message);
         var text = message.Text?.Trim();
         var command = NormalizeCommand(text);
+        var activeClosure = await ActiveClosure(identity, ct);
+        if (session.State == WhatsAppConversationState.AwaitingClosureQuestion)
+        {
+            if (activeClosure is null || !session.RequestId.HasValue) { session.End(now); return ("Esse atendimento nÃ£o aguarda mais manifestaÃ§Ã£o.", "closure_no_longer_active"); }
+            if (string.IsNullOrWhiteSpace(text)) return ("Pode enviar sua dÃºvida ou observaÃ§Ã£o.", "closure_question_required");
+            var questioned = await closures.QuestionAsync(session.RequestId.Value, identity.UserId, text, ct);
+            session.End(now);
+            return questioned.Succeeded ? ("AtualizaÃ§Ã£o enviada. A administraÃ§Ã£o darÃ¡ continuidade ao atendimento.", "closure_questioned")
+                : ("Esse atendimento nÃ£o aguarda mais manifestaÃ§Ã£o.", "closure_conflict");
+        }
+        if (activeClosure is not null)
+        {
+            session.AwaitClosure(activeClosure.Value, now, expires);
+            if (text == "1") { var result = await closures.ConfirmAsync(activeClosure.Value, identity.UserId, ct); session.End(now); return result.Succeeded ? ("Atendimento finalizado. âœ“", "closure_confirmed") : ("Esse atendimento nÃ£o aguarda mais confirmaÃ§Ã£o.", "closure_conflict"); }
+            if (text == "2") { session.AwaitClosureQuestion(now, expires); return ("Pode enviar sua dÃºvida ou observaÃ§Ã£o.", "awaiting_closure_question"); }
+            return ("A administraÃ§Ã£o concluiu este atendimento.\n\n1 - Sim, finalizar\n2 - Tenho uma nova dÃºvida", "awaiting_closure_confirmation");
+        }
         logger.LogInformation(
             "WhatsApp message routing. SessionState: {SessionState}; MessageType: {MessageType}; HasMediaId: {HasMediaId}; HasMimeType: {HasMimeType}; HasFileName: {HasFileName}; ProcessingBranch: {ProcessingBranch}.",
             session.State,
@@ -794,6 +812,7 @@ public sealed class WhatsAppConversationService(
         RequestStatus.WaitingForResident => "Aguardando morador",
         RequestStatus.WaitingForManager => "Dar andamento",
         RequestStatus.WaitingForThirdParty => "Aguardando terceiro",
+        RequestStatus.WaitingForResidentClosure => "ConcluÃ­do pela administraÃ§Ã£o â€” aguardando sua confirmaÃ§Ã£o",
         RequestStatus.Resolved => "Resolvida",
         RequestStatus.Cancelled => "Cancelada",
         _ => "Status indisponível"
@@ -1183,8 +1202,8 @@ public sealed class WhatsAppConversationService(
                 + MainMenu(identity.FullName), "resident_reply_conflict");
         }
         await DiscardDraftAttachments(session, ct);
-        session.Restart(now, expires);
-        return ("Resposta enviada com sucesso.\n\n" + MainMenu(identity.FullName),
+        session.End(now);
+        return ("Resposta enviada. âœ“\n\nA administraÃ§Ã£o foi notificada e darÃ¡ continuidade ao atendimento.",
             "resident_reply_sent");
     }
 
@@ -1260,6 +1279,17 @@ public sealed class WhatsAppConversationService(
                     requirement.Question))
             .Take(2)
             .ToArrayAsync(ct);
+        return matches.Length == 1 ? matches[0] : null;
+    }
+
+    private async Task<Guid?> ActiveClosure(ResolvedIdentity identity, CancellationToken ct)
+    {
+        var matches = await db.Requests.AsNoTracking().Where(x => x.AuthorUserId == identity.UserId
+                && x.CondominiumId == identity.CondominiumId && (x.TargetUnitId == null || x.TargetUnitId == identity.UnitId)
+                && x.Status == RequestStatus.WaitingForResidentClosure)
+            .Join(db.RequestClosureConfirmations.AsNoTracking().Where(x => x.Status == RequestClosureConfirmationStatus.Pending),
+                request => request.Id, confirmation => confirmation.RequestId, (request, _) => request.Id)
+            .Take(2).ToArrayAsync(ct);
         return matches.Length == 1 ? matches[0] : null;
     }
 

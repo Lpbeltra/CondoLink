@@ -4,6 +4,7 @@ import { canSubmitStatus, getRequestActionVisibility, getStatusConfirmation, req
 describe('request management actions', () => {
   it('offers resolve and cancel shortcuts only for active requests', () => {
     expect(getRequestActionVisibility('Open')).toMatchObject({ resolve: true, cancel: true, reopen: false })
+    expect(getRequestActionVisibility('WaitingForResidentClosure')).toMatchObject({ resolve: false, cancel: true, reopen: false })
     expect(getRequestActionVisibility('Resolved')).toEqual({ reopen: true, changeStatus: false, changePriority: false, resolve: false, cancel: false })
     expect(getRequestActionVisibility('Cancelled')).toEqual({ reopen: true, changeStatus: false, changePriority: false, resolve: false, cancel: false })
   })
@@ -13,7 +14,7 @@ describe('request management actions', () => {
   })
 
   it('requires explicit confirmation for both shortcuts', () => {
-    expect(getStatusConfirmation(requestShortcutStatuses.resolve)).toBe('Deseja marcar esta solicitação como resolvida?')
+    expect(getStatusConfirmation(requestShortcutStatuses.resolve)).toBe('A conclusão será enviada ao morador para confirmação.')
     expect(getStatusConfirmation(requestShortcutStatuses.cancel)).toBe('Deseja cancelar esta solicitação?')
   })
 
