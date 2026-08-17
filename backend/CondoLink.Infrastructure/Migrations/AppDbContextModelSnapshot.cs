@@ -547,7 +547,7 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasConversion<int>()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(1)
+                        .HasDefaultValue(RequestSource.Portal)
                         .HasColumnName("source");
 
                     b.Property<RequestStatus>("Status")
@@ -711,7 +711,7 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasConversion<int>()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
-                        .HasDefaultValue(1)
+                        .HasDefaultValue(MessageChannel.Portal)
                         .HasColumnName("channel");
 
                     b.Property<string>("Content")
