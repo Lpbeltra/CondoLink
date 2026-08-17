@@ -22,6 +22,7 @@ import { ManagementPeoplePage } from '../pages/ManagementPeoplePage'
 import { ManagementReportsPage } from '../pages/ManagementReportsPage'
 import { ManagementBlocksPage } from '../pages/ManagementBlocksPage'
 import { CondominiumSetupPage } from '../pages/CondominiumSetupPage'
+import { CondominiumAssistantPage, CondominiumDocumentsPage } from '../pages/CondominiumAssistantPage'
 import { ManagementContextProvider } from '../management/ManagementContextProvider'
 import { OverwatchGuard } from '../overwatch/OverwatchGuard'
 import { OverwatchLayout } from '../overwatch/OverwatchLayout'
@@ -75,6 +76,8 @@ export function App() {
                     <Route path="setup" element={<CondominiumSetupPage />} />
                     <Route path="categories" element={<ManagementCategoriesPage />} />
                     <Route path="people" element={<ManagementPeoplePage />} />
+                    <Route path="assistant" element={<CondominiumAssistantPage />} />
+                    <Route path="documents" element={<CondominiumDocumentsPage />} />
                     <Route path="dashboard" element={<ManagementReportsPage />} />
                     <Route path="reports" element={<Navigate to="../dashboard" replace />} />
                   </Route>

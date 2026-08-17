@@ -21,6 +21,7 @@ namespace CondoLink.Infrastructure.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+            CondominiumAssistantSnapshotModel.Build(modelBuilder);
 
             modelBuilder.Entity("CondoLink.Domain.Entities.Category", b =>
                 {

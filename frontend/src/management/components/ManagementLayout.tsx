@@ -19,6 +19,8 @@ export function ManagementLayout() {
   const isStandalonePage = location.pathname.startsWith('/management/requests')
     || location.pathname.startsWith('/management/dashboard')
     || location.pathname.startsWith('/management/reports')
+    || location.pathname.startsWith('/management/assistant')
+    || location.pathname.startsWith('/management/documents')
 
   if (isLoading) {
     return <PageContainer><Skeleton variant="rounded" height={160} /></PageContainer>

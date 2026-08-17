@@ -66,6 +66,7 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
   return (
     <PageContainer>
       <Button startIcon={<ArrowBackRoundedIcon />} color="inherit" onClick={() => navigate(returnPath)} sx={{ mb: 2 }}>Voltar</Button>
+      {managementMode && <Button sx={{ ml: 1, mb: 2 }} variant="outlined" onClick={() => navigate(`/management/assistant?requestId=${details.id}`)}>Consultar assistente</Button>}
       {(location.state as { created?: boolean } | null)?.created && <Alert severity="success" sx={{ mb: 2 }}>Solicitação aberta com sucesso.</Alert>}
       {residentReadOnly && <Alert severity="info" sx={{ mb: 2 }}>Esta solicitação está encerrada e disponível somente para consulta.</Alert>}
       {details.status === 'WaitingForResidentClosure' && <Alert severity="warning" sx={{ mb: 2 }}>A administração concluiu este atendimento e aguarda a confirmação do morador.</Alert>}

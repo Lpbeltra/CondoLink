@@ -5,6 +5,7 @@ using CondoLink.Api.Features.CondominiumMemberRoles;
 using CondoLink.Api.Features.CondominiumMembers;
 using CondoLink.Api.Features.Condominiums;
 using CondoLink.Api.Features.CondominiumSetup;
+using CondoLink.Api.Features.CondominiumAssistant;
 using CondoLink.Api.Features.Management;
 using CondoLink.Api.Features.Notifications;
 using CondoLink.Api.Features.Reports;
@@ -35,6 +36,16 @@ builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<RequestAiAnalysisRefresher>();
 builder.Services.AddScoped<ResidentReplyService>();
 builder.Services.AddScoped<RequestClosureService>();
+builder.Services.Configure<CondominiumAssistantOptions>(
+    builder.Configuration.GetSection(CondominiumAssistantOptions.SectionName));
+builder.Services.AddSingleton<IEmbeddingService, LocalEmbeddingService>();
+builder.Services.AddScoped<CondominiumDocumentProcessor>();
+builder.Services.AddHttpClient<CondominiumAssistantService>((services, client) =>
+{
+    var settings = services.GetRequiredService<
+        Microsoft.Extensions.Options.IOptions<RequestDraftAiOptions>>().Value;
+    client.BaseAddress = new Uri(settings.BaseUrl);
+});
 builder.Services.AddScoped<WhatsAppNotificationDispatcher>();
 builder.Services.Configure<WhatsAppOptions>(
     builder.Configuration.GetSection(WhatsAppOptions.SectionName));
@@ -247,6 +258,7 @@ app.MapOnboardCondominiumMember();
 app.MapResetMemberTemporaryPassword();
 app.MapUpdateCondominiumMember();
 app.MapCondominiumSetup();
+app.MapCondominiumAssistant();
 
 // Management
 app.MapManagementContext();

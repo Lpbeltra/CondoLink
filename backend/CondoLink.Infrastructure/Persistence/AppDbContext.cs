@@ -46,6 +46,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         Set<WhatsAppOutboundMessage>();
     public DbSet<WhatsAppPhoneVerification> WhatsAppPhoneVerifications =>
         Set<WhatsAppPhoneVerification>();
+    public DbSet<CondominiumDocument> CondominiumDocuments => Set<CondominiumDocument>();
+    public DbSet<CondominiumDocumentChunk> CondominiumDocumentChunks => Set<CondominiumDocumentChunk>();
+    public DbSet<CondominiumAssistantConversation> CondominiumAssistantConversations => Set<CondominiumAssistantConversation>();
+    public DbSet<CondominiumAssistantMessage> CondominiumAssistantMessages => Set<CondominiumAssistantMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
