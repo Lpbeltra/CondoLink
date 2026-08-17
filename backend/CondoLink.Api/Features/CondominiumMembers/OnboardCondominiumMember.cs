@@ -59,9 +59,9 @@ public static class OnboardCondominiumMember
         if (email.Length > 254 || !new EmailAddressAttribute().IsValid(email)) return Results.BadRequest(new { error = "Email is invalid." });
         var phone = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
         if (phone?.Length > 30) return Results.BadRequest(new { error = "PhoneNumber must not exceed 30 characters." });
-        var normalizedPhone = Domain.BrazilianPhoneNumber.Normalize(phone);
+        var normalizedPhone = Domain.PhoneNumberNormalizer.Normalize(phone);
         if (phone is not null && normalizedPhone is null)
-            return Results.BadRequest(new { error = "PhoneNumber must be a valid Brazilian phone number." });
+            return Results.BadRequest(new { error = "PhoneNumber must be valid; include + and the country code outside Brazil." });
         var existingUser = await userManager.FindByEmailAsync(email);
         if (existingUser is { IsActive: false })
             return Results.Conflict(new { error = "Inactive user cannot be associated." });

@@ -51,7 +51,7 @@ public static class CreateOverwatchManager
         var cnpj = Domain.RegistrationData.Digits(request.Cnpj);
         var conflict = await ManagerValidation.FindConflictAsync(
             dbContext, cpf, cnpj,
-            Domain.BrazilianPhoneNumber.Normalize(request.PhoneNumber),
+            Domain.PhoneNumberNormalizer.Normalize(request.PhoneNumber),
             null, cancellationToken);
         if (conflict is not null) return Results.Conflict(new { message = conflict });
 
@@ -172,8 +172,8 @@ internal static class ManagerValidation
         if (request.FullName!.Trim().Length > 200 || request.Email!.Trim().Length > 254)
             return "Full name or email exceeds the allowed length.";
         if (request.PhoneNumber?.Trim().Length > 30) return "Phone number must not exceed 30 characters.";
-        if (!Domain.BrazilianPhoneNumber.IsValidOptional(request.PhoneNumber))
-            return "Phone number must be a valid Brazilian phone number.";
+        if (!Domain.PhoneNumberNormalizer.IsValidOptional(request.PhoneNumber))
+            return "Phone number must be valid; include + and the country code outside Brazil.";
         if (request.Cpf is not null && !Domain.RegistrationData.IsValidCpf(request.Cpf)) return "CPF is invalid.";
         if (request.Cnpj is not null && !Domain.RegistrationData.IsValidCnpj(request.Cnpj)) return "CNPJ is invalid.";
         if (request.Address?.Trim().Length > 200) return "Address must not exceed 200 characters.";

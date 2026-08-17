@@ -45,6 +45,8 @@ export interface SetupPreview {
     resident: boolean
     primaryResidence: boolean
     existingUser: boolean
+    status: 'Ready' | 'ExistingUser' | 'ExistingMembership' | 'Warning' | 'Conflict' | 'Invalid'
+    normalizedPhone: string | null
   }[]
   warnings: SetupIssue[]
   errors: SetupIssue[]

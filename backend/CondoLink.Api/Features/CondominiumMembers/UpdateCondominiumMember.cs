@@ -81,7 +81,7 @@ public static class UpdateCondominiumMember
         var cpf = RegistrationData.Digits(request.Cpf);
         var cnpj = RegistrationData.Digits(request.Cnpj);
         var normalizedPhone =
-            BrazilianPhoneNumber.Normalize(request.PhoneNumber);
+            PhoneNumberNormalizer.Normalize(request.PhoneNumber);
         if (await db.Users.AsNoTracking().AnyAsync(item =>
                 item.Id != userId
                 && (item.NormalizedEmail == email.ToUpperInvariant()
@@ -268,8 +268,8 @@ public static class UpdateCondominiumMember
             return "Informe um e-mail válido.";
         if (RegistrationData.Optional(request.PhoneNumber)?.Length > 30)
             return "O telefone deve possuir no máximo 30 caracteres.";
-        if (!BrazilianPhoneNumber.IsValidOptional(request.PhoneNumber))
-            return "Informe um telefone brasileiro válido.";
+        if (!PhoneNumberNormalizer.IsValidOptional(request.PhoneNumber))
+            return "Informe um telefone válido; fora do Brasil, inclua + e o código do país.";
         if (request.Cpf is not null
             && !RegistrationData.IsValidCpf(request.Cpf))
             return "CPF inválido.";

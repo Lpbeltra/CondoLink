@@ -147,11 +147,11 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     {
         var previousNormalizedPhoneNumber = NormalizedPhoneNumber;
         var displayPhoneNumber = NormalizeOptional(phoneNumber);
-        var normalizedPhoneNumber = BrazilianPhoneNumber.Normalize(displayPhoneNumber);
+        var normalizedPhoneNumber = PhoneNumberNormalizer.Normalize(displayPhoneNumber);
         if (displayPhoneNumber is not null && normalizedPhoneNumber is null)
         {
             throw new ArgumentException(
-                "Brazilian phone number is invalid.",
+                "Phone number is invalid; include the international country code when outside Brazil.",
                 nameof(phoneNumber));
         }
 

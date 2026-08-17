@@ -45,7 +45,10 @@ public sealed record SetupResidentPreview(
     string? Relationship,
     bool Resident,
     bool PrimaryResidence,
-    bool ExistingUser);
+    bool ExistingUser,
+    string Status = "Ready",
+    string? NormalizedPhone = null,
+    Guid? ExistingUserId = null);
 
 public sealed record SetupTotals(
     int Blocks,
@@ -74,7 +77,13 @@ public sealed record SetupConfirmationResponse(
     int UnitsCreated,
     int ResidentsLinked,
     IReadOnlyList<SetupCredential> Credentials,
-    string Message);
+    string Message,
+    int UsersCreated = 0,
+    int UsersReused = 0,
+    int MembershipsCreated = 0,
+    int MembershipsExisting = 0,
+    int LinesIgnored = 0,
+    int Warnings = 0);
 
 public sealed record SetupGeneratorRequest(
     IReadOnlyList<SetupGeneratorTower>? Towers,

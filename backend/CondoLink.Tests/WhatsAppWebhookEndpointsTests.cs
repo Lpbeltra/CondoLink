@@ -1527,6 +1527,24 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task International_whatsapp_sender_is_resolved_by_exact_e164()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var user = await db.Users.SingleAsync(item => item.Id == _userId);
+            user.Update(user.FullName, "+1 212 555 1234");
+            await db.SaveChangesAsync();
+        });
+
+        var response = await PostAsync(
+            TextPayload("wamid.international", "Menu", "12125551234"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(_userId, await _host.WithDbAsync(db => db.WhatsAppSessions
+            .Select(item => item.UserId).SingleAsync()));
+    }
+
+    [Fact]
     public async Task Multiple_residential_contexts_are_rejected_without_disclosure()
     {
         await _host.WithDbAsync(async db =>

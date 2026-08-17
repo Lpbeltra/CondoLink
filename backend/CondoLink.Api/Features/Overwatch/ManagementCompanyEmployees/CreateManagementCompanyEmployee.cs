@@ -64,11 +64,11 @@ public static class CreateManagementCompanyEmployee
             });
         }
         var normalizedContact =
-            Domain.BrazilianPhoneNumber.Normalize(contact);
+            Domain.PhoneNumberNormalizer.Normalize(contact);
         if (contact is not null && normalizedContact is null)
         {
             return Results.BadRequest(new
-                { message = "Contact must be a valid Brazilian phone number." });
+                { message = "Contact must be a valid phone number; include + and the country code outside Brazil." });
         }
 
         var existingUser = await userManager.FindByEmailAsync(email);

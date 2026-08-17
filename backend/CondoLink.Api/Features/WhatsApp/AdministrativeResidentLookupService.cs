@@ -342,8 +342,10 @@ public sealed class AdministrativeResidentLookupService(
     }
     private static string FormatPhone(string? value)
     {
-        var normalized = BrazilianPhoneNumber.Normalize(value);
+        var normalized = Domain.PhoneNumberNormalizer.Normalize(value);
         if (normalized is null) return "Não informado";
+        if (!normalized.StartsWith("+55", StringComparison.Ordinal))
+            return normalized;
         var digits = normalized[3..];
         return digits.Length == 11
             ? $"({digits[..2]}) {digits.Substring(2, 5)}-{digits[7..]}"

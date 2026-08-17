@@ -15,7 +15,7 @@ public sealed class WhatsAppPhoneVerificationConfiguration
         b.Property(x => x.Id).HasColumnName("id");
         b.Property(x => x.UserId).HasColumnName("user_id").IsRequired();
         b.Property(x => x.NormalizedPhoneNumber)
-            .HasColumnName("normalized_phone_number").HasMaxLength(14).IsRequired();
+            .HasColumnName("normalized_phone_number").HasMaxLength(16).IsRequired();
         b.Property(x => x.CodeHash).HasColumnName("code_hash").IsRequired();
         b.Property(x => x.CodeSalt).HasColumnName("code_salt").IsRequired();
         b.Property(x => x.AttemptCount).HasColumnName("attempt_count").IsRequired();

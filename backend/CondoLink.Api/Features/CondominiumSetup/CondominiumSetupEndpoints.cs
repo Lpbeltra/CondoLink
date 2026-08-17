@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Data;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -189,15 +190,18 @@ public static class CondominiumSetupEndpoints
         var access = await CheckAccessAsync(
             condominiumId, principal, db, cancellationToken);
         if (access is not null) return access;
-        var preview = await BuildPreviewAsync(
-            condominiumId, request, db, cancellationToken);
-        if (preview.Errors.Count > 0)
-            return Results.BadRequest(preview);
-
         await using var transaction =
-            await db.Database.BeginTransactionAsync(cancellationToken);
+            await db.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable, cancellationToken);
         try
         {
+            var preview = await BuildPreviewAsync(
+                condominiumId, request, db, cancellationToken);
+            if (preview.Errors.Count > 0)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return Results.BadRequest(preview);
+            }
             var blocks = await db.CondominiumBlocks
                 .Where(item => item.CondominiumId == condominiumId)
                 .ToDictionaryAsync(
@@ -247,12 +251,21 @@ public static class CondominiumSetupEndpoints
             var memberships = new Dictionary<Guid, CondominiumMembership>();
             var credentials = new List<SetupCredential>();
             var residentsLinked = 0;
+            var usersCreated = 0;
+            var usersReused = 0;
+            var membershipsCreated = 0;
+            var membershipsExisting = 0;
 
             foreach (var row in preview.Residents)
             {
-                if (!users.TryGetValue(row.Email, out var user))
+                var identityKey = row.ExistingUserId?.ToString() ?? row.Email;
+                if (!users.TryGetValue(identityKey, out var user))
                 {
-                    user = await userManager.FindByEmailAsync(row.Email);
+                    user = row.ExistingUserId is Guid existingUserId
+                        ? await db.Users.SingleOrDefaultAsync(
+                            item => item.Id == existingUserId,
+                            cancellationToken)
+                        : await userManager.FindByEmailAsync(row.Email);
                     if (user is null)
                     {
                         user = new ApplicationUser(
@@ -274,8 +287,13 @@ public static class CondominiumSetupEndpoints
                             user.FullName,
                             user.Email!,
                             password));
+                        usersCreated++;
                     }
-                    users[row.Email] = user;
+                    else
+                    {
+                        usersReused++;
+                    }
+                    users[identityKey] = user;
                 }
 
                 if (!memberships.TryGetValue(user.Id, out var membership))
@@ -322,6 +340,7 @@ public static class CondominiumSetupEndpoints
                             relationship.Value,
                             row.Resident,
                             row.PrimaryResidence));
+                        membershipsCreated++;
                     }
                     else if (!unitMembership.IsActive)
                     {
@@ -332,10 +351,7 @@ public static class CondominiumSetupEndpoints
                     }
                     else
                     {
-                        unitMembership.Update(
-                            relationship.Value,
-                            row.Resident,
-                            row.PrimaryResidence);
+                        membershipsExisting++;
                     }
                 }
                 residentsLinked++;
@@ -348,7 +364,14 @@ public static class CondominiumSetupEndpoints
                 unitsCreated,
                 residentsLinked,
                 credentials,
-                "Configuração concluída com sucesso."));
+                "Configuração concluída com sucesso.",
+                usersCreated,
+                usersReused,
+                membershipsCreated,
+                membershipsExisting,
+                Math.Max(0,
+                    (request.Residents?.Count ?? 0) - preview.Residents.Count),
+                preview.Warnings.Count));
         }
         catch (DbUpdateException)
         {
@@ -387,6 +410,7 @@ public static class CondominiumSetupEndpoints
                 where unit.CondominiumId == condominiumId
                 select new
                 {
+                    unit.Id,
                     unit.Identifier,
                     Block = block == null ? null : block.Identifier
                 })
@@ -470,17 +494,36 @@ public static class CondominiumSetupEndpoints
         var emails = sourceResidents
             .Select(item => Optional(item.Email)?.ToLowerInvariant())
             .Where(item => item is not null)
+            .Select(item => item!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var existingUsers = await db.Users.AsNoTracking()
-            .Where(item => item.Email != null && emails.Contains(item.Email))
-            .ToDictionaryAsync(
-                item => item.Email!,
-                StringComparer.OrdinalIgnoreCase,
-                cancellationToken);
-        var existingUserIds = existingUsers.Values
-            .Select(item => item.Id)
+        var normalizedEmails = emails.Select(item => item.ToUpperInvariant())
             .ToArray();
+        var phones = sourceResidents
+            .Select(item => Domain.PhoneNumberNormalizer.Normalize(item.Phone))
+            .Where(item => item is not null)
+            .Select(item => item!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var existingUserRows = await db.Users.AsNoTracking()
+            .Where(item =>
+                (item.NormalizedEmail != null
+                    && normalizedEmails.Contains(item.NormalizedEmail))
+                || (item.Email != null && emails.Contains(item.Email))
+                || (item.NormalizedPhoneNumber != null
+                    && phones.Contains(item.NormalizedPhoneNumber)))
+            .ToListAsync(cancellationToken);
+        var existingUsersByEmail = existingUserRows
+            .Where(item => item.Email is not null)
+            .ToDictionary(
+                item => item.Email!,
+                StringComparer.OrdinalIgnoreCase);
+        var existingUsersByPhone = existingUserRows
+            .Where(item => item.NormalizedPhoneNumber is not null)
+            .ToDictionary(
+                item => item.NormalizedPhoneNumber!,
+                StringComparer.Ordinal);
+        var existingUserIds = existingUserRows.Select(item => item.Id).ToArray();
         var existingMemberships = await db.CondominiumMemberships
             .AsNoTracking()
             .Where(item =>
@@ -501,7 +544,18 @@ public static class CondominiumSetupEndpoints
             .ToDictionaryAsync(
                 item => item.CondominiumMembershipId,
                 cancellationToken);
+        var existingUnitMemberships = await (
+                from membership in db.UnitMemberships.AsNoTracking()
+                join unit in db.Units.AsNoTracking()
+                    on membership.UnitId equals unit.Id
+                where existingUserIds.Contains(membership.UserId)
+                    && unit.CondominiumId == condominiumId
+                select membership)
+            .ToListAsync(cancellationToken);
         var residentKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var batchEmails = new Dictionary<string, (string Name, string? Phone)>(
+            StringComparer.OrdinalIgnoreCase);
+        var batchPhones = new Dictionary<string, string>(StringComparer.Ordinal);
         var residentPreviews = new List<SetupResidentPreview>();
 
         foreach (var source in sourceResidents)
@@ -511,6 +565,7 @@ public static class CondominiumSetupEndpoints
             var name = Optional(source.Name);
             var email = Optional(source.Email)?.ToLowerInvariant();
             var phone = Optional(source.Phone);
+            var normalizedPhone = Domain.PhoneNumberNormalizer.Normalize(phone);
             var relationship = ParseRelationship(source.Relationship);
             var residentValid = TryBoolean(
                 source.Resident, false, out var resident);
@@ -529,6 +584,11 @@ public static class CondominiumSetupEndpoints
                 || !new EmailAddressAttribute().IsValid(email))
                 errors.Add(new SetupIssue(
                     source.Line, "Email", "Informe um e-mail válido."));
+            if (phone is not null && normalizedPhone is null)
+                errors.Add(new SetupIssue(
+                    source.Line,
+                    "Phone",
+                    "Telefone inválido. Para números fora do Brasil, informe + e o código do país."));
             if (!residentValid)
                 errors.Add(new SetupIssue(
                     source.Line, "Resident",
@@ -574,18 +634,82 @@ public static class CondominiumSetupEndpoints
                         "A unidade referenciada não existe no condomínio nem neste lote."));
             }
 
-            var duplicateKey =
-                $"{email}\u001f{UnitKey(block, unit ?? string.Empty)}"
-                + $"\u001f{relationship}";
-            if (!residentKeys.Add(duplicateKey))
+            if (email is not null && name is not null
+                && batchEmails.TryGetValue(email, out var priorEmailData)
+                && (!string.Equals(priorEmailData.Name, name,
+                        StringComparison.OrdinalIgnoreCase)
+                    || (priorEmailData.Phone is not null
+                        && normalizedPhone is not null
+                        && priorEmailData.Phone != normalizedPhone)))
+            {
                 errors.Add(new SetupIssue(
                     source.Line, "Email",
-                    "Vínculo de morador duplicado no lote."));
+                    "Conflict: o mesmo e-mail possui dados pessoais divergentes no lote."));
+            }
+            else if (email is not null && name is not null)
+            {
+                batchEmails[email] = (
+                    name,
+                    batchEmails.TryGetValue(email, out var existingBatchData)
+                        ? existingBatchData.Phone ?? normalizedPhone
+                        : normalizedPhone);
+            }
+            if (normalizedPhone is not null && email is not null
+                && batchPhones.TryGetValue(normalizedPhone, out var priorPhoneEmail)
+                && !string.Equals(priorPhoneEmail, email,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add(new SetupIssue(
+                    source.Line, "Phone",
+                    "Conflict: o mesmo telefone está associado a e-mails diferentes no lote."));
+            }
+            else if (normalizedPhone is not null && email is not null)
+            {
+                batchPhones[normalizedPhone] = email;
+            }
 
-            ApplicationUser? existingApplicationUser = null;
-            var existingUser = email is not null
-                && existingUsers.TryGetValue(
-                    email, out existingApplicationUser);
+            var identityKey = normalizedPhone ?? email ?? $"line:{source.Line}";
+            var duplicateKey =
+                $"{identityKey}\u001f{UnitKey(block, unit ?? string.Empty)}"
+                + $"\u001f{relationship}";
+            if (!residentKeys.Add(duplicateKey))
+            {
+                warnings.Add(new SetupIssue(
+                    source.Line, "Email",
+                    "ExistingMembership: linha/vínculo duplicado no lote; a linha será ignorada."));
+                continue;
+            }
+
+            existingUsersByEmail.TryGetValue(
+                email ?? string.Empty, out var emailUser);
+            ApplicationUser? phoneUser = null;
+            if (normalizedPhone is not null)
+                existingUsersByPhone.TryGetValue(normalizedPhone, out phoneUser);
+            if (emailUser is not null && phoneUser is not null
+                && emailUser.Id != phoneUser.Id)
+            {
+                errors.Add(new SetupIssue(
+                    source.Line, "Phone",
+                    "Conflict: o e-mail e o telefone pertencem a usuários diferentes."));
+            }
+            var existingApplicationUser = emailUser ?? phoneUser;
+            var existingUser = existingApplicationUser is not null;
+            if (phoneUser is not null && email is not null
+                && !string.Equals(phoneUser.Email, email,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add(new SetupIssue(
+                    source.Line, "Email",
+                    "Conflict: o telefone pertence a um usuário com outro e-mail."));
+            }
+            if (emailUser?.NormalizedPhoneNumber is not null
+                && normalizedPhone is not null
+                && emailUser.NormalizedPhoneNumber != normalizedPhone)
+            {
+                errors.Add(new SetupIssue(
+                    source.Line, "Phone",
+                    "Conflict: o usuário encontrado por e-mail já possui outro telefone."));
+            }
             if (existingUser && !existingApplicationUser!.IsActive)
                 errors.Add(new SetupIssue(
                     source.Line, "Email",
@@ -595,6 +719,17 @@ public static class CondominiumSetupEndpoints
                 warnings.Add(new SetupIssue(
                     source.Line, "Email",
                     "O usuário existente será reutilizado; uma nova senha não será gerada."));
+                if (name is not null && !string.Equals(
+                        existingApplicationUser.FullName.Trim(), name,
+                        StringComparison.OrdinalIgnoreCase))
+                    warnings.Add(new SetupIssue(
+                        source.Line, "Name",
+                        "Warning: o nome diverge do cadastro existente e não será sobrescrito."));
+                if (normalizedPhone is not null
+                    && existingApplicationUser.NormalizedPhoneNumber is null)
+                    warnings.Add(new SetupIssue(
+                        source.Line, "Phone",
+                        "Warning: o telefone informado não será adicionado automaticamente ao usuário existente."));
                 if (existingMemberships.TryGetValue(
                         existingApplicationUser!.Id,
                         out var existingMembership)
@@ -618,6 +753,64 @@ public static class CondominiumSetupEndpoints
                 }
             }
 
+            var status = existingUser ? "ExistingUser" : "Ready";
+            if (existingApplicationUser is not null && unit is not null
+                && existingUnits.TryGetValue(UnitKey(block, unit), out var unitRow))
+            {
+                var membershipsForUnit = existingUnitMemberships.Where(item =>
+                    item.UserId == existingApplicationUser.Id
+                    && item.UnitId == unitRow.Id).ToArray();
+                var exactMembership = membershipsForUnit.FirstOrDefault(item =>
+                    item.RelationshipType == relationship);
+                if (membershipsForUnit.Any(item =>
+                        item.RelationshipType != relationship))
+                {
+                    errors.Add(new SetupIssue(
+                        source.Line, "Relationship",
+                        "Conflict: já existe vínculo com outra relação nesta unidade."));
+                    status = "Conflict";
+                }
+                else if (exactMembership is not null)
+                {
+                    if (!exactMembership.IsActive
+                        || exactMembership.IsResident != resident
+                        || exactMembership.IsPrimaryResidence != primary)
+                    {
+                        errors.Add(new SetupIssue(
+                            source.Line, "Relationship",
+                            "Conflict: o vínculo existente possui estado ou indicadores divergentes."));
+                        status = "Conflict";
+                    }
+                    else
+                    {
+                        warnings.Add(new SetupIssue(
+                            source.Line, "Relationship",
+                            "ExistingMembership: o vínculo já existe e não será alterado."));
+                        status = "ExistingMembership";
+                    }
+                }
+                else if (existingUnitMemberships.Any(item =>
+                             item.UserId == existingApplicationUser.Id
+                             && item.UnitId != unitRow.Id
+                             && item.IsActive))
+                {
+                    warnings.Add(new SetupIssue(
+                        source.Line, "Unit",
+                        "Warning: o usuário já possui vínculo com outra unidade deste condomínio; nenhum vínculo será encerrado."));
+                    status = "Warning";
+                }
+            }
+
+            if (errors.Any(item => item.Line == source.Line))
+                status = errors.Any(item => item.Line == source.Line
+                    && item.Reason.StartsWith(
+                        "Conflict:", StringComparison.Ordinal))
+                    ? "Conflict"
+                    : "Invalid";
+            else if (warnings.Any(item => item.Line == source.Line)
+                     && status is "Ready" or "ExistingUser")
+                status = "Warning";
+
             if (name is not null && email is not null)
             {
                 residentPreviews.Add(new SetupResidentPreview(
@@ -630,7 +823,10 @@ public static class CondominiumSetupEndpoints
                     relationship?.ToString(),
                     resident,
                     primary,
-                    existingUser));
+                    existingUser,
+                    status,
+                    normalizedPhone,
+                    existingApplicationUser?.Id));
             }
         }
 

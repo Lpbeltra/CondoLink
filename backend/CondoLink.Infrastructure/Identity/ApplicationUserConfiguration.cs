@@ -25,7 +25,7 @@ public sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Appl
         builder.Property(user => user.PhoneNumber).HasColumnName("phone_number").HasMaxLength(30);
         builder.Property(user => user.NormalizedPhoneNumber)
             .HasColumnName("normalized_phone_number")
-            .HasMaxLength(14);
+            .HasMaxLength(16);
         builder.Property(user => user.PhoneNumberConfirmed).HasColumnName("phone_number_confirmed");
         builder.Property(user => user.TwoFactorEnabled).HasColumnName("two_factor_enabled");
         builder.Property(user => user.LockoutEnd).HasColumnName("lockout_end");

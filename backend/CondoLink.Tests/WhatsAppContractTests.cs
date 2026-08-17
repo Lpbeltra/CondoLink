@@ -120,10 +120,21 @@ public sealed class WhatsAppContractTests
     }
 
     [Fact]
-    public void Foreign_number_is_not_a_valid_brazilian_whatsapp_identifier()
+    public void Explicit_international_numbers_are_normalized_to_e164()
     {
-        Assert.Null(PhoneNumberNormalizer.NormalizeBrazilian(
-            "+14155552671"));
+        Assert.Equal("+14155552671", PhoneNumberNormalizer.NormalizeBrazilian(
+            "+1 (415) 555-2671"));
+        Assert.Equal("+442079460018", PhoneNumberNormalizer.NormalizeBrazilian(
+            "+44 20 7946 0018"));
+        Assert.Null(PhoneNumberNormalizer.NormalizeBrazilian("442079460018"));
+    }
+
+    [Fact]
+    public void Meta_international_identifier_uses_the_same_canonical_value()
+    {
+        Assert.Equal(
+            "+14155552671",
+            PhoneNumberNormalizer.NormalizeWhatsAppIdentifier("14155552671"));
     }
 
     private static JsonDocument ReadFixture(string name)

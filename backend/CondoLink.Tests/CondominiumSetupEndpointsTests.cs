@@ -259,6 +259,141 @@ public sealed class CondominiumSetupEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Preview_accepts_explicit_international_phone_and_shows_e164()
+    {
+        var draft = new SetupRequest(false, [],
+        [
+            new SetupResidentRow(
+                2, null, null, "John Smith", "john.setup@example.com",
+                "+1 (212) 555-1234", null, null, null)
+        ]);
+
+        var response = await _host.ClientFor(_managerId).PostAsJsonAsync(
+            $"/condominiums/{_condominiumId}/setup/preview", draft);
+        var preview = await response.Content
+            .ReadFromJsonAsync<SetupPreviewResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(preview!.Errors);
+        Assert.Equal("+12125551234", Assert.Single(preview.Residents).NormalizedPhone);
+    }
+
+    [Fact]
+    public async Task Preview_blocks_email_and_phone_that_identify_different_users()
+    {
+        await _host.WithServicesAsync(async services =>
+        {
+            var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+            Assert.True((await userManager.CreateAsync(
+                new ApplicationUser("Email User", "email.identity@example.com", "+1 212 555 1000"),
+                "Existing123")).Succeeded);
+            Assert.True((await userManager.CreateAsync(
+                new ApplicationUser("Phone User", "phone.identity@example.com", "+1 212 555 2000"),
+                "Existing123")).Succeeded);
+        });
+        var draft = new SetupRequest(false, [],
+        [
+            new SetupResidentRow(
+                2, null, null, "Imported User", "email.identity@example.com",
+                "+1 212 555 2000", null, null, null)
+        ]);
+
+        var response = await _host.ClientFor(_managerId).PostAsJsonAsync(
+            $"/condominiums/{_condominiumId}/setup/preview", draft);
+        var preview = await response.Content
+            .ReadFromJsonAsync<SetupPreviewResponse>();
+
+        Assert.Contains(preview!.Errors, issue =>
+            issue.Line == 2 && issue.Reason.StartsWith("Conflict:"));
+        Assert.Equal("Conflict", Assert.Single(preview.Residents).Status);
+    }
+
+    [Fact]
+    public async Task Duplicate_resident_line_is_ignored_in_preview()
+    {
+        var row = new SetupResidentRow(
+            2, null, null, "Maria", "duplicate.setup@example.com",
+            "11999999999", null, null, null);
+        var duplicate = row with { Line = 3 };
+
+        var response = await _host.ClientFor(_managerId).PostAsJsonAsync(
+            $"/condominiums/{_condominiumId}/setup/preview",
+            new SetupRequest(false, [], [row, duplicate]));
+        var preview = await response.Content
+            .ReadFromJsonAsync<SetupPreviewResponse>();
+
+        Assert.Empty(preview!.Errors);
+        Assert.Single(preview.Residents);
+        Assert.Contains(preview.Warnings, issue =>
+            issue.Line == 3 && issue.Reason.StartsWith("ExistingMembership:"));
+    }
+
+    [Fact]
+    public async Task Persistence_failure_rolls_back_the_entire_batch()
+    {
+        await _host.WithDbAsync(db => db.Database.ExecuteSqlRawAsync("""
+            CREATE TRIGGER fail_setup_membership
+            BEFORE INSERT ON unit_memberships
+            BEGIN
+                SELECT RAISE(ABORT, 'forced setup failure');
+            END;
+            """));
+        var draft = new SetupRequest(
+            false,
+            [new SetupUnitRow(2, null, "901", null, null)],
+            [
+                new SetupResidentRow(
+                    2, null, "901", "Rollback User",
+                    "rollback.setup@example.com", "+1 212 555 3333",
+                    "Tenant", "Yes", "No")
+            ]);
+
+        var response = await _host.ClientFor(_managerId).PostAsJsonAsync(
+            $"/condominiums/{_condominiumId}/setup/confirm", draft);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.False(await db.Users.AnyAsync(item =>
+                item.Email == "rollback.setup@example.com"));
+            Assert.False(await db.Units.AnyAsync(item =>
+                item.Identifier == "901"));
+        });
+    }
+
+    [Fact]
+    public async Task Confirm_revalidates_identity_changes_after_preview()
+    {
+        var draft = new SetupRequest(false, [],
+        [
+            new SetupResidentRow(
+                2, null, null, "Late Conflict", "late.conflict@example.com",
+                "+1 212 555 4444", null, null, null)
+        ]);
+        var previewResponse = await _host.ClientFor(_managerId).PostAsJsonAsync(
+            $"/condominiums/{_condominiumId}/setup/preview", draft);
+        Assert.Empty((await previewResponse.Content
+            .ReadFromJsonAsync<SetupPreviewResponse>())!.Errors);
+
+        await _host.WithServicesAsync(async services =>
+        {
+            var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+            Assert.True((await userManager.CreateAsync(
+                new ApplicationUser(
+                    "Concurrent User", "concurrent@example.com",
+                    "+1 212 555 4444"),
+                "Existing123")).Succeeded);
+        });
+
+        var response = await _host.ClientFor(_managerId).PostAsJsonAsync(
+            $"/condominiums/{_condominiumId}/setup/confirm", draft);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.False(await _host.WithDbAsync(db => db.Users.AnyAsync(item =>
+            item.Email == "late.conflict@example.com")));
+    }
+
+    [Fact]
     public async Task Permissions_are_limited_to_manager_scope_but_platform_admin_is_global()
     {
         var path =

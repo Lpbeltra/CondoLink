@@ -126,8 +126,8 @@ public sealed class AdministrativeResidentRegistrationService(
         var email = data.Email.Trim().ToLowerInvariant();
         if (email.Length > 254 || !new EmailAddressAttribute().IsValid(email))
             return Missing(session, draft, "O e-mail informado não é válido. Qual é o e-mail correto?", now, expires);
-        if (BrazilianPhoneNumber.Normalize(data.Phone) is null)
-            return Missing(session, draft, "O telefone informado não é um número brasileiro válido. Qual é o telefone correto?", now, expires);
+        if (Domain.PhoneNumberNormalizer.Normalize(data.Phone) is null)
+            return Missing(session, draft, "O telefone informado não é válido. Para números fora do Brasil, inclua + e o código do país. Qual é o telefone correto?", now, expires);
         if (!TryRelationship(data.Relationship, out _))
             return Missing(session, draft, "Relação inválida. Escolha: Proprietário, Inquilino ou Ocupante autorizado.", now, expires);
 
@@ -163,7 +163,7 @@ public sealed class AdministrativeResidentRegistrationService(
         draft = draft with { CondominiumId = condominium.Id, CondominiumName = condominium.Name,
             UnitId = units[0].Id, UnitDisplay = units[0].Display, UnitChoices = [] };
 
-        var normalizedPhone = BrazilianPhoneNumber.Normalize(data.Phone);
+        var normalizedPhone = Domain.PhoneNumberNormalizer.Normalize(data.Phone);
         var existing = await db.Users.AsNoTracking().Where(x =>
                 x.NormalizedEmail == email.ToUpper() ||
                 (normalizedPhone != null && x.NormalizedPhoneNumber == normalizedPhone))
@@ -358,8 +358,10 @@ public sealed class AdministrativeResidentRegistrationService(
     }
     private static string FormatPhone(string value)
     {
-        var normalized = BrazilianPhoneNumber.Normalize(value);
+        var normalized = Domain.PhoneNumberNormalizer.Normalize(value);
         if (normalized is null) return value.Trim();
+        if (!normalized.StartsWith("+55", StringComparison.Ordinal))
+            return normalized;
         var digits = normalized[3..];
         return digits.Length == 11
             ? $"({digits[..2]}) {digits.Substring(2, 5)}-{digits[7..]}"

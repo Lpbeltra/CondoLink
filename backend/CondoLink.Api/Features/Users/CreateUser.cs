@@ -53,12 +53,12 @@ public static class CreateUser
             return Results.BadRequest(new { error = "PhoneNumber must not exceed 30 characters." });
         }
         var normalizedPhoneNumber =
-            Domain.BrazilianPhoneNumber.Normalize(request.PhoneNumber);
+            Domain.PhoneNumberNormalizer.Normalize(request.PhoneNumber);
         if (!string.IsNullOrWhiteSpace(request.PhoneNumber)
             && normalizedPhoneNumber is null)
         {
             return Results.BadRequest(new
-                { error = "PhoneNumber must be a valid Brazilian phone number." });
+                { error = "PhoneNumber must be valid; include + and the country code outside Brazil." });
         }
 
         if (string.IsNullOrWhiteSpace(request.Password))

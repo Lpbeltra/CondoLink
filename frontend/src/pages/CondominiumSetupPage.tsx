@@ -867,15 +867,27 @@ function PreviewStep({
       />
       <PreviewTable
         title="Moradores"
-        headers={['Linha', 'Nome', 'E-mail', 'Unidade', 'Situação', '']}
+        headers={['Linha', 'Nome', 'E-mail', 'Telefone', 'Unidade', 'Situação', '']}
         rows={preview.residents.map(row => [
           row.line,
           row.name,
           row.email,
+          row.phone
+            ? row.normalizedPhone && row.normalizedPhone !== row.phone
+              ? `${row.phone} → ${row.normalizedPhone}`
+              : row.phone
+            : '—',
           row.unit
             ? `${row.block ? `${row.block} / ` : ''}${row.unit}`
             : 'Sem unidade',
-          row.existingUser ? 'Usuário reutilizado' : 'Novo usuário',
+          ({
+            Ready: 'Pronto — novo usuário',
+            ExistingUser: 'Usuário reutilizado',
+            ExistingMembership: 'Vínculo já existente',
+            Warning: 'Aviso — revise',
+            Conflict: 'Conflito',
+            Invalid: 'Inválido',
+          } as const)[row.status],
           <IconButton
             key="remove"
             aria-label={`Remover morador ${row.name}`}

@@ -1329,8 +1329,8 @@ namespace CondoLink.Infrastructure.Migrations
 
                     b.Property<string>("NormalizedPhoneNumber")
                         .IsRequired()
-                        .HasMaxLength(14)
-                        .HasColumnType("character varying(14)")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
                         .HasColumnName("normalized_phone_number");
 
                     b.Property<int>("Purpose")
@@ -1539,8 +1539,8 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasColumnName("normalized_email");
 
                     b.Property<string>("NormalizedPhoneNumber")
-                        .HasMaxLength(14)
-                        .HasColumnType("character varying(14)")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
                         .HasColumnName("normalized_phone_number");
 
                     b.Property<string>("NormalizedUserName")

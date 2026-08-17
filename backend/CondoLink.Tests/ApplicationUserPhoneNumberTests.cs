@@ -44,6 +44,15 @@ public sealed class ApplicationUserPhoneNumberTests
     }
 
     [Fact]
+    public void Explicit_international_phone_is_stored_as_e164()
+    {
+        var user = new ApplicationUser(
+            "John", "international.phone@example.com", "+1 212 555 1234");
+
+        Assert.Equal("+12125551234", user.NormalizedPhoneNumber);
+    }
+
+    [Fact]
     public void Empty_phone_is_optional()
     {
         var user = new ApplicationUser(
