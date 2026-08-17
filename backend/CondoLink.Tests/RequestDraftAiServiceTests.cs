@@ -38,7 +38,7 @@ public sealed class RequestDraftAiServiceTests
     public async Task Resident_status_rejects_courtesy_absent_from_source()
     {
         var service = Service((_, _) => Task.FromResult(Response(
-            """{"message":"O reparo foi concluído. Agradecemos pela compreensão."}"")));
+            """{"message":"O reparo foi concluído. Agradecemos pela compreensão."}""")));
 
         var result = await service.SynthesizeResidentStatusAsync(
             "Vazamento", "Resolvida", "O reparo foi concluído", CancellationToken.None);
