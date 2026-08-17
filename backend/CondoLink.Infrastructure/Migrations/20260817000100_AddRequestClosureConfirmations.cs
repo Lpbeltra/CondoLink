@@ -23,7 +23,7 @@ public partial class AddRequestClosureConfirmations : Migration
         {
             table.PrimaryKey("PK_request_closure_confirmations", x => x.id);
             table.ForeignKey("FK_closure_request", x => x.request_id, "requests", "id", onDelete: ReferentialAction.Cascade);
-            table.ForeignKey("FK_closure_history", x => x.request_status_history_id, "request_status_histories", "id", onDelete: ReferentialAction.Restrict);
+            table.ForeignKey("FK_closure_history", x => x.request_status_history_id, "request_status_history", "id", onDelete: ReferentialAction.Restrict);
             table.ForeignKey("FK_closure_message", x => x.response_message_id, "request_messages", "id", onDelete: ReferentialAction.Restrict);
         });
         m.CreateIndex("IX_request_closure_confirmations_request_id", "request_closure_confirmations", "request_id", unique: true, filter: "status = 1");
