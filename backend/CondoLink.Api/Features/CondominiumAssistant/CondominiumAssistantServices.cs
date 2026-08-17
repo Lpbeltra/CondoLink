@@ -11,6 +11,8 @@ using CondoLink.Domain.Entities;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
 
 namespace CondoLink.Api.Features.CondominiumAssistant;
 
@@ -55,10 +57,17 @@ public sealed class LocalEmbeddingService : IEmbeddingService
 
 public static class CondominiumDocumentText
 {
-    public static string Extract(Stream stream, string extension)
+    public sealed record ExtractedPage(int? PageNumber, string Text);
+    public sealed record TextChunk(string Content, int? PageNumber);
+
+    public static IReadOnlyList<ExtractedPage> ExtractPages(Stream stream, string extension)
     {
         extension = extension.ToLowerInvariant();
-        if (extension == ".txt") using (var reader = new StreamReader(stream, Encoding.UTF8, true, leaveOpen: true)) return reader.ReadToEnd();
+        if (extension == ".txt")
+        {
+            using var reader = new StreamReader(stream, Encoding.UTF8, true, leaveOpen: true);
+            return [new(null, reader.ReadToEnd())];
+        }
         if (extension == ".docx")
         {
             using var archive = new ZipArchive(stream, ZipArchiveMode.Read, true);
@@ -66,21 +75,21 @@ public static class CondominiumDocumentText
             using var document = entry.Open();
             var xml = XDocument.Load(document);
             XNamespace word = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-            return string.Join("\n", xml.Descendants(word + "p").Select(paragraph =>
-                string.Concat(paragraph.Descendants(word + "t").Select(text => text.Value))));
+            return [new(null, string.Join("\n", xml.Descendants(word + "p").Select(paragraph =>
+                string.Concat(paragraph.Descendants(word + "t").Select(text => text.Value)))))];
         }
         if (extension == ".pdf")
         {
-            using var memory = new MemoryStream(); stream.CopyTo(memory);
-            var raw = Encoding.Latin1.GetString(memory.ToArray());
-            var values = Regex.Matches(raw, @"\((?<text>(?:\\.|[^\\)])+)\)\s*Tj")
-                .Select(match => Regex.Unescape(match.Groups["text"].Value)).ToArray();
-            if (values.Length == 0) throw new NotSupportedException(
-                "Não foi possível extrair texto deste PDF. PDFs digitalizados exigem OCR e não são suportados nesta versão.");
-            return string.Join("\n", values);
+            using var document = PdfDocument.Open(stream);
+            return document.GetPages()
+                .Select(page => new ExtractedPage(page.Number, ContentOrderTextExtractor.GetText(page)))
+                .ToArray();
         }
         throw new NotSupportedException("Formato não suportado. Use PDF com texto, DOCX ou TXT.");
     }
+
+    public static string Extract(Stream stream, string extension) =>
+        string.Join("\n", ExtractPages(stream, extension).Select(page => page.Text));
 
     public static string Normalize(string value) => Regex.Replace(value, @"[ \t]+", " ")
         .Replace("\r\n", "\n").Replace('\r', '\n').Trim();
@@ -102,7 +111,15 @@ public static class CondominiumDocumentText
         }
         return result;
     }
+
+    public static IReadOnlyList<TextChunk> Chunks(IReadOnlyList<ExtractedPage> pages,
+        int target = 1400, int overlap = 180) => pages
+        .SelectMany(page => Chunks(Normalize(page.Text), target, overlap)
+            .Select(content => new TextChunk(content, page.PageNumber)))
+        .ToArray();
 }
+
+internal sealed class DocumentTextUnavailableException(string message) : Exception(message);
 
 public sealed class CondominiumDocumentProcessor(AppDbContext db,
     IEmbeddingService embeddings, ILogger<CondominiumDocumentProcessor> logger)
@@ -110,23 +127,42 @@ public sealed class CondominiumDocumentProcessor(AppDbContext db,
     public async Task ProcessAsync(CondominiumDocument document, Stream stream,
         string extension, CancellationToken cancellationToken)
     {
-        document.Processing(); await db.SaveChangesAsync(cancellationToken);
+        document.Processing();
+        db.CondominiumDocumentChunks.RemoveRange(await db.CondominiumDocumentChunks
+            .Where(chunk => chunk.CondominiumDocumentId == document.Id).ToArrayAsync(cancellationToken));
+        await db.SaveChangesAsync(cancellationToken);
         try
         {
-            var text = CondominiumDocumentText.Normalize(CondominiumDocumentText.Extract(stream, extension));
-            if (text.Length < 20) throw new NotSupportedException("O documento não contém texto suficiente para indexação.");
-            var chunks = CondominiumDocumentText.Chunks(text);
+            var pages = CondominiumDocumentText.ExtractPages(stream, extension)
+                .Select(page => page with { Text = CondominiumDocumentText.Normalize(page.Text) }).ToArray();
+            if (pages.Sum(page => page.Text.Length) < 20) throw new DocumentTextUnavailableException(
+                extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase)
+                    ? "Não foi possível extrair texto deste PDF. O documento pode ser digitalizado como imagem."
+                    : "O documento não contém texto suficiente para indexação.");
+            var chunks = CondominiumDocumentText.Chunks(pages);
+            var pendingChunks = new List<CondominiumDocumentChunk>(chunks.Count);
             for (var index = 0; index < chunks.Count; index++)
             {
-                var vector = await embeddings.EmbedAsync(chunks[index], cancellationToken);
-                db.CondominiumDocumentChunks.Add(new(document.Id, document.CondominiumId,
-                    index, chunks[index], JsonSerializer.Serialize(vector), null, null));
+                var vector = await embeddings.EmbedAsync(chunks[index].Content, cancellationToken);
+                pendingChunks.Add(new(document.Id, document.CondominiumId,
+                    index, chunks[index].Content, JsonSerializer.Serialize(vector), chunks[index].PageNumber, null));
             }
+            db.CondominiumDocumentChunks.AddRange(pendingChunks);
             document.Ready(); await db.SaveChangesAsync(cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            document.Fail(exception.Message, exception is NotSupportedException);
+            foreach (var entry in db.ChangeTracker.Entries<CondominiumDocumentChunk>()
+                .Where(entry => entry.Entity.CondominiumDocumentId == document.Id
+                    && entry.State == EntityState.Added))
+                entry.State = EntityState.Detached;
+            var unsupported = exception is DocumentTextUnavailableException;
+            var safeMessage = unsupported
+                ? exception.Message
+                : extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase)
+                    ? "Não foi possível processar este PDF."
+                    : "Não foi possível processar este documento.";
+            document.Fail(safeMessage, unsupported);
             await db.SaveChangesAsync(cancellationToken);
             logger.LogWarning("Document processing failed. CondominiumId: {CondominiumId}; DocumentId: {DocumentId}; FailureType: {FailureType}.",
                 document.CondominiumId, document.Id, exception.GetType().Name);
