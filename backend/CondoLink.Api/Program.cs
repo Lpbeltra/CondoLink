@@ -134,6 +134,7 @@ builder.Services.AddSwaggerGen(options =>
 
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<LocalFileStorage>();
+builder.Services.AddSingleton<ICondominiumDocumentStorage>(services => services.GetRequiredService<LocalFileStorage>());
 
 var allowedOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")

@@ -7,7 +7,7 @@ import { CondominiumAssistantPage, CondominiumDocumentsPage } from './Condominiu
 const assistant = vi.hoisted(() => ({
   listConversations: vi.fn(), getConversation: vi.fn(), startConversation: vi.fn(),
   askAssistant: vi.fn(), removeRequestContext: vi.fn(), deleteConversation: vi.fn(),
-  listDocuments: vi.fn(), uploadDocument: vi.fn(),
+  listDocuments: vi.fn(), uploadDocument: vi.fn(), deleteDocument: vi.fn(),
 }))
 vi.mock('../assistant/api', async importOriginal => ({ ...(await importOriginal<typeof import('../assistant/api')>()), ...assistant }))
 vi.mock('../management/ManagementContext', () => ({ useManagementContext: () => ({ activeCondominiumId: 'condo-1' }) }))
@@ -73,6 +73,34 @@ describe('CondominiumAssistantPage', () => {
     expect(screen.queryByText('internal detail')).not.toBeInTheDocument()
   })
 
+  it('cancels or confirms permanent deletion and removes the card', async () => {
+    const user = userEvent.setup()
+    assistant.listDocuments.mockResolvedValue([{ id: 'doc-1', name: 'Convenção', originalFileName: 'rules.pdf', version: 1, processingStatus: 'Failed', processingError: 'Falha', isActive: true }])
+    assistant.deleteDocument.mockResolvedValue({})
+    render(<MemoryRouter><CondominiumDocumentsPage /></MemoryRouter>)
+    expect(await screen.findByText('Convenção')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Excluir Convenção' }))
+    expect(screen.getByText(/será removido definitivamente/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+    expect(assistant.deleteDocument).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: 'Excluir Convenção' }))
+    await user.click(screen.getByRole('button', { name: 'Excluir' }))
+    await waitFor(() => expect(assistant.deleteDocument).toHaveBeenCalledWith('condo-1', 'doc-1'))
+    expect(screen.queryByText('Convenção')).not.toBeInTheDocument()
+  })
+
+  it('keeps the document when deletion fails', async () => {
+    const user = userEvent.setup()
+    assistant.listDocuments.mockResolvedValue([{ id: 'doc-1', name: 'Regimento', originalFileName: 'rules.pdf', version: 1, processingStatus: 'Unsupported', processingError: 'Sem texto', isActive: true }])
+    assistant.deleteDocument.mockRejectedValue(new Error('internal'))
+    render(<MemoryRouter><CondominiumDocumentsPage /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Excluir Regimento' }))
+    await user.click(screen.getByRole('button', { name: 'Excluir' }))
+    expect(await screen.findByText('Não foi possível excluir o documento. Tente novamente.')).toBeInTheDocument()
+    expect(screen.getByText('Regimento')).toBeInTheDocument()
+  })
+
   it('shows empty history and does not persist an empty new conversation', async () => {
     render(<MemoryRouter><CondominiumAssistantPage /></MemoryRouter>)
     expect(await screen.findByText('Nenhuma conversa anterior.')).toBeInTheDocument()
@@ -89,5 +117,14 @@ describe('CondominiumAssistantPage', () => {
     expect(await screen.findByText('Resposta anterior')).toBeInTheDocument()
     expect(screen.getByText(/documento atualmente inativo/)).toBeInTheDocument()
     await waitFor(() => expect(assistant.getConversation).toHaveBeenCalledWith('condo-1', 'chat-1'))
+  })
+
+  it('renders a removed historical source without a broken download link', async () => {
+    assistant.listConversations.mockResolvedValue({ items: [{ id: 'chat-1', title: 'Histórico', requestId: null, createdAt: '2026-08-17T10:00:00Z', updatedAt: '2026-08-17T11:00:00Z' }], hasMore: false, total: 1 })
+    assistant.getConversation.mockResolvedValue({ conversation: { id: 'chat-1', title: 'Histórico', requestId: null }, requestContext: null, contextUnavailable: false, messages: [{ id: 'm1', role: 'Assistant', content: 'Resposta', createdAt: '2026-08-17T11:00:00Z', sources: [{ source: { documentId: 'removed', documentName: 'Convenção antiga', pageNumber: 2, sectionTitle: null, excerpt: 'Trecho', marker: 'S1' }, documentExists: false, documentCurrentlyActive: false }] }] })
+    render(<MemoryRouter><CondominiumAssistantPage /></MemoryRouter>)
+    await userEvent.click(await screen.findByRole('button', { name: /Histórico/ }))
+    const source = await screen.findByText(/Convenção antiga.*documento removido/)
+    expect(source.closest('a')).toBeNull()
   })
 })

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() }))
 vi.mock('../services/api', () => ({ api: http }))
-import { askAssistant, createConversation, deleteConversation, getConversation, listConversations, startConversation, uploadDocument } from './api'
+import { askAssistant, createConversation, deleteConversation, deleteDocument, getConversation, listConversations, startConversation, uploadDocument } from './api'
 
 describe('condominium assistant API', () => {
   beforeEach(() => Object.values(http).forEach(mock => mock.mockReset()))
@@ -44,5 +44,11 @@ describe('condominium assistant API', () => {
     await startConversation('condo-1', 'Regras da piscina?', 'request-1')
     expect(http.post).toHaveBeenCalledWith('/condominiums/condo-1/assistant/messages',
       { question: 'Regras da piscina?', requestId: 'request-1' })
+  })
+
+  it('deletes a document within its condominium scope', async () => {
+    http.delete.mockResolvedValue({})
+    await deleteDocument('condo-1', 'doc-1')
+    expect(http.delete).toHaveBeenCalledWith('/condominiums/condo-1/documents/doc-1')
   })
 })

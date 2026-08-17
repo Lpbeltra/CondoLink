@@ -1,6 +1,11 @@
 namespace CondoLink.Api.Features.RequestAttachments;
 
-public sealed class LocalFileStorage
+public interface ICondominiumDocumentStorage
+{
+    void DeleteCondominiumDocument(Guid condominiumId, Guid documentId, string storageKey);
+}
+
+public sealed class LocalFileStorage : ICondominiumDocumentStorage
 {
     private readonly string rootPath;
 
@@ -92,6 +97,19 @@ public sealed class LocalFileStorage
     {
         var fullPath = Resolve(storageKey);
         if (File.Exists(fullPath)) File.Delete(fullPath);
+    }
+
+    public void DeleteCondominiumDocument(Guid condominiumId, Guid documentId, string storageKey)
+    {
+        var expectedPrefix = $"condominium-documents/{condominiumId}/{documentId}/";
+        var normalizedKey = storageKey.Replace('\\', '/');
+        if (!normalizedKey.StartsWith(expectedPrefix, StringComparison.Ordinal))
+            throw new InvalidOperationException("Invalid condominium document storage key.");
+        var fullPath = Resolve(normalizedKey);
+        if (File.Exists(fullPath)) File.Delete(fullPath);
+        var directory = Path.GetDirectoryName(fullPath)!;
+        if (Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
+            Directory.Delete(directory);
     }
 
     private string Resolve(string storageKey)

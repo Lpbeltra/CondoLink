@@ -20,6 +20,7 @@ public static class CondominiumAssistantEndpoints
         group.MapPost("/documents", UploadDocument).DisableAntiforgery();
         group.MapGet("/documents/{documentId:guid}/download", DownloadDocument);
         group.MapPut("/documents/{documentId:guid}/active", SetDocumentActive);
+        group.MapDelete("/documents/{documentId:guid}", DeleteDocument);
         group.MapPost("/assistant/conversations", CreateConversation);
         group.MapPost("/assistant/messages", StartConversation);
         group.MapGet("/assistant/conversations", ListConversations);
@@ -101,6 +102,35 @@ public static class CondominiumAssistantEndpoints
         if (document is null) return Results.NotFound(); document.SetActive(body.Active); await db.SaveChangesAsync(ct); return Results.NoContent();
     }
 
+    internal static async Task<IResult> DeleteDocument(Guid condominiumId, Guid documentId,
+        ClaimsPrincipal principal, AppDbContext db,
+        [Microsoft.AspNetCore.Mvc.FromServices] ICondominiumDocumentStorage storage,
+        ILogger<CondominiumDocumentProcessor> logger, CancellationToken ct)
+    {
+        var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
+        var document = await db.CondominiumDocuments.SingleOrDefaultAsync(
+            x => x.Id == documentId && x.CondominiumId == condominiumId, ct);
+        if (document is null) return Results.NotFound();
+        if (document.ProcessingStatus == CondominiumDocumentProcessingStatus.Processing)
+            return Results.Conflict(new { code = "DocumentProcessing", message = "Aguarde o processamento terminar antes de excluir o documento." });
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            db.CondominiumDocuments.Remove(document);
+            await db.SaveChangesAsync(ct);
+            storage.DeleteCondominiumDocument(condominiumId, documentId, document.StorageKey);
+            await transaction.CommitAsync(ct);
+            return Results.NoContent();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await transaction.RollbackAsync(ct);
+            logger.LogWarning("Document deletion failed. CondominiumId: {CondominiumId}; DocumentId: {DocumentId}; FailureType: {FailureType}.",
+                condominiumId, documentId, exception.GetType().Name);
+            return Results.Json(new { code = "DocumentDeleteFailed", message = "Não foi possível excluir o documento. Tente novamente." }, statusCode: 503);
+        }
+    }
+
     private static async Task<IResult> CreateConversation(Guid condominiumId, CreateConversationRequest body,
         ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
     {
@@ -138,12 +168,13 @@ public static class CondominiumAssistantEndpoints
         var messageRows = await db.CondominiumAssistantMessages.AsNoTracking().Where(x => x.ConversationId == conversationId).OrderBy(x => x.CreatedAt)
             .Select(x => new { x.Id, x.Role, x.Content, x.SourcesJson, x.CreatedAt }).ToArrayAsync(ct);
         var sourceIds = messageRows.SelectMany(x => ParseSources(x.SourcesJson)).Select(x => x.DocumentId).Distinct().ToArray();
-        var activeDocuments = await db.CondominiumDocuments.AsNoTracking()
+        var availableDocuments = await db.CondominiumDocuments.AsNoTracking()
             .Where(x => x.CondominiumId == condominiumId && sourceIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, x => x.IsActive, ct);
         var messages = messageRows.Select(x => new { x.Id, Role = x.Role.ToString(), x.Content, x.CreatedAt,
             Sources = ParseSources(x.SourcesJson).Select(source => new
-            { Source = source, DocumentCurrentlyActive = activeDocuments.GetValueOrDefault(source.DocumentId) }).ToArray() }).ToArray();
+            { Source = source, DocumentExists = availableDocuments.ContainsKey(source.DocumentId),
+                DocumentCurrentlyActive = availableDocuments.GetValueOrDefault(source.DocumentId) }).ToArray() }).ToArray();
         object? requestContext = null; var contextUnavailable = false;
         if (conversation.RequestId is Guid requestId)
         {

@@ -69,6 +69,25 @@ public sealed class LocalFileStorageTests : IDisposable
             key.Replace('/', Path.DirectorySeparatorChar))));
     }
 
+    [Fact]
+    public async Task Condominium_document_delete_removes_only_its_file_and_directory()
+    {
+        var storage = Storage(); var condominiumId = Guid.NewGuid();
+        var deletedId = Guid.NewGuid(); var keptId = Guid.NewGuid();
+        var deletedKey = await storage.SaveCondominiumDocumentAsync(condominiumId, deletedId,
+            new MemoryStream([1]), ".pdf", default);
+        var keptKey = await storage.SaveCondominiumDocumentAsync(condominiumId, keptId,
+            new MemoryStream([2]), ".pdf", default);
+
+        storage.DeleteCondominiumDocument(condominiumId, deletedId, deletedKey);
+        storage.DeleteCondominiumDocument(condominiumId, deletedId, deletedKey);
+
+        Assert.Null(storage.OpenRead(deletedKey));
+        using var kept = storage.OpenRead(keptKey); Assert.NotNull(kept);
+        Assert.Throws<InvalidOperationException>(() =>
+            storage.DeleteCondominiumDocument(condominiumId, deletedId, keptKey));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(root)) Directory.Delete(root, true);
