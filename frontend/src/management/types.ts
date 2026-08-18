@@ -1,23 +1,137 @@
-export interface Unit { id: string; condominiumId: string; identifier: string; blockId: string | null; block: string | null; floor: string | null; description: string | null; isActive: boolean; peopleCount?: number; createdAt: string; updatedAt: string }
-export interface CondominiumBlock { id: string; condominiumId: string; identifier: string; unitCount: number; createdAt: string; updatedAt: string }
-export type RelationshipType = 'Owner' | 'Tenant' | 'AuthorizedOccupant'
-export interface UnitMembership { unitMembershipId: string; userId: string; fullName: string; email: string; phoneNumber: string | null; relationshipType: RelationshipType; isResident: boolean; isPrimaryResidence: boolean; membershipActive: boolean; startedAt: string; endedAt: string | null; createdAt: string }
-export interface MemberUnitLink { unitMembershipId: string; unitId: string; unitIdentifier: string; block: string | null; relationshipType: RelationshipType; isResident: boolean; isPrimaryResidence: boolean }
-export interface CondominiumMember { membershipId: string; userId: string; fullName: string; cpf?: string | null; cnpj?: string | null; address?: string | null; city?: string | null; state?: string | null; email: string; phoneNumber: string | null; userActive: boolean; mustChangePassword: boolean; emailDeliveryEnabled: boolean; firstAccessStatus: 'Pending'|'InviteSent'|'Completed'|'DeliveryFailed'; lastLoginAt: string | null; membershipActive: boolean; joinedAt: string; endedAt: string | null; roles: string[]; unitLinks: MemberUnitLink[] }
-export interface UpdatedCondominiumMember { userId: string; fullName: string; email: string; phoneNumber: string | null; cpf: string | null; cnpj: string | null; address: string | null; city: string | null; state: string | null; membershipActive: boolean; unitLink: MemberUnitLink | null }
-export interface Category { id: string; condominiumId: string; name: string; description: string | null; requestCount: number }
-export interface OnboardResult { user: { id: string; fullName: string; email: string; phoneNumber: string | null; isActive: boolean }; membership: { id: string; condominiumId: string; isActive: boolean; joinedAt: string }; roles: string[]; unitMembership: { id: string; unitId: string; relationshipType: RelationshipType; isResident: boolean; isPrimaryResidence: boolean } | null; isNewUser: boolean; firstAccessStatus?: string; initialPassword?: string | null }
-export interface TemporaryPasswordResult { userId: string; fullName: string; email: string; temporaryPassword: string }
+export interface Unit {
+  id: string;
+  condominiumId: string;
+  identifier: string;
+  blockId: string | null;
+  block: string | null;
+  floor: string | null;
+  description: string | null;
+  isActive: boolean;
+  peopleCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface CondominiumBlock {
+  id: string;
+  condominiumId: string;
+  identifier: string;
+  unitCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+export type RelationshipType = "Owner" | "Tenant" | "AuthorizedOccupant";
+export interface UnitMembership {
+  unitMembershipId: string;
+  userId: string;
+  fullName: string;
+  email: string;
+  phoneNumber: string | null;
+  relationshipType: RelationshipType;
+  isResident: boolean;
+  isPrimaryResidence: boolean;
+  membershipActive: boolean;
+  startedAt: string;
+  endedAt: string | null;
+  createdAt: string;
+}
+export interface MemberUnitLink {
+  unitMembershipId: string;
+  unitId: string;
+  unitIdentifier: string;
+  block: string | null;
+  relationshipType: RelationshipType;
+  isResident: boolean;
+  isPrimaryResidence: boolean;
+  isActive?: boolean;
+  endedAt?: string | null;
+}
+export interface CondominiumMember {
+  membershipId: string;
+  userId: string;
+  fullName: string;
+  cpf?: string | null;
+  cnpj?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  email: string;
+  phoneNumber: string | null;
+  userActive: boolean;
+  mustChangePassword: boolean;
+  emailDeliveryEnabled: boolean;
+  firstAccessStatus: "Pending" | "InviteSent" | "Completed" | "DeliveryFailed";
+  lastLoginAt: string | null;
+  membershipActive: boolean;
+  joinedAt: string;
+  endedAt: string | null;
+  isResidentActive?: boolean;
+  roles: string[];
+  unitLinks: MemberUnitLink[];
+  canDelete?: boolean;
+  deleteBlockedReason?: string | null;
+}
+export interface UpdatedCondominiumMember {
+  userId: string;
+  fullName: string;
+  email: string;
+  phoneNumber: string | null;
+  cpf: string | null;
+  cnpj: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  membershipActive: boolean;
+  unitLink: MemberUnitLink | null;
+}
+export interface Category {
+  id: string;
+  condominiumId: string;
+  name: string;
+  description: string | null;
+  requestCount: number;
+}
+export interface OnboardResult {
+  user: {
+    id: string;
+    fullName: string;
+    email: string;
+    phoneNumber: string | null;
+    isActive: boolean;
+  };
+  membership: {
+    id: string;
+    condominiumId: string;
+    isActive: boolean;
+    joinedAt: string;
+  };
+  roles: string[];
+  unitMembership: {
+    id: string;
+    unitId: string;
+    relationshipType: RelationshipType;
+    isResident: boolean;
+    isPrimaryResidence: boolean;
+  } | null;
+  isNewUser: boolean;
+  firstAccessStatus?: string;
+  initialPassword?: string | null;
+}
+export interface TemporaryPasswordResult {
+  userId: string;
+  fullName: string;
+  email: string;
+  temporaryPassword: string;
+}
 export interface ManagementCondominium {
-  id: string
-  name: string
-  isActive: boolean
+  id: string;
+  name: string;
+  isActive: boolean;
 }
 
 export interface ManagementContextResponse {
-  activeManagementCondominiumId: string | null
-  usesConsolidatedManagementScope: boolean
-  condominiumCount: number
-  activeCondominium: ManagementCondominium | null
-  availableCondominiums: ManagementCondominium[]
+  activeManagementCondominiumId: string | null;
+  usesConsolidatedManagementScope: boolean;
+  condominiumCount: number;
+  activeCondominium: ManagementCondominium | null;
+  availableCondominiums: ManagementCondominium[];
 }

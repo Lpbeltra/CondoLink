@@ -5,6 +5,8 @@ using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
+using System.Text;
 
 namespace CondoLink.Api.Features.CondominiumMembers;
 
@@ -23,6 +25,8 @@ public static class ListCondominiumMembers
 
     private static async Task<IResult> HandleAsync(
         Guid condominiumId,
+        string? search,
+        string? status,
         ClaimsPrincipal principal,
         AppDbContext dbContext,
         CancellationToken cancellationToken)
@@ -143,8 +147,6 @@ public static class ListCondominiumMembers
                     on unit.BlockId equals block.Id into blocks
                 from block in blocks.DefaultIfEmpty()
                 where unit.CondominiumId == condominiumId
-                    && link.IsActive
-                    && link.EndedAt == null
                 select new
                 {
                     link.UserId,
@@ -155,7 +157,9 @@ public static class ListCondominiumMembers
                         block == null ? null : block.Identifier,
                         link.RelationshipType.ToString(),
                         link.IsResident,
-                        link.IsPrimaryResidence)
+                        link.IsPrimaryResidence,
+                        link.IsActive,
+                        link.EndedAt)
                 })
             .ToListAsync(cancellationToken);
         var linksByUser = unitLinks
@@ -191,7 +195,13 @@ public static class ListCondominiumMembers
                 row.JoinedAt,
                 row.EndedAt
             })
-            .Select(group => new Response(
+            .Select(group =>
+            {
+                var links = linksByUser.GetValueOrDefault(group.Key.UserId, []);
+                var isResidentActive = links.Count == 0
+                    ? group.Key.MembershipActive
+                    : links.Any(link => link.IsActive);
+                return new Response(
                 group.Key.MembershipId,
                 group.Key.UserId,
                 group.Key.FullName,
@@ -216,16 +226,40 @@ public static class ListCondominiumMembers
                 group.Key.MembershipActive,
                 group.Key.JoinedAt,
                 group.Key.EndedAt,
+                isResidentActive,
                 group
                     .Where(row => row.Role.HasValue)
                     .OrderBy(row => row.Role)
                     .Select(row => row.Role!.Value.ToString())
                     .ToArray(),
-                linksByUser.GetValueOrDefault(
-                    group.Key.UserId,
-                    [])))
+                links,
+                false,
+                "A elegibilidade é revalidada ao excluir.");
+            })
             .OrderBy(member => member.FullName)
             .ToArray();
+
+        var normalizedSearch = NormalizeSearch(search);
+        var requestedActive = status?.ToLowerInvariant() switch
+        {
+            "active" => true,
+            "inactive" => false,
+            _ => (bool?)null
+        };
+        response = response.Where(member =>
+                (!requestedActive.HasValue || requestedActive.Value == member.IsResidentActive)
+                && (normalizedSearch is null || SearchText(member).Contains(normalizedSearch, StringComparison.Ordinal)))
+            .ToArray();
+
+        var eligibleIds = await FindDeleteEligibleUserIdsAsync(
+            condominiumId, response.Select(x => x.UserId).ToArray(), dbContext, cancellationToken);
+        response = response.Select(member => member with
+        {
+            CanDelete = eligibleIds.Contains(member.UserId),
+            DeleteBlockedReason = eligibleIds.Contains(member.UserId)
+                ? null
+                : "Este morador possui histórico ou outros vínculos e não pode ser excluído. Você pode inativá-lo."
+        }).ToArray();
 
         return Results.Ok(response);
     }
@@ -249,8 +283,11 @@ public static class ListCondominiumMembers
         bool MembershipActive,
         DateTime JoinedAt,
         DateTime? EndedAt,
+        bool IsResidentActive,
         IReadOnlyList<string> Roles,
-        IReadOnlyList<UnitLinkResponse> UnitLinks);
+        IReadOnlyList<UnitLinkResponse> UnitLinks,
+        bool CanDelete,
+        string? DeleteBlockedReason);
 
     public sealed record UnitLinkResponse(
         Guid UnitMembershipId,
@@ -259,5 +296,49 @@ public static class ListCondominiumMembers
         string? Block,
         string RelationshipType,
         bool IsResident,
-        bool IsPrimaryResidence);
+        bool IsPrimaryResidence,
+        bool IsActive,
+        DateTime? EndedAt);
+
+    private static string? NormalizeSearch(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var decomposed = value.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        return new string(decomposed.Where(character =>
+            CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark
+            && !char.IsPunctuation(character) && !char.IsWhiteSpace(character)).ToArray());
+    }
+
+    private static string SearchText(Response member) => NormalizeSearch(
+        $"{member.FullName} {member.Email} {member.PhoneNumber} "
+        + string.Join(' ', member.UnitLinks.Select(x => $"{x.Block} {x.UnitIdentifier}"))) ?? "";
+
+    private static async Task<HashSet<Guid>> FindDeleteEligibleUserIdsAsync(Guid condominiumId, Guid[] userIds,
+        AppDbContext db, CancellationToken ct)
+    {
+        if (userIds.Length == 0) return [];
+        var blocked = new HashSet<Guid>();
+        void Add(IEnumerable<Guid> ids) { foreach (var id in ids) blocked.Add(id); }
+        Add(await db.Requests.Where(x => userIds.Contains(x.AuthorUserId)).Select(x => x.AuthorUserId).Distinct().ToListAsync(ct));
+        Add(await db.RequestMessages.Where(x => userIds.Contains(x.AuthorUserId)).Select(x => x.AuthorUserId).Distinct().ToListAsync(ct));
+        Add(await db.RequestStatusHistories.Where(x => userIds.Contains(x.ChangedByUserId)).Select(x => x.ChangedByUserId).Distinct().ToListAsync(ct));
+        Add(await db.RequestAttachments.Where(x => userIds.Contains(x.UploadedByUserId)).Select(x => x.UploadedByUserId).Distinct().ToListAsync(ct));
+        Add(await db.RequestResidentReplyRequirements.Where(x => userIds.Contains(x.RequestedByUserId)).Select(x => x.RequestedByUserId).Distinct().ToListAsync(ct));
+        Add(await db.Notifications.Where(x => userIds.Contains(x.RecipientUserId)).Select(x => x.RecipientUserId).Distinct().ToListAsync(ct));
+        Add(await db.UnitMemberships.Where(x => userIds.Contains(x.UserId)).GroupBy(x => x.UserId).Where(x => x.Count() > 1).Select(x => x.Key).ToListAsync(ct));
+        Add(await db.CondominiumMemberships.Where(x => userIds.Contains(x.UserId) && x.CondominiumId != condominiumId).Select(x => x.UserId).Distinct().ToListAsync(ct));
+        Add(await db.CondominiumMemberships.Where(x => userIds.Contains(x.UserId)).GroupBy(x => x.UserId).Where(x => x.Count() > 1).Select(x => x.Key).ToListAsync(ct));
+        Add(await (from membership in db.CondominiumMemberships
+                   join role in db.CondominiumMembershipRoles on membership.Id equals role.CondominiumMembershipId
+                   where userIds.Contains(membership.UserId) && role.Role == CondominiumRole.Manager
+                   select membership.UserId).Distinct().ToListAsync(ct));
+        Add(await db.ManagementCompanyEmployees.Where(x => userIds.Contains(x.UserId)).Select(x => x.UserId).Distinct().ToListAsync(ct));
+        Add(await db.WhatsAppOutboundMessages.Where(x => userIds.Contains(x.UserId)).Select(x => x.UserId).Distinct().ToListAsync(ct));
+        Add(await db.WhatsAppPhoneVerifications.Where(x => userIds.Contains(x.UserId)).Select(x => x.UserId).Distinct().ToListAsync(ct));
+        Add(await db.WhatsAppInboundMessages.Where(x => x.IdentifiedUserId.HasValue && userIds.Contains(x.IdentifiedUserId.Value)).Select(x => x.IdentifiedUserId.Value).Distinct().ToListAsync(ct));
+        Add(await db.WhatsAppSessions.Where(x => x.UserId.HasValue && userIds.Contains(x.UserId.Value)).Select(x => x.UserId.Value).Distinct().ToListAsync(ct));
+        Add(await db.CondominiumDocuments.Where(x => userIds.Contains(x.UploadedByUserId)).Select(x => x.UploadedByUserId).Distinct().ToListAsync(ct));
+        Add(await db.CondominiumAssistantConversations.Where(x => userIds.Contains(x.CreatedByUserId)).Select(x => x.CreatedByUserId).Distinct().ToListAsync(ct));
+        return userIds.Where(id => !blocked.Contains(id)).ToHashSet();
+    }
 }

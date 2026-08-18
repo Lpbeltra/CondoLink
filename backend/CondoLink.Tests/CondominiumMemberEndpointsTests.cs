@@ -38,6 +38,7 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
             application.MapAddCondominiumMemberRole();
             application.MapOnboardCondominiumMember();
             application.MapListCondominiumMembers();
+            application.MapManageResidentLifecycle();
             application.MapUpdateCondominiumMember();
         });
 
@@ -77,6 +78,47 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
     }
 
     public async Task DisposeAsync() => await _host.DisposeAsync();
+
+    [Fact]
+    public async Task Manager_can_inactivate_and_reactivate_the_exact_residential_link()
+    {
+        var linkId = await _host.WithDbAsync(async db =>
+        {
+            var link = new UnitMembership(_residentId, _unitId, UnitRelationshipType.Owner, true, true);
+            db.UnitMemberships.Add(link);
+            await db.SaveChangesAsync();
+            return link.Id;
+        });
+
+        var client = _host.ClientFor(_managerId);
+        var inactivated = await client.PostAsync($"/condominiums/{_condominiumId}/members/{_residentId}/unit-memberships/{linkId}/inactivate", null);
+        Assert.Equal(HttpStatusCode.NoContent, inactivated.StatusCode);
+        Assert.False(await _host.WithDbAsync(db => db.UnitMemberships.Where(x => x.Id == linkId).Select(x => x.IsActive).SingleAsync()));
+
+        var reactivated = await client.PostAsync($"/condominiums/{_condominiumId}/members/{_residentId}/unit-memberships/{linkId}/reactivate", null);
+        Assert.Equal(HttpStatusCode.NoContent, reactivated.StatusCode);
+        Assert.True(await _host.WithDbAsync(db => db.UnitMemberships.Where(x => x.Id == linkId).Select(x => x.IsActive).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Safe_delete_removes_a_person_without_history()
+    {
+        var response = await _host.ClientFor(_managerId)
+            .DeleteAsync($"/condominiums/{_condominiumId}/members/{_residentId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.False(await _host.WithDbAsync(db => db.Users.AnyAsync(x => x.Id == _residentId)));
+    }
+
+    [Fact]
+    public async Task Another_condominium_manager_cannot_change_resident_lifecycle()
+    {
+        var response = await _host.ClientFor(_otherManagerId)
+            .DeleteAsync($"/condominiums/{_condominiumId}/members/{_residentId}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.True(await _host.WithDbAsync(db => db.Users.AnyAsync(x => x.Id == _residentId)));
+    }
 
     [Fact]
     public async Task Manager_can_update_profile_and_create_unit_link()

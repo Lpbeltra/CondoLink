@@ -264,6 +264,7 @@ app.MapListCondominiums();
 app.MapAddCondominiumMember();
 app.MapAddCondominiumMemberRole();
 app.MapListCondominiumMembers();
+app.MapManageResidentLifecycle();
 app.MapOnboardCondominiumMember();
 app.MapResetMemberTemporaryPassword();
 app.MapUpdateCondominiumMember();
