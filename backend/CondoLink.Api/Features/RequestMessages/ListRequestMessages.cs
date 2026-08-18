@@ -139,6 +139,12 @@ public static class ListRequestMessages
                 && requirement.AnswerMessageId != null)
             .Select(requirement => requirement.AnswerMessageId!.Value)
             .ToListAsync(cancellationToken);
+        residentReplyMessageIds.AddRange(await dbContext.RequestClosureConfirmations
+            .AsNoTracking()
+            .Where(confirmation => confirmation.RequestId == requestId
+                && confirmation.ResponseMessageId != null)
+            .Select(confirmation => confirmation.ResponseMessageId!.Value)
+            .ToListAsync(cancellationToken));
 
         var messages = rows
             .Select(message => new Response(

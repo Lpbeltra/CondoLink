@@ -190,6 +190,7 @@ public static class GetRequestById
         RequestAiAnalysisResponse? aiAnalysis = null;
         OriginalReportResponse? originalReport = null;
         ResidentReplyRequirementResponse? residentReplyRequirement = null;
+        ResidentClosureProposalResponse? residentClosureProposal = null;
         var hasUnreadResidentReply = false;
         var hasUnreadResidentUpdate = false;
         if (request.AuthorUserId == authenticatedUserId)
@@ -198,6 +199,17 @@ public static class GetRequestById
                 .AsNoTracking().Where(x => x.RequestId == id && x.IsActive)
                 .Select(x => new ResidentReplyRequirementResponse(x.Id, x.Question,
                     x.RequestedAt, x.IsActive)).SingleOrDefaultAsync(cancellationToken);
+            if (request.Status == RequestStatus.WaitingForResidentClosure)
+            {
+                residentClosureProposal = await dbContext.RequestClosureConfirmations
+                    .AsNoTracking()
+                    .Where(x => x.RequestId == id
+                        && x.Status == RequestClosureConfirmationStatus.Pending)
+                    .OrderByDescending(x => x.RequestedAt)
+                    .Select(x => new ResidentClosureProposalResponse(
+                        x.Conclusion, x.RequestedAt, x.ExpiresAt))
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
         }
         if (isCondominiumManager)
         {
@@ -265,6 +277,7 @@ public static class GetRequestById
             aiAnalysis,
             originalReport,
             residentReplyRequirement,
+            residentClosureProposal,
             hasUnreadResidentReply,
             hasUnreadResidentUpdate);
 
@@ -321,6 +334,8 @@ public static class GetRequestById
         string ContentType, long FileSize, string ContentUrl);
     public sealed record ResidentReplyRequirementResponse(Guid Id, string Question,
         DateTime RequestedAt, bool IsActive);
+    public sealed record ResidentClosureProposalResponse(string Conclusion,
+        DateTime RequestedAt, DateTime ExpiresAt);
 
     public sealed record StatusHistoryResponse(
         Guid Id,
@@ -349,6 +364,7 @@ public static class GetRequestById
         RequestAiAnalysisResponse? AiAnalysis,
         OriginalReportResponse? OriginalReport,
         ResidentReplyRequirementResponse? ResidentReplyRequirement,
+        ResidentClosureProposalResponse? ResidentClosureProposal,
         bool HasUnreadResidentReply,
         bool HasUnreadResidentUpdate);
 }

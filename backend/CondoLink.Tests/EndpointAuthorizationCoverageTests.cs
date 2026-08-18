@@ -259,6 +259,7 @@ public sealed class EndpointAuthorizationCoverageTests
 
         app.MapCreateRequest();
         app.MapCreateResidentReply();
+        app.MapManageResidentClosure();
         app.MapGetRequestById();
         app.MapListMyRequests();
         app.MapListCondominiumRequests();

@@ -7,7 +7,7 @@ export const statusPresentation: Record<RequestStatus, { label: string; color: '
   WaitingForResident: { label: 'Aguardando morador', color: 'warning' },
   WaitingForManager: { label: 'Dar andamento', color: 'secondary' },
   WaitingForThirdParty: { label: 'Aguardando terceiro', color: 'default' },
-  WaitingForResidentClosure: { label: 'Concluído pelo síndico - Aguardando conclusão do morador', color: 'warning' },
+  WaitingForResidentClosure: { label: 'Conclusão aguardando confirmação', color: 'warning' },
   Resolved: { label: 'Resolvida', color: 'success' },
   Cancelled: { label: 'Cancelada', color: 'default' },
 }

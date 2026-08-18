@@ -11,11 +11,15 @@ public sealed class RequestClosureService(AppDbContext db, NotificationService n
     ILogger<RequestClosureService>? logger = null)
 {
     public Task<Result> ConfirmAsync(Guid requestId, Guid residentId, CancellationToken ct) =>
-        DecideAsync(requestId, residentId, null, true, ct);
+        DecideAsync(requestId, residentId, null, true, MessageChannel.Portal, ct);
     public Task<Result> QuestionAsync(Guid requestId, Guid residentId, string text, CancellationToken ct) =>
-        DecideAsync(requestId, residentId, text.Trim()[..Math.Min(text.Trim().Length, 4000)], false, ct);
+        QuestionAsync(requestId, residentId, text, MessageChannel.WhatsAppResidentUpdate, ct);
+    public Task<Result> QuestionAsync(Guid requestId, Guid residentId, string text,
+        MessageChannel channel, CancellationToken ct) =>
+        DecideAsync(requestId, residentId, text.Trim()[..Math.Min(text.Trim().Length, 4000)], false, channel, ct);
 
-    private async Task<Result> DecideAsync(Guid requestId, Guid residentId, string? question, bool confirmed, CancellationToken ct)
+    private async Task<Result> DecideAsync(Guid requestId, Guid residentId, string? question, bool confirmed,
+        MessageChannel channel, CancellationToken ct)
     {
         var request = await db.Requests.AsNoTracking().SingleOrDefaultAsync(x => x.Id == requestId, ct);
         if (request is null || request.AuthorUserId != residentId) return new(false, "not_found");
@@ -23,7 +27,7 @@ public sealed class RequestClosureService(AppDbContext db, NotificationService n
         var now = DateTime.UtcNow;
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         RequestMessage? message = null;
-        if (!confirmed) { message = new RequestMessage(requestId, residentId, question!, MessageChannel.WhatsAppResidentUpdate); db.RequestMessages.Add(message); await db.SaveChangesAsync(ct); }
+        if (!confirmed) { message = new RequestMessage(requestId, residentId, question!, channel); db.RequestMessages.Add(message); await db.SaveChangesAsync(ct); }
         var target = confirmed ? RequestStatus.Resolved : RequestStatus.InProgress;
         var changed = await db.Requests.Where(x => x.Id == requestId && x.Status == RequestStatus.WaitingForResidentClosure)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, target).SetProperty(x => x.UpdatedAt, now)
@@ -39,7 +43,7 @@ public sealed class RequestClosureService(AppDbContext db, NotificationService n
         db.RequestStatusHistories.Add(new RequestStatusHistory(requestId, RequestStatus.WaitingForResidentClosure,
             target, residentId, historyText, now));
         if (message is not null) await notifications.NotifyMessageAsync(requestId, request.CondominiumId,
-            residentId, request.Title, residentId, question!, ct, message.Id, MessageChannel.WhatsAppResidentUpdate);
+            residentId, request.Title, residentId, question!, ct, message.Id, channel);
         await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
         if (analysis is not null) await analysis.RefreshAsync(requestId, confirmed ? "closure_confirmed" : "closure_questioned", ct);
         return new(true, confirmed ? "confirmed" : "questioned");

@@ -16,6 +16,7 @@ import { RequestAttachments } from '../requests/components/RequestAttachments'
 import { canViewInternalRequestDetails, RequestAiAssistant } from '../requests/components/RequestAiAssistant'
 import { OriginalReportAccordion } from '../requests/components/OriginalReportAccordion'
 import { ResidentReplyPanel } from '../requests/components/ResidentReplyPanel'
+import { ResidentClosurePanel } from '../requests/components/ResidentClosurePanel'
 import { ResidentUpdateAcknowledgement } from '../requests/components/ResidentUpdateAcknowledgement'
 import { useVisiblePolling } from '../hooks/useVisiblePolling'
 
@@ -33,6 +34,7 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
   const [messages, setMessages] = useState<RequestMessage[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [actionFeedback, setActionFeedback] = useState('')
   const loadVersion = useRef(0)
   const expectedCondominiumId = managementMode ? managementCondominiumId : currentCondominium?.condominium.id
   const returnPath = managementMode || (location.state as { fromManagement?: boolean } | null)?.fromManagement ? '/management/requests' : '/requests'
@@ -61,6 +63,7 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
 
   const unit = details.targetUnit && `${details.targetUnit.block ? `Bloco ${details.targetUnit.block} · ` : ''}${details.targetUnit.identifier}`
   const residentReadOnly = !managementMode && isClosedRequest(details.status)
+  const residentClosurePending = !managementMode && details.status === 'WaitingForResidentClosure'
   const canViewInternal = canViewInternalRequestDetails(
     managementMode, isManager, details.condominiumId, expectedCondominiumId)
   return (
@@ -68,8 +71,9 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
       <Button startIcon={<ArrowBackRoundedIcon />} color="inherit" onClick={() => navigate(returnPath)} sx={{ mb: 2 }}>Voltar</Button>
       {managementMode && <Button sx={{ ml: 1, mb: 2 }} variant="outlined" onClick={() => navigate(`/management/assistant?requestId=${details.id}`)}>Consultar assistente</Button>}
       {(location.state as { created?: boolean } | null)?.created && <Alert severity="success" sx={{ mb: 2 }}>Solicitação aberta com sucesso.</Alert>}
+      {actionFeedback && <Alert severity="success" sx={{ mb: 2 }}>{actionFeedback}</Alert>}
       {residentReadOnly && <Alert severity="info" sx={{ mb: 2 }}>Esta solicitação está encerrada e disponível somente para consulta.</Alert>}
-      {details.status === 'WaitingForResidentClosure' && <Alert severity="warning" sx={{ mb: 2 }}>A administração concluiu este atendimento e aguarda a confirmação do morador.</Alert>}
+      {managementMode && details.status === 'WaitingForResidentClosure' && <Alert severity="warning" sx={{ mb: 2 }}>A administração concluiu este atendimento e aguarda a confirmação do morador.</Alert>}
       {managementMode && details.hasUnreadResidentReply && <Alert severity="warning" sx={{ mb: 2 }}>Morador respondeu — requer andamento.</Alert>}
       {managementMode && <ResidentUpdateAcknowledgement requestId={details.id} visible={Boolean(details.hasUnreadResidentUpdate)} onAcknowledged={() => setDetails(current => current ? { ...current, hasUnreadResidentUpdate: false } : current)} />}
       <Grid container spacing={3}>
@@ -83,11 +87,12 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
             {unit && <><Divider sx={{ my: 3 }} /><Typography variant="h3" mb={1}>Unidade relacionada</Typography><Typography>{unit}</Typography></>}
           </CardContent></Card>
           {canViewInternal && <RequestManagementActions requestId={details.id} status={details.status} priority={details.priority} onUpdated={load} />}
-          <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}><Typography variant="h2" mb={.5}>Atualizações</Typography><Typography color="text.secondary" mb={3}>{residentReadOnly ? 'Consulte o histórico de mensagens do atendimento.' : 'Registre novas informações e acompanhe o atendimento.'}</Typography><RequestConversation requestId={details.id} status={details.status} messages={messages} residentSummary={details.aiAnalysis?.description} readOnly={residentReadOnly || (!managementMode && Boolean(details.residentReplyRequirement))} onMessageCreated={(message) => setMessages((current) => [...current, message])} /></CardContent></Card>
+          {!managementMode && details.residentClosureProposal && <ResidentClosurePanel requestId={details.id} proposal={details.residentClosureProposal} onUpdated={async feedback => { if (feedback) setActionFeedback(feedback); await load() }} />}
+          <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}><Typography variant="h2" mb={.5}>Atualizações</Typography><Typography color="text.secondary" mb={3}>{residentReadOnly ? 'Consulte o histórico de mensagens do atendimento.' : 'Registre novas informações e acompanhe o atendimento.'}</Typography><RequestConversation requestId={details.id} status={details.status} messages={messages} residentSummary={details.aiAnalysis?.description} readOnly={residentReadOnly || residentClosurePending || (!managementMode && Boolean(details.residentReplyRequirement))} onMessageCreated={(message) => setMessages((current) => [...current, message])} /></CardContent></Card>
           {canViewInternal && <RequestAiAssistant analysis={details.aiAnalysis} />}
           {canViewInternal && <OriginalReportAccordion key={details.id} requestId={details.id} report={details.originalReport} messages={messages} authorId={details.author.id} portalDescription={details.description} requestCreatedAt={details.createdAt} />}
           {!managementMode && details.residentReplyRequirement && <ResidentReplyPanel requestId={details.id} requirement={details.residentReplyRequirement} onSent={load} />}
-          <RequestAttachments requestId={details.id} readOnly={residentReadOnly || Boolean(!managementMode && details.residentReplyRequirement)} />
+          <RequestAttachments requestId={details.id} readOnly={residentReadOnly || residentClosurePending || Boolean(!managementMode && details.residentReplyRequirement)} />
         </Grid>
         <Grid size={{ xs: 12, lg: 4 }}><Card elevation={0}><CardContent sx={{ p: { xs: 2.5, sm: 3 } }}><Typography variant="h2" mb={3}>Histórico de status</Typography><RequestTimeline history={details.statusHistory} messages={messages} /></CardContent></Card></Grid>
       </Grid>

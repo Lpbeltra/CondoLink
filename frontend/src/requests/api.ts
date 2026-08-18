@@ -56,6 +56,14 @@ export async function createResidentReply(requestId: string, message: string, fi
   )).data
 }
 
+export async function confirmResidentClosure(requestId: string) {
+  return (await api.post<{ code: 'confirmed' }>(`/requests/${requestId}/resident-closure/confirm`)).data
+}
+
+export async function questionResidentClosure(requestId: string, message: string) {
+  return (await api.post<{ code: 'questioned' }>(`/requests/${requestId}/resident-closure/question`, { message })).data
+}
+
 export async function updateRequestStatus(requestId: string, status: RequestStatus, reason: string | null) {
   return (await api.patch(`/requests/${requestId}/status`, { status, reason })).data
 }

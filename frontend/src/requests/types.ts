@@ -38,11 +38,13 @@ export interface RequestDetails extends RequestListItem {
   aiAnalysis: RequestAiAnalysis | null
   originalReport: OriginalReport | null
   residentReplyRequirement: ResidentReplyRequirement | null
+  residentClosureProposal?: ResidentClosureProposal | null
   hasUnreadResidentReply?: boolean
   hasUnreadResidentUpdate?: boolean
 }
 
 export interface ResidentReplyRequirement { id: string; question: string; requestedAt: string; isActive: boolean }
+export interface ResidentClosureProposal { conclusion: string; requestedAt: string; expiresAt: string }
 
 export interface RequestAiAnalysis {
   title: string

@@ -7,12 +7,12 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon.svg'],
+      includeAssets: ['icon.svg', 'icon-maskable.svg'],
       manifest: {
         name: 'Comvy',
         short_name: 'Comvy',
         description: 'Comunicação clara entre moradores, síndicos e administradoras.',
-        theme_color: '#1f5eff',
+        theme_color: '#6682f4',
         background_color: '#f6f8fc',
         display: 'standalone',
         start_url: '/',

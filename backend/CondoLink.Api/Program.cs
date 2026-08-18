@@ -302,6 +302,7 @@ app.MapListCondominiumRequests();
 app.MapUpdateRequestStatus();
 app.MapUpdateRequestPriority();
 app.MapCreateResidentReply();
+app.MapManageResidentClosure();
 
 // Reports
 app.MapGetRequestReport();

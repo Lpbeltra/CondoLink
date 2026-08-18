@@ -1,4 +1,5 @@
 using CondoLink.Api.Features.Notifications;
+using System.Net.Http.Json;
 using CondoLink.Api.Features.Requests;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
@@ -17,7 +18,7 @@ public sealed class RequestClosureServiceTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        _host = await CoreEndpointTestHost.StartAsync(_ => { }, builder =>
+        _host = await CoreEndpointTestHost.StartAsync(app => app.MapManageResidentClosure(), builder =>
         {
             builder.Services.AddScoped<RequestClosureService>();
         });
@@ -38,6 +39,37 @@ public sealed class RequestClosureServiceTests : IAsyncLifetime
     }
 
     public Task DisposeAsync() => _host.DisposeAsync().AsTask();
+
+    [Fact]
+    public async Task Portal_confirmation_uses_the_shared_closure_service()
+    {
+        await ArrangePendingAsync(DateTime.UtcNow);
+        var response = await _host.ClientFor(_residentId)
+            .PostAsync($"/requests/{_requestId}/resident-closure/confirm", null);
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(RequestStatus.Resolved,
+            await _host.WithDbAsync(db => db.Requests.Where(x => x.Id == _requestId).Select(x => x.Status).SingleAsync()));
+        Assert.Equal(System.Net.HttpStatusCode.Conflict, (await _host.ClientFor(_residentId)
+            .PostAsync($"/requests/{_requestId}/resident-closure/confirm", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Portal_question_is_an_update_on_the_same_request()
+    {
+        await ArrangePendingAsync(DateTime.UtcNow);
+        var response = await _host.ClientFor(_residentId).PostAsJsonAsync(
+            $"/requests/{_requestId}/resident-closure/question", new { message = "Ainda não funcionou." });
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(RequestStatus.InProgress,
+                await db.Requests.Where(x => x.Id == _requestId).Select(x => x.Status).SingleAsync());
+            var message = Assert.Single(await db.RequestMessages.Where(x => x.RequestId == _requestId).ToArrayAsync());
+            Assert.Equal(MessageChannel.Portal, message.Channel);
+            Assert.Equal(RequestClosureConfirmationStatus.Questioned,
+                await db.RequestClosureConfirmations.Select(x => x.Status).SingleAsync());
+        });
+    }
 
     [Fact]
     public async Task Resident_confirmation_resolves_once_and_closes_session()
