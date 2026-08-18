@@ -7,6 +7,8 @@ const managementApi = vi.hoisted(() => ({
   listCondominiumMembers: vi.fn(),
   listUnits: vi.fn(),
   onboardMember: vi.fn(),
+  resendFirstAccess: vi.fn(),
+  createFirstAccessLink: vi.fn(),
   resetMemberTemporaryPassword: vi.fn(),
   updateCondominiumMember: vi.fn(),
 }))
@@ -28,6 +30,8 @@ const member: CondominiumMember = {
   phoneNumber: null,
   userActive: true,
   mustChangePassword: false,
+  emailDeliveryEnabled: true,
+  firstAccessStatus: 'Completed',
   lastLoginAt: null,
   membershipActive: true,
   joinedAt: '2026-07-28T10:00:00Z',

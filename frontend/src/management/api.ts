@@ -30,7 +30,11 @@ export const listCategories = async (condominiumId: string) => (await api.get<Ca
 export const createCategory = async (condominiumId: string, payload: { name: string; description: string | null }) => (await api.post<Category>(`/condominiums/${condominiumId}/categories`, payload)).data
 export const updateCategory = async (condominiumId: string, categoryId: string, name: string) => (await api.put<Category>(`/condominiums/${condominiumId}/categories/${categoryId}`, { name })).data
 export const deleteCategory = async (condominiumId: string, categoryId: string) => api.delete(`/condominiums/${condominiumId}/categories/${categoryId}`)
-export const onboardMember = async (condominiumId: string, payload: { fullName: string; email: string; phoneNumber: string | null; unitId: string | null; relationshipType: RelationshipType | null; isResident: boolean; isPrimaryResidence: boolean }) => (await api.post<OnboardResult>(`/condominiums/${condominiumId}/members/onboard`, payload)).data
+export const onboardMember = async (condominiumId: string, payload: { fullName: string; email: string; phoneNumber: string | null; unitId: string | null; relationshipType: RelationshipType | null; isResident: boolean; isPrimaryResidence: boolean; sendAccessEmail: boolean }) => (await api.post<OnboardResult>(`/condominiums/${condominiumId}/members/onboard`, payload)).data
+export const resendFirstAccess = async (condominiumId: string, userId: string) =>
+  (await api.post(`/condominiums/${condominiumId}/members/${userId}/first-access/resend`)).data
+export const createFirstAccessLink = async (condominiumId: string, userId: string) =>
+  (await api.post<{link:string}>(`/condominiums/${condominiumId}/members/${userId}/first-access/link`)).data
 export const resetMemberTemporaryPassword = async (condominiumId: string, userId: string) =>
   (await api.post<TemporaryPasswordResult>(
     `/condominiums/${condominiumId}/members/${userId}/reset-temporary-password`,

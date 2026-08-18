@@ -16,6 +16,7 @@ export interface SetupResidentRow {
   relationship: string | null
   resident: string | null
   primaryResidence: string | null
+  sendAccessEmail?: string | null
 }
 
 export interface SetupDraft {
@@ -45,6 +46,7 @@ export interface SetupPreview {
     resident: boolean
     primaryResidence: boolean
     existingUser: boolean
+    sendAccessEmail: boolean
     status: 'Ready' | 'ExistingUser' | 'ExistingMembership' | 'Warning' | 'Conflict' | 'Invalid'
     normalizedPhone: string | null
   }[]
@@ -70,6 +72,10 @@ export interface SetupConfirmation {
     temporaryPassword: string
   }[]
   message: string
+  usersCreated?: number
+  usersReused?: number
+  invitationsSent?: number
+  accessPending?: number
 }
 
 export interface GeneratorSegment {

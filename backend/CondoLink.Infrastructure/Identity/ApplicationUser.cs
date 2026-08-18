@@ -45,6 +45,9 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     public string? State { get; private set; }
     public bool IsActive { get; private set; }
     public bool MustChangePassword { get; private set; }
+    public bool EmailDeliveryEnabled { get; private set; }
+    public DateTime? FirstAccessInviteSentAt { get; private set; }
+    public DateTime? FirstAccessInviteFailedAt { get; private set; }
     public bool ReceiveWhatsAppUpdates { get; private set; }
     public DateTime? LastLoginAt { get; private set; }
     public DateTime? PasswordChangedAt { get; private set; }
@@ -95,6 +98,25 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     {
         MustChangePassword = true;
         UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetEmailDeliveryEnabled(bool enabled)
+    {
+        EmailDeliveryEnabled = enabled;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void MarkFirstAccessInviteSent(DateTime sentAt)
+    {
+        FirstAccessInviteSentAt = sentAt;
+        FirstAccessInviteFailedAt = null;
+        UpdatedAt = sentAt;
+    }
+
+    public void MarkFirstAccessInviteFailed(DateTime failedAt)
+    {
+        FirstAccessInviteFailedAt = failedAt;
+        UpdatedAt = failedAt;
     }
 
     public void MarkPasswordChanged(DateTime changedAt)

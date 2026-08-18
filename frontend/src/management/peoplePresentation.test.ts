@@ -13,6 +13,8 @@ function person(
     phoneNumber: null,
     userActive: true,
     mustChangePassword: false,
+    emailDeliveryEnabled: true,
+    firstAccessStatus: 'Completed',
     lastLoginAt: '2026-07-28T10:00:00Z',
     membershipActive: true,
     joinedAt: '2026-07-28T09:00:00Z',

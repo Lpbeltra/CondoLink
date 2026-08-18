@@ -55,6 +55,8 @@ public sealed class EndpointAuthorizationCoverageTests
         "/auth/login",
         // The temporary credential itself authenticates this one-time flow.
         "/auth/change-temporary-password",
+        "/auth/first-access/validate",
+        "/auth/first-access/complete",
         // Liveness probe: reports only reachability, no tenant data.
         "/health",
         // Meta verifies and delivers the webhook without a CondoLink JWT.
@@ -218,6 +220,7 @@ public sealed class EndpointAuthorizationCoverageTests
 
         app.MapLogin();
         app.MapChangeTemporaryPassword();
+        app.MapFirstAccess();
 
         app.MapCreateUser();
         app.MapGetCurrentUser();

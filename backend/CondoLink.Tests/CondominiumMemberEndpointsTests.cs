@@ -334,7 +334,7 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
         var body = await response.Content
             .ReadFromJsonAsync<OnboardCondominiumMember.Response>();
         Assert.True(body!.IsNewUser);
-        Assert.False(string.IsNullOrWhiteSpace(body.InitialPassword));
+        Assert.Equal("Pending", body.FirstAccessStatus);
         Assert.Equal("Novo Morador", body.User.FullName);
         Assert.Equal("novo@example.com", body.User.Email);
         Assert.Equal("(11) 99999-0001", body.User.PhoneNumber);
@@ -353,26 +353,21 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Onboarding_a_new_user_issues_a_password_that_satisfies_the_identity_policy()
+    public async Task Onboarding_a_new_user_keeps_an_internal_password_without_exposing_it()
     {
         var response = await OnboardAsync(
             _managerId, "Novo Morador", "novo@example.com");
         var body = await response.Content
             .ReadFromJsonAsync<OnboardCondominiumMember.Response>();
 
-        var passwordIsValid = false;
         await _host.WithServicesAsync(async services =>
         {
             var userManager = services
                 .GetRequiredService<UserManager<ApplicationUser>>();
             var user = await userManager.FindByIdAsync(
                 body!.User.Id.ToString());
-            passwordIsValid = await userManager.CheckPasswordAsync(
-                user!, body.InitialPassword!);
+            Assert.NotNull(user!.PasswordHash);
         });
-
-        Assert.True(passwordIsValid,
-            "The generated initial password must authenticate the new user.");
     }
 
     [Fact]
@@ -385,7 +380,7 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
         var body = await response.Content
             .ReadFromJsonAsync<OnboardCondominiumMember.Response>();
         Assert.False(body!.IsNewUser);
-        Assert.Null(body.InitialPassword);
+        Assert.Equal("Completed", body.FirstAccessStatus);
         Assert.Equal(_unlinkedUserId, body.User.Id);
         Assert.Equal("Sem Vinculo", body.User.FullName);
         Assert.True(await IsMemberAsync(_unlinkedUserId, _condominiumId));

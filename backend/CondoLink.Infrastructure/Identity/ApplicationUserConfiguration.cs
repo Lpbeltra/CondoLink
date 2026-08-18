@@ -49,6 +49,14 @@ public sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Appl
         builder.Property(user => user.MustChangePassword)
             .HasColumnName("must_change_password")
             .IsRequired();
+        builder.Property(user => user.EmailDeliveryEnabled)
+            .HasColumnName("email_delivery_enabled")
+            .HasDefaultValue(false)
+            .IsRequired();
+        builder.Property(user => user.FirstAccessInviteSentAt)
+            .HasColumnName("first_access_invite_sent_at");
+        builder.Property(user => user.FirstAccessInviteFailedAt)
+            .HasColumnName("first_access_invite_failed_at");
         builder.Property(user => user.ReceiveWhatsAppUpdates)
             .HasColumnName("receive_whatsapp_updates").HasDefaultValue(true).IsRequired();
 

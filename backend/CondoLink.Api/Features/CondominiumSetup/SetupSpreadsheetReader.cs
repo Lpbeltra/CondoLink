@@ -12,7 +12,8 @@ internal static class SetupSpreadsheetReader
     public static async Task<SpreadsheetResult> ReadAsync(
         IFormFile file,
         IReadOnlyList<string> expectedHeaders,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? optionalHeaders = null)
     {
         if (file.Length == 0)
             return SpreadsheetResult.Failure("Arquivo vazio.");
@@ -58,7 +59,8 @@ internal static class SetupSpreadsheetReader
                 + ". Não renomeie as colunas do modelo.");
         }
 
-        var indexes = expectedHeaders.ToDictionary(
+        var requestedHeaders = expectedHeaders.Concat(optionalHeaders ?? []).ToArray();
+        var indexes = requestedHeaders.ToDictionary(
             header => header,
             header => Array.FindIndex(
                 headers,
@@ -71,12 +73,12 @@ internal static class SetupSpreadsheetReader
         var data = rows.Skip(1)
             .Select((row, index) => new SpreadsheetRow(
                 index + 2,
-                expectedHeaders.ToDictionary(
+                requestedHeaders.ToDictionary(
                     header => header,
                     header =>
                     {
                         var column = indexes[header];
-                        return column < row.Count ? row[column] : string.Empty;
+                        return column >= 0 && column < row.Count ? row[column] : string.Empty;
                     },
                     StringComparer.OrdinalIgnoreCase)))
             .Where(row => row.Values.Values.Any(
@@ -280,6 +282,7 @@ internal static class SetupSpreadsheetReader
             "relacionamento" => "Relationship",
             "morador" => "Resident",
             "residência principal" or "residencia principal" => "PrimaryResidence",
+            "enviar acesso por e-mail" or "enviar acesso por email" => "SendAccessEmail",
             var header => header
         };
 }

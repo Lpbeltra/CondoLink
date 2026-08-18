@@ -124,6 +124,9 @@ public static class ListCondominiumMembers
                     user.State,
                     UserActive = user.IsActive,
                     user.MustChangePassword,
+                    user.EmailDeliveryEnabled,
+                    user.FirstAccessInviteSentAt,
+                    user.FirstAccessInviteFailedAt,
                     user.LastLoginAt,
                     MembershipActive = membership.IsActive,
                     membership.JoinedAt,
@@ -180,6 +183,9 @@ public static class ListCondominiumMembers
                 row.State,
                 row.UserActive,
                 row.MustChangePassword,
+                row.EmailDeliveryEnabled,
+                row.FirstAccessInviteSentAt,
+                row.FirstAccessInviteFailedAt,
                 row.LastLoginAt,
                 row.MembershipActive,
                 row.JoinedAt,
@@ -198,6 +204,14 @@ public static class ListCondominiumMembers
                 group.Key.State,
                 group.Key.UserActive,
                 group.Key.MustChangePassword,
+                group.Key.EmailDeliveryEnabled,
+                group.Key.MustChangePassword
+                    ? group.Key.FirstAccessInviteFailedAt.HasValue
+                        && (!group.Key.FirstAccessInviteSentAt.HasValue
+                            || group.Key.FirstAccessInviteFailedAt > group.Key.FirstAccessInviteSentAt)
+                            ? "DeliveryFailed"
+                            : group.Key.FirstAccessInviteSentAt.HasValue ? "InviteSent" : "Pending"
+                    : "Completed",
                 group.Key.LastLoginAt,
                 group.Key.MembershipActive,
                 group.Key.JoinedAt,
@@ -229,6 +243,8 @@ public static class ListCondominiumMembers
         string? State,
         bool UserActive,
         bool MustChangePassword,
+        bool EmailDeliveryEnabled,
+        string FirstAccessStatus,
         DateTime? LastLoginAt,
         bool MembershipActive,
         DateTime JoinedAt,

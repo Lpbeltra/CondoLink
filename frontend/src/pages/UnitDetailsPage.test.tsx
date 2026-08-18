@@ -50,6 +50,8 @@ const member: CondominiumMember = {
   phoneNumber: null,
   userActive: true,
   mustChangePassword: false,
+  emailDeliveryEnabled: true,
+  firstAccessStatus: 'Completed',
   lastLoginAt: null,
   membershipActive: true,
   joinedAt: '2026-07-28T10:00:00Z',

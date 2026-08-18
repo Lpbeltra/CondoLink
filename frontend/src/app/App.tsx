@@ -6,6 +6,7 @@ import { AppShell } from '../layout/AppShell'
 import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
 import { ChangePasswordPage } from '../pages/ChangePasswordPage'
+import { FirstAccessPage } from '../pages/FirstAccessPage'
 import { AppThemeProvider } from '../theme/AppThemeProvider'
 import { CondominiumProvider } from '../condominiums/CondominiumProvider'
 import { MyRequestsPage } from '../pages/MyRequestsPage'
@@ -58,6 +59,7 @@ export function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/change-password" element={<ChangePasswordPage />} />
+              <Route path="/primeiro-acesso" element={<FirstAccessPage />} />
               <Route element={<ProtectedRoute />}>
                 <Route element={<AppShell />}>
                   <Route index element={<HomePage />} />

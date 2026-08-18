@@ -1021,21 +1021,8 @@ function ConfirmationStep({
         {result.blocksCreated} blocos e {result.unitsCreated} unidades criados;{" "}
         {result.residentsLinked} moradores processados.
       </Typography>
-      {result.credentials.length > 0 && (
-        <Alert severity="warning">
-          Copie estas credenciais agora. As senhas temporárias são exibidas
-          somente nesta tela.
-        </Alert>
-      )}
-      <PreviewTable
-        title="Novas credenciais"
-        headers={["Nome", "E-mail", "Senha temporária"]}
-        rows={result.credentials.map((item) => [
-          item.fullName,
-          item.email,
-          item.temporaryPassword,
-        ])}
-      />
+      <Typography>{result.usersCreated ?? 0} usuários criados · {result.usersReused ?? 0} reutilizados</Typography>
+      <Typography>{result.invitationsSent ?? 0} convites enviados · {result.accessPending ?? 0} acessos pendentes</Typography>
       <Button variant="contained" onClick={onReset}>
         Finalizar
       </Button>

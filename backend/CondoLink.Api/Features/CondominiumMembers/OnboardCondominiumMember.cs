@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using CondoLink.Api.Features.Auth;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
@@ -23,6 +24,7 @@ public static class OnboardCondominiumMember
 
     private static async Task<IResult> HandleAsync(Guid condominiumId, Request request,
         ClaimsPrincipal principal, UserManager<ApplicationUser> userManager, AppDbContext dbContext,
+        IServiceProvider services,
         CancellationToken cancellationToken)
     {
         var claim = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
@@ -39,7 +41,7 @@ public static class OnboardCondominiumMember
             return Results.Json(new { error = "Only condominium managers can onboard members." }, statusCode: 403);
 
         var condominium = await dbContext.Condominiums.AsNoTracking().Where(x => x.Id == condominiumId)
-            .Select(x => new { x.IsActive }).SingleOrDefaultAsync(cancellationToken);
+            .Select(x => new { x.IsActive, x.Name }).SingleOrDefaultAsync(cancellationToken);
         if (condominium is null) return Results.NotFound(new { error = "Condominium not found." });
 
         var manager = await dbContext.CondominiumMemberships.AsNoTracking()
@@ -100,6 +102,7 @@ public static class OnboardCondominiumMember
             if (isNewUser)
             {
                 user.RequirePasswordChange();
+                user.SetEmailDeliveryEnabled(request.SendAccessEmail);
                 var identityResult = await userManager.CreateAsync(user, initialPassword!);
                 if (!identityResult.Succeeded)
                 {
@@ -107,6 +110,10 @@ public static class OnboardCondominiumMember
                     if (identityResult.Errors.Any(x => x.Code is "DuplicateEmail" or "DuplicateUserName")) return DuplicateEmail();
                     return Results.BadRequest(new { errors = identityResult.Errors.Select(x => x.Description).ToArray() });
                 }
+            }
+            else if (user.MustChangePassword)
+            {
+                user.SetEmailDeliveryEnabled(request.SendAccessEmail);
             }
 
             var membership = await dbContext.CondominiumMemberships.SingleOrDefaultAsync(
@@ -148,6 +155,11 @@ public static class OnboardCondominiumMember
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
+            var firstAccessService = services.GetService<FirstAccessService>();
+            var inviteSent = user.MustChangePassword && request.SendAccessEmail
+                && firstAccessService is not null
+                && await firstAccessService.SendAsync(user, condominium.Name, cancellationToken);
+
             return Results.Created($"/users/{user.Id}", new Response(
                 new UserResponse(user.Id, user.FullName, user.Email!, user.PhoneNumber, user.IsActive),
                 new MembershipResponse(membership.Id, membership.CondominiumId, membership.IsActive, membership.JoinedAt),
@@ -155,7 +167,7 @@ public static class OnboardCondominiumMember
                 unitMembership is null ? null : new UnitMembershipResponse(unitMembership.Id, unitMembership.UnitId,
                     unitMembership.RelationshipType.ToString(), unitMembership.IsResident, unitMembership.IsPrimaryResidence),
                 isNewUser,
-                initialPassword));
+                inviteSent ? "InviteSent" : user.MustChangePassword ? "Pending" : "Completed"));
         }
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
         {
@@ -201,10 +213,10 @@ public static class OnboardCondominiumMember
 
     private static IResult DuplicateEmail() => Results.Conflict(new { error = "A user with this email already exists." });
     public sealed record Request(string? FullName, string? Email, string? PhoneNumber, Guid? UnitId,
-        string? RelationshipType, bool IsResident, bool IsPrimaryResidence);
+        string? RelationshipType, bool IsResident, bool IsPrimaryResidence, bool SendAccessEmail = false);
     public sealed record UserResponse(Guid Id, string FullName, string Email, string? PhoneNumber, bool IsActive);
     public sealed record MembershipResponse(Guid Id, Guid CondominiumId, bool IsActive, DateTime JoinedAt);
     public sealed record UnitMembershipResponse(Guid Id, Guid UnitId, string RelationshipType, bool IsResident, bool IsPrimaryResidence);
     public sealed record Response(UserResponse User, MembershipResponse Membership, IReadOnlyList<string> Roles,
-        UnitMembershipResponse? UnitMembership, bool IsNewUser, string? InitialPassword);
+        UnitMembershipResponse? UnitMembership, bool IsNewUser, string FirstAccessStatus);
 }

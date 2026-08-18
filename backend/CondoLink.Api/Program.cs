@@ -103,6 +103,10 @@ builder.Services.AddHttpClient<IWhatsAppAudioTranscriptionService,
     client.BaseAddress = new Uri(settings.BaseUrl);
 });
 builder.Services.AddScoped<AuthenticationSessionService>();
+builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
+builder.Services.Configure<FirstAccessOptions>(builder.Configuration.GetSection(FirstAccessOptions.SectionName));
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+builder.Services.AddScoped<FirstAccessService>();
 builder.Services.AddSingleton<IPhoneVerificationMessageProtector,
     PhoneVerificationMessageProtector>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -244,6 +248,7 @@ app.MapGet(
 // Authentication
 app.MapLogin();
 app.MapChangeTemporaryPassword();
+app.MapFirstAccess();
 
 // Users
 app.MapCreateUser();

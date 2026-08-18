@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Globalization;
 using CondoLink.Domain.Entities;
+using CondoLink.Api.Features.Auth;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Identity;
@@ -116,7 +117,7 @@ public static class CondominiumSetupEndpoints
         if (residentsFile is not null)
         {
             var result = await SetupSpreadsheetReader.ReadAsync(
-                residentsFile, ResidentHeaders, cancellationToken);
+                residentsFile, ResidentHeaders, cancellationToken, ["SendAccessEmail"]);
             if (result.Error is not null)
                 return Results.BadRequest(new { error = result.Error });
             residents.AddRange(result.Rows.Select(row => new SetupResidentRow(
@@ -128,7 +129,8 @@ public static class CondominiumSetupEndpoints
                 row.Values["Phone"],
                 row.Values["Relationship"],
                 row.Values["Resident"],
-                row.Values["PrimaryResidence"])));
+                row.Values["PrimaryResidence"],
+                row.Values["SendAccessEmail"])));
         }
 
         var noUnits = string.Equals(
@@ -184,6 +186,7 @@ public static class CondominiumSetupEndpoints
         SetupRequest request,
         ClaimsPrincipal principal,
         UserManager<ApplicationUser> userManager,
+        IServiceProvider services,
         AppDbContext db,
         CancellationToken cancellationToken)
     {
@@ -249,7 +252,7 @@ public static class CondominiumSetupEndpoints
             var users = new Dictionary<string, ApplicationUser>(
                 StringComparer.OrdinalIgnoreCase);
             var memberships = new Dictionary<Guid, CondominiumMembership>();
-            var credentials = new List<SetupCredential>();
+            var usersToInvite = new List<ApplicationUser>();
             var residentsLinked = 0;
             var usersCreated = 0;
             var usersReused = 0;
@@ -271,6 +274,7 @@ public static class CondominiumSetupEndpoints
                         user = new ApplicationUser(
                             row.Name, row.Email, row.Phone);
                         user.RequirePasswordChange();
+                        user.SetEmailDeliveryEnabled(row.SendAccessEmail);
                         var password = GenerateTemporaryPassword();
                         var created = await userManager.CreateAsync(user, password);
                         if (!created.Succeeded)
@@ -282,16 +286,17 @@ public static class CondominiumSetupEndpoints
                                     + "Revise os dados e tente novamente."
                             });
                         }
-                        credentials.Add(new SetupCredential(
-                            user.Id,
-                            user.FullName,
-                            user.Email!,
-                            password));
+                        if (row.SendAccessEmail) usersToInvite.Add(user);
                         usersCreated++;
                     }
                     else
                     {
                         usersReused++;
+                        if (user.MustChangePassword)
+                        {
+                            user.SetEmailDeliveryEnabled(row.SendAccessEmail);
+                            if (row.SendAccessEmail) usersToInvite.Add(user);
+                        }
                     }
                     users[identityKey] = user;
                 }
@@ -359,11 +364,19 @@ public static class CondominiumSetupEndpoints
 
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            var condominiumName = await db.Condominiums.AsNoTracking()
+                .Where(x => x.Id == condominiumId).Select(x => x.Name)
+                .SingleAsync(cancellationToken);
+            var invitationsSent = 0;
+            var firstAccessService = services.GetService<FirstAccessService>();
+            if (firstAccessService is not null)
+                foreach (var user in usersToInvite.DistinctBy(x => x.Id))
+                    if (await firstAccessService.SendAsync(user, condominiumName, cancellationToken)) invitationsSent++;
             return Results.Ok(new SetupConfirmationResponse(
                 blocksCreated,
                 unitsCreated,
                 residentsLinked,
-                credentials,
+                [],
                 "Configuração concluída com sucesso.",
                 usersCreated,
                 usersReused,
@@ -371,7 +384,9 @@ public static class CondominiumSetupEndpoints
                 membershipsExisting,
                 Math.Max(0,
                     (request.Residents?.Count ?? 0) - preview.Residents.Count),
-                preview.Warnings.Count));
+                preview.Warnings.Count,
+                invitationsSent,
+                usersCreated - invitationsSent));
         }
         catch (DbUpdateException)
         {
@@ -572,6 +587,8 @@ public static class CondominiumSetupEndpoints
                 source.Resident, false, out var resident);
             var primaryValid = TryBoolean(
                 source.PrimaryResidence, false, out var primary);
+            var sendAccessEmailValid = TryBoolean(
+                source.SendAccessEmail, false, out var sendAccessEmail);
 
             if (block is not null)
             {
@@ -607,6 +624,10 @@ public static class CondominiumSetupEndpoints
             if (!primaryValid)
                 errors.Add(new SetupIssue(
                     source.Line, "PrimaryResidence",
+                    "Informe Sim ou Não. Também são aceitos Yes/No, True/False e 1/0."));
+            if (!sendAccessEmailValid)
+                errors.Add(new SetupIssue(
+                    source.Line, "SendAccessEmail",
                     "Informe Sim ou Não. Também são aceitos Yes/No, True/False e 1/0."));
             if (primary && !resident)
                 errors.Add(new SetupIssue(
@@ -835,6 +856,7 @@ public static class CondominiumSetupEndpoints
                     resident,
                     primary,
                     existingUser,
+                    sendAccessEmail,
                     status,
                     normalizedPhone,
                     existingApplicationUser?.Id));
