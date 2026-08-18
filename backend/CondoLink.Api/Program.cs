@@ -38,7 +38,11 @@ builder.Services.AddScoped<ResidentReplyService>();
 builder.Services.AddScoped<RequestClosureService>();
 builder.Services.Configure<CondominiumAssistantOptions>(
     builder.Configuration.GetSection(CondominiumAssistantOptions.SectionName));
-builder.Services.AddSingleton<IEmbeddingService, LocalEmbeddingService>();
+builder.Services.AddHttpClient<IEmbeddingService, OpenAiEmbeddingService>((services, client) =>
+{
+    var settings = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<RequestDraftAiOptions>>().Value;
+    client.BaseAddress = new Uri(settings.BaseUrl);
+});
 builder.Services.AddScoped<CondominiumDocumentProcessor>();
 builder.Services.AddHttpClient<CondominiumAssistantService>((services, client) =>
 {

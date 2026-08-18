@@ -41,16 +41,18 @@ public sealed class CondominiumDocumentChunk
 {
     private CondominiumDocumentChunk() { }
     public CondominiumDocumentChunk(Guid documentId, Guid condominiumId, int index,
-        string content, string embedding, int? pageNumber, string? sectionTitle)
+        string content, string embedding, int? pageNumber, string? sectionTitle,
+        string embeddingModel = "local-feature-hash-v1")
     { Id = Guid.NewGuid(); CondominiumDocumentId = documentId; CondominiumId = condominiumId;
       ChunkIndex = index; Content = content; Embedding = embedding; PageNumber = pageNumber;
-      SectionTitle = sectionTitle; CreatedAt = DateTime.UtcNow; }
+      SectionTitle = sectionTitle; EmbeddingModel = embeddingModel; CreatedAt = DateTime.UtcNow; }
     public Guid Id { get; private set; }
     public Guid CondominiumDocumentId { get; private set; }
     public Guid CondominiumId { get; private set; }
     public int ChunkIndex { get; private set; }
     public string Content { get; private set; } = null!;
     public string Embedding { get; private set; } = null!;
+    public string EmbeddingModel { get; private set; } = null!;
     public int? PageNumber { get; private set; }
     public string? SectionTitle { get; private set; }
     public DateTime CreatedAt { get; private set; }

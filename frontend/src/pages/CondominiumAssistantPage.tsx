@@ -36,6 +36,7 @@ import {
   MAXIMUM_DOCUMENT_FILE_BYTES,
   MAXIMUM_DOCUMENT_FILE_MEGABYTES,
   removeRequestContext,
+  reprocessDocument,
   setDocumentActive,
   startConversation,
   uploadDocument,
@@ -393,7 +394,7 @@ export function CondominiumAssistantPage() {
                           </Typography>
                           {message.sources.map(
                             ({ source, documentExists = true, documentCurrentlyActive }) => documentExists ? (
-                              <Chip
+                <Chip
                                 key={`${message.id}-${source.marker}`}
                                 component="a"
                                 clickable
@@ -606,6 +607,8 @@ export function CondominiumDocumentsPage() {
                         : "default"
                     }
                   />
+                  {document.needsReindexing && <Chip label="Reindexação necessária" color="warning" />}
+                  {(document.needsReindexing || document.processingStatus === "Failed" || document.processingStatus === "Unsupported") && <Button onClick={async () => { await reprocessDocument(activeCondominiumId!, document.id); await load() }}>Reprocessar</Button>}
                   <Button
                     onClick={async () => {
                       await setDocumentActive(

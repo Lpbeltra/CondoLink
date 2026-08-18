@@ -30,6 +30,7 @@ public sealed class CondominiumDocumentChunkConfiguration : IEntityTypeConfigura
         b.Property(x => x.Id).HasColumnName("id"); b.Property(x => x.CondominiumDocumentId).HasColumnName("condominium_document_id");
         b.Property(x => x.CondominiumId).HasColumnName("condominium_id"); b.Property(x => x.ChunkIndex).HasColumnName("chunk_index");
         b.Property(x => x.Content).HasColumnName("content"); b.Property(x => x.Embedding).HasColumnName("embedding");
+        b.Property(x => x.EmbeddingModel).HasColumnName("embedding_model").HasMaxLength(100);
         b.Property(x => x.PageNumber).HasColumnName("page_number"); b.Property(x => x.SectionTitle).HasColumnName("section_title").HasMaxLength(300);
         b.Property(x => x.CreatedAt).HasColumnName("created_at"); b.HasIndex(x => new { x.CondominiumId, x.CondominiumDocumentId });
         b.HasIndex(x => new { x.CondominiumDocumentId, x.ChunkIndex }).IsUnique();

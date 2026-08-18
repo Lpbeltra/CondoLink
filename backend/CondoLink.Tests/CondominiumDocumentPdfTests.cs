@@ -5,6 +5,7 @@ using CondoLink.Infrastructure.Persistence;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using System.Text;
 using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.Core;
@@ -96,7 +97,7 @@ public sealed class CondominiumDocumentPdfTests
         await scope.Processor.ProcessAsync(scope.Document, stream, ".pdf", default);
 
         Assert.Equal(CondominiumDocumentProcessingStatus.Failed, scope.Document.ProcessingStatus);
-        Assert.Equal("Não foi possível processar este PDF.", scope.Document.ProcessingError);
+        Assert.Equal("Não foi possível indexar o documento no momento. Tente reprocessá-lo mais tarde.", scope.Document.ProcessingError);
         Assert.Empty(await scope.Db.CondominiumDocumentChunks.ToArrayAsync());
     }
 
@@ -131,7 +132,8 @@ public sealed class CondominiumDocumentPdfTests
             CondominiumDocument document, IEmbeddingService embeddings)
         {
             this.connection = connection; Db = db; Document = document;
-            Processor = new(db, embeddings, NullLogger<CondominiumDocumentProcessor>.Instance);
+            Processor = new(db, embeddings, Options.Create(new CondominiumAssistantOptions()),
+                NullLogger<CondominiumDocumentProcessor>.Instance);
         }
 
         public static async Task<ProcessorScope> Create(IEmbeddingService? embeddings = null)

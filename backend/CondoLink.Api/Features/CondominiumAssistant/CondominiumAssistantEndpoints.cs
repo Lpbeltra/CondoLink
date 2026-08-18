@@ -21,6 +21,7 @@ public static class CondominiumAssistantEndpoints
         group.MapGet("/documents/{documentId:guid}/download", DownloadDocument);
         group.MapPut("/documents/{documentId:guid}/active", SetDocumentActive);
         group.MapDelete("/documents/{documentId:guid}", DeleteDocument);
+        group.MapPost("/documents/{documentId:guid}/reprocess", ReprocessDocument);
         group.MapPost("/assistant/conversations", CreateConversation);
         group.MapPost("/assistant/messages", StartConversation);
         group.MapGet("/assistant/conversations", ListConversations);
@@ -32,13 +33,17 @@ public static class CondominiumAssistantEndpoints
     }
 
     private static async Task<IResult> ListDocuments(Guid condominiumId, ClaimsPrincipal principal,
-        AppDbContext db, CancellationToken ct)
+        AppDbContext db, [Microsoft.AspNetCore.Mvc.FromServices] IEmbeddingService embeddings,
+        CancellationToken ct)
     {
         var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
         return Results.Ok(await db.CondominiumDocuments.AsNoTracking().Where(x => x.CondominiumId == condominiumId)
             .OrderByDescending(x => x.UpdatedAt).Select(x => new { x.Id, x.Name, x.DocumentType,
                 x.OriginalFileName, x.Version, x.DocumentDate, x.IsActive, x.ProcessingStatus,
-                x.ProcessingError, x.CreatedAt, x.UpdatedAt }).ToArrayAsync(ct));
+                x.ProcessingError, x.CreatedAt, x.UpdatedAt,
+                NeedsReindexing = x.ProcessingStatus == CondominiumDocumentProcessingStatus.Ready
+                    && db.CondominiumDocumentChunks.Any(chunk => chunk.CondominiumDocumentId == x.Id
+                        && chunk.EmbeddingModel != embeddings.Model) }).ToArrayAsync(ct));
     }
 
     private static async Task<IResult> UploadDocument(Guid condominiumId, HttpRequest request,
@@ -129,6 +134,22 @@ public static class CondominiumAssistantEndpoints
                 condominiumId, documentId, exception.GetType().Name);
             return Results.Json(new { code = "DocumentDeleteFailed", message = "Não foi possível excluir o documento. Tente novamente." }, statusCode: 503);
         }
+    }
+
+    private static async Task<IResult> ReprocessDocument(Guid condominiumId, Guid documentId,
+        ClaimsPrincipal principal, AppDbContext db, LocalFileStorage storage,
+        CondominiumDocumentProcessor processor, CancellationToken ct)
+    {
+        var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
+        var document = await db.CondominiumDocuments.SingleOrDefaultAsync(
+            x => x.Id == documentId && x.CondominiumId == condominiumId, ct);
+        if (document is null) return Results.NotFound();
+        if (document.ProcessingStatus == CondominiumDocumentProcessingStatus.Processing)
+            return Results.Conflict(new { code = "DocumentProcessing", message = "O documento já está sendo processado." });
+        await using var stream = storage.OpenRead(document.StorageKey);
+        if (stream is null) return Results.NotFound(new { code = "DocumentFileMissing", message = "O arquivo do documento não foi encontrado." });
+        await processor.ProcessAsync(document, stream, Path.GetExtension(document.OriginalFileName), ct);
+        return Results.Ok(new { document.Id, document.ProcessingStatus, document.ProcessingError });
     }
 
     private static async Task<IResult> CreateConversation(Guid condominiumId, CreateConversationRequest body,
