@@ -101,6 +101,64 @@ public sealed class CondominiumSetupEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Generated_resident_template_is_accepted_by_its_own_parser()
+    {
+        var client = _host.ClientFor(_managerId);
+        var template = await client.GetByteArrayAsync(
+            $"/condominiums/{_condominiumId}/setup/templates/residents");
+        using var form = new MultipartFormDataContent();
+        form.Add(File("Block,Unit,Floor,Description\r\n,01,,\r\n", "structure.csv"),
+            "structureFile", "structure.csv");
+        form.Add(new ByteArrayContent(FillResidentTemplate(template,
+            ["", "01", "Maria   Silva", " MARIA@example.com ", "(44) 99999-9999",
+                "Proprietário", "Sim", "Sim"])), "residentsFile", "moradores.xlsx");
+
+        var response = await client.PostAsync(
+            $"/condominiums/{_condominiumId}/setup/import/preview", form);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var preview = await response.Content.ReadFromJsonAsync<SetupPreviewResponse>();
+        Assert.Empty(preview!.Errors);
+        var resident = Assert.Single(preview.Residents);
+        Assert.Equal("Maria Silva", resident.Name);
+        Assert.Equal("maria@example.com", resident.Email);
+        Assert.Equal("+5544999999999", resident.NormalizedPhone);
+        Assert.Equal("Owner", resident.Relationship);
+        Assert.Equal("01", resident.Unit);
+
+        var confirmation = await client.PostAsJsonAsync(
+            $"/condominiums/{_condominiumId}/setup/confirm", preview.Draft);
+        Assert.Equal(HttpStatusCode.OK, confirmation.StatusCode);
+        Assert.Equal(1, await _host.WithDbAsync(db => db.UnitMemberships.CountAsync()));
+    }
+
+    [Theory]
+    [InlineData("Proprietário", "(44) 99999-9999", "Owner", "+5544999999999")]
+    [InlineData("Inquilino", "+5544999999999", "Tenant", "+5544999999999")]
+    [InlineData("Morador autorizado", "+12125551234", "AuthorizedOccupant", "+12125551234")]
+    public async Task Import_normalizes_relationship_phone_and_unambiguous_block_alias(
+        string relationship, string phone, string expectedRelationship, string expectedPhone)
+    {
+        using var form = new MultipartFormDataContent();
+        form.Add(File("Block,Unit,Floor,Description\r\nBloco 1,101A,,\r\n", "structure.csv"),
+            "structureFile", "structure.csv");
+        var residents = "Bloco,Unidade,Nome,E-mail,Telefone,Relacionamento,Morador,Residência principal\r\n"
+            + $"1,101A,Maria Silva,maria-{expectedRelationship}@example.com,{phone},{relationship},Sim,Não\r\n";
+        form.Add(File(residents, "moradores.csv"), "residentsFile", "moradores.csv");
+
+        var response = await _host.ClientFor(_managerId).PostAsync(
+            $"/condominiums/{_condominiumId}/setup/import/preview", form);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var preview = await response.Content.ReadFromJsonAsync<SetupPreviewResponse>();
+        Assert.Empty(preview!.Errors);
+        var resident = Assert.Single(preview.Residents);
+        Assert.Equal("Bloco 1", resident.Block);
+        Assert.Equal(expectedRelationship, resident.Relationship);
+        Assert.Equal(expectedPhone, resident.NormalizedPhone);
+    }
+
+    [Fact]
     public async Task Generator_supports_multiple_towers_and_segments()
     {
         var response = await _host.ClientFor(_managerId).PostAsJsonAsync(
@@ -479,6 +537,26 @@ public sealed class CondominiumSetupEndpointsTests : IAsyncLifetime
                 writer.Write("</row>");
             }
             writer.Write("</sheetData></worksheet>");
+        }
+        return output.ToArray();
+    }
+
+    private static byte[] FillResidentTemplate(byte[] template, string[] values)
+    {
+        using var output = new MemoryStream();
+        output.Write(template); output.Position = 0;
+        using (var archive = new ZipArchive(output, ZipArchiveMode.Update, true))
+        {
+            var entry = archive.GetEntry("xl/worksheets/sheet1.xml")!;
+            string xml;
+            using (var reader = new StreamReader(entry.Open())) xml = reader.ReadToEnd();
+            entry.Delete();
+            var cells = string.Concat(values.Select((value, column) =>
+                $"<c r=\"{(char)('A' + column)}2\" t=\"inlineStr\" s=\"1\"><is><t>"
+                + System.Security.SecurityElement.Escape(value) + "</t></is></c>"));
+            xml = xml.Replace("</sheetData>", $"<row r=\"2\">{cells}</row></sheetData>");
+            using var writer = new StreamWriter(archive.CreateEntry("xl/worksheets/sheet1.xml").Open(), new UTF8Encoding(false));
+            writer.Write(xml);
         }
         return output.ToArray();
     }

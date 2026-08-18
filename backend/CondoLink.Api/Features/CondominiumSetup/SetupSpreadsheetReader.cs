@@ -270,7 +270,18 @@ internal static class SetupSpreadsheetReader
     }
 
     private static string NormalizeHeader(string value) =>
-        value.Trim().TrimStart('\uFEFF');
+        value.Trim().TrimStart('\uFEFF').ToLowerInvariant() switch
+        {
+            "bloco" => "Block",
+            "unidade" => "Unit",
+            "nome" => "Name",
+            "e-mail" or "email" => "Email",
+            "telefone" => "Phone",
+            "relacionamento" => "Relationship",
+            "morador" => "Resident",
+            "residência principal" or "residencia principal" => "PrimaryResidence",
+            var header => header
+        };
 }
 
 internal sealed record SpreadsheetRow(

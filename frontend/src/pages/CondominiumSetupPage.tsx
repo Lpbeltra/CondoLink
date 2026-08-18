@@ -1,8 +1,8 @@
-import { useMemo, useState, type ReactNode } from 'react'
-import AddRoundedIcon from '@mui/icons-material/AddRounded'
-import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
-import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded'
-import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded'
+import { useMemo, useState, type ReactNode } from "react";
+import AddRoundedIcon from "@mui/icons-material/AddRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
+import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
+import UploadFileRoundedIcon from "@mui/icons-material/UploadFileRounded";
 import {
   Accordion,
   AccordionDetails,
@@ -37,64 +37,64 @@ import {
   Typography,
   useMediaQuery,
   useTheme,
-} from '@mui/material'
-import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
-import { PageContainer } from '../components/PageContainer'
-import { useManagementContext } from '../management/ManagementContext'
+} from "@mui/material";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import { PageContainer } from "../components/PageContainer";
+import { useManagementContext } from "../management/ManagementContext";
 import {
   confirmSetup,
   downloadSetupTemplate,
   previewGeneratedSetup,
   previewSetup,
   previewSetupImport,
-} from '../management/setupApi'
+} from "../management/setupApi";
 import {
   createGeneratorSegment,
   generateStructure,
-} from '../management/setupGenerator'
+} from "../management/setupGenerator";
 import type {
   GeneratorTower,
   SetupConfirmation,
   SetupDraft,
   SetupPreview,
-} from '../management/setupTypes'
-import { managementError } from '../management/errors'
-import { useParams } from 'react-router-dom'
+} from "../management/setupTypes";
+import { managementError } from "../management/errors";
+import { useParams } from "react-router-dom";
 
-type SetupMethod = 'import' | 'generator'
+type SetupMethod = "import" | "generator";
 
 const emptyDraft = (noRegistrableUnits: boolean): SetupDraft => ({
   noRegistrableUnits,
   units: [],
   residents: [],
-})
+});
 
 export function CondominiumSetupPage() {
-  const { condominiumId: overwatchCondominiumId } = useParams()
+  const { condominiumId: overwatchCondominiumId } = useParams();
   const { activeCondominiumId: managementCondominiumId } =
-    useManagementContext()
-  const activeCondominiumId =
-    overwatchCondominiumId ?? managementCondominiumId
-  const theme = useTheme()
-  const compact = useMediaQuery(theme.breakpoints.down('sm'))
-  const [step, setStep] = useState(0)
-  const [method, setMethod] = useState<SetupMethod>('import')
-  const [noUnits, setNoUnits] = useState(false)
-  const [structureFile, setStructureFile] = useState<File | null>(null)
-  const [residentsFile, setResidentsFile] = useState<File | null>(null)
+    useManagementContext();
+  const activeCondominiumId = overwatchCondominiumId ?? managementCondominiumId;
+  const theme = useTheme();
+  const compact = useMediaQuery(theme.breakpoints.down("sm"));
+  const [step, setStep] = useState(0);
+  const [method, setMethod] = useState<SetupMethod>("import");
+  const [noUnits, setNoUnits] = useState(false);
+  const [structureFile, setStructureFile] = useState<File | null>(null);
+  const [residentsFile, setResidentsFile] = useState<File | null>(null);
   const [towers, setTowers] = useState<GeneratorTower[]>([
     {
       id: crypto.randomUUID(),
-      name: 'Tower A',
+      name: "Tower A",
       segments: [createGeneratorSegment()],
     },
-  ])
-  const [preview, setPreview] = useState<SetupPreview | null>(null)
-  const [confirmation, setConfirmation] =
-    useState<SetupConfirmation | null>(null)
-  const [working, setWorking] = useState(false)
-  const [error, setError] = useState('')
-  const generated = useMemo(() => generateStructure(towers), [towers])
+  ]);
+  const [preview, setPreview] = useState<SetupPreview | null>(null);
+  const [confirmation, setConfirmation] = useState<SetupConfirmation | null>(
+    null,
+  );
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
+  const generated = useMemo(() => generateStructure(towers), [towers]);
 
   if (!activeCondominiumId) {
     return (
@@ -103,31 +103,28 @@ export function CondominiumSetupPage() {
           Selecione um condomínio para iniciar a configuração.
         </Alert>
       </PageContainer>
-    )
+    );
   }
 
   const loadPreview = async () => {
-    if (working) return
-    setWorking(true)
-    setError('')
+    if (working) return;
+    setWorking(true);
+    setError("");
     try {
-      let result: SetupPreview
+      let result: SetupPreview;
       if (noUnits) {
-        result = await previewSetup(
-          activeCondominiumId,
-          emptyDraft(true),
-        )
-      } else if (method === 'import') {
+        result = await previewSetup(activeCondominiumId, emptyDraft(true));
+      } else if (method === "import") {
         result = await previewSetupImport(
           activeCondominiumId,
           structureFile,
           residentsFile,
           false,
-        )
+        );
       } else {
         if (generated.errors.length > 0) {
-          setError(generated.errors[0].reason)
-          return
+          setError(generated.errors[0].reason);
+          return;
         }
         if (residentsFile) {
           const residentPreview = await previewSetupImport(
@@ -135,71 +132,65 @@ export function CondominiumSetupPage() {
             null,
             residentsFile,
             false,
-          )
+          );
           result = await previewGeneratedSetup(
             activeCondominiumId,
             towers,
             residentPreview.draft.residents,
-          )
+          );
         } else {
-          result = await previewGeneratedSetup(
-            activeCondominiumId,
-            towers,
-            [],
-          )
+          result = await previewGeneratedSetup(activeCondominiumId, towers, []);
         }
       }
-      setPreview(result)
-      setStep(2)
+      setPreview(result);
+      setStep(2);
     } catch (requestError) {
-      setError(managementError(requestError))
+      setError(managementError(requestError));
     } finally {
-      setWorking(false)
+      setWorking(false);
     }
-  }
+  };
 
   const refreshPreview = async (draft: SetupDraft) => {
-    setWorking(true)
-    setError('')
+    setWorking(true);
+    setError("");
     try {
-      setPreview(await previewSetup(activeCondominiumId, draft))
+      setPreview(await previewSetup(activeCondominiumId, draft));
     } catch (requestError) {
-      setError(managementError(requestError))
+      setError(managementError(requestError));
     } finally {
-      setWorking(false)
+      setWorking(false);
     }
-  }
+  };
 
   const confirm = async () => {
-    if (!preview || preview.errors.length > 0 || working) return
-    setWorking(true)
-    setError('')
+    if (!preview || preview.errors.length > 0 || working) return;
+    setWorking(true);
+    setError("");
     try {
-      setConfirmation(await confirmSetup(
-        activeCondominiumId,
-        preview.draft,
-      ))
-      setStep(3)
+      setConfirmation(await confirmSetup(activeCondominiumId, preview.draft));
+      setStep(3);
     } catch (requestError) {
-      setError(managementError(requestError))
+      setError(managementError(requestError));
     } finally {
-      setWorking(false)
+      setWorking(false);
     }
-  }
+  };
 
   const reset = () => {
-    setStep(0)
-    setPreview(null)
-    setConfirmation(null)
-    setError('')
-    setStructureFile(null)
-    setResidentsFile(null)
-  }
+    setStep(0);
+    setPreview(null);
+    setConfirmation(null);
+    setError("");
+    setStructureFile(null);
+    setResidentsFile(null);
+  };
 
-  const canGeneratePreview = noUnits
-    || (method === 'import'
+  const canGeneratePreview =
+    noUnits ||
+    (method === "import"
       ? Boolean(structureFile || residentsFile)
-      : generated.units.length > 0 && generated.errors.length === 0)
+      : generated.units.length > 0 && generated.errors.length === 0);
 
   return (
     <PageContainer maxWidth={1200}>
@@ -212,31 +203,36 @@ export function CondominiumSetupPage() {
 
       <Stepper
         activeStep={step}
-        orientation={compact ? 'vertical' : 'horizontal'}
+        orientation={compact ? "vertical" : "horizontal"}
         sx={{ mt: 3, mb: 3 }}
       >
-        {['Escolher método', 'Preparar dados', 'Revisar', 'Concluir'].map(
-          label => (
-            <Step key={label}><StepLabel>{label}</StepLabel></Step>
+        {["Escolher método", "Preparar dados", "Revisar", "Concluir"].map(
+          (label) => (
+            <Step key={label}>
+              <StepLabel>{label}</StepLabel>
+            </Step>
           ),
         )}
       </Stepper>
 
       {working && <LinearProgress aria-label="Processando configuração" />}
-      {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       {step === 0 && (
         <Card sx={{ mt: 2 }}>
           <CardContent>
             <Typography variant="h2">Como deseja começar?</Typography>
             <Typography color="text.secondary" mt={1}>
-              Os métodos são independentes. O gerador também aceita uma
-              planilha de moradores.
+              Os métodos são independentes. O gerador também aceita uma planilha
+              de moradores.
             </Typography>
             <RadioGroup
               value={method}
-              onChange={event =>
-                setMethod(event.target.value as SetupMethod)}
+              onChange={(event) => setMethod(event.target.value as SetupMethod)}
               sx={{ mt: 2 }}
             >
               <Paper variant="outlined" sx={{ p: 2, mb: 1 }}>
@@ -262,17 +258,17 @@ export function CondominiumSetupPage() {
             </RadioGroup>
             <Divider sx={{ my: 2 }} />
             <FormControlLabel
-              control={(
+              control={
                 <Checkbox
                   checked={noUnits}
-                  onChange={event => setNoUnits(event.target.checked)}
+                  onChange={(event) => setNoUnits(event.target.checked)}
                 />
-              )}
+              }
               label="Este condomínio não tem unidades cadastráveis."
             />
             <FormHelperText>
-              Use para clubes, prédios administrativos, áreas compartilhadas
-              ou associações comerciais sem salas ou unidades registráveis.
+              Use para clubes, prédios administrativos, áreas compartilhadas ou
+              associações comerciais sem salas ou unidades registráveis.
             </FormHelperText>
             <Stack direction="row" justifyContent="flex-end" mt={3}>
               <Button variant="contained" onClick={() => setStep(1)}>
@@ -290,7 +286,7 @@ export function CondominiumSetupPage() {
               Nenhuma unidade será criada. O restante da Comvy continuará
               funcionando normalmente.
             </Alert>
-          ) : method === 'import' ? (
+          ) : method === "import" ? (
             <SpreadsheetImport
               condominiumId={activeCondominiumId}
               structureFile={structureFile}
@@ -302,9 +298,7 @@ export function CondominiumSetupPage() {
             <>
               <GeneratorEditor towers={towers} onChange={setTowers} />
               <Paper variant="outlined" sx={{ p: 2 }}>
-                <Typography fontWeight={800}>
-                  Moradores (opcional)
-                </Typography>
+                <Typography fontWeight={800}>Moradores (opcional)</Typography>
                 <Typography color="text.secondary" mb={1}>
                   Depois de gerar as unidades, você pode vinculá-las usando o
                   modelo de moradores.
@@ -315,7 +309,7 @@ export function CondominiumSetupPage() {
                   onChange={setResidentsFile}
                 />
               </Paper>
-              {generated.errors.map(issue => (
+              {generated.errors.map((issue) => (
                 <Alert severity="error" key={`${issue.line}-${issue.reason}`}>
                   {issue.reason}
                 </Alert>
@@ -345,16 +339,20 @@ export function CondominiumSetupPage() {
           working={working}
           onBack={() => setStep(1)}
           onConfirm={() => void confirm()}
-          onRemoveUnit={(line) => void refreshPreview({
-            ...preview.draft,
-            units: preview.draft.units.filter(item => item.line !== line),
-          })}
-          onRemoveResident={(line) => void refreshPreview({
-            ...preview.draft,
-            residents: preview.draft.residents.filter(
-              item => item.line !== line,
-            ),
-          })}
+          onRemoveUnit={(line) =>
+            void refreshPreview({
+              ...preview.draft,
+              units: preview.draft.units.filter((item) => item.line !== line),
+            })
+          }
+          onRemoveResident={(line) =>
+            void refreshPreview({
+              ...preview.draft,
+              residents: preview.draft.residents.filter(
+                (item) => item.line !== line,
+              ),
+            })
+          }
         />
       )}
 
@@ -362,7 +360,7 @@ export function CondominiumSetupPage() {
         <ConfirmationStep result={confirmation} onReset={reset} />
       )}
     </PageContainer>
-  )
+  );
 }
 
 function SpreadsheetImport({
@@ -372,41 +370,40 @@ function SpreadsheetImport({
   onStructureFile,
   onResidentsFile,
 }: {
-  condominiumId: string
-  structureFile: File | null
-  residentsFile: File | null
-  onStructureFile: (file: File | null) => void
-  onResidentsFile: (file: File | null) => void
+  condominiumId: string;
+  structureFile: File | null;
+  residentsFile: File | null;
+  onStructureFile: (file: File | null) => void;
+  onResidentsFile: (file: File | null) => void;
 }) {
   return (
     <Stack gap={2}>
       <Alert severity="info">
-        Nada será salvo agora. Primeiro você verá uma prévia completa. Se
-        houver qualquer erro, nenhuma linha será importada.
+        Nada será salvo agora. Primeiro você verá uma prévia completa. Se houver
+        qualquer erro, nenhuma linha será importada.
       </Alert>
       <Card>
         <CardContent>
           <Typography variant="h2">1. Baixe os modelos</Typography>
           <Typography color="text.secondary" mt={1}>
-            Não renomeie as colunas, não exclua colunas obrigatórias e mantenha
-            identificadores como 01, 001 e Store 01 no formato texto.
+            Use o modelo fornecido para evitar erros de formato. Não renomeie as
+            colunas e mantenha identificadores como 01, 101A e Térreo como
+            texto.
           </Typography>
-          <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} mt={2}>
+          <Stack direction={{ xs: "column", sm: "row" }} gap={1} mt={2}>
             <Button
               startIcon={<DownloadRoundedIcon />}
-              onClick={() => void downloadSetupTemplate(
-                condominiumId,
-                'structure',
-              )}
+              onClick={() =>
+                void downloadSetupTemplate(condominiumId, "structure")
+              }
             >
               Baixar modelo de estrutura
             </Button>
             <Button
               startIcon={<DownloadRoundedIcon />}
-              onClick={() => void downloadSetupTemplate(
-                condominiumId,
-                'residents',
-              )}
+              onClick={() =>
+                void downloadSetupTemplate(condominiumId, "residents")
+              }
             >
               Baixar modelo de moradores
             </Button>
@@ -419,7 +416,7 @@ function SpreadsheetImport({
           <Typography color="text.secondary" mt={1} mb={2}>
             Envie um ou os dois arquivos. Campos opcionais podem ficar vazios.
           </Typography>
-          <Stack direction={{ xs: 'column', sm: 'row' }} gap={2}>
+          <Stack direction={{ xs: "column", sm: "row" }} gap={2}>
             <FileButton
               label="Planilha de estrutura"
               file={structureFile}
@@ -435,7 +432,7 @@ function SpreadsheetImport({
       </Card>
       <ColumnGuide />
     </Stack>
-  )
+  );
 }
 
 function FileButton({
@@ -443,9 +440,9 @@ function FileButton({
   file,
   onChange,
 }: {
-  label: string
-  file: File | null
-  onChange: (file: File | null) => void
+  label: string;
+  file: File | null;
+  onChange: (file: File | null) => void;
 }) {
   return (
     <Stack alignItems="flex-start" gap={0.5}>
@@ -459,23 +456,23 @@ function FileButton({
           hidden
           type="file"
           accept=".csv,.xlsx"
-          onChange={event => onChange(event.target.files?.[0] ?? null)}
+          onChange={(event) => onChange(event.target.files?.[0] ?? null)}
         />
       </Button>
       <Typography variant="caption" color="text.secondary">
-        {file?.name ?? 'CSV ou XLSX, até 5 MB.'}
+        {file?.name ?? "CSV ou XLSX, até 5 MB."}
       </Typography>
     </Stack>
-  )
+  );
 }
 
 function ColumnGuide() {
   const rows = [
-    ['Block', 'Não', 'Deixe vazio quando não houver blocos.', 'Tower A'],
-    ['Unit', 'Sim', 'Identificador textual da unidade.', '101 / 01 / House 4'],
-    ['Floor', 'Não', 'Andar exibido ao usuário.', 'Ground / 1 / Roof'],
-    ['Description', 'Não', 'Descrição adicional.', 'Commercial Store'],
-  ]
+    ["Block", "Não", "Deixe vazio quando não houver blocos.", "Tower A"],
+    ["Unit", "Sim", "Identificador textual da unidade.", "101 / 01 / House 4"],
+    ["Floor", "Não", "Andar exibido ao usuário.", "Ground / 1 / Roof"],
+    ["Description", "Não", "Descrição adicional.", "Commercial Store"],
+  ];
   return (
     <Accordion defaultExpanded>
       <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
@@ -486,15 +483,17 @@ function ColumnGuide() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                {['Coluna', 'Obrigatória', 'Descrição', 'Exemplo'].map(
-                  value => <TableCell key={value}>{value}</TableCell>,
+                {["Coluna", "Obrigatória", "Descrição", "Exemplo"].map(
+                  (value) => (
+                    <TableCell key={value}>{value}</TableCell>
+                  ),
                 )}
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map(row => (
+              {rows.map((row) => (
                 <TableRow key={row[0]}>
-                  {row.map(value => (
+                  {row.map((value) => (
                     <TableCell key={value}>{value}</TableCell>
                   ))}
                 </TableRow>
@@ -503,28 +502,31 @@ function ColumnGuide() {
           </Table>
         </TableContainer>
         <Typography mt={2}>
-          Na planilha de moradores, Name e Email são obrigatórios. Relationship
-          aceita Owner, Tenant ou AuthorizedOccupant. Resident e
-          PrimaryResidence aceitam Yes/No ou Sim/Não.
+          Na planilha de moradores, Nome e E-mail são obrigatórios. Para
+          vincular uma unidade, informe Unidade, Relacionamento, Morador e
+          Residência principal. Use Proprietário, Inquilino ou Morador
+          autorizado e preencha os indicadores com Sim/Não. Bloco só é
+          obrigatório quando o condomínio utiliza blocos.
         </Typography>
       </AccordionDetails>
     </Accordion>
-  )
+  );
 }
 
 function GeneratorEditor({
   towers,
   onChange,
 }: {
-  towers: GeneratorTower[]
-  onChange: (towers: GeneratorTower[]) => void
+  towers: GeneratorTower[];
+  onChange: (towers: GeneratorTower[]) => void;
 }) {
   const updateTower = (
     towerId: string,
     updater: (tower: GeneratorTower) => GeneratorTower,
-  ) => onChange(towers.map(
-    tower => tower.id === towerId ? updater(tower) : tower,
-  ))
+  ) =>
+    onChange(
+      towers.map((tower) => (tower.id === towerId ? updater(tower) : tower)),
+    );
 
   return (
     <Stack gap={2}>
@@ -540,29 +542,27 @@ function GeneratorEditor({
                 fullWidth
                 label={`Torre ou bloco ${towerIndex + 1}`}
                 value={tower.name}
-                onChange={event => updateTower(tower.id, current => ({
-                  ...current,
-                  name: event.target.value,
-                }))}
+                onChange={(event) =>
+                  updateTower(tower.id, (current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
                 helperText="Opcional quando o condomínio não utiliza blocos."
               />
               {towers.length > 1 && (
                 <IconButton
                   aria-label={`Remover torre ${towerIndex + 1}`}
-                  onClick={() => onChange(
-                    towers.filter(item => item.id !== tower.id),
-                  )}
+                  onClick={() =>
+                    onChange(towers.filter((item) => item.id !== tower.id))
+                  }
                 >
                   <DeleteOutlineRoundedIcon />
                 </IconButton>
               )}
             </Stack>
             {tower.segments.map((segment, segmentIndex) => (
-              <Paper
-                key={segment.id}
-                variant="outlined"
-                sx={{ p: 2, mt: 2 }}
-              >
+              <Paper key={segment.id} variant="outlined" sx={{ p: 2, mt: 2 }}>
                 <Stack
                   direction="row"
                   justifyContent="space-between"
@@ -574,12 +574,14 @@ function GeneratorEditor({
                   {tower.segments.length > 1 && (
                     <IconButton
                       aria-label={`Remover segmento ${segmentIndex + 1}`}
-                      onClick={() => updateTower(tower.id, current => ({
-                        ...current,
-                        segments: current.segments.filter(
-                          item => item.id !== segment.id,
-                        ),
-                      }))}
+                      onClick={() =>
+                        updateTower(tower.id, (current) => ({
+                          ...current,
+                          segments: current.segments.filter(
+                            (item) => item.id !== segment.id,
+                          ),
+                        }))
+                      }
                     >
                       <DeleteOutlineRoundedIcon />
                     </IconButton>
@@ -588,9 +590,9 @@ function GeneratorEditor({
                 <Box
                   display="grid"
                   gridTemplateColumns={{
-                    xs: '1fr',
-                    sm: 'repeat(2, 1fr)',
-                    md: 'repeat(3, 1fr)',
+                    xs: "1fr",
+                    sm: "repeat(2, 1fr)",
+                    md: "repeat(3, 1fr)",
                   }}
                   gap={2}
                   mt={1}
@@ -599,69 +601,81 @@ function GeneratorEditor({
                     label="Andar inicial"
                     value={segment.startFloor}
                     helper="Use 0 para térreo ou informe o primeiro andar."
-                    onChange={value => updateTowerSegment(
-                      tower,
-                      segment.id,
-                      { startFloor: value },
-                      updateTower,
-                    )}
+                    onChange={(value) =>
+                      updateTowerSegment(
+                        tower,
+                        segment.id,
+                        { startFloor: value },
+                        updateTower,
+                      )
+                    }
                   />
                   <NumberField
                     label="Andar final"
                     value={segment.endFloor}
                     helper="Último andar que repete este padrão."
-                    onChange={value => updateTowerSegment(
-                      tower,
-                      segment.id,
-                      { endFloor: value },
-                      updateTower,
-                    )}
+                    onChange={(value) =>
+                      updateTowerSegment(
+                        tower,
+                        segment.id,
+                        { endFloor: value },
+                        updateTower,
+                      )
+                    }
                   />
                   <NumberField
                     label="Unidades por andar"
                     value={segment.unitsPerFloor}
                     helper="Número de unidades geradas em cada andar."
-                    onChange={value => updateTowerSegment(
-                      tower,
-                      segment.id,
-                      { unitsPerFloor: value },
-                      updateTower,
-                    )}
+                    onChange={(value) =>
+                      updateTowerSegment(
+                        tower,
+                        segment.id,
+                        { unitsPerFloor: value },
+                        updateTower,
+                      )
+                    }
                   />
                   <NumberField
                     label="Primeiro número"
                     value={segment.firstUnit}
                     helper="Número inicial dentro do andar ou da sequência."
-                    onChange={value => updateTowerSegment(
-                      tower,
-                      segment.id,
-                      { firstUnit: value },
-                      updateTower,
-                    )}
+                    onChange={(value) =>
+                      updateTowerSegment(
+                        tower,
+                        segment.id,
+                        { firstUnit: value },
+                        updateTower,
+                      )
+                    }
                   />
                   <NumberField
                     label="Dígitos"
                     value={segment.digits}
                     helper="Quantidade mínima de dígitos: 1 vira 01 com 2."
-                    onChange={value => updateTowerSegment(
-                      tower,
-                      segment.id,
-                      { digits: Math.max(1, value) },
-                      updateTower,
-                    )}
+                    onChange={(value) =>
+                      updateTowerSegment(
+                        tower,
+                        segment.id,
+                        { digits: Math.max(1, value) },
+                        updateTower,
+                      )
+                    }
                   />
                   <TextField
                     select
                     label="Incluir número do andar"
-                    value={segment.includeFloorNumber ? 'yes' : 'no'}
-                    onChange={event => updateTowerSegment(
-                      tower,
-                      segment.id,
-                      {
-                        includeFloorNumber: event.target.value === 'yes',
-                      },
-                      updateTower,
-                    )}
+                    value={segment.includeFloorNumber ? "yes" : "no"}
+                    onChange={(event) =>
+                      updateTowerSegment(
+                        tower,
+                        segment.id,
+                        {
+                          includeFloorNumber: event.target.value === "yes",
+                        },
+                        updateTower,
+                      )
+                    }
                     helperText="Sim gera 101; Não permite sequências como 01."
                   >
                     <MenuItem value="yes">Sim</MenuItem>
@@ -670,23 +684,27 @@ function GeneratorEditor({
                   <TextField
                     label="Prefixo"
                     value={segment.prefix}
-                    onChange={event => updateTowerSegment(
-                      tower,
-                      segment.id,
-                      { prefix: event.target.value },
-                      updateTower,
-                    )}
+                    onChange={(event) =>
+                      updateTowerSegment(
+                        tower,
+                        segment.id,
+                        { prefix: event.target.value },
+                        updateTower,
+                      )
+                    }
                     helperText="Valor opcional antes do número, como A-."
                   />
                   <TextField
                     label="Sufixo"
                     value={segment.suffix}
-                    onChange={event => updateTowerSegment(
-                      tower,
-                      segment.id,
-                      { suffix: event.target.value },
-                      updateTower,
-                    )}
+                    onChange={(event) =>
+                      updateTowerSegment(
+                        tower,
+                        segment.id,
+                        { suffix: event.target.value },
+                        updateTower,
+                      )
+                    }
                     helperText="Valor opcional depois do número, como -A."
                   />
                 </Box>
@@ -695,13 +713,12 @@ function GeneratorEditor({
             <Button
               startIcon={<AddRoundedIcon />}
               sx={{ mt: 2 }}
-              onClick={() => updateTower(tower.id, current => ({
-                ...current,
-                segments: [
-                  ...current.segments,
-                  createGeneratorSegment(),
-                ],
-              }))}
+              onClick={() =>
+                updateTower(tower.id, (current) => ({
+                  ...current,
+                  segments: [...current.segments, createGeneratorSegment()],
+                }))
+              }
             >
               Adicionar segmento
             </Button>
@@ -710,38 +727,38 @@ function GeneratorEditor({
       ))}
       <Button
         startIcon={<AddRoundedIcon />}
-        onClick={() => onChange([
-          ...towers,
-          {
-            id: crypto.randomUUID(),
-            name: `Tower ${String.fromCharCode(65 + towers.length)}`,
-            segments: [createGeneratorSegment()],
-          },
-        ])}
+        onClick={() =>
+          onChange([
+            ...towers,
+            {
+              id: crypto.randomUUID(),
+              name: `Tower ${String.fromCharCode(65 + towers.length)}`,
+              segments: [createGeneratorSegment()],
+            },
+          ])
+        }
       >
         Adicionar torre
       </Button>
     </Stack>
-  )
+  );
 }
 
 function updateTowerSegment(
   tower: GeneratorTower,
   segmentId: string,
-  changes: Partial<GeneratorTower['segments'][number]>,
+  changes: Partial<GeneratorTower["segments"][number]>,
   updateTower: (
     towerId: string,
     updater: (tower: GeneratorTower) => GeneratorTower,
   ) => void,
 ) {
-  updateTower(tower.id, current => ({
+  updateTower(tower.id, (current) => ({
     ...current,
-    segments: current.segments.map(
-      segment => segment.id === segmentId
-        ? { ...segment, ...changes }
-        : segment,
+    segments: current.segments.map((segment) =>
+      segment.id === segmentId ? { ...segment, ...changes } : segment,
     ),
-  }))
+  }));
 }
 
 function NumberField({
@@ -750,20 +767,20 @@ function NumberField({
   helper,
   onChange,
 }: {
-  label: string
-  value: number
-  helper: string
-  onChange: (value: number) => void
+  label: string;
+  value: number;
+  helper: string;
+  onChange: (value: number) => void;
 }) {
   return (
     <TextField
       type="number"
       label={label}
       value={value}
-      onChange={event => onChange(Number(event.target.value))}
+      onChange={(event) => onChange(Number(event.target.value))}
       helperText={helper}
     />
-  )
+  );
 }
 
 function HelpPanels() {
@@ -775,8 +792,8 @@ function HelpPanels() {
         </AccordionSummary>
         <AccordionDetails>
           <Typography>
-            01, 001, 101, 1001, A-101, 101-A, House 2, Store 01,
-            coberturas e outros identificadores textuais são aceitos.
+            01, 001, 101, 1001, A-101, 101-A, House 2, Store 01, coberturas e
+            outros identificadores textuais são aceitos.
           </Typography>
         </AccordionDetails>
       </Accordion>
@@ -786,8 +803,8 @@ function HelpPanels() {
         </AccordionSummary>
         <AccordionDetails>
           <Typography component="div">
-            Não renomeie colunas; formate identificadores como texto; não
-            repita a mesma unidade no mesmo bloco; confira e-mails; use um novo
+            Não renomeie colunas; formate identificadores como texto; não repita
+            a mesma unidade no mesmo bloco; confira e-mails; use um novo
             segmento quando a quantidade de unidades mudar.
           </Typography>
         </AccordionDetails>
@@ -799,13 +816,13 @@ function HelpPanels() {
         <AccordionDetails>
           <Typography>
             Blocos, andar, descrição, telefone e planilha de moradores são
-            opcionais. Usuários encontrados pelo e-mail serão reutilizados.
-            Nada é salvo antes da confirmação final.
+            opcionais. Usuários encontrados pelo e-mail serão reutilizados. Nada
+            é salvo antes da confirmação final.
           </Typography>
         </AccordionDetails>
       </Accordion>
     </Stack>
-  )
+  );
 }
 
 function PreviewStep({
@@ -816,26 +833,29 @@ function PreviewStep({
   onRemoveUnit,
   onRemoveResident,
 }: {
-  preview: SetupPreview
-  working: boolean
-  onBack: () => void
-  onConfirm: () => void
-  onRemoveUnit: (line: number) => void
-  onRemoveResident: (line: number) => void
+  preview: SetupPreview;
+  working: boolean;
+  onBack: () => void;
+  onConfirm: () => void;
+  onRemoveUnit: (line: number) => void;
+  onRemoveResident: (line: number) => void;
 }) {
   return (
     <Stack gap={2}>
-      <Alert severity={preview.errors.length > 0 ? 'error' : 'success'}>
+      <Alert severity={preview.errors.length > 0 ? "error" : "success"}>
         {preview.errors.length > 0
-          ? 'Corrija ou remova as linhas com erro. Nada foi salvo.'
-          : 'Lote validado. Revise os dados antes de confirmar.'}
+          ? "Corrija ou remova as linhas com erro. Nada foi salvo."
+          : "Lote validado. Revise os dados antes de confirmar."}
       </Alert>
       <Stack direction="row" flexWrap="wrap" gap={1}>
         <Chip label={`${preview.totals.blocks} blocos`} />
         <Chip label={`${preview.totals.units} unidades`} />
         <Chip label={`${preview.totals.residents} moradores`} />
         <Chip label={`${preview.totals.existingUsers} usuários reutilizados`} />
-        <Chip color="primary" label={`${preview.totals.newUsers} novos usuários`} />
+        <Chip
+          color="primary"
+          label={`${preview.totals.newUsers} novos usuários`}
+        />
       </Stack>
       {preview.errors.length > 0 && (
         <IssueTable title="Erros" issues={preview.errors} severity="error" />
@@ -849,13 +869,13 @@ function PreviewStep({
       )}
       <PreviewTable
         title="Unidades"
-        headers={['Linha', 'Bloco', 'Unidade', 'Andar', 'Situação', '']}
-        rows={preview.units.map(row => [
+        headers={["Linha", "Bloco", "Unidade", "Andar", "Situação", ""]}
+        rows={preview.units.map((row) => [
           row.line,
-          row.block ?? 'Sem bloco',
+          row.block ?? "Sem bloco",
           row.unit,
-          row.floor ?? '—',
-          row.existing ? 'Será reutilizada' : 'Nova',
+          row.floor ?? "—",
+          row.existing ? "Será reutilizada" : "Nova",
           <IconButton
             key="remove"
             aria-label={`Remover unidade ${row.unit}`}
@@ -867,8 +887,16 @@ function PreviewStep({
       />
       <PreviewTable
         title="Moradores"
-        headers={['Linha', 'Nome', 'E-mail', 'Telefone', 'Unidade', 'Situação', '']}
-        rows={preview.residents.map(row => [
+        headers={[
+          "Linha",
+          "Nome",
+          "E-mail",
+          "Telefone",
+          "Unidade",
+          "Situação",
+          "",
+        ]}
+        rows={preview.residents.map((row) => [
           row.line,
           row.name,
           row.email,
@@ -876,18 +904,20 @@ function PreviewStep({
             ? row.normalizedPhone && row.normalizedPhone !== row.phone
               ? `${row.phone} → ${row.normalizedPhone}`
               : row.phone
-            : '—',
+            : "—",
           row.unit
-            ? `${row.block ? `${row.block} / ` : ''}${row.unit}`
-            : 'Sem unidade',
-          ({
-            Ready: 'Pronto — novo usuário',
-            ExistingUser: 'Usuário reutilizado',
-            ExistingMembership: 'Vínculo já existente',
-            Warning: 'Aviso — revise',
-            Conflict: 'Conflito',
-            Invalid: 'Inválido',
-          } as const)[row.status],
+            ? `${row.block ? `${row.block} / ` : ""}${row.unit}`
+            : "Sem unidade",
+          (
+            {
+              Ready: "Pronto — novo usuário",
+              ExistingUser: "Usuário reutilizado",
+              ExistingMembership: "Vínculo já existente",
+              Warning: "Aviso — revise",
+              Conflict: "Conflito",
+              Invalid: "Inválido",
+            } as const
+          )[row.status],
           <IconButton
             key="remove"
             aria-label={`Remover morador ${row.name}`}
@@ -908,7 +938,7 @@ function PreviewStep({
         </Button>
       </Stack>
     </Stack>
-  )
+  );
 }
 
 function IssueTable({
@@ -916,21 +946,21 @@ function IssueTable({
   issues,
   severity,
 }: {
-  title: string
-  issues: SetupPreview['errors']
-  severity: 'error' | 'warning'
+  title: string;
+  issues: SetupPreview["errors"];
+  severity: "error" | "warning";
 }) {
   return (
     <Alert severity={severity}>
       <Typography fontWeight={800}>{title}</Typography>
       {issues.map((issue, index) => (
         <Typography key={`${issue.line}-${issue.column}-${index}`}>
-          {issue.line > 0 ? `Linha ${issue.line}, ` : ''}
+          {issue.line > 0 ? `Linha ${issue.line}, ` : ""}
           {issue.column}: {issue.reason}
         </Typography>
       ))}
     </Alert>
-  )
+  );
 }
 
 function PreviewTable({
@@ -938,13 +968,15 @@ function PreviewTable({
   headers,
   rows,
 }: {
-  title: string
-  headers: string[]
-  rows: (string | number | ReactNode)[][]
+  title: string;
+  headers: string[];
+  rows: (string | number | ReactNode)[][];
 }) {
   return (
     <Paper variant="outlined">
-      <Typography variant="h2" p={2}>{title}</Typography>
+      <Typography variant="h2" p={2}>
+        {title}
+      </Typography>
       {rows.length === 0 ? (
         <Typography color="text.secondary" px={2} pb={2}>
           Nenhum item.
@@ -954,7 +986,7 @@ function PreviewTable({
           <Table size="small">
             <TableHead>
               <TableRow>
-                {headers.map(header => (
+                {headers.map((header) => (
                   <TableCell key={header}>{header}</TableCell>
                 ))}
               </TableRow>
@@ -972,22 +1004,22 @@ function PreviewTable({
         </TableContainer>
       )}
     </Paper>
-  )
+  );
 }
 
 function ConfirmationStep({
   result,
   onReset,
 }: {
-  result: SetupConfirmation
-  onReset: () => void
+  result: SetupConfirmation;
+  onReset: () => void;
 }) {
   return (
     <Stack gap={2}>
       <Alert severity="success">{result.message}</Alert>
       <Typography>
-        {result.blocksCreated} blocos e {result.unitsCreated} unidades criados;
-        {' '}{result.residentsLinked} moradores processados.
+        {result.blocksCreated} blocos e {result.unitsCreated} unidades criados;{" "}
+        {result.residentsLinked} moradores processados.
       </Typography>
       {result.credentials.length > 0 && (
         <Alert severity="warning">
@@ -997,8 +1029,8 @@ function ConfirmationStep({
       )}
       <PreviewTable
         title="Novas credenciais"
-        headers={['Nome', 'E-mail', 'Senha temporária']}
-        rows={result.credentials.map(item => [
+        headers={["Nome", "E-mail", "Senha temporária"]}
+        rows={result.credentials.map((item) => [
           item.fullName,
           item.email,
           item.temporaryPassword,
@@ -1008,5 +1040,5 @@ function ConfirmationStep({
         Finalizar
       </Button>
     </Stack>
-  )
+  );
 }

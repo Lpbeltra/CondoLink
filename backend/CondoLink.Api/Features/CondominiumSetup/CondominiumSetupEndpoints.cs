@@ -4,6 +4,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Globalization;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure;
@@ -57,19 +58,18 @@ public static class CondominiumSetupEndpoints
                 + "Tower A,101,1,\r\n"
                 + ",House 4,,Residential house\r\n"),
             "residents" => (
-                "condolink-moradores.csv",
-                "Block,Unit,Name,Email,Phone,Relationship,Resident,PrimaryResidence\r\n"
-                + "Tower A,101,Maria Silva,maria@example.com,11999999999,Owner,Yes,Yes\r\n"),
+                "condolink-moradores.xlsx",
+                string.Empty),
             _ => (string.Empty, string.Empty)
         };
         if (fileName.Length == 0)
             return Results.NotFound(new { error = "Modelo não encontrado." });
 
-        return Results.File(
-            new UTF8Encoding(encoderShouldEmitUTF8Identifier: true)
-                .GetBytes(content),
-            "text/csv; charset=utf-8",
-            fileName);
+        return template.Equals("residents", StringComparison.OrdinalIgnoreCase)
+            ? Results.File(ResidentImportTemplate.Create(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName)
+            : Results.File(new UTF8Encoding(encoderShouldEmitUTF8Identifier: true).GetBytes(content),
+                "text/csv; charset=utf-8", fileName);
     }
 
     private static async Task<IResult> ImportPreviewAsync(
@@ -427,11 +427,12 @@ public static class CondominiumSetupEndpoints
             Optional(row.Description))).ToArray();
         var blockNames = normalizedUnits
             .Select(item => item.Block)
-            .Concat(sourceResidents.Select(item => Optional(item.Block)))
             .Where(item => item is not null)
             .Select(item => item!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        var resolvableBlocks = existingBlocks.Keys.Concat(blockNames)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var hasBlocks = existingBlocks.Count > 0 || blockNames.Length > 0;
         var unitKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var unitPreviews = new List<SetupUnitPreview>();
@@ -562,7 +563,7 @@ public static class CondominiumSetupEndpoints
         {
             var block = Optional(source.Block);
             var unit = Optional(source.Unit);
-            var name = Optional(source.Name);
+            var name = NormalizePersonName(source.Name);
             var email = Optional(source.Email)?.ToLowerInvariant();
             var phone = Optional(source.Phone);
             var normalizedPhone = Domain.PhoneNumberNormalizer.Normalize(phone);
@@ -571,6 +572,16 @@ public static class CondominiumSetupEndpoints
                 source.Resident, false, out var resident);
             var primaryValid = TryBoolean(
                 source.PrimaryResidence, false, out var primary);
+
+            if (block is not null)
+            {
+                var resolvedBlock = ResolveBlock(block, resolvableBlocks, out var ambiguousBlock);
+                if (ambiguousBlock)
+                    errors.Add(new SetupIssue(source.Line, "Block",
+                        $"O bloco \"{block}\" corresponde a mais de um bloco cadastrado. Use o identificador completo."));
+                else if (resolvedBlock is not null)
+                    block = resolvedBlock;
+            }
 
             ValidateLength(block, 50, source.Line, "Block", errors);
             ValidateLength(unit, 50, source.Line, "Unit", errors);
@@ -592,22 +603,22 @@ public static class CondominiumSetupEndpoints
             if (!residentValid)
                 errors.Add(new SetupIssue(
                     source.Line, "Resident",
-                    "Use Yes/No, Sim/Não, True/False ou 1/0."));
+                    "Informe Sim ou Não. Também são aceitos Yes/No, True/False e 1/0."));
             if (!primaryValid)
                 errors.Add(new SetupIssue(
                     source.Line, "PrimaryResidence",
-                    "Use Yes/No, Sim/Não, True/False ou 1/0."));
+                    "Informe Sim ou Não. Também são aceitos Yes/No, True/False e 1/0."));
             if (primary && !resident)
                 errors.Add(new SetupIssue(
                     source.Line, "PrimaryResidence",
-                    "Residência principal exige Resident = Yes."));
+                    "Residência principal exige Morador = Sim."));
 
             if (unit is null)
             {
                 if (block is not null)
                     errors.Add(new SetupIssue(
                         source.Line, "Block",
-                        "Block só pode ser informado junto com Unit."));
+                        "Bloco só pode ser informado junto com Unidade."));
                 if (Optional(source.Relationship) is not null
                     || resident || primary)
                     errors.Add(new SetupIssue(
@@ -627,11 +638,11 @@ public static class CondominiumSetupEndpoints
                 if (relationship is null)
                     errors.Add(new SetupIssue(
                         source.Line, "Relationship",
-                        "Use Owner, Tenant ou AuthorizedOccupant."));
+                        $"Relacionamento \"{Optional(source.Relationship)}\" não foi reconhecido. Use Proprietário, Inquilino ou Morador autorizado."));
                 if (!availableUnits.Contains(UnitKey(block, unit)))
                     errors.Add(new SetupIssue(
                         source.Line, "Unit",
-                        "A unidade referenciada não existe no condomínio nem neste lote."));
+                        $"Não encontrei a unidade {unit}{(block is null ? string.Empty : $" no {block}")}. A importação de moradores não cria unidades."));
             }
 
             if (email is not null && name is not null
@@ -935,17 +946,44 @@ public static class CondominiumSetupEndpoints
 
     private static UnitRelationshipType? ParseRelationship(string? value)
     {
-        var normalized = Optional(value)?.ToLowerInvariant()
-            .Replace("á", "a")
-            .Replace("ó", "o");
+        var normalized = NormalizeLookup(Optional(value));
         return normalized switch
         {
             "owner" or "proprietario" => UnitRelationshipType.Owner,
             "tenant" or "inquilino" => UnitRelationshipType.Tenant,
             "authorizedoccupant" or "authorized occupant"
-                or "morador autorizado" => UnitRelationshipType.AuthorizedOccupant,
+                or "morador autorizado" or "morador" or "residente"
+                or "autorizado" => UnitRelationshipType.AuthorizedOccupant,
             _ => null
         };
+    }
+
+    private static string? NormalizePersonName(string? value)
+    {
+        var trimmed = Optional(value);
+        return trimmed is null ? null : string.Join(' ',
+            trimmed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string? ResolveBlock(string input, IReadOnlyList<string> blocks, out bool ambiguous)
+    {
+        ambiguous = false;
+        var exact = blocks.FirstOrDefault(block => string.Equals(block, input, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null) return exact;
+        var key = NormalizeLookup(input)?.Replace("bloco ", "").Replace("torre ", "");
+        var matches = blocks.Where(block =>
+            NormalizeLookup(block)?.Replace("bloco ", "").Replace("torre ", "") == key).ToArray();
+        ambiguous = matches.Length > 1;
+        return matches.Length == 1 ? matches[0] : null;
+    }
+
+    private static string? NormalizeLookup(string? value)
+    {
+        if (value is null) return null;
+        var decomposed = value.Trim().ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        return new string(decomposed.Where(character =>
+            CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark).ToArray())
+            .Normalize(NormalizationForm.FormC);
     }
 
     private static bool TryBoolean(

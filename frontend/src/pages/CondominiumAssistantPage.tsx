@@ -28,6 +28,7 @@ import {
   askAssistant,
   deleteConversation,
   deleteDocument,
+  downloadDocument,
   DOCUMENT_FILE_TOO_LARGE_MESSAGE,
   getConversation,
   getDocumentUploadError,
@@ -344,22 +345,9 @@ export function CondominiumAssistantPage() {
                 ) : messages.length === 0 ? (
                   <Stack gap={1}>
                     <Typography color="text.secondary">
-                      Consulte documentos, regras e informações do condomínio.
+                      Pergunte sobre documentos, regras ou informações do
+                      condomínio.
                     </Typography>
-                    {[
-                      "Quais são as regras para mudanças?",
-                      "O que o regimento diz sobre barulho?",
-                      "Quais são as regras da piscina?",
-                    ].map((value) => (
-                      <Button
-                        key={value}
-                        variant="outlined"
-                        onClick={() => setQuestion(value)}
-                        sx={{ alignSelf: "flex-start" }}
-                      >
-                        {value}
-                      </Button>
-                    ))}
                   </Stack>
                 ) : (
                   messages.map((message) => (
@@ -393,20 +381,37 @@ export function CondominiumAssistantPage() {
                             Fontes
                           </Typography>
                           {message.sources.map(
-                            ({ source, documentExists = true, documentCurrentlyActive }) => documentExists ? (
-                <Chip
-                                key={`${message.id}-${source.marker}`}
-                                component="a"
-                                clickable
-                                href={`/api/condominiums/${activeCondominiumId}/documents/${source.documentId}/download`}
-                                label={`${source.documentName}${source.pageNumber ? ` — pág. ${source.pageNumber}` : ""}${documentCurrentlyActive ? "" : " · documento atualmente inativo"}`}
-                              />
-                            ) : (
-                              <Chip
-                                key={`${message.id}-${source.marker}`}
-                                label={`${source.documentName}${source.pageNumber ? ` — pág. ${source.pageNumber}` : ""} · documento removido`}
-                              />
-                            ),
+                            ({
+                              source,
+                              documentExists = true,
+                              documentCurrentlyActive,
+                            }) =>
+                              documentExists ? (
+                                <Chip
+                                  key={`${message.id}-${source.marker}`}
+                                  clickable
+                                  onClick={async () => {
+                                    setError("");
+                                    try {
+                                      await downloadDocument(
+                                        activeCondominiumId!,
+                                        source.documentId,
+                                        source.documentName,
+                                      );
+                                    } catch {
+                                      setError(
+                                        "Não foi possível baixar o documento. Tente novamente.",
+                                      );
+                                    }
+                                  }}
+                                  label={`${source.documentName}${source.pageNumber ? ` — pág. ${source.pageNumber}` : ""}${documentCurrentlyActive ? "" : " · documento atualmente inativo"}`}
+                                />
+                              ) : (
+                                <Chip
+                                  key={`${message.id}-${source.marker}`}
+                                  label={`${source.documentName}${source.pageNumber ? ` — pág. ${source.pageNumber}` : ""} · documento removido`}
+                                />
+                              ),
                           )}
                         </Stack>
                       )}
@@ -431,6 +436,12 @@ export function CondominiumAssistantPage() {
                   onChange={(event) => setQuestion(event.target.value)}
                   multiline
                   maxRows={5}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      if (!sending && !opening && question.trim()) void send();
+                    }
+                  }}
                 />
                 <Button
                   variant="contained"
@@ -607,8 +618,24 @@ export function CondominiumDocumentsPage() {
                         : "default"
                     }
                   />
-                  {document.needsReindexing && <Chip label="Reindexação necessária" color="warning" />}
-                  {(document.needsReindexing || document.processingStatus === "Failed" || document.processingStatus === "Unsupported") && <Button onClick={async () => { await reprocessDocument(activeCondominiumId!, document.id); await load() }}>Reprocessar</Button>}
+                  {document.needsReindexing && (
+                    <Chip label="Reindexação necessária" color="warning" />
+                  )}
+                  {(document.needsReindexing ||
+                    document.processingStatus === "Failed" ||
+                    document.processingStatus === "Unsupported") && (
+                    <Button
+                      onClick={async () => {
+                        await reprocessDocument(
+                          activeCondominiumId!,
+                          document.id,
+                        );
+                        await load();
+                      }}
+                    >
+                      Reprocessar
+                    </Button>
+                  )}
                   <Button
                     onClick={async () => {
                       await setDocumentActive(
@@ -622,8 +649,20 @@ export function CondominiumDocumentsPage() {
                     {document.isActive ? "Inativar" : "Ativar"}
                   </Button>
                   <Button
-                    component="a"
-                    href={`/api/condominiums/${activeCondominiumId}/documents/${document.id}/download`}
+                    onClick={async () => {
+                      setError("");
+                      try {
+                        await downloadDocument(
+                          activeCondominiumId!,
+                          document.id,
+                          document.originalFileName,
+                        );
+                      } catch {
+                        setError(
+                          "Não foi possível baixar o documento. Tente novamente.",
+                        );
+                      }
+                    }}
                   >
                     Baixar
                   </Button>
