@@ -64,6 +64,14 @@ public static class OnboardCondominiumMember
         var normalizedPhone = Domain.PhoneNumberNormalizer.Normalize(phone);
         if (phone is not null && normalizedPhone is null)
             return Results.BadRequest(new { error = "PhoneNumber must be valid; include + and the country code outside Brazil." });
+        var accessChannel = ParseAccessChannel(request.FirstAccessChannel, request.SendAccessEmail);
+        var emailDeliveryEnabled = request.EmailDeliveryEnabled || request.SendAccessEmail;
+        if (accessChannel is null)
+            return Results.BadRequest(new { error = "FirstAccessChannel must be WhatsApp, Email or None." });
+        if (accessChannel == FirstAccessChannel.WhatsApp && normalizedPhone is null)
+            return Results.BadRequest(new { error = "WhatsApp first access requires a valid phone number." });
+        if (accessChannel == FirstAccessChannel.Email && !emailDeliveryEnabled)
+            return Results.BadRequest(new { error = "Email first access requires a deliverable email address." });
         var existingUser = await userManager.FindByEmailAsync(email);
         if (existingUser is { IsActive: false })
             return Results.Conflict(new { error = "Inactive user cannot be associated." });
@@ -102,7 +110,7 @@ public static class OnboardCondominiumMember
             if (isNewUser)
             {
                 user.RequirePasswordChange();
-                user.SetEmailDeliveryEnabled(request.SendAccessEmail);
+                user.SetEmailDeliveryEnabled(emailDeliveryEnabled);
                 var identityResult = await userManager.CreateAsync(user, initialPassword!);
                 if (!identityResult.Succeeded)
                 {
@@ -113,7 +121,7 @@ public static class OnboardCondominiumMember
             }
             else if (user.MustChangePassword)
             {
-                user.SetEmailDeliveryEnabled(request.SendAccessEmail);
+                user.SetEmailDeliveryEnabled(emailDeliveryEnabled);
             }
 
             var membership = await dbContext.CondominiumMemberships.SingleOrDefaultAsync(
@@ -156,9 +164,17 @@ public static class OnboardCondominiumMember
             await transaction.CommitAsync(cancellationToken);
 
             var firstAccessService = services.GetService<FirstAccessService>();
-            var inviteSent = user.MustChangePassword && request.SendAccessEmail
+            var emailSent = user.MustChangePassword && accessChannel == FirstAccessChannel.Email
                 && firstAccessService is not null
                 && await firstAccessService.SendAsync(user, condominium.Name, cancellationToken);
+            var whatsappQueued = false;
+            if (user.MustChangePassword && accessChannel == FirstAccessChannel.WhatsApp)
+            {
+                var whatsapp = services.GetService<FirstAccessWhatsAppInvitationService>();
+                whatsappQueued = whatsapp is not null && await whatsapp.EnqueueAsync(
+                    user, condominiumId, condominium.Name,
+                    request.InvitationOperationId ?? $"onboard:{user.Id:N}", cancellationToken);
+            }
 
             return Results.Created($"/users/{user.Id}", new Response(
                 new UserResponse(user.Id, user.FullName, user.Email!, user.PhoneNumber, user.IsActive),
@@ -167,7 +183,8 @@ public static class OnboardCondominiumMember
                 unitMembership is null ? null : new UnitMembershipResponse(unitMembership.Id, unitMembership.UnitId,
                     unitMembership.RelationshipType.ToString(), unitMembership.IsResident, unitMembership.IsPrimaryResidence),
                 isNewUser,
-                inviteSent ? "InviteSent" : user.MustChangePassword ? "Pending" : "Completed"));
+                whatsappQueued ? "InviteQueued" : emailSent ? "InviteSent"
+                    : user.MustChangePassword ? "Pending" : "Completed"));
         }
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
         {
@@ -192,6 +209,14 @@ public static class OnboardCondominiumMember
             && Enum.TryParse(value, true, out type) && Enum.IsDefined(type);
     }
 
+    private static FirstAccessChannel? ParseAccessChannel(string? value, bool legacyEmail) =>
+        string.IsNullOrWhiteSpace(value)
+            ? legacyEmail ? FirstAccessChannel.Email : FirstAccessChannel.None
+            : Enum.TryParse<FirstAccessChannel>(value, true, out var channel)
+                && Enum.IsDefined(channel) ? channel : null;
+
+    private enum FirstAccessChannel { None, Email, WhatsApp }
+
     private static string GeneratePassword()
     {
         const string upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -213,7 +238,9 @@ public static class OnboardCondominiumMember
 
     private static IResult DuplicateEmail() => Results.Conflict(new { error = "A user with this email already exists." });
     public sealed record Request(string? FullName, string? Email, string? PhoneNumber, Guid? UnitId,
-        string? RelationshipType, bool IsResident, bool IsPrimaryResidence, bool SendAccessEmail = false);
+        string? RelationshipType, bool IsResident, bool IsPrimaryResidence,
+        string? FirstAccessChannel = null, bool EmailDeliveryEnabled = false,
+        bool SendAccessEmail = false, string? InvitationOperationId = null);
     public sealed record UserResponse(Guid Id, string FullName, string Email, string? PhoneNumber, bool IsActive);
     public sealed record MembershipResponse(Guid Id, Guid CondominiumId, bool IsActive, DateTime JoinedAt);
     public sealed record UnitMembershipResponse(Guid Id, Guid UnitId, string RelationshipType, bool IsResident, bool IsPrimaryResidence);

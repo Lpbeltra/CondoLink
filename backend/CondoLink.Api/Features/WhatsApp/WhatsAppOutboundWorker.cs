@@ -4,6 +4,7 @@ using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using CondoLink.Api.Features.Observability;
+using CondoLink.Api.Features.Auth;
 
 namespace CondoLink.Api.Features.WhatsApp;
 
@@ -45,6 +46,8 @@ public sealed class WhatsAppOutboundWorker(
         var client = scope.ServiceProvider.GetRequiredService<IWhatsAppClient>();
         var verificationMessageProtector = scope.ServiceProvider
             .GetRequiredService<IPhoneVerificationMessageProtector>();
+        var firstAccessProtector = scope.ServiceProvider
+            .GetRequiredService<IFirstAccessWhatsAppPayloadProtector>();
         var now = DateTime.UtcNow;
         var interrupted = await db.WhatsAppOutboundMessages
             .Where(x => x.Status == WhatsAppOutboundStatus.Processing
@@ -74,6 +77,7 @@ public sealed class WhatsAppOutboundWorker(
             }
 
             string content;
+            FirstAccessWhatsAppPayload? firstAccessPayload = null;
             try
             {
                 content = item.NotificationType is
@@ -81,6 +85,8 @@ public sealed class WhatsAppOutboundWorker(
                     or WhatsAppNotificationType.LoginCode
                     ? verificationMessageProtector.Unprotect(item.Content)
                     : item.Content;
+                if (item.NotificationType == WhatsAppNotificationType.ResidentFirstAccess)
+                    firstAccessPayload = firstAccessProtector.Unprotect(item.Content);
             }
             catch (System.Security.Cryptography.CryptographicException)
             {
@@ -102,6 +108,7 @@ public sealed class WhatsAppOutboundWorker(
             {
                 IReadOnlyList<string> parameters = [];
                 IReadOnlyList<string> quickReplies = [];
+                IReadOnlyList<string> urlButtons = [];
                 string? bodyParameterName = null;
                 if (item.NotificationType == WhatsAppNotificationType.InformationRequested)
                 {
@@ -131,9 +138,14 @@ public sealed class WhatsAppOutboundWorker(
                     bodyParameterName = settings.Templates.ManagerNewRequest
                         .BodyParameterName;
                 }
+                else if (item.NotificationType == WhatsAppNotificationType.ResidentFirstAccess)
+                {
+                    parameters = [firstAccessPayload!.ResidentName, firstAccessPayload.CondominiumName];
+                    urlButtons = [firstAccessPayload.ButtonParameter];
+                }
                 result = await client.SendTemplateAsync(item.DestinationPhone,
                     item.TemplateName!, item.TemplateLanguage!, parameters,
-                    quickReplies, ct, bodyParameterName);
+                    quickReplies, ct, bodyParameterName, urlButtons);
             }
             result = EnsureFailureDiagnostic(result);
             logger.LogInformation(
@@ -148,6 +160,11 @@ public sealed class WhatsAppOutboundWorker(
             if (result.Succeeded && !string.IsNullOrWhiteSpace(result.ExternalMessageId))
             {
                 item.MarkSent(result.ExternalMessageId, DateTime.UtcNow);
+                if (item.NotificationType == WhatsAppNotificationType.ResidentFirstAccess)
+                {
+                    var user = await db.Set<ApplicationUser>().SingleAsync(x => x.Id == item.UserId, ct);
+                    user.MarkFirstAccessInviteSent(DateTime.UtcNow);
+                }
                 logger.LogInformation(
                     "WhatsApp outbound {OutboundId} accepted by provider.",
                     item.Id);
@@ -155,6 +172,12 @@ public sealed class WhatsAppOutboundWorker(
             else
             {
                 ApplyFailure(item, result, settings, DateTime.UtcNow);
+                if (item.NotificationType == WhatsAppNotificationType.ResidentFirstAccess
+                    && item.Status is WhatsAppOutboundStatus.PermanentlyFailed or WhatsAppOutboundStatus.Failed)
+                {
+                    var user = await db.Set<ApplicationUser>().SingleAsync(x => x.Id == item.UserId, ct);
+                    user.MarkFirstAccessInviteFailed(DateTime.UtcNow);
+                }
                 if (item.Status is WhatsAppOutboundStatus.PermanentlyFailed or WhatsAppOutboundStatus.Failed)
                     await telemetry.EventAsync("WhatsApp", "OutboundExhausted", "Error",
                         OperationalTelemetry.SafeCode(result.ErrorCode), item.Id.ToString(), ct);

@@ -892,6 +892,7 @@ function PreviewStep({
           "Nome",
           "E-mail",
           "Telefone",
+          "Primeiro acesso",
           "Unidade",
           "Situação",
           "",
@@ -905,6 +906,11 @@ function PreviewStep({
               ? `${row.phone} → ${row.normalizedPhone}`
               : row.phone
             : "—",
+          row.firstAccessChannel === "WhatsApp"
+            ? "WhatsApp"
+            : row.firstAccessChannel === "Email"
+              ? "E-mail"
+              : "Não enviar",
           row.unit
             ? `${row.block ? `${row.block} / ` : ""}${row.unit}`
             : "Sem unidade",
@@ -1022,7 +1028,11 @@ function ConfirmationStep({
         {result.residentsLinked} moradores processados.
       </Typography>
       <Typography>{result.usersCreated ?? 0} usuários criados · {result.usersReused ?? 0} reutilizados</Typography>
-      <Typography>{result.invitationsSent ?? 0} convites enviados · {result.accessPending ?? 0} acessos pendentes</Typography>
+      <Typography>
+        {result.invitationsSent ?? 0} convites enviados ·{" "}
+        {result.invitationsQueued ?? 0} enfileirados no WhatsApp ·{" "}
+        {result.accessPending ?? 0} acessos pendentes
+      </Typography>
       <Button variant="contained" onClick={onReset}>
         Finalizar
       </Button>

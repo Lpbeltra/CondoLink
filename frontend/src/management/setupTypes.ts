@@ -17,6 +17,7 @@ export interface SetupResidentRow {
   resident: string | null
   primaryResidence: string | null
   sendAccessEmail?: string | null
+  firstAccessChannel?: string | null
 }
 
 export interface SetupDraft {
@@ -47,6 +48,7 @@ export interface SetupPreview {
     primaryResidence: boolean
     existingUser: boolean
     sendAccessEmail: boolean
+    firstAccessChannel: "WhatsApp" | "Email" | "None"
     status: 'Ready' | 'ExistingUser' | 'ExistingMembership' | 'Warning' | 'Conflict' | 'Invalid'
     normalizedPhone: string | null
   }[]
@@ -75,6 +77,7 @@ export interface SetupConfirmation {
   usersCreated?: number
   usersReused?: number
   invitationsSent?: number
+  invitationsQueued?: number
   accessPending?: number
 }
 

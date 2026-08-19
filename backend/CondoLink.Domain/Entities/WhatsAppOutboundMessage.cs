@@ -7,7 +7,7 @@ public sealed class WhatsAppOutboundMessage
     private WhatsAppOutboundMessage() { }
 
     public WhatsAppOutboundMessage(
-        Guid requestId, Guid? requestMessageId, Guid userId, Guid condominiumId,
+        Guid? requestId, Guid? requestMessageId, Guid userId, Guid condominiumId,
         string destinationPhone, WhatsAppNotificationType notificationType,
         WhatsAppSendMode sendMode, string idempotencyKey, string content,
         string? templateName, string? templateLanguage, DateTime now,

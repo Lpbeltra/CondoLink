@@ -103,6 +103,9 @@ export function ManagementPeoplePage() {
   const [primary, setPrimary] = useState(false);
   const [saving, setSaving] = useState(false);
   const [emailOnlyLogin, setEmailOnlyLogin] = useState(false);
+  const [firstAccessChannel, setFirstAccessChannel] = useState<
+    "WhatsApp" | "Email" | "None"
+  >("Email");
   const [editing, setEditing] = useState<CondominiumMember | null>(null);
   const [cpf, setCpf] = useState("");
   const [cnpj, setCnpj] = useState("");
@@ -278,7 +281,9 @@ export function ManagementPeoplePage() {
         relationshipType: unitId ? type : null,
         isResident: unitId ? resident : false,
         isPrimaryResidence: unitId ? primary : false,
-        sendAccessEmail: !emailOnlyLogin,
+        firstAccessChannel,
+        emailDeliveryEnabled: !emailOnlyLogin,
+        invitationOperationId: crypto.randomUUID(),
       });
 
       if (activeIdRef.current !== operationId) return;
@@ -294,7 +299,9 @@ export function ManagementPeoplePage() {
       setSuccess(
         created.firstAccessStatus === "InviteSent"
           ? "Pessoa cadastrada e convite enviado por e-mail."
-          : "Pessoa cadastrada. O primeiro acesso está pendente.",
+          : created.firstAccessStatus === "InviteQueued"
+            ? "Pessoa cadastrada e convite enfileirado para o WhatsApp."
+            : "Pessoa cadastrada. O primeiro acesso está pendente.",
       );
 
       await load();
@@ -314,6 +321,7 @@ export function ManagementPeoplePage() {
     setEmail("");
     setPhone("");
     setEmailOnlyLogin(false);
+    setFirstAccessChannel("Email");
     setCpf("");
     setCnpj("");
     setAddress("");
@@ -391,11 +399,18 @@ export function ManagementPeoplePage() {
       setResetting(false);
     }
   };
-  const resendAccess = async (person: CondominiumMember) => {
+  const resendAccess = async (
+    person: CondominiumMember,
+    channel: "WhatsApp" | "Email",
+  ) => {
     if (!activeCondominiumId) return;
     try {
-      await resendFirstAccess(activeCondominiumId, person.userId);
-      setSuccess("Convite reenviado por e-mail.");
+      await resendFirstAccess(activeCondominiumId, person.userId, channel);
+      setSuccess(
+        channel === "WhatsApp"
+          ? "Convite enfileirado para envio por WhatsApp."
+          : "Convite reenviado por e-mail.",
+      );
       await load();
     } catch (requestError) {
       setError(managementError(requestError));
@@ -609,9 +624,18 @@ export function ManagementPeoplePage() {
                     <Button
                       size="small"
                       variant="outlined"
-                      onClick={() => void resendAccess(person)}
+                      onClick={() => void resendAccess(person, "Email")}
                     >
-                      Reenviar primeiro acesso
+                      Reenviar por e-mail
+                    </Button>
+                  )}
+                  {person.mustChangePassword && person.phoneNumber && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => void resendAccess(person, "WhatsApp")}
+                    >
+                      Reenviar por WhatsApp
                     </Button>
                   )}
                   {person.mustChangePassword && (
@@ -783,7 +807,11 @@ export function ManagementPeoplePage() {
                   control={
                     <Checkbox
                       checked={emailOnlyLogin}
-                      onChange={(e) => setEmailOnlyLogin(e.target.checked)}
+                      onChange={(e) => {
+                        setEmailOnlyLogin(e.target.checked);
+                        if (e.target.checked && firstAccessChannel === "Email")
+                          setFirstAccessChannel("None");
+                      }}
                     />
                   }
                   label="Este e-mail é apenas para acesso ao sistema"
@@ -792,9 +820,36 @@ export function ManagementPeoplePage() {
               <TextField
                 label="Telefone / WhatsApp"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => {
+                  setPhone(e.target.value);
+                  if (!e.target.value.trim() && firstAccessChannel === "WhatsApp")
+                    setFirstAccessChannel("None");
+                }}
                 slotProps={{ htmlInput: { maxLength: 30 } }}
               />
+              {!editing && (
+                <TextField
+                  select
+                  label="Enviar primeiro acesso"
+                  value={firstAccessChannel}
+                  onChange={(event) =>
+                    setFirstAccessChannel(
+                      event.target.value as "WhatsApp" | "Email" | "None",
+                    )
+                  }
+                >
+                  <MenuItem
+                    value="WhatsApp"
+                    disabled={!phone.trim()}
+                  >
+                    WhatsApp
+                  </MenuItem>
+                  <MenuItem value="Email" disabled={emailOnlyLogin}>
+                    E-mail
+                  </MenuItem>
+                  <MenuItem value="None">Não enviar agora</MenuItem>
+                </TextField>
+              )}
               {editing && (
                 <>
                   <TextField

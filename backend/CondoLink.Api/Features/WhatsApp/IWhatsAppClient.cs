@@ -17,6 +17,17 @@ public interface IWhatsAppClient
         IReadOnlyList<string> quickReplyPayloads,
         CancellationToken cancellationToken,
         string? bodyParameterName = null);
+    Task<WhatsAppSendResult> SendTemplateAsync(
+        string phoneNumber,
+        string templateName,
+        string language,
+        IReadOnlyList<string> bodyParameters,
+        IReadOnlyList<string> quickReplyPayloads,
+        CancellationToken cancellationToken,
+        string? bodyParameterName,
+        IReadOnlyList<string> urlButtonParameters) =>
+        SendTemplateAsync(phoneNumber, templateName, language, bodyParameters,
+            quickReplyPayloads, cancellationToken, bodyParameterName);
 }
 
 public sealed record WhatsAppSendResult(

@@ -42,11 +42,27 @@ public static class FirstAccessEndpoints
         return Results.Ok(new { message = "Senha criada com sucesso." });
     }
 
-    private static async Task<IResult> ResendAsync(Guid condominiumId, Guid userId, ClaimsPrincipal principal,
-        AppDbContext db, UserManager<ApplicationUser> users, FirstAccessService service, CancellationToken ct)
+    private static async Task<IResult> ResendAsync(Guid condominiumId, Guid userId, ResendRequest request,
+        ClaimsPrincipal principal, AppDbContext db, UserManager<ApplicationUser> users,
+        FirstAccessService service, FirstAccessWhatsAppInvitationService whatsapp, CancellationToken ct)
     {
         if (!await CanManageAsync(condominiumId, userId, principal, db, ct)) return Results.NotFound();
         var user = await users.FindByIdAsync(userId.ToString());
+        if (user is not null && user.MustChangePassword
+            && string.Equals(request.Channel, "WhatsApp", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(user.NormalizedPhoneNumber))
+                return Results.Conflict(new { error = "Este morador não possui telefone válido para WhatsApp." });
+            var condominiumName = await db.Condominiums.Where(x => x.Id == condominiumId)
+                .Select(x => x.Name).SingleAsync(ct);
+            var queued = await whatsapp.EnqueueAsync(user, condominiumId, condominiumName,
+                request.OperationId ?? $"resend:{user.Id:N}", ct);
+            return queued
+                ? Results.Accepted(value: new { status = "InviteSent", channel = "WhatsApp" })
+                : Results.Json(new { status = "DeliveryFailed", error = "Não foi possível enfileirar o convite." }, statusCode: 502);
+        }
+        if (!string.Equals(request.Channel, "Email", StringComparison.OrdinalIgnoreCase))
+            return Results.BadRequest(new { error = "Channel must be WhatsApp or Email." });
         if (user is null || !user.MustChangePassword) return Results.Conflict(new { error = "O primeiro acesso já foi concluído." });
         if (!user.EmailDeliveryEnabled) return Results.Conflict(new { error = "Este e-mail é apenas para acesso ao sistema." });
         var name = await db.Condominiums.Where(x => x.Id == condominiumId).Select(x => x.Name).SingleAsync(ct);
@@ -75,4 +91,5 @@ public static class FirstAccessEndpoints
     private static IResult InvalidToken() => Results.BadRequest(new { error = "O link é inválido, expirou ou já foi utilizado." });
     public sealed record TokenRequest(Guid UserId, string Token);
     public sealed record CompleteRequest(Guid UserId, string Token, string Password, string ConfirmPassword);
+    public sealed record ResendRequest(string Channel = "Email", string? OperationId = null);
 }

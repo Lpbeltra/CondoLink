@@ -41,6 +41,17 @@ public sealed class MetaWhatsAppClient(
         return await SendAsync(request, cancellationToken);
     }
 
+    public Task<WhatsAppSendResult> SendTemplateAsync(
+        string phoneNumber,
+        string templateName,
+        string language,
+        IReadOnlyList<string> bodyParameters,
+        IReadOnlyList<string> quickReplyPayloads,
+        CancellationToken cancellationToken,
+        string? bodyParameterName = null) =>
+        SendTemplateAsync(phoneNumber, templateName, language, bodyParameters,
+            quickReplyPayloads, cancellationToken, bodyParameterName, []);
+
     public async Task<WhatsAppSendResult> SendTemplateAsync(
         string phoneNumber,
         string templateName,
@@ -48,7 +59,8 @@ public sealed class MetaWhatsAppClient(
         IReadOnlyList<string> bodyParameters,
         IReadOnlyList<string> quickReplyPayloads,
         CancellationToken cancellationToken,
-        string? bodyParameterName = null)
+        string? bodyParameterName = null,
+        IReadOnlyList<string> urlButtonParameters)
     {
         var stage = "building_payload";
         int? httpStatus = null;
@@ -101,6 +113,18 @@ public sealed class MetaWhatsAppClient(
                     {
                         type = "payload",
                         payload = quickReplyPayloads[index]
+                    } }
+                });
+            for (var index = 0; index < urlButtonParameters.Count; index++)
+                components.Add(new
+                {
+                    type = "button",
+                    sub_type = "url",
+                    index = index.ToString(),
+                    parameters = new[] { new
+                    {
+                        type = "text",
+                        text = urlButtonParameters[index]
                     } }
                 });
             var payload = new

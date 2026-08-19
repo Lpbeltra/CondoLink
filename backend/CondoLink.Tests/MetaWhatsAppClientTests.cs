@@ -12,6 +12,29 @@ namespace CondoLink.Tests;
 public sealed class MetaWhatsAppClientTests
 {
     [Fact]
+    public async Task First_access_template_has_two_body_values_and_dynamic_url_suffix()
+    {
+        var handler = new RecordingHandler();
+        var result = await NewClient(handler).SendTemplateAsync(
+            "+12125551234", "resident_first_access", "pt_BR",
+            ["Tatiana", "Residencial Monticello"], [], default, null,
+            ["?userId=abc&token=A%2BB%2FC%3D"]);
+
+        Assert.True(result.Succeeded);
+        using var json = JsonDocument.Parse(handler.Body!);
+        var components = json.RootElement.GetProperty("template")
+            .GetProperty("components");
+        Assert.Equal("Tatiana", components[0].GetProperty("parameters")[0]
+            .GetProperty("text").GetString());
+        Assert.Equal("Residencial Monticello", components[0].GetProperty("parameters")[1]
+            .GetProperty("text").GetString());
+        Assert.Equal("url", components[1].GetProperty("sub_type").GetString());
+        Assert.Equal("0", components[1].GetProperty("index").GetString());
+        Assert.Equal("?userId=abc&token=A%2BB%2FC%3D", components[1]
+            .GetProperty("parameters")[0].GetProperty("text").GetString());
+    }
+
+    [Fact]
     public async Task Information_request_template_payload_has_name_language_name_and_buttons()
     {
         var handler = new RecordingHandler();

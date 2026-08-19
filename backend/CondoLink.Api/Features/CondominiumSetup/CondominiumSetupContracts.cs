@@ -22,7 +22,8 @@ public sealed record SetupResidentRow(
     string? Relationship,
     string? Resident,
     string? PrimaryResidence,
-    string? SendAccessEmail = null);
+    string? SendAccessEmail = null,
+    string? FirstAccessChannel = null);
 
 public sealed record SetupIssue(int Line, string Column, string Reason);
 
@@ -48,6 +49,7 @@ public sealed record SetupResidentPreview(
     bool PrimaryResidence,
     bool ExistingUser,
     bool SendAccessEmail = false,
+    string FirstAccessChannel = "None",
     string Status = "Ready",
     string? NormalizedPhone = null,
     Guid? ExistingUserId = null);
@@ -87,7 +89,8 @@ public sealed record SetupConfirmationResponse(
     int LinesIgnored = 0,
     int Warnings = 0,
     int InvitationsSent = 0,
-    int AccessPending = 0);
+    int AccessPending = 0,
+    int InvitationsQueued = 0);
 
 public sealed record SetupGeneratorRequest(
     IReadOnlyList<SetupGeneratorTower>? Towers,

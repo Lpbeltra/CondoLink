@@ -117,7 +117,7 @@ public static class CondominiumSetupEndpoints
         if (residentsFile is not null)
         {
             var result = await SetupSpreadsheetReader.ReadAsync(
-                residentsFile, ResidentHeaders, cancellationToken, ["SendAccessEmail"]);
+                residentsFile, ResidentHeaders, cancellationToken, ["SendAccessEmail", "FirstAccessChannel"]);
             if (result.Error is not null)
                 return Results.BadRequest(new { error = result.Error });
             residents.AddRange(result.Rows.Select(row => new SetupResidentRow(
@@ -130,7 +130,8 @@ public static class CondominiumSetupEndpoints
                 row.Values["Relationship"],
                 row.Values["Resident"],
                 row.Values["PrimaryResidence"],
-                row.Values["SendAccessEmail"])));
+                row.Values["SendAccessEmail"],
+                row.Values["FirstAccessChannel"])));
         }
 
         var noUnits = string.Equals(
@@ -253,6 +254,7 @@ public static class CondominiumSetupEndpoints
                 StringComparer.OrdinalIgnoreCase);
             var memberships = new Dictionary<Guid, CondominiumMembership>();
             var usersToInvite = new List<ApplicationUser>();
+            var usersToInviteByWhatsApp = new List<ApplicationUser>();
             var residentsLinked = 0;
             var usersCreated = 0;
             var usersReused = 0;
@@ -274,7 +276,7 @@ public static class CondominiumSetupEndpoints
                         user = new ApplicationUser(
                             row.Name, row.Email, row.Phone);
                         user.RequirePasswordChange();
-                        user.SetEmailDeliveryEnabled(row.SendAccessEmail);
+                        user.SetEmailDeliveryEnabled(row.FirstAccessChannel == "Email");
                         var password = GenerateTemporaryPassword();
                         var created = await userManager.CreateAsync(user, password);
                         if (!created.Succeeded)
@@ -287,6 +289,7 @@ public static class CondominiumSetupEndpoints
                             });
                         }
                         if (row.SendAccessEmail) usersToInvite.Add(user);
+                        if (row.FirstAccessChannel == "WhatsApp") usersToInviteByWhatsApp.Add(user);
                         usersCreated++;
                     }
                     else
@@ -294,8 +297,9 @@ public static class CondominiumSetupEndpoints
                         usersReused++;
                         if (user.MustChangePassword)
                         {
-                            user.SetEmailDeliveryEnabled(row.SendAccessEmail);
+                            user.SetEmailDeliveryEnabled(row.FirstAccessChannel == "Email");
                             if (row.SendAccessEmail) usersToInvite.Add(user);
+                            if (row.FirstAccessChannel == "WhatsApp") usersToInviteByWhatsApp.Add(user);
                         }
                     }
                     users[identityKey] = user;
@@ -368,10 +372,16 @@ public static class CondominiumSetupEndpoints
                 .Where(x => x.Id == condominiumId).Select(x => x.Name)
                 .SingleAsync(cancellationToken);
             var invitationsSent = 0;
+            var invitationsQueued = 0;
             var firstAccessService = services.GetService<FirstAccessService>();
             if (firstAccessService is not null)
                 foreach (var user in usersToInvite.DistinctBy(x => x.Id))
                     if (await firstAccessService.SendAsync(user, condominiumName, cancellationToken)) invitationsSent++;
+            var whatsappInvitations = services.GetService<FirstAccessWhatsAppInvitationService>();
+            if (whatsappInvitations is not null)
+                foreach (var user in usersToInviteByWhatsApp.DistinctBy(x => x.Id))
+                    if (await whatsappInvitations.EnqueueAsync(user, condominiumId, condominiumName,
+                            $"import:{condominiumId:N}", cancellationToken)) invitationsQueued++;
             return Results.Ok(new SetupConfirmationResponse(
                 blocksCreated,
                 unitsCreated,
@@ -386,7 +396,8 @@ public static class CondominiumSetupEndpoints
                     (request.Residents?.Count ?? 0) - preview.Residents.Count),
                 preview.Warnings.Count,
                 invitationsSent,
-                usersCreated - invitationsSent));
+                Math.Max(0, usersCreated - invitationsSent - invitationsQueued),
+                invitationsQueued));
         }
         catch (DbUpdateException)
         {
@@ -589,6 +600,8 @@ public static class CondominiumSetupEndpoints
                 source.PrimaryResidence, false, out var primary);
             var sendAccessEmailValid = TryBoolean(
                 source.SendAccessEmail, false, out var sendAccessEmail);
+            var firstAccessValid = TryFirstAccessChannel(
+                source.FirstAccessChannel, sendAccessEmail, out var firstAccessChannel);
 
             if (block is not null)
             {
@@ -633,6 +646,13 @@ public static class CondominiumSetupEndpoints
                 errors.Add(new SetupIssue(
                     source.Line, "PrimaryResidence",
                     "Residência principal exige Morador = Sim."));
+
+            if (!firstAccessValid)
+                errors.Add(new SetupIssue(source.Line, "FirstAccessChannel",
+                    "Informe WhatsApp, E-mail ou Não."));
+            if (firstAccessChannel == "WhatsApp" && normalizedPhone is null)
+                errors.Add(new SetupIssue(source.Line, "FirstAccessChannel",
+                    "WhatsApp exige um telefone válido."));
 
             if (unit is null)
             {
@@ -856,7 +876,8 @@ public static class CondominiumSetupEndpoints
                     resident,
                     primary,
                     existingUser,
-                    sendAccessEmail,
+                    firstAccessChannel == "Email",
+                    firstAccessChannel,
                     status,
                     normalizedPhone,
                     existingApplicationUser?.Id));
@@ -1031,6 +1052,25 @@ public static class CondominiumSetupEndpoints
         }
         result = defaultValue;
         return false;
+    }
+
+    private static bool TryFirstAccessChannel(
+        string? value, bool legacyEmail, out string channel)
+    {
+        var normalized = NormalizeLookup(value);
+        if (normalized is null)
+        {
+            channel = legacyEmail ? "Email" : "None";
+            return true;
+        }
+        channel = normalized switch
+        {
+            "whatsapp" => "WhatsApp",
+            "email" or "e-mail" => "Email",
+            "nao" or "none" => "None",
+            _ => string.Empty
+        };
+        return channel.Length > 0;
     }
 
     private static string GenerateTemporaryPassword()

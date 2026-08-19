@@ -10,5 +10,6 @@ public enum WhatsAppNotificationType
     RequestReopened = 6,
     PhoneVerification = 7,
     LoginCode = 8,
-    ManagerNewRequest = 9
+    ManagerNewRequest = 9,
+    ResidentFirstAccess = 10
 }

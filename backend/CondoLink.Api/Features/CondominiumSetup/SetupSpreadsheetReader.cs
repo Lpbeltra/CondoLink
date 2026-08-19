@@ -283,6 +283,7 @@ internal static class SetupSpreadsheetReader
             "morador" => "Resident",
             "residência principal" or "residencia principal" => "PrimaryResidence",
             "enviar acesso por e-mail" or "enviar acesso por email" => "SendAccessEmail",
+            "enviar primeiro acesso" => "FirstAccessChannel",
             var header => header
         };
 }

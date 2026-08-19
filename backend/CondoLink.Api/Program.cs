@@ -110,6 +110,9 @@ builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailO
 builder.Services.Configure<FirstAccessOptions>(builder.Configuration.GetSection(FirstAccessOptions.SectionName));
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 builder.Services.AddScoped<FirstAccessService>();
+builder.Services.AddScoped<FirstAccessWhatsAppInvitationService>();
+builder.Services.AddSingleton<IFirstAccessWhatsAppPayloadProtector,
+    FirstAccessWhatsAppPayloadProtector>();
 builder.Services.AddSingleton<IPhoneVerificationMessageProtector,
     PhoneVerificationMessageProtector>();
 builder.Services.AddSingleton(TimeProvider.System);
