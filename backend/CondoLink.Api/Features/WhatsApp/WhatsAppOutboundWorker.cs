@@ -3,12 +3,14 @@ using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using CondoLink.Api.Features.Observability;
 
 namespace CondoLink.Api.Features.WhatsApp;
 
 public sealed class WhatsAppOutboundWorker(
     IServiceScopeFactory scopeFactory,
     IOptions<WhatsAppOptions> options,
+    OperationalTelemetry telemetry,
     ILogger<WhatsAppOutboundWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -16,21 +18,25 @@ public sealed class WhatsAppOutboundWorker(
         while (!stoppingToken.IsCancellationRequested)
         {
             var settings = options.Value;
+            var interval = TimeSpan.FromSeconds(Math.Clamp(settings.OutboundPollingSeconds, 5, 300));
+            await telemetry.RecordWorkerAsync(nameof(WhatsAppOutboundWorker), settings.Enabled && settings.OutboundWorkerEnabled, interval, "heartbeat", ct: stoppingToken);
             if (settings.Enabled && settings.OutboundWorkerEnabled)
             {
-                try { await ProcessBatch(settings, stoppingToken); }
+                try { await telemetry.RecordWorkerAsync(nameof(WhatsAppOutboundWorker), true, interval, "started", ct: stoppingToken); var count = await ProcessBatch(settings, stoppingToken); await telemetry.RecordWorkerAsync(nameof(WhatsAppOutboundWorker), true, interval, "completed", true, count, ct: stoppingToken); }
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "WhatsApp outbound worker batch failed.");
+                    await telemetry.RecordWorkerAsync(nameof(WhatsAppOutboundWorker), true, interval, "completed", false, failures: 1, code: "batch_failed", ct: CancellationToken.None);
+                    await telemetry.EventAsync("WhatsApp", "OutboundWorker", "Error", "batch_failed", ct: CancellationToken.None);
                 }
             }
             await Task.Delay(
-                TimeSpan.FromSeconds(Math.Clamp(settings.OutboundPollingSeconds, 5, 300)),
+                interval,
                 stoppingToken);
         }
     }
 
-    internal async Task ProcessBatch(
+    internal async Task<int> ProcessBatch(
         WhatsAppOptions settings,
         CancellationToken ct)
     {
@@ -149,6 +155,9 @@ public sealed class WhatsAppOutboundWorker(
             else
             {
                 ApplyFailure(item, result, settings, DateTime.UtcNow);
+                if (item.Status is WhatsAppOutboundStatus.PermanentlyFailed or WhatsAppOutboundStatus.Failed)
+                    await telemetry.EventAsync("WhatsApp", "OutboundExhausted", "Error",
+                        OperationalTelemetry.SafeCode(result.ErrorCode), item.Id.ToString(), ct);
                 logger.Log(
                     result.IsTransient
                         ? LogLevel.Warning : LogLevel.Error,
@@ -163,6 +172,7 @@ public sealed class WhatsAppOutboundWorker(
                 item.Id,
                 item.Status);
         }
+        return items.Length;
     }
 
     internal static IReadOnlyList<string> StatusChangedTemplateParameters(

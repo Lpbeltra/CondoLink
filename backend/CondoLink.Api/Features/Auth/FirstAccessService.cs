@@ -3,6 +3,7 @@ using System.Net.Mail;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using CondoLink.Infrastructure.Identity;
+using CondoLink.Api.Features.Observability;
 
 namespace CondoLink.Api.Features.Auth;
 
@@ -30,7 +31,7 @@ public interface IEmailSender
     Task SendAsync(string recipient, string subject, string html, CancellationToken cancellationToken);
 }
 
-public sealed class SmtpEmailSender(IOptions<EmailOptions> options) : IEmailSender
+public sealed class SmtpEmailSender(IOptions<EmailOptions> options, OperationalTelemetry telemetry) : IEmailSender
 {
     public async Task SendAsync(string recipient, string subject, string html, CancellationToken cancellationToken)
     {
@@ -53,7 +54,16 @@ public sealed class SmtpEmailSender(IOptions<EmailOptions> options) : IEmailSend
             IsBodyHtml = true
         };
         message.To.Add(recipient);
-        await client.SendMailAsync(message, cancellationToken);
+        try
+        {
+            await client.SendMailAsync(message, cancellationToken);
+            await telemetry.EventAsync("Email", "Send", "Info", "sent", ct: cancellationToken);
+        }
+        catch
+        {
+            await telemetry.EventAsync("Email", "Send", "Error", "smtp_send_failed", ct: CancellationToken.None);
+            throw;
+        }
     }
 }
 

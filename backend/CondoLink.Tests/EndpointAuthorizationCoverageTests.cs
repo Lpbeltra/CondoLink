@@ -20,6 +20,7 @@ using CondoLink.Api.Features.Units;
 using CondoLink.Api.Features.Overwatch.Managers;
 using CondoLink.Api.Features.Users;
 using CondoLink.Api.Features.WhatsApp;
+using CondoLink.Api.Features.Observability;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -176,7 +177,14 @@ public sealed class EndpointAuthorizationCoverageTests
         builder.Services.AddScoped<CondominiumMembershipService>();
         builder.Services.AddScoped<ManagerOnboardingService>();
         builder.Services.AddScoped<NotificationService>();
+        builder.Services.AddScoped<RequestClosureService>();
+        builder.Services.AddScoped<ResidentReplyService>();
+        builder.Services.AddScoped<FirstAccessService>();
         builder.Services.AddScoped<CondominiumAssistantService>();
+        builder.Services.AddSingleton<ApiRequestMetrics>();
+        builder.Services.Configure<WhatsAppOptions>(_ => { });
+        builder.Services.Configure<EmailOptions>(_ => { });
+        builder.Services.Configure<RequestDraftAiOptions>(_ => { });
         builder.Services.AddAuthorization();
         builder.Services.AddSingleton<LocalFileStorage>();
 

@@ -50,6 +50,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<CondominiumDocumentChunk> CondominiumDocumentChunks => Set<CondominiumDocumentChunk>();
     public DbSet<CondominiumAssistantConversation> CondominiumAssistantConversations => Set<CondominiumAssistantConversation>();
     public DbSet<CondominiumAssistantMessage> CondominiumAssistantMessages => Set<CondominiumAssistantMessage>();
+    public DbSet<WorkerHeartbeat> WorkerHeartbeats => Set<WorkerHeartbeat>();
+    public DbSet<AiOperationMetric> AiOperationMetrics => Set<AiOperationMetric>();
+    public DbSet<OperationalEvent> OperationalEvents => Set<OperationalEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

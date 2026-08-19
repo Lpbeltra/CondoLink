@@ -21,6 +21,7 @@ public static class MapOverwatch
             .RequireAuthorization("PlatformAdmin");
 
             endpoints.MapGetOverwatchDashboard();
+            endpoints.MapGetSystemStatus();
             endpoints.MapListOverwatchCondominiums();
             endpoints.MapGetOverwatchCondominium();
             endpoints.MapCreateOverwatchCondominium();
