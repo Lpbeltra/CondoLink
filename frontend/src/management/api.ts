@@ -163,14 +163,36 @@ export const onboardMember = async (
 export const resendFirstAccess = async (
   condominiumId: string,
   userId: string,
-  channel: "WhatsApp" | "Email" | "WhatsAppAndEmail",
 ) =>
   (
-    await api.post(
+    await api.post<{
+      channel?: "WhatsApp" | "Email" | "WhatsAppAndEmail";
+      emailSent?: boolean;
+      whatsappQueued?: boolean;
+    }>(
       `/condominiums/${condominiumId}/members/${userId}/first-access/resend`,
-      { channel, operationId: crypto.randomUUID() },
+      { channel: "Auto", operationId: crypto.randomUUID() },
     )
   ).data;
+export const exportActiveResidentsPdf = async (condominiumId: string) => {
+  const response = await api.get<Blob>(
+    `/condominiums/${condominiumId}/members/export.pdf`,
+    { responseType: "blob" },
+  );
+  const disposition = response.headers["content-disposition"] as string | undefined;
+  const encoded = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const quoted = disposition?.match(/filename="([^"]+)"/i)?.[1];
+  const fileName = encoded ? decodeURIComponent(encoded) : quoted ?? "moradores.pdf";
+  const url = URL.createObjectURL(response.data);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+};
 export const createFirstAccessLink = async (
   condominiumId: string,
   userId: string,

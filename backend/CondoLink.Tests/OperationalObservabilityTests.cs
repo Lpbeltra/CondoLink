@@ -5,6 +5,7 @@ using CondoLink.Api.Features.Overwatch;
 using CondoLink.Api.Features.Auth;
 using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Domain.Entities;
+using CondoLink.Domain.Enums;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using CondoLink.Infrastructure.Persistence;
@@ -13,6 +14,50 @@ namespace CondoLink.Tests;
 
 public sealed class OperationalObservabilityTests
 {
+    [Theory]
+    [InlineData(52, 1, "Healthy")]
+    [InlineData(19, 1, "Degraded")]
+    [InlineData(15, 5, "Unhealthy")]
+    [InlineData(0, 1, "Healthy")]
+    public void Email_health_uses_rate_and_protects_small_samples(
+        int successes, int failures, string expected)
+        => Assert.Equal(expected,
+            GetSystemStatus.EmailStatus(true, true, successes, failures));
+
+    [Theory]
+    [InlineData("/condominiums/{id}/setup/confirm", true)]
+    [InlineData("/reports/export.pdf", true)]
+    [InlineData("/requests/{id}", false)]
+    public void Api_metrics_classify_heavy_operations(string route, bool expected)
+        => Assert.Equal(expected, ApiRequestMetrics.IsHeavy(route));
+
+    [Fact]
+    public void Inactivity_worker_only_monitors_unconfirmed_residential_drafts()
+    {
+        Assert.Contains(WhatsAppConversationState.CollectingDescription,
+            WhatsAppConversationInactivityWorker.DraftStates);
+        Assert.Contains(WhatsAppConversationState.ReviewingNewRequest,
+            WhatsAppConversationInactivityWorker.DraftStates);
+        Assert.DoesNotContain(WhatsAppConversationState.CollectingResidentReply,
+            WhatsAppConversationInactivityWorker.DraftStates);
+        Assert.DoesNotContain(WhatsAppConversationState.AwaitingClosureConfirmation,
+            WhatsAppConversationInactivityWorker.DraftStates);
+    }
+
+    [Fact]
+    public void Valid_interaction_restarts_persisted_draft_inactivity_clock()
+    {
+        var started = new DateTime(2026, 8, 19, 10, 0, 0, DateTimeKind.Utc);
+        var session = new WhatsAppSession("+5544999999999", started,
+            started.AddMinutes(30));
+        session.BeginDescription(started, started.AddMinutes(30));
+        var interaction = started.AddMinutes(7);
+        session.Touch(interaction, interaction.AddMinutes(30));
+
+        Assert.Equal(interaction, session.LastInteractionAt);
+        Assert.True(session.LastInteractionAt > started.AddMinutes(6));
+    }
+
     [Theory]
     [InlineData(false, 10, 0, "Disabled")]
     [InlineData(true, 10, 20, "Healthy")]

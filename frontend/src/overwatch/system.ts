@@ -12,8 +12,8 @@ export interface SystemStatus {
   recentEvents: { timestamp: string; component: string; category: string; severity: string; reasonCode: string; correlationId?: string }[]
   performance: { periods: PerformancePeriod[]; topSlowest: EndpointPerformance[] }
 }
-export interface PerformancePeriod { period:string; requests:number; averageMs:number; p95Ms:number; errors5xx:number; averageResponseBytes:number; averageQueries:number; slowQueries:number }
-export interface EndpointPerformance { method:string; route:string; calls:number; averageMs:number; p95Ms:number; errors5xx:number; averageQueries:number; maximumQueries:number; slowQueries:number; averageResponseBytes:number }
+export interface PerformancePeriod { period:string; requests:number; averageMs:number; p95Ms:number; errors5xx:number; errorRate5xx:number; sampleSmall:boolean; averageResponseBytes:number; averageQueries:number; slowQueries:number }
+export interface EndpointPerformance { method:string; route:string; calls:number; averageMs:number; p95Ms:number; errors5xx:number; averageQueries:number; maximumQueries:number; slowQueries:number; averageResponseBytes:number; isHeavyOperation:boolean; sampleSmall:boolean }
 export async function getSystemStatus() { return (await api.get<SystemStatus>('/overwatch/system')).data }
 export async function downloadSystemDiagnostic() {
   const response = await api.get<Blob>('/overwatch/system/diagnostic', { responseType: 'blob' })
@@ -25,5 +25,5 @@ export async function downloadSystemDiagnostic() {
   anchor.download = filename ? decodeURIComponent(filename.replace(/"/g, '')) : 'comvy-diagnostico.txt'
   document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url)
 }
-export const statusLabel: Record<HealthState, string> = { Healthy: 'Saudável', Degraded: 'Degradado', Unhealthy: 'Indisponível', Unknown: 'Desconhecido', Disabled: 'Desabilitado' }
+export const statusLabel: Record<HealthState, string> = { Healthy: 'Saudável', Degraded: 'Degradado', Unhealthy: 'Crítico', Unknown: 'Desconhecido', Disabled: 'Desabilitado' }
 export function duration(seconds?: number) { if (seconds == null) return '—'; if (seconds < 60) return `${seconds}s`; if (seconds < 3600) return `${Math.floor(seconds / 60)}min`; return `${Math.floor(seconds / 3600)}h` }

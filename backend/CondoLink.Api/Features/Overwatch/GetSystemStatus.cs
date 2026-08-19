@@ -66,8 +66,11 @@ public static class GetSystemStatus
         var aiStatus = !aiConfigured ? "Unhealthy" : recentAi.Length == 0 ? "Unknown" : recentAi.Count(x => !x.Succeeded) * 5 > recentAi.Length ? "Degraded" : "Healthy";
         var email = emailOptions.Value; var emailConfigured = !string.IsNullOrWhiteSpace(email.Host) && !string.IsNullOrWhiteSpace(email.FromAddress);
         var recentEvents = await db.OperationalEvents.AsNoTracking().Where(x => x.Timestamp >= now.AddDays(-30)).OrderByDescending(x => x.Timestamp).Take(100).Select(x => new { x.Timestamp, x.Component, x.Category, x.Severity, x.ReasonCode, x.CorrelationId }).ToArrayAsync(ct);
-        var emailEvents = recentEvents.Where(x => x.Component == "Email").ToArray(); var emailStatus = !email.Enabled ? "Disabled" : !emailConfigured ? "Unhealthy" : emailEvents.Any(x => x.Severity == "Error" && x.Timestamp >= last24) ? "Degraded" : "Healthy";
-        var requiredWorkerNames = new[] { nameof(WhatsAppOutboundWorker),
+        var emailEvents = recentEvents.Where(x => x.Component == "Email").ToArray();
+        var emailSuccesses = emailEvents.Count(x => x.Severity == "Info" && x.Timestamp >= last24);
+        var emailFailures = emailEvents.Count(x => x.Severity == "Error" && x.Timestamp >= last24);
+        var emailStatus = EmailStatus(email.Enabled, emailConfigured, emailSuccesses, emailFailures);
+        var requiredWorkerNames = new[] { nameof(WhatsAppOutboundWorker), nameof(WhatsAppConversationInactivityWorker),
             nameof(RequestClosureWorker), nameof(OperationalRetentionWorker) };
         var workerGroups = requiredWorkerNames.Concat(workerDtos.Select(x => x.WorkerName))
             .Distinct().Select(name =>
@@ -80,8 +83,12 @@ public static class GetSystemStatus
                     : "Disabled";
             }).ToArray();
         var workersStatus = workerGroups.Any(x => x == "Unhealthy") ? "Unhealthy" : workerGroups.Any(x => x == "Degraded") ? "Degraded" : "Healthy";
-        var components = new[] { Component("API", "Healthy", $"Uptime {Environment.TickCount64 / 1000}s; 5xx/1h: {apiMetrics.Recent5xx}"), Component("PostgreSQL", "Healthy", $"Check em {sw.ElapsedMilliseconds}ms"), Component("WhatsApp", waStatus, wa.Enabled ? "Integração habilitada" : "Desabilitado por configuração"), Component("OpenAI", aiStatus, recentAi.Length == 0 ? "Sem atividade recente" : $"{recentAi.Length} chamadas/24h"), Component("E-mail", emailStatus, email.Enabled ? (emailConfigured ? "Configuração presente" : "Configuração incompleta") : "Desabilitado por configuração"), Component("Workers", workersStatus, $"{workerDtos.Length} instâncias registradas") };
-        var global = components.Any(x => x.status == "Unhealthy") ? "Unhealthy" : components.Any(x => x.status is "Degraded" or "Unknown") ? "Degraded" : "Healthy";
+        var pendingOutbound = outbound.GetValueOrDefault(WhatsAppOutboundStatus.Pending);
+        var oldestAge = oldest is null ? "sem fila" : $"mais antiga {(long)(now - oldest.Value).TotalMinutes} min";
+        var aiFailures = recentAi.Count(x => !x.Succeeded);
+        var apiStatus = apiMetrics.Health(now);
+        var components = new[] { Component("API", apiStatus, $"Uptime {Environment.TickCount64 / 1000}s; 5xx/1h: {apiMetrics.Recent5xx}"), Component("PostgreSQL", "Healthy", $"Check em {sw.ElapsedMilliseconds}ms"), Component("WhatsApp", waStatus, wa.Enabled ? $"{pendingOutbound} na fila; {sent24} enviadas; {failed24} falhas/24h; {oldestAge}" : "Desabilitado por configuração"), Component("OpenAI", aiStatus, recentAi.Length == 0 ? "Sem atividade recente" : $"{recentAi.Length} chamadas; {aiFailures} falhas/24h"), Component("E-mail", emailStatus, email.Enabled ? $"{emailSuccesses} envios; {emailFailures} falhas/24h" : "Desabilitado por configuração"), Component("Workers", workersStatus, $"{workerDtos.Count(x => x.status == "Healthy")} ativos de {requiredWorkerNames.Length} esperados") };
+        var global = GlobalStatus(components);
         var requests24 = await db.Requests.CountAsync(x => x.CreatedAt >= last24, ct);
         return Element(new { generatedAt = now, globalStatus = global, api = new { status = "Healthy", uptimeSeconds = Environment.TickCount64 / 1000, environment = environment.EnvironmentName, version = typeof(GetSystemStatus).Assembly.GetName().Version?.ToString(), serverTime = now, recent5xx = apiMetrics.Recent5xx }, performance = apiMetrics.Performance(now), database = new { status = "Healthy", latencyMs = sw.ElapsedMilliseconds }, components, activity24h = new { requestsCreated = requests24, whatsappReceived = inbound24, whatsappSent = sent24, aiCalls = recentAi.Length, operationalErrors = recentEvents.Count(x => x.Severity == "Error" && x.Timestamp >= last24) }, workers = workerDtos, whatsapp = new { status = waStatus, enabled = wa.Enabled, outboundWorkerEnabled = wa.OutboundWorkerEnabled, queued = outbound.GetValueOrDefault(WhatsAppOutboundStatus.Pending), sending = outbound.GetValueOrDefault(WhatsAppOutboundStatus.Processing), waiting = outbound.GetValueOrDefault(WhatsAppOutboundStatus.Pending), failed = outbound.GetValueOrDefault(WhatsAppOutboundStatus.Failed) + outbound.GetValueOrDefault(WhatsAppOutboundStatus.PermanentlyFailed), delivered = outbound.GetValueOrDefault(WhatsAppOutboundStatus.Delivered), read = outbound.GetValueOrDefault(WhatsAppOutboundStatus.Read), sent24h = sent24, failed24h = failed24, oldestQueuedAt = oldest, oldestQueuedAgeSeconds = oldest is null ? (long?)null : (long)(now - oldest.Value).TotalSeconds, lastOutboundProcessing = waWorker?.LastCompletedAt, lastWebhookReceived = lastWebhook }, ai = new { status = aiStatus, configured = aiConfigured, periods = aiPeriods, breakdown = aiBreakdown }, email = new { status = emailStatus, enabled = email.Enabled, configured = emailConfigured, lastSend = emailEvents.FirstOrDefault()?.Timestamp, failures24h = emailEvents.Count(x => x.Severity == "Error" && x.Timestamp >= last24), successes24h = emailEvents.Count(x => x.Severity == "Info" && x.Timestamp >= last24) }, recentEvents });
     }
@@ -176,6 +183,23 @@ public static class GetSystemStatus
     private static ComponentDto Component(string name, string status, string detail) => new(name, status, detail);
     private static JsonElement Element(object value) => JsonSerializer.SerializeToElement(value, JsonOptions);
     private sealed record ComponentDto(string name, string status, string detail);
+    internal static string EmailStatus(bool enabled, bool configured, int successes, int failures)
+    {
+        if (!enabled) return "Disabled";
+        if (!configured) return "Unhealthy";
+        var total = successes + failures;
+        if (total < 20) return failures >= 5 ? "Degraded" : "Healthy";
+        var rate = 100d * failures / total;
+        return rate > 20 ? "Unhealthy" : rate >= 5 ? "Degraded" : "Healthy";
+    }
+    private static string GlobalStatus(IEnumerable<ComponentDto> components)
+    {
+        var rows = components.ToArray();
+        if (rows.Any(x => x.status == "Unhealthy")) return "Unhealthy";
+        var operational = new[] { "API", "PostgreSQL", "WhatsApp", "Workers" };
+        return rows.Any(x => operational.Contains(x.name) && x.status == "Degraded")
+            ? "Degraded" : "Healthy";
+    }
     internal static string WorkerStatus(CondoLink.Domain.Entities.WorkerHeartbeat x, DateTime now) => !x.Enabled ? "Disabled" : x.LastHeartbeatAt == default ? "Unknown" : now - x.LastHeartbeatAt > TimeSpan.FromSeconds(x.ExpectedIntervalSeconds * 5) ? "Unhealthy" : now - x.LastHeartbeatAt > TimeSpan.FromSeconds(x.ExpectedIntervalSeconds * 2.5) || x.LastSucceeded == false ? "Degraded" : "Healthy";
     internal static bool IsActiveInstance(CondoLink.Domain.Entities.WorkerHeartbeat x, DateTime now) =>
         x.LastHeartbeatAt != default && now - x.LastHeartbeatAt <= TimeSpan.FromSeconds(Math.Max(1, x.ExpectedIntervalSeconds) * 30L);

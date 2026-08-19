@@ -5,6 +5,7 @@ using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
 
 namespace CondoLink.Api.Features.Auth;
 
@@ -48,8 +49,30 @@ public static class FirstAccessEndpoints
     {
         if (!await CanManageAsync(condominiumId, userId, principal, db, ct)) return Results.NotFound();
         var user = await users.FindByIdAsync(userId.ToString());
-        if (user is not null && user.MustChangePassword
-            && string.Equals(request.Channel, "WhatsAppAndEmail", StringComparison.OrdinalIgnoreCase))
+        if (user is null || !user.MustChangePassword)
+            return Results.Conflict(new { error = "O primeiro acesso já foi concluído." });
+        var channel = request.Channel;
+        if (string.Equals(channel, "Auto", StringComparison.OrdinalIgnoreCase))
+        {
+            var hasEmail = user.EmailDeliveryEnabled && !string.IsNullOrWhiteSpace(user.Email)
+                && new EmailAddressAttribute().IsValid(user.Email);
+            var hasWhatsApp = !string.IsNullOrWhiteSpace(user.NormalizedPhoneNumber)
+                && Domain.PhoneNumberNormalizer.Normalize(user.NormalizedPhoneNumber)
+                    == user.NormalizedPhoneNumber;
+            channel = (hasEmail, hasWhatsApp) switch
+            {
+                (true, true) => "WhatsAppAndEmail",
+                (true, false) => "Email",
+                (false, true) => "WhatsApp",
+                _ => string.Empty
+            };
+            if (channel.Length == 0)
+                return Results.Conflict(new
+                {
+                    error = "Este morador não possui e-mail entregável nem telefone válido para receber o primeiro acesso."
+                });
+        }
+        if (string.Equals(channel, "WhatsAppAndEmail", StringComparison.OrdinalIgnoreCase))
         {
             if (string.IsNullOrWhiteSpace(user.NormalizedPhoneNumber) || !user.EmailDeliveryEnabled)
                 return Results.Conflict(new { error = "WhatsApp + E-mail exige telefone válido e e-mail entregável." });
@@ -68,8 +91,7 @@ public static class FirstAccessEndpoints
                 whatsappQueued
             });
         }
-        if (user is not null && user.MustChangePassword
-            && string.Equals(request.Channel, "WhatsApp", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(channel, "WhatsApp", StringComparison.OrdinalIgnoreCase))
         {
             if (string.IsNullOrWhiteSpace(user.NormalizedPhoneNumber))
                 return Results.Conflict(new { error = "Este morador não possui telefone válido para WhatsApp." });
@@ -81,7 +103,7 @@ public static class FirstAccessEndpoints
                 ? Results.Accepted(value: new { status = "InviteSent", channel = "WhatsApp" })
                 : Results.Json(new { status = "DeliveryFailed", error = "Não foi possível enfileirar o convite." }, statusCode: 502);
         }
-        if (!string.Equals(request.Channel, "Email", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(channel, "Email", StringComparison.OrdinalIgnoreCase))
             return Results.BadRequest(new { error = "Channel must be WhatsApp, Email or WhatsAppAndEmail." });
         if (user is null || !user.MustChangePassword) return Results.Conflict(new { error = "O primeiro acesso já foi concluído." });
         if (!user.EmailDeliveryEnabled) return Results.Conflict(new { error = "Este e-mail é apenas para acesso ao sistema." });
@@ -111,5 +133,5 @@ public static class FirstAccessEndpoints
     private static IResult InvalidToken() => Results.BadRequest(new { error = "O link é inválido, expirou ou já foi utilizado." });
     public sealed record TokenRequest(Guid UserId, string Token);
     public sealed record CompleteRequest(Guid UserId, string Token, string Password, string ConfirmPassword);
-    public sealed record ResendRequest(string Channel = "Email", string? OperationId = null);
+    public sealed record ResendRequest(string Channel = "Auto", string? OperationId = null);
 }

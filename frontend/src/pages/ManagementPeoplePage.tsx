@@ -43,6 +43,7 @@ import { useManagementContext } from "../management/ManagementContext";
 import {
   createFirstAccessLink,
   deleteResident,
+  exportActiveResidentsPdf,
   inactivateResident,
   listCondominiumMembers,
   listUnits,
@@ -128,6 +129,8 @@ export function ManagementPeoplePage() {
     operation: "inactivate" | "reactivate" | "delete";
   } | null>(null);
   const [lifecycleSaving, setLifecycleSaving] = useState(false);
+  const [resendingUserId, setResendingUserId] = useState<string | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const loadVersion = useRef(0);
   const activeIdRef = useRef(activeCondominiumId);
   activeIdRef.current = activeCondominiumId;
@@ -399,24 +402,40 @@ export function ManagementPeoplePage() {
       setResetting(false);
     }
   };
-  const resendAccess = async (
-    person: CondominiumMember,
-    channel: "WhatsApp" | "Email" | "WhatsAppAndEmail",
-  ) => {
-    if (!activeCondominiumId) return;
+  const resendAccess = async (person: CondominiumMember) => {
+    if (!activeCondominiumId || resendingUserId) return;
+    setResendingUserId(person.userId);
     try {
-      await resendFirstAccess(activeCondominiumId, person.userId, channel);
-      setSuccess(
-        channel === "WhatsApp"
-          ? "Convite enfileirado para envio por WhatsApp."
-          : channel === "WhatsAppAndEmail"
-            ? "Convite reenviado por WhatsApp e e-mail."
-          : "Convite reenviado por e-mail.",
-      );
+      const result = await resendFirstAccess(activeCondominiumId, person.userId);
+      if (result.channel === "WhatsAppAndEmail")
+        setSuccess(result.emailSent && result.whatsappQueued
+          ? "Primeiro acesso enviado por e-mail e enfileirado no WhatsApp."
+          : result.emailSent
+            ? "O e-mail foi enviado, mas não foi possível enfileirar o WhatsApp."
+            : result.whatsappQueued
+              ? "O primeiro acesso foi enfileirado no WhatsApp, mas o envio por e-mail falhou."
+              : "Não foi possível enviar o primeiro acesso pelos canais disponíveis.");
+      else if (result.channel === "WhatsApp")
+        setSuccess("Primeiro acesso enfileirado no WhatsApp.");
+      else setSuccess("Primeiro acesso enviado por e-mail.");
       await load();
     } catch (requestError) {
       setError(managementError(requestError));
       await load();
+    } finally {
+      setResendingUserId(null);
+    }
+  };
+  const exportPdf = async () => {
+    if (!activeCondominiumId || exportingPdf) return;
+    setExportingPdf(true);
+    setError("");
+    try {
+      await exportActiveResidentsPdf(activeCondominiumId);
+    } catch {
+      setError("Não foi possível gerar a relação de moradores. Tente novamente.");
+    } finally {
+      setExportingPdf(false);
     }
   };
   const copyAccessLink = async (person: CondominiumMember) => {
@@ -485,13 +504,15 @@ export function ManagementPeoplePage() {
             Gerencie quem possui acesso ao condomínio.
           </Typography>
         </Box>
-        <Button
-          variant="contained"
-          startIcon={<AddRoundedIcon />}
-          onClick={beginAdd}
-        >
-          Adicionar pessoa
-        </Button>
+        <Stack direction={{ xs: "column", sm: "row" }} gap={1}>
+          <Button variant="outlined" disabled={exportingPdf}
+            onClick={() => void exportPdf()}>
+            {exportingPdf ? "Gerando PDF..." : "Exportar moradores em PDF"}
+          </Button>
+          <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={beginAdd}>
+            Adicionar pessoa
+          </Button>
+        </Stack>
       </Stack>
       {success && (
         <Alert severity="success" sx={{ mt: 2 }}>
@@ -622,31 +643,15 @@ export function ManagementPeoplePage() {
                   >
                     Redefinir senha temporária
                   </Button>
-                  {person.mustChangePassword && person.emailDeliveryEnabled && (
+                  {person.mustChangePassword && (
                     <Button
                       size="small"
                       variant="outlined"
-                      onClick={() => void resendAccess(person, "Email")}
+                      disabled={resendingUserId !== null}
+                      onClick={() => void resendAccess(person)}
                     >
-                      Reenviar por e-mail
-                    </Button>
-                  )}
-                  {person.mustChangePassword && person.phoneNumber && (
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => void resendAccess(person, "WhatsApp")}
-                    >
-                      Reenviar por WhatsApp
-                    </Button>
-                  )}
-                  {person.mustChangePassword && person.phoneNumber && person.emailDeliveryEnabled && (
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => void resendAccess(person, "WhatsAppAndEmail")}
-                    >
-                      Reenviar por WhatsApp + E-mail
+                      {resendingUserId === person.userId
+                        ? "Reenviando..." : "Reenviar primeiro acesso"}
                     </Button>
                   )}
                   {person.mustChangePassword && (

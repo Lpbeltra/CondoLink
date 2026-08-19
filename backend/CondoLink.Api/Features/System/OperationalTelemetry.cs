@@ -87,13 +87,26 @@ public sealed class ApiRequestMetrics
     {
         lock(gate){Prune(now.AddHours(-24));return new{periods=new[]{Aggregate("1h",samples.Where(x=>x.Timestamp>=now.AddHours(-1))),Aggregate("24h",samples)},topSlowest=samples.GroupBy(x=>new{x.Method,x.Route}).Select(g=>Endpoint(g.Key.Method,g.Key.Route,g)).OrderByDescending(x=>x.P95Ms).ThenByDescending(x=>x.AverageMs).Take(10).ToArray()};}
     }
+    public string Health(DateTime now)
+    {
+        lock(gate)
+        {
+            Prune(now.AddHours(-24));
+            var rows=samples.Where(x=>x.Timestamp>=now.AddHours(-1)&&!IsHeavy(x.Route)).ToArray();
+            if(rows.Length<20)return "Healthy";
+            var errorRate=100d*rows.Count(x=>x.StatusCode>=500)/rows.Length;
+            var p95=P95(rows.Select(x=>x.DurationMs).Order().ToArray());
+            return errorRate>5?"Unhealthy":errorRate>=1||p95>1000?"Degraded":"Healthy";
+        }
+    }
     private void Prune(DateTime cutoff){while(samples.TryPeek(out var x)&&x.Timestamp<cutoff)samples.Dequeue();}
-    private static object Aggregate(string period,IEnumerable<ApiRequestSample> source){var a=source.ToArray();var d=a.Select(x=>x.DurationMs).Order().ToArray();return new{period,requests=a.Length,averageMs=a.Length==0?0:Math.Round(a.Average(x=>x.DurationMs),1),p95Ms=P95(d),errors5xx=a.Count(x=>x.StatusCode>=500),averageResponseBytes=a.Where(x=>x.ResponseBytes.HasValue).Select(x=>(double)x.ResponseBytes!.Value).DefaultIfEmpty().Average(),averageQueries=a.Length==0?0:Math.Round(a.Average(x=>x.QueryCount),1),slowQueries=a.Sum(x=>x.SlowQueryCount)};}
-    private static EndpointPerformance Endpoint(string method,string route,IEnumerable<ApiRequestSample> source){var a=source.ToArray();var d=a.Select(x=>x.DurationMs).Order().ToArray();return new(method,route,a.Length,Math.Round(a.Average(x=>x.DurationMs),1),P95(d),a.Count(x=>x.StatusCode>=500),Math.Round(a.Average(x=>x.QueryCount),1),a.Max(x=>x.QueryCount),a.Sum(x=>x.SlowQueryCount),a.Where(x=>x.ResponseBytes.HasValue).Select(x=>(double)x.ResponseBytes!.Value).DefaultIfEmpty().Average());}
+    private static object Aggregate(string period,IEnumerable<ApiRequestSample> source){var a=source.ToArray();var d=a.Select(x=>x.DurationMs).Order().ToArray();var errors=a.Count(x=>x.StatusCode>=500);return new{period,requests=a.Length,averageMs=a.Length==0?0:Math.Round(a.Average(x=>x.DurationMs),1),p95Ms=P95(d),errors5xx=errors,errorRate5xx=a.Length==0?0:Math.Round(100d*errors/a.Length,2),sampleSmall=a.Length<20,averageResponseBytes=a.Where(x=>x.ResponseBytes.HasValue).Select(x=>(double)x.ResponseBytes!.Value).DefaultIfEmpty().Average(),averageQueries=a.Length==0?0:Math.Round(a.Average(x=>x.QueryCount),1),slowQueries=a.Sum(x=>x.SlowQueryCount)};}
+    private static EndpointPerformance Endpoint(string method,string route,IEnumerable<ApiRequestSample> source){var a=source.ToArray();var d=a.Select(x=>x.DurationMs).Order().ToArray();return new(method,route,a.Length,Math.Round(a.Average(x=>x.DurationMs),1),P95(d),a.Count(x=>x.StatusCode>=500),Math.Round(a.Average(x=>x.QueryCount),1),a.Max(x=>x.QueryCount),a.Sum(x=>x.SlowQueryCount),a.Where(x=>x.ResponseBytes.HasValue).Select(x=>(double)x.ResponseBytes!.Value).DefaultIfEmpty().Average(),IsHeavy(route),a.Length<20);}
+    internal static bool IsHeavy(string route) => route.Contains("setup/confirm",StringComparison.OrdinalIgnoreCase)||route.Contains("import",StringComparison.OrdinalIgnoreCase)||route.Contains("export",StringComparison.OrdinalIgnoreCase)||route.Contains("documents",StringComparison.OrdinalIgnoreCase);
     private static double P95(double[] values)=>values.Length==0?0:Math.Round(values[(int)Math.Ceiling(values.Length*.95)-1],1);
 }
 public sealed record ApiRequestSample(DateTime Timestamp,string Method,string Route,int StatusCode,double DurationMs,long? ResponseBytes,int QueryCount,int SlowQueryCount,double SqlDurationMs,double MaximumSqlDurationMs);
-public sealed record EndpointPerformance(string Method,string Route,int Calls,double AverageMs,double P95Ms,int Errors5xx,double AverageQueries,int MaximumQueries,int SlowQueries,double AverageResponseBytes);
+public sealed record EndpointPerformance(string Method,string Route,int Calls,double AverageMs,double P95Ms,int Errors5xx,double AverageQueries,int MaximumQueries,int SlowQueries,double AverageResponseBytes,bool IsHeavyOperation,bool SampleSmall);
 
 public sealed class OperationalRetentionWorker(IServiceScopeFactory scopes, OperationalTelemetry telemetry, ILogger<OperationalRetentionWorker> logger) : BackgroundService
 {

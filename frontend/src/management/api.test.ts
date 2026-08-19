@@ -8,6 +8,7 @@ const http = vi.hoisted(() => ({
 vi.mock('../services/api', () => ({ api: http }))
 
 import {
+  exportActiveResidentsPdf,
   getManagementContext,
   resetMemberTemporaryPassword,
   setManagementContext,
@@ -47,5 +48,28 @@ describe('member password API', () => {
     expect(http.post).toHaveBeenCalledWith(
       '/condominiums/condominium-id/members/user-id/reset-temporary-password',
     )
+  })
+})
+
+describe('resident PDF export API', () => {
+  it('downloads the authenticated blob using the response filename', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const createObjectURL = vi.fn(() => 'blob:residents')
+    const revokeObjectURL = vi.fn()
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true })
+    Object.defineProperty(URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true })
+    http.get.mockResolvedValue({
+      data: new Blob(['pdf']),
+      headers: { 'content-disposition': 'attachment; filename="moradores-comvy.pdf"' },
+    })
+
+    await exportActiveResidentsPdf('condominium-id')
+
+    expect(http.get).toHaveBeenCalledWith(
+      '/condominiums/condominium-id/members/export.pdf',
+      { responseType: 'blob' },
+    )
+    expect(click).toHaveBeenCalled()
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:residents')
   })
 })

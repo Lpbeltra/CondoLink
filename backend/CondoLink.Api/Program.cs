@@ -117,6 +117,7 @@ builder.Services.AddSingleton<IPhoneVerificationMessageProtector,
     PhoneVerificationMessageProtector>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHostedService<WhatsAppOutboundWorker>();
+builder.Services.AddHostedService<WhatsAppConversationInactivityWorker>();
 builder.Services.AddHostedService<RequestClosureWorker>();
 builder.Services.AddHostedService<OperationalRetentionWorker>();
 builder.Services.AddHttpClient<IWhatsAppClient, MetaWhatsAppClient>(client =>
@@ -297,6 +298,7 @@ app.MapListCondominiums();
 app.MapAddCondominiumMember();
 app.MapAddCondominiumMemberRole();
 app.MapListCondominiumMembers();
+app.MapExportCondominiumMembersPdf();
 app.MapManageResidentLifecycle();
 app.MapOnboardCondominiumMember();
 app.MapResetMemberTemporaryPassword();

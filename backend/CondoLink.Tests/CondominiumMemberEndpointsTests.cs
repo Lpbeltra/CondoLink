@@ -38,6 +38,7 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
             application.MapAddCondominiumMemberRole();
             application.MapOnboardCondominiumMember();
             application.MapListCondominiumMembers();
+            application.MapExportCondominiumMembersPdf();
             application.MapManageResidentLifecycle();
             application.MapUpdateCondominiumMember();
         });
@@ -78,6 +79,42 @@ public sealed class CondominiumMemberEndpointsTests : IAsyncLifetime
     }
 
     public async Task DisposeAsync() => await _host.DisposeAsync();
+
+    [Fact]
+    public async Task Manager_exports_active_residents_as_an_attached_pdf()
+    {
+        var response = await _host.ClientFor(_managerId).GetAsync(
+            $"/condominiums/{_condominiumId}/members/export.pdf");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/pdf", response.Content.Headers.ContentType?.MediaType);
+        var fileName = response.Content.Headers.ContentDisposition?.FileNameStar
+            ?? response.Content.Headers.ContentDisposition?.FileName?.Trim('"');
+        Assert.StartsWith("moradores-residencial-alfa-", fileName);
+        var bytes = await response.Content.ReadAsByteArrayAsync();
+        Assert.True(bytes.Length > 100);
+        Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(bytes, 0, 4));
+    }
+
+    [Fact]
+    public async Task Manager_cannot_export_another_condominium()
+    {
+        var response = await _host.ClientFor(_otherManagerId).GetAsync(
+            $"/condominiums/{_condominiumId}/members/export.pdf");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Platform_admin_can_export_without_condominium_membership()
+    {
+        var client = _host.ClientFor(_unlinkedUserId);
+        client.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
+        var response = await client.GetAsync(
+            $"/condominiums/{_condominiumId}/members/export.pdf");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
 
     [Fact]
     public async Task Manager_can_inactivate_and_reactivate_the_exact_residential_link()

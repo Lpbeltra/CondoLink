@@ -11,5 +11,6 @@ public enum WhatsAppNotificationType
     PhoneVerification = 7,
     LoginCode = 8,
     ManagerNewRequest = 9,
-    ResidentFirstAccess = 10
+    ResidentFirstAccess = 10,
+    DraftInactivityTimeout = 11
 }

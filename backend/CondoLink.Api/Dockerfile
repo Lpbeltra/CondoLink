@@ -46,7 +46,10 @@ ENV FileStorage__RootPath=/app/data/attachments
 COPY --from=build /app/publish .
 COPY --from=build /app/datareset /app/datareset
 
-RUN chmod +x /app/efbundle \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-liberation2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && chmod +x /app/efbundle \
     && mkdir -p /app/data/attachments
 
 EXPOSE 8080

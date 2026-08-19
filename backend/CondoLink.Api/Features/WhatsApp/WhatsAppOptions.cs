@@ -11,6 +11,7 @@ public sealed class WhatsAppOptions
     public string? VerifyToken { get; set; }
     public string? AppSecret { get; set; }
     public int SessionExpirationMinutes { get; set; } = 30;
+    public int DraftInactivityMinutes { get; set; } = 10;
     public bool OutboundWorkerEnabled { get; set; }
     public int OutboundBatchSize { get; set; } = 10;
     public int OutboundPollingSeconds { get; set; } = 10;

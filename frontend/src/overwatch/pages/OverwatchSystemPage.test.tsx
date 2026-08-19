@@ -16,13 +16,16 @@ const response: system.SystemStatus = {
   ai:{status:'Unknown',configured:true,periods:[{period:'1h',metrics:{calls:0,failures:0,inputTokens:0,outputTokens:0,totalTokens:0}}],breakdown:[]},
   email:{status:'Disabled',enabled:false,configured:false,failures24h:0,successes24h:0},
   recentEvents:[{timestamp:'2026-08-18T11:58:00Z',component:'WhatsApp',category:'Outbound',severity:'Error',reasonCode:'batch_failed'}],
-  performance:{periods:[{period:'24h',requests:120,averageMs:180,p95Ms:650,errors5xx:1,averageResponseBytes:2048,averageQueries:4.2,slowQueries:2}],topSlowest:[{method:'GET',route:'/requests/{requestId}',calls:20,averageMs:300,p95Ms:650,errors5xx:0,averageQueries:5,maximumQueries:7,slowQueries:1,averageResponseBytes:4096}]},
+  performance:{periods:[{period:'24h',requests:120,averageMs:180,p95Ms:650,errors5xx:1,errorRate5xx:.83,sampleSmall:false,averageResponseBytes:2048,averageQueries:4.2,slowQueries:2}],topSlowest:[{method:'GET',route:'/requests/{requestId}',calls:20,averageMs:300,p95Ms:650,errors5xx:0,averageQueries:5,maximumQueries:7,slowQueries:1,averageResponseBytes:4096,isHeavyOperation:false,sampleSmall:false}]},
 }
 afterEach(()=>vi.restoreAllMocks())
 describe('OverwatchSystemPage',()=>{
   it('renders states, workers, queue, inactive AI and recent errors',async()=>{
     vi.spyOn(system,'getSystemStatus').mockResolvedValue(response); render(<OverwatchSystemPage/>)
     expect(await screen.findByText('WhatsAppOutboundWorker')).toBeInTheDocument()
+    expect(screen.getByText('Como interpretar este painel')).toBeInTheDocument()
+    expect(screen.getByText(/1 erros 5xx \(0.83%\)/)).toBeInTheDocument()
+    expect(screen.getByText('Interativo')).toBeInTheDocument()
     expect(screen.getAllByText('Degradado').length).toBeGreaterThan(0)
     expect(screen.getByText('Indisponível')).toBeInTheDocument(); expect(screen.getAllByText('Desconhecido').length).toBeGreaterThan(0); expect(screen.getAllByText('Desabilitado').length).toBeGreaterThan(0); expect(screen.getByText('Item mais antigo: 37s · 1 falhas/24h')).toBeInTheDocument(); expect(screen.getByText('Sem atividade')).toBeInTheDocument(); expect(screen.getAllByText('batch_failed').length).toBeGreaterThan(0)
   })

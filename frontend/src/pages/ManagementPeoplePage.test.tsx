@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CondominiumMember } from "../management/types";
@@ -10,6 +10,7 @@ const managementApi = vi.hoisted(() => ({
   resendFirstAccess: vi.fn(),
   createFirstAccessLink: vi.fn(),
   deleteResident: vi.fn(),
+  exportActiveResidentsPdf: vi.fn(),
   inactivateResident: vi.fn(),
   reactivateResident: vi.fn(),
   resetMemberTemporaryPassword: vi.fn(),
@@ -70,6 +71,12 @@ describe("ManagementPeoplePage password reset", () => {
       state: null,
       membershipActive: true,
       unitLink: null,
+    });
+    managementApi.exportActiveResidentsPdf.mockResolvedValue(undefined);
+    managementApi.resendFirstAccess.mockResolvedValue({
+      channel: "WhatsAppAndEmail",
+      emailSent: true,
+      whatsappQueued: true,
     });
   });
 
@@ -310,5 +317,40 @@ describe("ManagementPeoplePage password reset", () => {
     await user.click(screen.getByLabelText("Enviar primeiro acesso"));
     expect(screen.getByRole("option", { name: "WhatsApp + E-mail" }))
       .not.toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("shows one automatic resend action and blocks duplicate clicks", async () => {
+    const pending = {
+      ...member,
+      mustChangePassword: true,
+      firstAccessStatus: "Pending" as const,
+      phoneNumber: "+12125551234",
+    };
+    managementApi.listCondominiumMembers.mockResolvedValue([pending]);
+    let resolve!: (value: unknown) => void;
+    managementApi.resendFirstAccess.mockReturnValue(new Promise((done) => { resolve = done; }));
+    const user = userEvent.setup();
+    render(<ManagementPeoplePage />);
+
+    const action = await screen.findByRole("button", { name: "Reenviar primeiro acesso" });
+    expect(screen.queryByText(/Reenviar por/)).not.toBeInTheDocument();
+    await user.click(action);
+    expect(screen.getByRole("button", { name: "Reenviando..." })).toBeDisabled();
+    expect(managementApi.resendFirstAccess).toHaveBeenCalledTimes(1);
+    expect(managementApi.resendFirstAccess)
+      .toHaveBeenCalledWith("condominium-id", pending.userId);
+    await act(async () => {
+      resolve({ channel: "WhatsAppAndEmail", emailSent: true, whatsappQueued: true });
+    });
+  });
+
+  it("exports the complete active base independently from current search", async () => {
+    const user = userEvent.setup();
+    render(<ManagementPeoplePage />);
+    await screen.findByText("Maria Silva");
+    await user.type(screen.getByLabelText("Buscar morador"), "Tatiana");
+    await user.click(screen.getByRole("button", { name: "Exportar moradores em PDF" }));
+    expect(managementApi.exportActiveResidentsPdf)
+      .toHaveBeenCalledWith("condominium-id");
   });
 });
