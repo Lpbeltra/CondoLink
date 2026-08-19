@@ -48,6 +48,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         Set<WhatsAppPhoneVerification>();
     public DbSet<CondominiumDocument> CondominiumDocuments => Set<CondominiumDocument>();
     public DbSet<CondominiumDocumentChunk> CondominiumDocumentChunks => Set<CondominiumDocumentChunk>();
+    public DbSet<CondominiumDocumentKnowledge> CondominiumDocumentKnowledge => Set<CondominiumDocumentKnowledge>();
     public DbSet<CondominiumAssistantConversation> CondominiumAssistantConversations => Set<CondominiumAssistantConversation>();
     public DbSet<CondominiumAssistantMessage> CondominiumAssistantMessages => Set<CondominiumAssistantMessage>();
     public DbSet<WorkerHeartbeat> WorkerHeartbeats => Set<WorkerHeartbeat>();

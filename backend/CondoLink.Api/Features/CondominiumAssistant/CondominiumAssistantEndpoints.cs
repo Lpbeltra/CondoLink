@@ -22,6 +22,8 @@ public static class CondominiumAssistantEndpoints
         group.MapPut("/documents/{documentId:guid}/active", SetDocumentActive);
         group.MapDelete("/documents/{documentId:guid}", DeleteDocument);
         group.MapPost("/documents/{documentId:guid}/reprocess", ReprocessDocument);
+        group.MapPut("/documents/bulk/active", SetDocumentsActive);
+        group.MapPost("/documents/bulk/delete", DeleteDocuments);
         group.MapPost("/assistant/conversations", CreateConversation);
         group.MapPost("/assistant/messages", StartConversation);
         group.MapGet("/assistant/conversations", ListConversations);
@@ -43,7 +45,9 @@ public static class CondominiumAssistantEndpoints
                 x.ProcessingError, x.CreatedAt, x.UpdatedAt,
                 NeedsReindexing = x.ProcessingStatus == CondominiumDocumentProcessingStatus.Ready
                     && !db.CondominiumDocumentChunks.Any(chunk => chunk.CondominiumDocumentId == x.Id
-                        && chunk.EmbeddingModel == embeddings.Model) }).ToArrayAsync(ct));
+                        && chunk.EmbeddingModel == embeddings.Model),
+                NeedsKnowledgeUpdate = x.ProcessingStatus == CondominiumDocumentProcessingStatus.Ready
+                    && !db.CondominiumDocumentKnowledge.Any(item => item.CondominiumDocumentId == x.Id) }).ToArrayAsync(ct));
     }
 
     private static async Task<IResult> UploadDocument(Guid condominiumId, HttpRequest request,
@@ -104,7 +108,56 @@ public static class CondominiumAssistantEndpoints
     {
         var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
         var document = await db.CondominiumDocuments.SingleOrDefaultAsync(x => x.Id == documentId && x.CondominiumId == condominiumId, ct);
-        if (document is null) return Results.NotFound(); document.SetActive(body.Active); await db.SaveChangesAsync(ct); return Results.NoContent();
+        if (document is null) return Results.NotFound();
+        if (body.Active && document.ProcessingStatus != CondominiumDocumentProcessingStatus.Ready)
+            return Results.Conflict(new { code = "DocumentNotReady", message = "Somente documentos prontos podem ser ativados." });
+        document.SetActive(body.Active); await db.SaveChangesAsync(ct); return Results.NoContent();
+    }
+
+    private static async Task<IResult> SetDocumentsActive(Guid condominiumId, BulkActiveRequest body,
+        ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
+    {
+        var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
+        var ids = body.DocumentIds.Distinct().Take(200).ToArray();
+        var documents = await db.CondominiumDocuments.Where(x => x.CondominiumId == condominiumId && ids.Contains(x.Id)).ToArrayAsync(ct);
+        var failed = new List<object>(); var updated = 0;
+        foreach (var document in documents)
+        {
+            if (body.Active && document.ProcessingStatus != CondominiumDocumentProcessingStatus.Ready)
+            { failed.Add(new { documentId = document.Id, reason = "Somente documentos prontos podem ser ativados." }); continue; }
+            document.SetActive(body.Active); updated++;
+        }
+        foreach (var missing in ids.Except(documents.Select(x => x.Id))) failed.Add(new { documentId = missing, reason = "Documento não encontrado." });
+        await db.SaveChangesAsync(ct); return Results.Ok(new { succeeded = updated, failed });
+    }
+
+    private static async Task<IResult> DeleteDocuments(Guid condominiumId, BulkDocumentRequest body,
+        ClaimsPrincipal principal, AppDbContext db, ICondominiumDocumentStorage storage,
+        ILogger<CondominiumDocumentProcessor> logger, CancellationToken ct)
+    {
+        var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
+        var ids = body.DocumentIds.Distinct().Take(200).ToArray(); var succeeded = 0; var failed = new List<object>();
+        foreach (var id in ids)
+        {
+            var document = await db.CondominiumDocuments.SingleOrDefaultAsync(x => x.Id == id && x.CondominiumId == condominiumId, ct);
+            if (document is null) { failed.Add(new { documentId = id, reason = "Documento não encontrado." }); continue; }
+            if (document.ProcessingStatus == CondominiumDocumentProcessingStatus.Processing)
+            { failed.Add(new { documentId = id, reason = "O documento ainda está em processamento." }); continue; }
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            try
+            {
+                db.CondominiumDocuments.Remove(document); await db.SaveChangesAsync(ct);
+                storage.DeleteCondominiumDocument(condominiumId, id, document.StorageKey);
+                await transaction.CommitAsync(ct); succeeded++;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                await transaction.RollbackAsync(ct);
+                db.ChangeTracker.Clear(); failed.Add(new { documentId = id, reason = "Não foi possível excluir o documento." });
+                logger.LogWarning("Bulk document deletion failed. CondominiumId: {CondominiumId}; DocumentId: {DocumentId}; FailureType: {FailureType}.", condominiumId, id, exception.GetType().Name);
+            }
+        }
+        return Results.Ok(new { succeeded, failed });
     }
 
     internal static async Task<IResult> DeleteDocument(Guid condominiumId, Guid documentId,
@@ -290,6 +343,8 @@ public static class CondominiumAssistantEndpoints
     }
 
     public sealed record ActiveRequest(bool Active);
+    public sealed record BulkActiveRequest(Guid[] DocumentIds, bool Active);
+    public sealed record BulkDocumentRequest(Guid[] DocumentIds);
     public sealed record CreateConversationRequest(Guid? RequestId, string? Title);
     public sealed record AskRequest(string? Question);
     public sealed record StartConversationRequest(string? Question, Guid? RequestId);

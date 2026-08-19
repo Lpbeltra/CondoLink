@@ -181,6 +181,8 @@ public sealed class CondominiumDocumentProcessor(AppDbContext db,
         document.Processing();
         db.CondominiumDocumentChunks.RemoveRange(await db.CondominiumDocumentChunks
             .Where(chunk => chunk.CondominiumDocumentId == document.Id).ToArrayAsync(cancellationToken));
+        db.CondominiumDocumentKnowledge.RemoveRange(await db.CondominiumDocumentKnowledge
+            .Where(item => item.CondominiumDocumentId == document.Id).ToArrayAsync(cancellationToken));
         await db.SaveChangesAsync(cancellationToken);
         try
         {
@@ -203,11 +205,16 @@ public sealed class CondominiumDocumentProcessor(AppDbContext db,
                         batch[offset].PageNumber, null, embeddings.Model));
             }
             db.CondominiumDocumentChunks.AddRange(pendingChunks);
+            db.CondominiumDocumentKnowledge.Add(DocumentKnowledgeBuilder.Build(document, pendingChunks));
             document.Ready(); await db.SaveChangesAsync(cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             foreach (var entry in db.ChangeTracker.Entries<CondominiumDocumentChunk>()
+                .Where(entry => entry.Entity.CondominiumDocumentId == document.Id
+                    && entry.State == EntityState.Added))
+                entry.State = EntityState.Detached;
+            foreach (var entry in db.ChangeTracker.Entries<CondominiumDocumentKnowledge>()
                 .Where(entry => entry.Entity.CondominiumDocumentId == document.Id
                     && entry.State == EntityState.Added))
                 entry.State = EntityState.Detached;
@@ -227,6 +234,39 @@ public sealed class CondominiumDocumentProcessor(AppDbContext db,
     }
 }
 
+internal static class DocumentKnowledgeBuilder
+{
+    internal const string Version = "structured-v1";
+    private static readonly string[] Concepts = ["assembleia", "eleição", "eleito", "síndico", "mandato",
+        "prestação de contas", "convenção", "regimento", "multa", "valor", "unidade", "artigo", "contrato"];
+
+    public static CondominiumDocumentKnowledge Build(CondominiumDocument document,
+        IReadOnlyList<CondominiumDocumentChunk> chunks)
+    {
+        var all = string.Join("\n", chunks.Select(x => x.Content));
+        var topics = Concepts.Where(x => Normalize(all).Contains(Normalize(x), StringComparison.Ordinal)).ToArray();
+        var dates = Regex.Matches(all, @"\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}\s+de\s+[\p{L}]+\s+de\s+\d{4})\b",
+            RegexOptions.IgnoreCase).Select(x => x.Value).Distinct(StringComparer.OrdinalIgnoreCase).Take(40).ToArray();
+        var entities = Regex.Matches(all, @"\b[\p{Lu}][\p{L}]+(?:\s+(?:d[aeo]s?|e|[\p{Lu}][\p{L}]+)){1,5}\b")
+            .Select(x => x.Value.Trim()).Where(x => x.Length is >= 5 and <= 100)
+            .Distinct(StringComparer.OrdinalIgnoreCase).Take(60).ToArray();
+        var facts = chunks.SelectMany(chunk => Regex.Split(chunk.Content, @"(?<=[.!?;])\s+")
+                .Where(sentence => Concepts.Any(concept => Normalize(sentence).Contains(Normalize(concept), StringComparison.Ordinal)))
+                .Select(sentence => new { text = sentence[..Math.Min(sentence.Length, 500)], chunkId = chunk.Id,
+                    pageNumber = chunk.PageNumber }))
+            .Take(30).ToArray();
+        var summaryParts = chunks.Take(4).Select(x => x.Content).ToArray();
+        var summary = string.Join(" ", summaryParts); summary = summary[..Math.Min(summary.Length, 1600)];
+        var search = string.Join(" | ", topics.Concat(entities).Concat(dates).Concat(facts.Select(x => x.text)));
+        return new(document.Id, document.CondominiumId, summary, JsonSerializer.Serialize(topics),
+            JsonSerializer.Serialize(entities), JsonSerializer.Serialize(dates), JsonSerializer.Serialize(facts),
+            search[..Math.Min(search.Length, 12000)], Version);
+    }
+
+    private static string Normalize(string value) => string.Concat(value.Normalize(NormalizationForm.FormD)
+        .Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)).ToLowerInvariant();
+}
+
 public sealed record AssistantSource(Guid DocumentId, string DocumentName, int? PageNumber,
     string? SectionTitle, string Excerpt, string Marker);
 public sealed record AssistantAnswer(string Answer, IReadOnlyList<AssistantSource> Sources,
@@ -238,7 +278,8 @@ internal sealed record RequestContextData(string Prompt, string RetrievalHint);
 internal sealed record RetrievalResult(IReadOnlyList<RankedChunk> Chunks, int EligibleChunkCount,
     int EligibleDocumentCount, int RankedChunkCount, int ActiveDocumentCount,
     int ReadyDocumentCount, int CompatibleDocumentCount,
-    IReadOnlyDictionary<Guid, int> EligibleChunksByDocument);
+    IReadOnlyDictionary<Guid, int> EligibleChunksByDocument, double FirstPassConfidence,
+    bool SecondPassUsed, string QueryStrategy, IReadOnlyList<Guid> CandidateDocumentIds);
 
 public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingService embeddings,
     HttpClient http, IOptions<RequestDraftAiOptions> aiOptions,
@@ -248,6 +289,8 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         string question, CancellationToken cancellationToken)
     {
         var started = DateTime.UtcNow; var settings = options.Value;
+        var catalogAnswer = await TryAnswerCatalog(conversation.CondominiumId, question, cancellationToken);
+        if (catalogAnswer is not null) return new(catalogAnswer, [], "structured-catalog");
         var requestContext = conversation.RequestId is Guid requestId
             ? await RequestContext(requestId, conversation.CondominiumId, cancellationToken) : null;
         var currentUserName = await db.Users.AsNoTracking().Where(x => x.Id == conversation.CreatedByUserId)
@@ -260,9 +303,10 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             item.Content[..Math.Min(280, item.Content.Length)], $"S{index + 1}")).ToArray();
         var context = string.Join("\n\n", ranked.Select((item, index) =>
             $"[S{index + 1}] Documento: {item.DocumentName}\n{item.Content}"));
-        logger.LogInformation("Assistant retrieval completed. CondominiumId: {CondominiumId}; ConversationId: {ConversationId}; RequestId: {RequestId}; EmbeddingModel: {EmbeddingModel}; Candidates: {Candidates}; FinalChunks: {@FinalChunks}; DurationMs: {DurationMs}.",
+        logger.LogInformation("Assistant retrieval completed. CondominiumId: {CondominiumId}; ConversationId: {ConversationId}; RequestId: {RequestId}; EmbeddingModel: {EmbeddingModel}; QueryStrategy: {QueryStrategy}; CandidateDocumentIds: {@CandidateDocumentIds}; InitialChunks: {Candidates}; FirstPassConfidence: {FirstPassConfidence}; SecondPassUsed: {SecondPassUsed}; FinalChunks: {@FinalChunks}; DurationMs: {DurationMs}.",
             conversation.CondominiumId, conversation.Id, conversation.RequestId, embeddings.Model,
-            retrieval.EligibleChunkCount, ranked.Select(item => new { item.ChunkId, item.DocumentId,
+            retrieval.QueryStrategy, retrieval.CandidateDocumentIds, retrieval.EligibleChunkCount,
+            retrieval.FirstPassConfidence, retrieval.SecondPassUsed, ranked.Select(item => new { item.ChunkId, item.DocumentId,
                 item.PageNumber, item.SemanticScore, item.LexicalScore, item.CombinedScore }).ToArray(),
             (DateTime.UtcNow - started).TotalMilliseconds);
         logger.LogInformation("Assistant retrieval coverage. CondominiumId: {CondominiumId}; ActiveDocuments: {ActiveDocuments}; ReadyDocuments: {ReadyDocuments}; CompatibleDocuments: {CompatibleDocuments}; EligibleDocuments: {EligibleDocuments}; EligibleChunks: {EligibleChunks}; RankedChunks: {RankedChunks}; EligibleChunksByDocument: {@EligibleChunksByDocument}; CandidateDocumentIds: {@CandidateDocumentIds}; TopDocumentIds: {@TopDocumentIds}.",
@@ -304,6 +348,20 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         var baseQuery = string.IsNullOrWhiteSpace(requestHint) ? question
             : $"{question}\nAssunto do atendimento: {requestHint}";
         var retrievalQuery = EnrichPersonalQuery(baseQuery, question, currentUserName);
+        var knowledgeRows = await (from knowledge in db.CondominiumDocumentKnowledge.AsNoTracking()
+            join document in db.CondominiumDocuments.AsNoTracking() on knowledge.CondominiumDocumentId equals document.Id
+            where knowledge.CondominiumId == condominiumId && document.IsActive
+                && document.ProcessingStatus == CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Ready
+            select new { knowledge.CondominiumDocumentId, knowledge.SearchText }).ToArrayAsync(cancellationToken);
+        var queryTerms = Terms(retrievalQuery);
+        var knowledgeMatches = knowledgeRows.Select(x => new { x.CondominiumDocumentId, x.SearchText,
+                Score = LexicalScore(x.SearchText, queryTerms) })
+            .OrderByDescending(x => x.Score).ToArray();
+        var candidateDocumentIds = knowledgeMatches.Where(x => x.Score > 0).Take(50)
+            .Select(x => x.CondominiumDocumentId).ToArray();
+        var expansion = knowledgeMatches.Where(x => x.Score > 0).Take(5)
+            .SelectMany(x => Terms(x.SearchText)).Where(term => !queryTerms.Contains(term)).Distinct().Take(20);
+        retrievalQuery = $"{retrievalQuery}\nConceitos relacionados: {string.Join(' ', expansion)}";
         var query = await embeddings.EmbedAsync(retrievalQuery, cancellationToken);
         var documentCoverage = await db.CondominiumDocuments.AsNoTracking()
             .Where(x => x.CondominiumId == condominiumId).Select(x => new { x.Id, x.IsActive, x.ProcessingStatus,
@@ -320,35 +378,66 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
                 Vector = TryVector(item.Chunk.Embedding, query.Length) })
             .Where(item => item.Vector is not null).ToArray();
         var terms = Terms(retrievalQuery);
+        var exactTerms = ExactTerms(question);
         var scored = candidates.Select(item =>
         {
             var semantic = Cosine(query, item.Vector!);
             var searchable = NormalizeLexical($"{item.Chunk.SectionTitle} {item.Chunk.Content}");
-            var lexical = terms.Count(term => searchable.Contains(term, StringComparison.Ordinal))
-                / (double)Math.Max(1, terms.Length);
+            var lexical = LexicalScore(searchable, terms);
+            var exactBoost = exactTerms.Count(term => searchable.Contains(term, StringComparison.Ordinal)) * .12;
+            var knowledgeBoost = knowledgeMatches.FirstOrDefault(x => x.CondominiumDocumentId == item.Document.Id)?.Score * .12 ?? 0;
             return new RankedChunk(item.Chunk.Id, item.Document.Id, item.Document.Name,
                 item.Chunk.PageNumber, item.Chunk.SectionTitle, item.Chunk.Content,
-                semantic, lexical, semantic + lexical * .15);
+                semantic, lexical, semantic + lexical * .25 + exactBoost + knowledgeBoost);
         }).OrderByDescending(item => item.CombinedScore).ToArray();
-        var selected = new List<RankedChunk>();
-        foreach (var item in scored)
+        var firstPassConfidence = scored.FirstOrDefault()?.CombinedScore ?? 0;
+        var selected = Select(scored, settings, settings.MinimumRelevanceScore, true);
+        var secondPass = selected.Count == 0 || firstPassConfidence < Math.Max(.35, settings.MinimumRelevanceScore + .08)
+            || IsSpecificFactQuestion(question) && selected.Count < 2;
+        if (secondPass)
         {
-            if (selected.Count >= Math.Clamp(settings.TopChunks, 1, 10)) break;
-            if (item.CombinedScore < settings.MinimumRelevanceScore) break;
-            if (selected.Count(existing => existing.DocumentId == item.DocumentId
-                && existing.PageNumber == item.PageNumber) >= 2) continue;
-            if (selected.Count(existing => existing.DocumentId == item.DocumentId) >= 2
-                && scored.Any(other => !selected.Any(x => x.ChunkId == other.ChunkId)
-                    && selected.All(x => x.DocumentId != other.DocumentId)
-                    && other.CombinedScore >= item.CombinedScore - .03)) continue;
-            selected.Add(item);
+            var fallback = Select(scored, settings, Math.Max(.08, settings.MinimumRelevanceScore * .55), false);
+            if (fallback.Count > selected.Count || fallback.FirstOrDefault()?.CombinedScore > selected.FirstOrDefault()?.CombinedScore)
+                selected = fallback;
         }
         return new(selected, candidates.Length, candidates.Select(x => x.Document.Id).Distinct().Count(),
             scored.Length, documentCoverage.Count(x => x.IsActive),
             documentCoverage.Count(x => x.IsActive && x.ProcessingStatus == CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Ready),
             documentCoverage.Count(x => x.IsActive && x.ProcessingStatus == CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Ready && x.Compatible),
-            candidates.GroupBy(x => x.Document.Id).ToDictionary(x => x.Key, x => x.Count()));
+            candidates.GroupBy(x => x.Document.Id).ToDictionary(x => x.Key, x => x.Count()),
+            firstPassConfidence, secondPass, knowledgeRows.Length == 0 ? "legacy-semantic-lexical-two-pass" : "knowledge-semantic-lexical-two-pass",
+            (candidateDocumentIds.Length > 0 ? candidateDocumentIds : candidates.Select(x => x.Document.Id).Distinct().Take(50).ToArray()));
     }
+
+    private static List<RankedChunk> Select(IReadOnlyList<RankedChunk> scored,
+        CondominiumAssistantOptions settings, double threshold, bool diversify)
+    {
+        var selected = new List<RankedChunk>();
+        foreach (var item in scored)
+        {
+            if (selected.Count >= Math.Clamp(settings.TopChunks, 1, 10)) break;
+            if (item.CombinedScore < threshold) break;
+            if (selected.Count(x => x.DocumentId == item.DocumentId && x.PageNumber == item.PageNumber) >= 3) continue;
+            if (diversify && selected.Count(x => x.DocumentId == item.DocumentId) >= 3
+                && scored.Any(other => selected.All(x => x.DocumentId != other.DocumentId)
+                    && other.CombinedScore >= item.CombinedScore - .03)) continue;
+            selected.Add(item);
+        }
+        return selected;
+    }
+
+    private static double LexicalScore(string value, string[] terms)
+    {
+        var searchable = NormalizeLexical(value);
+        return terms.Count(term => searchable.Contains(term, StringComparison.Ordinal)) / (double)Math.Max(1, terms.Length);
+    }
+
+    private static string[] ExactTerms(string question) => Regex.Matches(NormalizeLexical(question),
+        @"(?:\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\bart\.?\s*\d+[\w.-]*|\br\$\s*[\d.,]+|\b\d+[\w.-]*)")
+        .Select(x => x.Value).Distinct().ToArray();
+
+    private static bool IsSpecificFactQuestion(string question) => Regex.IsMatch(NormalizeLexical(question),
+        @"\b(quando|qual data|quem|quanto|eleit|mandato|assembleia|artigo|art\.|r\$|unidade)\b");
 
     internal static string EnrichPersonalQuery(string retrievalQuery, string question, string? currentUserName)
     {
@@ -385,6 +474,34 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
         return json.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString()?.Trim()
             ?? "Não encontrei base suficiente para responder.";
+    }
+
+    private async Task<string?> TryAnswerCatalog(Guid condominiumId, string question, CancellationToken ct)
+    {
+        var normalized = NormalizeLexical(question);
+        var catalogIntent = Regex.IsMatch(normalized,
+            @"\b(quais|quantos?|listar?|lista|possui|tem|disponiveis?|ativos?|inativos?)\b.*\b(documentos?|atas?|convencao|regimento|acervo)\b|\b(documentos?|atas?|convencao|regimento|acervo)\b.*\b(possui|tem|disponiveis?|ativos?|inativos?)\b");
+        if (!catalogIntent) return null;
+        var includeInactive = Regex.IsMatch(normalized, @"\binativos?\b");
+        var rows = await db.CondominiumDocuments.AsNoTracking()
+            .Where(x => x.CondominiumId == condominiumId && (includeInactive ? !x.IsActive : x.IsActive))
+            .OrderBy(x => x.Name).Select(x => new { x.Name, x.DocumentType, x.ProcessingStatus }).ToArrayAsync(ct);
+        if (normalized.Contains("ata") || normalized.Contains("assembleia"))
+            rows = rows.Where(x => x.DocumentType == CondoLink.Domain.Enums.CondominiumDocumentType.Minutes).ToArray();
+        else if (normalized.Contains("convencao"))
+            rows = rows.Where(x => x.DocumentType == CondoLink.Domain.Enums.CondominiumDocumentType.Convention).ToArray();
+        else if (normalized.Contains("regimento"))
+            rows = rows.Where(x => x.DocumentType == CondoLink.Domain.Enums.CondominiumDocumentType.InternalRules).ToArray();
+        if (Regex.IsMatch(normalized, @"\bquantos?\b"))
+            return rows.Length == 0 ? "Nenhum documento correspondente está cadastrado atualmente."
+                : $"Atualmente há {rows.Length} documento{(rows.Length == 1 ? "" : "s")} correspondente{(rows.Length == 1 ? "" : "s")} cadastrado{(rows.Length == 1 ? "" : "s")}.";
+        if (Regex.IsMatch(normalized, @"\b(possui|tem)\b") && rows.Length == 0)
+            return "Não. Esse tipo de documento não está disponível atualmente.";
+        if (rows.Length == 0) return includeInactive ? "Não há documentos inativos cadastrados."
+            : "Não há documentos disponíveis para consulta atualmente.";
+        var heading = includeInactive ? "Os documentos inativos cadastrados são:"
+            : "Atualmente estão disponíveis para consulta:";
+        return $"{heading}\n\n{string.Join("\n", rows.Select(x => $"- {x.Name}"))}";
     }
 
     private async Task<RequestContextData?> RequestContext(Guid requestId, Guid condominiumId, CancellationToken ct)

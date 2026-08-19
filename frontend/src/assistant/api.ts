@@ -67,7 +67,9 @@ export interface AssistantDocument {
   processingStatus: string;
   processingError: string | null;
   needsReindexing?: boolean;
+  needsKnowledgeUpdate?: boolean;
 }
+export interface BulkDocumentResult { succeeded: number; failed: { documentId: string; reason: string }[] }
 export const listDocuments = async (condominiumId: string) =>
   (
     await api.get<AssistantDocument[]>(
@@ -90,6 +92,10 @@ export const deleteDocument = async (condominiumId: string, id: string) =>
   api.delete(`/condominiums/${condominiumId}/documents/${id}`);
 export const reprocessDocument = async (condominiumId: string, id: string) =>
   api.post(`/condominiums/${condominiumId}/documents/${id}/reprocess`);
+export const setDocumentsActive = async (condominiumId: string, documentIds: string[], active: boolean) =>
+  (await api.put<BulkDocumentResult>(`/condominiums/${condominiumId}/documents/bulk/active`, { documentIds, active })).data;
+export const deleteDocuments = async (condominiumId: string, documentIds: string[]) =>
+  (await api.post<BulkDocumentResult>(`/condominiums/${condominiumId}/documents/bulk/delete`, { documentIds })).data;
 export const downloadDocument = async (
   condominiumId: string,
   id: string,

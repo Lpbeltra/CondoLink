@@ -69,10 +69,10 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
                     $"Assunto administrativo ordinário número {documentNumber}-{chunk}.",
                     JsonSerializer.Serialize(new float[] { 0, 1 }), chunk + 1, "Pauta", "election-test-v1"));
         }
-        var relevant = Document("Ata AGO 15-03-2026", CondominiumDocumentType.Minutes);
+        var relevant = Document("Ata AGO 15-03-2025", CondominiumDocumentType.Minutes);
         db.Add(relevant);
         db.Add(new CondominiumDocumentChunk(relevant.Id, condominiumId, 0,
-            "Na assembleia de 15/03/2026, Lisandro Beltrã foi eleito síndico para o mandato de dois anos.",
+            "Aos quinze dias do mês de março de 2025, foi eleito Lisandro Beltrã para exercer o cargo de síndico.",
             JsonSerializer.Serialize(new float[] { 1, 0 }), 7, "Eleição de síndico", "election-test-v1"));
         var inactive = Document("Ata inativa", CondominiumDocumentType.Minutes); inactive.SetActive(false); db.Add(inactive);
         db.Add(new CondominiumDocumentChunk(inactive.Id, condominiumId, 0, "Lisandro Beltrã eleito em data errada.", JsonSerializer.Serialize(new float[] { 1, 0 }), 1, null, "election-test-v1"));
@@ -87,7 +87,7 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
         var results = await Service(embedding).RetrieveAsync(condominiumId,
             "Qual a data da assembleia em que fui eleito síndico?", null, "Lisandro Beltrã", default);
         Assert.Equal(relevant.Id, results[0].DocumentId);
-        Assert.Contains("15/03/2026", results[0].Content);
+        Assert.Contains("março de 2025", results[0].Content);
         Assert.Contains("Usuário atual: Lisandro Beltrã", embedding.LastText);
         Assert.DoesNotContain(results, x => x.DocumentId == inactive.Id || x.DocumentId == failed.Id
             || x.DocumentId == incompatible.Id || x.DocumentId == foreign.Id);
@@ -99,6 +99,19 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
         var embedding = new ElectionEmbeddingService();
         await Service(embedding).RetrieveAsync(condominiumId, "Qual o horário da piscina?", null, "Lisandro Beltrã", default);
         Assert.DoesNotContain("Lisandro", embedding.LastText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Catalog_questions_use_active_database_rows_without_embeddings()
+    {
+        var active = Document("Ata atual", CondominiumDocumentType.Minutes); db.Add(active);
+        var inactive = Document("Ata antiga", CondominiumDocumentType.Minutes); inactive.SetActive(false); db.Add(inactive);
+        await db.SaveChangesAsync();
+        var conversation = new CondominiumAssistantConversation(condominiumId, Guid.NewGuid(), null, "Catálogo");
+        var answer = await Service(new ThrowingEmbeddingService()).AskAsync(conversation,
+            "Quais documentos você possui?", default);
+        Assert.Contains("Ata atual", answer.Answer); Assert.DoesNotContain("Ata antiga", answer.Answer);
+        Assert.Empty(answer.Sources); Assert.Equal("structured-catalog", answer.Model);
     }
 
     [Fact]
@@ -125,6 +138,13 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
         public string LastText { get; private set; } = "";
         public Task<float[]> EmbedAsync(string text, CancellationToken cancellationToken)
         { LastText = text; return Task.FromResult(text.Contains("eleit", StringComparison.OrdinalIgnoreCase) ? new float[] { 1, 0 } : new float[] { 0, 1 }); }
+    }
+
+    private sealed class ThrowingEmbeddingService : IEmbeddingService
+    {
+        public string Model => "must-not-run";
+        public Task<float[]> EmbedAsync(string text, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Catalog must not use retrieval.");
     }
 
     private void Add(string content, int topic, int page)

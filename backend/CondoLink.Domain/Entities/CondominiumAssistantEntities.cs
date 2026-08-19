@@ -58,6 +58,30 @@ public sealed class CondominiumDocumentChunk
     public DateTime CreatedAt { get; private set; }
 }
 
+public sealed class CondominiumDocumentKnowledge
+{
+    private CondominiumDocumentKnowledge() { }
+    public CondominiumDocumentKnowledge(Guid documentId, Guid condominiumId, string summary,
+        string topicsJson, string entitiesJson, string datesJson, string factsJson, string searchText,
+        string analyzerVersion)
+    { Id = Guid.NewGuid(); CondominiumDocumentId = documentId; CondominiumId = condominiumId;
+      Summary = summary; TopicsJson = topicsJson; EntitiesJson = entitiesJson; DatesJson = datesJson;
+      FactsJson = factsJson; SearchText = searchText; AnalyzerVersion = analyzerVersion;
+      CreatedAt = UpdatedAt = DateTime.UtcNow; }
+    public Guid Id { get; private set; }
+    public Guid CondominiumDocumentId { get; private set; }
+    public Guid CondominiumId { get; private set; }
+    public string Summary { get; private set; } = null!;
+    public string TopicsJson { get; private set; } = null!;
+    public string EntitiesJson { get; private set; } = null!;
+    public string DatesJson { get; private set; } = null!;
+    public string FactsJson { get; private set; } = null!;
+    public string SearchText { get; private set; } = null!;
+    public string AnalyzerVersion { get; private set; } = null!;
+    public DateTime CreatedAt { get; private set; }
+    public DateTime UpdatedAt { get; private set; }
+}
+
 public sealed class CondominiumAssistantConversation
 {
     private CondominiumAssistantConversation() { }

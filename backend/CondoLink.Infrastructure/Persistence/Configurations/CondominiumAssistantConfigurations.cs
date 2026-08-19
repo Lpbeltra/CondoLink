@@ -38,6 +38,24 @@ public sealed class CondominiumDocumentChunkConfiguration : IEntityTypeConfigura
         b.HasOne<Condominium>().WithMany().HasForeignKey(x => x.CondominiumId).OnDelete(DeleteBehavior.Cascade);
     }
 }
+public sealed class CondominiumDocumentKnowledgeConfiguration : IEntityTypeConfiguration<CondominiumDocumentKnowledge>
+{
+    public void Configure(EntityTypeBuilder<CondominiumDocumentKnowledge> b)
+    {
+        b.ToTable("condominium_document_knowledge"); b.HasKey(x => x.Id);
+        b.Property(x => x.Id).HasColumnName("id"); b.Property(x => x.CondominiumDocumentId).HasColumnName("condominium_document_id");
+        b.Property(x => x.CondominiumId).HasColumnName("condominium_id"); b.Property(x => x.Summary).HasColumnName("summary");
+        b.Property(x => x.TopicsJson).HasColumnName("topics_json").HasColumnType("jsonb");
+        b.Property(x => x.EntitiesJson).HasColumnName("entities_json").HasColumnType("jsonb");
+        b.Property(x => x.DatesJson).HasColumnName("dates_json").HasColumnType("jsonb");
+        b.Property(x => x.FactsJson).HasColumnName("facts_json").HasColumnType("jsonb");
+        b.Property(x => x.SearchText).HasColumnName("search_text"); b.Property(x => x.AnalyzerVersion).HasColumnName("analyzer_version").HasMaxLength(50);
+        b.Property(x => x.CreatedAt).HasColumnName("created_at"); b.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+        b.HasIndex(x => x.CondominiumDocumentId).IsUnique(); b.HasIndex(x => x.CondominiumId);
+        b.HasOne<CondominiumDocument>().WithMany().HasForeignKey(x => x.CondominiumDocumentId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Condominium>().WithMany().HasForeignKey(x => x.CondominiumId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
 public sealed class CondominiumAssistantConversationConfiguration : IEntityTypeConfiguration<CondominiumAssistantConversation>
 {
     public void Configure(EntityTypeBuilder<CondominiumAssistantConversation> b)
