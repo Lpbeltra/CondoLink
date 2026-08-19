@@ -90,7 +90,9 @@ public sealed record SetupConfirmationResponse(
     int Warnings = 0,
     int InvitationsSent = 0,
     int AccessPending = 0,
-    int InvitationsQueued = 0);
+    int InvitationsQueued = 0,
+    int EmailFailures = 0,
+    int WhatsAppFailures = 0);
 
 public sealed record SetupGeneratorRequest(
     IReadOnlyList<SetupGeneratorTower>? Towers,

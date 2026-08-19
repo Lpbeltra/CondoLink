@@ -92,6 +92,20 @@ public sealed class FirstAccessService(
         try
         {
             var link = await CreateLinkAsync(user);
+            return await SendLinkAsync(user, condominiumName, link, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            return await MarkEmailFailureAsync(user, exception);
+        }
+    }
+
+    public async Task<bool> SendLinkAsync(ApplicationUser user, string condominiumName,
+        string link, CancellationToken cancellationToken)
+    {
+        if (!user.EmailDeliveryEnabled || !user.MustChangePassword) return false;
+        try
+        {
             var name = WebUtility.HtmlEncode(user.FullName);
             var condominium = WebUtility.HtmlEncode(condominiumName);
             var safeLink = WebUtility.HtmlEncode(link);
@@ -103,10 +117,15 @@ public sealed class FirstAccessService(
         }
         catch (Exception exception)
         {
-            logger.LogWarning(exception, "First-access email failed for UserId {UserId}.", user.Id);
-            user.MarkFirstAccessInviteFailed(DateTime.UtcNow);
-            await userManager.UpdateAsync(user);
-            return false;
+            return await MarkEmailFailureAsync(user, exception);
         }
+    }
+
+    private async Task<bool> MarkEmailFailureAsync(ApplicationUser user, Exception exception)
+    {
+        logger.LogWarning(exception, "First-access email failed for UserId {UserId}.", user.Id);
+        user.MarkFirstAccessInviteFailed(DateTime.UtcNow);
+        await userManager.UpdateAsync(user);
+        return false;
     }
 }

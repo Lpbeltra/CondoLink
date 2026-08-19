@@ -48,7 +48,7 @@ export interface SetupPreview {
     primaryResidence: boolean
     existingUser: boolean
     sendAccessEmail: boolean
-    firstAccessChannel: "WhatsApp" | "Email" | "None"
+    firstAccessChannel: "WhatsApp" | "Email" | "WhatsAppAndEmail" | "None"
     status: 'Ready' | 'ExistingUser' | 'ExistingMembership' | 'Warning' | 'Conflict' | 'Invalid'
     normalizedPhone: string | null
   }[]
@@ -78,6 +78,8 @@ export interface SetupConfirmation {
   usersReused?: number
   invitationsSent?: number
   invitationsQueued?: number
+  emailFailures?: number
+  whatsAppFailures?: number
   accessPending?: number
 }
 

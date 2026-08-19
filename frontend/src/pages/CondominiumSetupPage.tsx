@@ -908,6 +908,8 @@ function PreviewStep({
             : "—",
           row.firstAccessChannel === "WhatsApp"
             ? "WhatsApp"
+            : row.firstAccessChannel === "WhatsAppAndEmail"
+              ? "WhatsApp + E-mail"
             : row.firstAccessChannel === "Email"
               ? "E-mail"
               : "Não enviar",
@@ -1032,6 +1034,10 @@ function ConfirmationStep({
         {result.invitationsSent ?? 0} convites enviados ·{" "}
         {result.invitationsQueued ?? 0} enfileirados no WhatsApp ·{" "}
         {result.accessPending ?? 0} acessos pendentes
+      </Typography>
+      <Typography>
+        {result.emailFailures ?? 0} falhas de e-mail ·{" "}
+        {result.whatsAppFailures ?? 0} falhas ao enfileirar WhatsApp
       </Typography>
       <Button variant="contained" onClick={onReset}>
         Finalizar

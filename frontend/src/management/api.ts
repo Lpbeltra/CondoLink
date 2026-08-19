@@ -149,7 +149,7 @@ export const onboardMember = async (
     relationshipType: RelationshipType | null;
     isResident: boolean;
     isPrimaryResidence: boolean;
-    firstAccessChannel: "WhatsApp" | "Email" | "None";
+    firstAccessChannel: "WhatsApp" | "Email" | "WhatsAppAndEmail" | "None";
     emailDeliveryEnabled: boolean;
     invitationOperationId: string;
   },
@@ -163,7 +163,7 @@ export const onboardMember = async (
 export const resendFirstAccess = async (
   condominiumId: string,
   userId: string,
-  channel: "WhatsApp" | "Email",
+  channel: "WhatsApp" | "Email" | "WhatsAppAndEmail",
 ) =>
   (
     await api.post(

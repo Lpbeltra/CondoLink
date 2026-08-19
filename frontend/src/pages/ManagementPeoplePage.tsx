@@ -104,7 +104,7 @@ export function ManagementPeoplePage() {
   const [saving, setSaving] = useState(false);
   const [emailOnlyLogin, setEmailOnlyLogin] = useState(false);
   const [firstAccessChannel, setFirstAccessChannel] = useState<
-    "WhatsApp" | "Email" | "None"
+    "WhatsApp" | "Email" | "WhatsAppAndEmail" | "None"
   >("Email");
   const [editing, setEditing] = useState<CondominiumMember | null>(null);
   const [cpf, setCpf] = useState("");
@@ -401,7 +401,7 @@ export function ManagementPeoplePage() {
   };
   const resendAccess = async (
     person: CondominiumMember,
-    channel: "WhatsApp" | "Email",
+    channel: "WhatsApp" | "Email" | "WhatsAppAndEmail",
   ) => {
     if (!activeCondominiumId) return;
     try {
@@ -409,6 +409,8 @@ export function ManagementPeoplePage() {
       setSuccess(
         channel === "WhatsApp"
           ? "Convite enfileirado para envio por WhatsApp."
+          : channel === "WhatsAppAndEmail"
+            ? "Convite reenviado por WhatsApp e e-mail."
           : "Convite reenviado por e-mail.",
       );
       await load();
@@ -638,6 +640,15 @@ export function ManagementPeoplePage() {
                       Reenviar por WhatsApp
                     </Button>
                   )}
+                  {person.mustChangePassword && person.phoneNumber && person.emailDeliveryEnabled && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => void resendAccess(person, "WhatsAppAndEmail")}
+                    >
+                      Reenviar por WhatsApp + E-mail
+                    </Button>
+                  )}
                   {person.mustChangePassword && (
                     <Button
                       size="small"
@@ -809,7 +820,8 @@ export function ManagementPeoplePage() {
                       checked={emailOnlyLogin}
                       onChange={(e) => {
                         setEmailOnlyLogin(e.target.checked);
-                        if (e.target.checked && firstAccessChannel === "Email")
+                        if (e.target.checked && firstAccessChannel !== "WhatsApp"
+                            && firstAccessChannel !== "None")
                           setFirstAccessChannel("None");
                       }}
                     />
@@ -822,7 +834,9 @@ export function ManagementPeoplePage() {
                 value={phone}
                 onChange={(e) => {
                   setPhone(e.target.value);
-                  if (!e.target.value.trim() && firstAccessChannel === "WhatsApp")
+                  if (!e.target.value.trim()
+                      && (firstAccessChannel === "WhatsApp"
+                        || firstAccessChannel === "WhatsAppAndEmail"))
                     setFirstAccessChannel("None");
                 }}
                 slotProps={{ htmlInput: { maxLength: 30 } }}
@@ -834,7 +848,11 @@ export function ManagementPeoplePage() {
                   value={firstAccessChannel}
                   onChange={(event) =>
                     setFirstAccessChannel(
-                      event.target.value as "WhatsApp" | "Email" | "None",
+                      event.target.value as
+                        | "WhatsApp"
+                        | "Email"
+                        | "WhatsAppAndEmail"
+                        | "None",
                     )
                   }
                 >
@@ -846,6 +864,12 @@ export function ManagementPeoplePage() {
                   </MenuItem>
                   <MenuItem value="Email" disabled={emailOnlyLogin}>
                     E-mail
+                  </MenuItem>
+                  <MenuItem
+                    value="WhatsAppAndEmail"
+                    disabled={!phone.trim() || emailOnlyLogin}
+                  >
+                    WhatsApp + E-mail
                   </MenuItem>
                   <MenuItem value="None">Não enviar agora</MenuItem>
                 </TextField>

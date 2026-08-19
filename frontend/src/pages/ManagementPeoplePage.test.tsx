@@ -294,4 +294,21 @@ describe("ManagementPeoplePage password reset", () => {
     await waitFor(() => expect(managementApi.listCondominiumMembers)
       .toHaveBeenCalledWith("condominium-id", "", "inactive"));
   });
+
+  it("offers combined first access only when phone and deliverable email are available", async () => {
+    const user = userEvent.setup();
+    render(<ManagementPeoplePage />);
+    await screen.findByText("Maria Silva");
+    await user.click(screen.getByRole("button", { name: /adicionar pessoa/i }));
+
+    await user.click(screen.getByLabelText("Enviar primeiro acesso"));
+    expect(screen.getByRole("option", { name: "WhatsApp + E-mail" }))
+      .toHaveAttribute("aria-disabled", "true");
+    await user.keyboard("{Escape}");
+
+    await user.type(screen.getByLabelText("Telefone / WhatsApp"), "+12125551234");
+    await user.click(screen.getByLabelText("Enviar primeiro acesso"));
+    expect(screen.getByRole("option", { name: "WhatsApp + E-mail" }))
+      .not.toHaveAttribute("aria-disabled", "true");
+  });
 });

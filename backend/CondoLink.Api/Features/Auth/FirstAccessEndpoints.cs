@@ -49,6 +49,26 @@ public static class FirstAccessEndpoints
         if (!await CanManageAsync(condominiumId, userId, principal, db, ct)) return Results.NotFound();
         var user = await users.FindByIdAsync(userId.ToString());
         if (user is not null && user.MustChangePassword
+            && string.Equals(request.Channel, "WhatsAppAndEmail", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(user.NormalizedPhoneNumber) || !user.EmailDeliveryEnabled)
+                return Results.Conflict(new { error = "WhatsApp + E-mail exige telefone válido e e-mail entregável." });
+            var condominiumName = await db.Condominiums.Where(x => x.Id == condominiumId)
+                .Select(x => x.Name).SingleAsync(ct);
+            var operationId = request.OperationId ?? $"resend:{user.Id:N}";
+            var combined = await whatsapp.DeliverBothAsync(user, condominiumId,
+                condominiumName, operationId, ct);
+            var emailSent = combined.EmailSent;
+            var whatsappQueued = combined.WhatsAppQueued;
+            return Results.Ok(new
+            {
+                status = emailSent || whatsappQueued ? "InviteSent" : "DeliveryFailed",
+                channel = "WhatsAppAndEmail",
+                emailSent,
+                whatsappQueued
+            });
+        }
+        if (user is not null && user.MustChangePassword
             && string.Equals(request.Channel, "WhatsApp", StringComparison.OrdinalIgnoreCase))
         {
             if (string.IsNullOrWhiteSpace(user.NormalizedPhoneNumber))
@@ -62,7 +82,7 @@ public static class FirstAccessEndpoints
                 : Results.Json(new { status = "DeliveryFailed", error = "Não foi possível enfileirar o convite." }, statusCode: 502);
         }
         if (!string.Equals(request.Channel, "Email", StringComparison.OrdinalIgnoreCase))
-            return Results.BadRequest(new { error = "Channel must be WhatsApp or Email." });
+            return Results.BadRequest(new { error = "Channel must be WhatsApp, Email or WhatsAppAndEmail." });
         if (user is null || !user.MustChangePassword) return Results.Conflict(new { error = "O primeiro acesso já foi concluído." });
         if (!user.EmailDeliveryEnabled) return Results.Conflict(new { error = "Este e-mail é apenas para acesso ao sistema." });
         var name = await db.Condominiums.Where(x => x.Id == condominiumId).Select(x => x.Name).SingleAsync(ct);
