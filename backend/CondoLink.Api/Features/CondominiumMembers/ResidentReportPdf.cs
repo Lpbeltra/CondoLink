@@ -130,13 +130,10 @@ internal sealed class ResidentReportPdf
             row.Cells[2].AddParagraph($"Principal: {YesNo(resident.IsPrimaryResidence)}");
             row.Cells[3].AddParagraph(FirstAccessLabel(resident.FirstAccessStatus));
             row.Cells[4].AddParagraph(resident.Block ?? "Sem bloco");
-            foreach (var cell in row.Cells)
-            {
-                cell.Format.SpaceBefore = Unit.FromPoint(2.5);
-                cell.Format.SpaceAfter = Unit.FromPoint(2.5);
-                cell.Format.LeftIndent = Unit.FromPoint(2);
-                cell.Format.RightIndent = Unit.FromPoint(2);
-            }
+            row.Format.SpaceBefore = Unit.FromPoint(2.5);
+            row.Format.SpaceAfter = Unit.FromPoint(2.5);
+            row.Format.LeftIndent = Unit.FromPoint(2);
+            row.Format.RightIndent = Unit.FromPoint(2);
         }
     }
 
