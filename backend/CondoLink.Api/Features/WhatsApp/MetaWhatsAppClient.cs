@@ -59,7 +59,7 @@ public sealed class MetaWhatsAppClient(
         IReadOnlyList<string> bodyParameters,
         IReadOnlyList<string> quickReplyPayloads,
         CancellationToken cancellationToken,
-        string? bodyParameterName = null,
+        string? bodyParameterName,
         IReadOnlyList<string> urlButtonParameters)
     {
         var stage = "building_payload";
