@@ -46,6 +46,7 @@ import {
   type AssistantMessage,
   type AssistantSource,
 } from "../assistant/api";
+export { CondominiumDocumentsPage } from './CondominiumDocumentsPage'
 
 export function CondominiumAssistantPage() {
   const { activeCondominiumId } = useManagementContext();
@@ -474,7 +475,7 @@ export function CondominiumAssistantPage() {
   );
 }
 
-export function CondominiumDocumentsPage() {
+function LegacyCondominiumDocumentsPage() {
   const { activeCondominiumId } = useManagementContext();
   const [documents, setDocuments] = useState<AssistantDocument[]>([]);
   const [file, setFile] = useState<File | null>(null);

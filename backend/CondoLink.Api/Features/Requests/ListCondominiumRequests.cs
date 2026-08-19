@@ -126,15 +126,18 @@ public static class ListCondominiumRequests
                 request => request.CondominiumId == condominiumId.Value);
         }
 
+        var statusCounts = await condominiumRequests.GroupBy(item => item.Status)
+            .Select(group => new { Status = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(item => item.Status, item => item.Count, cancellationToken);
         var counts = new CountsResponse(
-            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.Open, cancellationToken),
-            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.InProgress, cancellationToken),
-            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.WaitingForResident, cancellationToken),
-            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.WaitingForManager, cancellationToken),
-            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.WaitingForThirdParty, cancellationToken),
-            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.WaitingForResidentClosure, cancellationToken),
-            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.Resolved, cancellationToken),
-            await condominiumRequests.CountAsync(item => item.Status == RequestStatus.Cancelled, cancellationToken));
+            statusCounts.GetValueOrDefault(RequestStatus.Open),
+            statusCounts.GetValueOrDefault(RequestStatus.InProgress),
+            statusCounts.GetValueOrDefault(RequestStatus.WaitingForResident),
+            statusCounts.GetValueOrDefault(RequestStatus.WaitingForManager),
+            statusCounts.GetValueOrDefault(RequestStatus.WaitingForThirdParty),
+            statusCounts.GetValueOrDefault(RequestStatus.WaitingForResidentClosure),
+            statusCounts.GetValueOrDefault(RequestStatus.Resolved),
+            statusCounts.GetValueOrDefault(RequestStatus.Cancelled));
 
         var requests = condominiumRequests;
 

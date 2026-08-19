@@ -218,8 +218,29 @@ if (app.Environment.IsDevelopment())
 app.UseCors("FrontendDevelopment");
 app.Use(async (context, next) =>
 {
-    await next();
-    context.RequestServices.GetRequiredService<ApiRequestMetrics>().Record(context.Response.StatusCode);
+    var started=System.Diagnostics.Stopwatch.GetTimestamp();
+    var queries=context.RequestServices.GetRequiredService<QueryPerformanceScope>();
+    using var queryScope=queries.Begin();
+    var failed=false;
+    try
+    {
+        await next();
+    }
+    catch
+    {
+        failed=true;
+        throw;
+    }
+    finally
+    {
+        var duration=System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        var route=(context.GetEndpoint() as Microsoft.AspNetCore.Routing.RouteEndpoint)?.RoutePattern.RawText??"unmatched";
+        var query=queries.Snapshot();
+        var status=failed&&!context.Response.HasStarted?StatusCodes.Status500InternalServerError:context.Response.StatusCode;
+        context.RequestServices.GetRequiredService<ApiRequestMetrics>().Record(new(DateTime.UtcNow,context.Request.Method,route,status,duration,context.Response.ContentLength,query.QueryCount,query.SlowQueryCount,query.TotalDurationMs,query.MaximumDurationMs));
+        if(duration>=1000||status>=500)
+            app.Logger.LogWarning("Slow or failed request. Method: {Method}; Route: {Route}; Status: {Status}; DurationMs: {DurationMs}; ResponseBytes: {ResponseBytes}; QueryCount: {QueryCount}; SqlDurationMs: {SqlDurationMs}.",context.Request.Method,route,status,Math.Round(duration,1),context.Response.ContentLength,query.QueryCount,Math.Round(query.TotalDurationMs,1));
+    }
 });
 app.UseAuthentication();
 app.UseAuthorization();

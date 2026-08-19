@@ -56,10 +56,76 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
         Assert.Contains("sossego", results[0].Content, StringComparison.OrdinalIgnoreCase);
     }
 
-    private CondominiumAssistantService Service() => new(db, new SemanticTestEmbeddingService(),
+    [Fact]
+    public async Task Relevant_minutes_after_the_old_five_hundred_candidate_limit_is_retrieved()
+    {
+        var otherCondominium = Guid.NewGuid();
+        for (var documentNumber = 0; documentNumber < 5; documentNumber++)
+        {
+            var minutes = Document($"Ata histórica {documentNumber}", CondominiumDocumentType.Minutes);
+            db.Add(minutes);
+            for (var chunk = 0; chunk < 101; chunk++)
+                db.Add(new CondominiumDocumentChunk(minutes.Id, condominiumId, chunk,
+                    $"Assunto administrativo ordinário número {documentNumber}-{chunk}.",
+                    JsonSerializer.Serialize(new float[] { 0, 1 }), chunk + 1, "Pauta", "election-test-v1"));
+        }
+        var relevant = Document("Ata AGO 15-03-2026", CondominiumDocumentType.Minutes);
+        db.Add(relevant);
+        db.Add(new CondominiumDocumentChunk(relevant.Id, condominiumId, 0,
+            "Na assembleia de 15/03/2026, Lisandro Beltrã foi eleito síndico para o mandato de dois anos.",
+            JsonSerializer.Serialize(new float[] { 1, 0 }), 7, "Eleição de síndico", "election-test-v1"));
+        var inactive = Document("Ata inativa", CondominiumDocumentType.Minutes); inactive.SetActive(false); db.Add(inactive);
+        db.Add(new CondominiumDocumentChunk(inactive.Id, condominiumId, 0, "Lisandro Beltrã eleito em data errada.", JsonSerializer.Serialize(new float[] { 1, 0 }), 1, null, "election-test-v1"));
+        var failed = new CondominiumDocument(condominiumId, "Ata falha", CondominiumDocumentType.Minutes, "failed.pdf", "failed", "application/pdf", 1, null, Guid.NewGuid()); failed.Fail("failed"); db.Add(failed);
+        db.Add(new CondominiumDocumentChunk(failed.Id, condominiumId, 0, "Lisandro Beltrã eleito em data errada.", JsonSerializer.Serialize(new float[] { 1, 0 }), 1, null, "election-test-v1"));
+        var incompatible = Document("Ata modelo antigo", CondominiumDocumentType.Minutes); db.Add(incompatible);
+        db.Add(new CondominiumDocumentChunk(incompatible.Id, condominiumId, 0, "Lisandro Beltrã eleito em data errada.", JsonSerializer.Serialize(new float[] { 1, 0 }), 1, null, "old-model"));
+        var foreign = new CondominiumDocument(otherCondominium, "Ata outro condomínio", CondominiumDocumentType.Minutes, "foreign.pdf", "foreign", "application/pdf", 1, null, Guid.NewGuid()); foreign.Ready(); db.Add(foreign);
+        db.Add(new CondominiumDocumentChunk(foreign.Id, otherCondominium, 0, "Lisandro Beltrã eleito em data errada.", JsonSerializer.Serialize(new float[] { 1, 0 }), 1, null, "election-test-v1"));
+        await db.SaveChangesAsync();
+        var embedding = new ElectionEmbeddingService();
+        var results = await Service(embedding).RetrieveAsync(condominiumId,
+            "Qual a data da assembleia em que fui eleito síndico?", null, "Lisandro Beltrã", default);
+        Assert.Equal(relevant.Id, results[0].DocumentId);
+        Assert.Contains("15/03/2026", results[0].Content);
+        Assert.Contains("Usuário atual: Lisandro Beltrã", embedding.LastText);
+        Assert.DoesNotContain(results, x => x.DocumentId == inactive.Id || x.DocumentId == failed.Id
+            || x.DocumentId == incompatible.Id || x.DocumentId == foreign.Id);
+    }
+
+    [Fact]
+    public async Task General_question_does_not_receive_the_current_user_identity()
+    {
+        var embedding = new ElectionEmbeddingService();
+        await Service(embedding).RetrieveAsync(condominiumId, "Qual o horário da piscina?", null, "Lisandro Beltrã", default);
+        Assert.DoesNotContain("Lisandro", embedding.LastText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Normalization_and_chunking_preserve_dates_times_and_assembly_numbers()
+    {
+        const string text = "Ata nº 42 realizada em 15/03/2026, às 19:30. Mandato iniciado em 15 de março de 2026.";
+        var normalized = CondominiumDocumentText.Normalize(text);
+        var chunk = Assert.Single(CondominiumDocumentText.Chunks(normalized));
+        Assert.Contains("15/03/2026", chunk); Assert.Contains("19:30", chunk);
+        Assert.Contains("15 de março de 2026", chunk); Assert.Contains("nº 42", chunk);
+    }
+
+    private CondominiumAssistantService Service(IEmbeddingService? embedding = null) => new(db, embedding ?? new SemanticTestEmbeddingService(),
         new HttpClient(), Options.Create(new RequestDraftAiOptions()),
         Options.Create(new CondominiumAssistantOptions { MinimumRelevanceScore = .2 }),
         NullLogger<CondominiumAssistantService>.Instance);
+
+    private CondominiumDocument Document(string name, CondominiumDocumentType type)
+    { var document = new CondominiumDocument(condominiumId, name, type, $"{name}.pdf", name, "application/pdf", 1, null, Guid.NewGuid()); document.Ready(); return document; }
+
+    private sealed class ElectionEmbeddingService : IEmbeddingService
+    {
+        public string Model => "election-test-v1";
+        public string LastText { get; private set; } = "";
+        public Task<float[]> EmbedAsync(string text, CancellationToken cancellationToken)
+        { LastText = text; return Task.FromResult(text.Contains("eleit", StringComparison.OrdinalIgnoreCase) ? new float[] { 1, 0 } : new float[] { 0, 1 }); }
+    }
 
     private void Add(string content, int topic, int page)
     {

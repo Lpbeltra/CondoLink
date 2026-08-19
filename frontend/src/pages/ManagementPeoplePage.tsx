@@ -27,6 +27,7 @@ import {
   FormControlLabel,
   IconButton,
   InputAdornment,
+  LinearProgress,
   Menu,
   MenuItem,
   Skeleton,
@@ -112,6 +113,7 @@ export function ManagementPeoplePage() {
   const [unitMembershipId, setUnitMembershipId] = useState<string | null>(null);
   const [success, setSuccess] = useState("");
   const [search, setSearch] = useState("");
+  const [effectiveSearch, setEffectiveSearch] = useState("");
   const [status, setStatus] = useState<"active" | "inactive">("active");
   const [actionAnchor, setActionAnchor] = useState<HTMLElement | null>(null);
   const [actionTarget, setActionTarget] = useState<CondominiumMember | null>(
@@ -126,6 +128,16 @@ export function ManagementPeoplePage() {
   const loadVersion = useRef(0);
   const activeIdRef = useRef(activeCondominiumId);
   activeIdRef.current = activeCondominiumId;
+
+  useEffect(() => {
+    if (!search) {
+      setEffectiveSearch("");
+      return;
+    }
+    const timer = window.setTimeout(() => setEffectiveSearch(search), 350);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
   const load = useCallback(async () => {
     const version = ++loadVersion.current;
     setOpen(false);
@@ -134,36 +146,51 @@ export function ManagementPeoplePage() {
     setSaving(false);
     if (!activeCondominiumId) {
       setPeople([]);
-      setUnits([]);
       setLoading(false);
       return;
     }
 
     setLoading(true);
-    setPeople([]);
-    setUnits([]);
     setError("");
 
     try {
-      const [peopleData, unitData] = await Promise.all([
-        listCondominiumMembers(activeCondominiumId, search, status),
-        listUnits(activeCondominiumId),
-      ]);
+      const peopleData = await listCondominiumMembers(
+        activeCondominiumId,
+        effectiveSearch,
+        status,
+      );
 
       if (version !== loadVersion.current) return;
       setPeople(peopleData);
-      setUnits(unitData.filter((unit) => unit.isActive));
     } catch (requestError) {
       if (version === loadVersion.current)
         setError(managementError(requestError));
     } finally {
       if (version === loadVersion.current) setLoading(false);
     }
-  }, [activeCondominiumId, search, status]);
+  }, [activeCondominiumId, effectiveSearch, status]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let current = true;
+    if (!activeCondominiumId) {
+      setUnits([]);
+      return;
+    }
+    void listUnits(activeCondominiumId)
+      .then((items) => {
+        if (current) setUnits(items.filter((unit) => unit.isActive));
+      })
+      .catch((requestError) => {
+        if (current) setError(managementError(requestError));
+      });
+    return () => {
+      current = false;
+    };
+  }, [activeCondominiumId]);
 
   useEffect(() => {
     setResult(null);
@@ -488,7 +515,10 @@ export function ManagementPeoplePage() {
           <Tab value="inactive" label="Inativos" />
         </Tabs>
       </Stack>
-      {loading ? (
+      {loading && people.length > 0 && (
+        <LinearProgress aria-label="Atualizando pessoas" sx={{ mt: 2 }} />
+      )}
+      {loading && people.length === 0 ? (
         <Skeleton variant="rounded" height={220} sx={{ mt: 3 }} />
       ) : people.length === 0 ? (
         <EmptyState

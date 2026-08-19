@@ -237,4 +237,61 @@ describe("ManagementPeoplePage password reset", () => {
       ),
     );
   });
+
+  it("debounces rapid search and does not reload units", async () => {
+    const user = userEvent.setup();
+    render(<ManagementPeoplePage />);
+    await screen.findByText("Maria Silva");
+    managementApi.listCondominiumMembers.mockClear();
+    managementApi.listUnits.mockClear();
+
+    await user.type(screen.getByLabelText("Buscar morador"), "Tatiana");
+    expect(managementApi.listCondominiumMembers).not.toHaveBeenCalled();
+    await waitFor(() => expect(managementApi.listCondominiumMembers)
+      .toHaveBeenCalledTimes(1));
+    expect(managementApi.listCondominiumMembers).toHaveBeenCalledWith(
+      "condominium-id", "Tatiana", "active");
+    expect(managementApi.listUnits).not.toHaveBeenCalled();
+  });
+
+  it("ignores an obsolete search response and clears immediately", async () => {
+    const user = userEvent.setup();
+    render(<ManagementPeoplePage />);
+    await screen.findByText("Maria Silva");
+    let resolveOld!: (value: CondominiumMember[]) => void;
+    const oldResult = new Promise<CondominiumMember[]>((resolve) => {
+      resolveOld = resolve;
+    });
+    const tatiana = { ...member, userId: "tatiana", fullName: "Tatiana Lima" };
+    managementApi.listCondominiumMembers.mockImplementation(
+      (_id: string, query: string) => query === "Tati"
+        ? oldResult
+        : Promise.resolve(query === "Tatiana" ? [tatiana] : [member]),
+    );
+
+    const input = screen.getByLabelText("Buscar morador");
+    await user.type(input, "Tati");
+    await waitFor(() => expect(managementApi.listCondominiumMembers)
+      .toHaveBeenCalledWith("condominium-id", "Tati", "active"));
+    await user.type(input, "ana");
+    expect(await screen.findByText("Tatiana Lima")).toBeInTheDocument();
+    resolveOld([member]);
+    await Promise.resolve();
+    expect(screen.queryByText("Maria Silva")).not.toBeInTheDocument();
+
+    await user.clear(input);
+    await waitFor(() => expect(managementApi.listCondominiumMembers)
+      .toHaveBeenLastCalledWith("condominium-id", "", "active"));
+  });
+
+  it("changes the active tab without waiting for search debounce", async () => {
+    const user = userEvent.setup();
+    render(<ManagementPeoplePage />);
+    await screen.findByText("Maria Silva");
+    managementApi.listCondominiumMembers.mockClear();
+
+    await user.click(screen.getByRole("tab", { name: "Inativos" }));
+    await waitFor(() => expect(managementApi.listCondominiumMembers)
+      .toHaveBeenCalledWith("condominium-id", "", "inactive"));
+  });
 });

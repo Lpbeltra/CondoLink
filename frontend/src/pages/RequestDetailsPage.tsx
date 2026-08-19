@@ -52,7 +52,7 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
   }, [expectedCondominiumId, managementMode, requestId])
 
   useEffect(() => { void load() }, [load])
-  const poll = useCallback(() => { void load(true) }, [load])
+  const poll = useCallback(() => load(true), [load])
   useVisiblePolling(poll)
   const wrongContext = !managementMode && details && details.condominiumId !== expectedCondominiumId
 

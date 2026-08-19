@@ -287,14 +287,11 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         Assert.Single(await _db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync());
     }
 
-    [Theory]
-    [InlineData(RequestStatus.Resolved)]
-    [InlineData(RequestStatus.Cancelled)]
-    public async Task Terminal_status_with_reason_uses_ai_synthesis(RequestStatus status)
+    [Fact]
+    public async Task Resolved_status_with_reason_uses_ai_synthesis()
     {
-        var heading = status == RequestStatus.Resolved
-            ? "*Seu atendimento foi finalizado.*"
-            : "*Seu atendimento foi cancelado.*";
+        var status = RequestStatus.Resolved;
+        const string heading = "*Seu atendimento foi finalizado.*";
         var ai = new FakeAi(new(true,
             "A TAG está disponível na portaria.",
             "succeeded", "model-test"));
@@ -315,6 +312,31 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         Assert.Equal(1, ai.SynthesisCalls);
         Assert.Equal($"{heading}\n\nA TAG está disponível na portaria.",
             Assert.Single(await _db.Notifications.AsNoTracking().ToArrayAsync()).Body);
+    }
+
+    [Fact]
+    public async Task Cancelled_status_preserves_manager_comment_without_ai()
+    {
+        var ai = new FakeAi(new(true, "changed content", "succeeded", "model-test"));
+        var dispatcher = new WhatsAppNotificationDispatcher(_db,
+            Options.Create(new WhatsAppOptions()),
+            NullLogger<WhatsAppNotificationDispatcher>.Instance);
+        var service = new NotificationService(_db, dispatcher,
+            NullLogger<NotificationService>.Instance, ai);
+        var request = await AddRequestAsync(_resident.Id);
+        request.ChangeStatus(RequestStatus.Cancelled, DateTime.UtcNow);
+        const string reason = "Esta solicitacao foi aberta em duplicidade.";
+
+        await service.NotifyStatusChangedAsync(request, RequestStatus.InProgress,
+            _managerA.Id, default, Guid.NewGuid(), reason);
+
+        Assert.Equal(0, ai.SynthesisCalls);
+        var outbound = Assert.Single(await _db.WhatsAppOutboundMessages
+            .AsNoTracking().ToArrayAsync());
+        Assert.Equal(WhatsAppNotificationType.RequestCancelled,
+            outbound.NotificationType);
+        Assert.Equal("*Seu atendimento foi cancelado.*\n\n" + reason,
+            outbound.Content);
     }
 
     [Fact]

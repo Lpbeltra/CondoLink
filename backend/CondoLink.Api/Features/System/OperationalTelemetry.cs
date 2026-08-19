@@ -80,10 +80,20 @@ public sealed class OpenAiTelemetryHandler(IServiceScopeFactory scopes, TimeProv
 
 public sealed class ApiRequestMetrics
 {
-    private long _recent5xx; private DateTime _window = DateTime.UtcNow;
-    public void Record(int status) { if (DateTime.UtcNow - _window > TimeSpan.FromHours(1)) { Interlocked.Exchange(ref _recent5xx, 0); _window = DateTime.UtcNow; } if (status >= 500) Interlocked.Increment(ref _recent5xx); }
-    public long Recent5xx => Interlocked.Read(ref _recent5xx);
+    private readonly object gate=new(); private readonly Queue<ApiRequestSample> samples=new();
+    public void Record(ApiRequestSample sample){lock(gate){samples.Enqueue(sample);Prune(sample.Timestamp.AddHours(-24));}}
+    public long Recent5xx { get { lock(gate){Prune(DateTime.UtcNow.AddHours(-24));return samples.LongCount(x=>x.Timestamp>=DateTime.UtcNow.AddHours(-1)&&x.StatusCode>=500);} } }
+    public object Performance(DateTime now)
+    {
+        lock(gate){Prune(now.AddHours(-24));return new{periods=new[]{Aggregate("1h",samples.Where(x=>x.Timestamp>=now.AddHours(-1))),Aggregate("24h",samples)},topSlowest=samples.GroupBy(x=>new{x.Method,x.Route}).Select(g=>Endpoint(g.Key.Method,g.Key.Route,g)).OrderByDescending(x=>x.P95Ms).ThenByDescending(x=>x.AverageMs).Take(10).ToArray()};}
+    }
+    private void Prune(DateTime cutoff){while(samples.TryPeek(out var x)&&x.Timestamp<cutoff)samples.Dequeue();}
+    private static object Aggregate(string period,IEnumerable<ApiRequestSample> source){var a=source.ToArray();var d=a.Select(x=>x.DurationMs).Order().ToArray();return new{period,requests=a.Length,averageMs=a.Length==0?0:Math.Round(a.Average(x=>x.DurationMs),1),p95Ms=P95(d),errors5xx=a.Count(x=>x.StatusCode>=500),averageResponseBytes=a.Where(x=>x.ResponseBytes.HasValue).Select(x=>(double)x.ResponseBytes!.Value).DefaultIfEmpty().Average(),averageQueries=a.Length==0?0:Math.Round(a.Average(x=>x.QueryCount),1),slowQueries=a.Sum(x=>x.SlowQueryCount)};}
+    private static EndpointPerformance Endpoint(string method,string route,IEnumerable<ApiRequestSample> source){var a=source.ToArray();var d=a.Select(x=>x.DurationMs).Order().ToArray();return new(method,route,a.Length,Math.Round(a.Average(x=>x.DurationMs),1),P95(d),a.Count(x=>x.StatusCode>=500),Math.Round(a.Average(x=>x.QueryCount),1),a.Max(x=>x.QueryCount),a.Sum(x=>x.SlowQueryCount),a.Where(x=>x.ResponseBytes.HasValue).Select(x=>(double)x.ResponseBytes!.Value).DefaultIfEmpty().Average());}
+    private static double P95(double[] values)=>values.Length==0?0:Math.Round(values[(int)Math.Ceiling(values.Length*.95)-1],1);
 }
+public sealed record ApiRequestSample(DateTime Timestamp,string Method,string Route,int StatusCode,double DurationMs,long? ResponseBytes,int QueryCount,int SlowQueryCount,double SqlDurationMs,double MaximumSqlDurationMs);
+public sealed record EndpointPerformance(string Method,string Route,int Calls,double AverageMs,double P95Ms,int Errors5xx,double AverageQueries,int MaximumQueries,int SlowQueries,double AverageResponseBytes);
 
 public sealed class OperationalRetentionWorker(IServiceScopeFactory scopes, OperationalTelemetry telemetry, ILogger<OperationalRetentionWorker> logger) : BackgroundService
 {

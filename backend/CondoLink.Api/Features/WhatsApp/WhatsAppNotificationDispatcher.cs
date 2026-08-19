@@ -13,6 +13,7 @@ public sealed class WhatsAppNotificationDispatcher(
     ILogger<WhatsAppNotificationDispatcher> logger)
 {
     internal const int DiagnosticsVersion = 2;
+    internal const string StatusUpdateTemplateName = "request_status_update";
 
     public async Task EnqueueAsync(
         Guid requestId,
@@ -195,8 +196,9 @@ public sealed class WhatsAppNotificationDispatcher(
     }
 
     private static WhatsAppTemplateDefinition TemplateFor(
-        WhatsAppNotificationType type, WhatsAppTemplateOptions templates) =>
-        type switch
+        WhatsAppNotificationType type, WhatsAppTemplateOptions templates)
+    {
+        var configured = type switch
         {
             WhatsAppNotificationType.AdministrationMessage =>
                 templates.AdministrationMessage,
@@ -206,4 +208,17 @@ public sealed class WhatsAppNotificationDispatcher(
                 templates.ManagerNewRequest,
             _ => templates.StatusChanged
         };
+        if ((type is WhatsAppNotificationType.StatusChanged
+            or WhatsAppNotificationType.RequestResolved
+            or WhatsAppNotificationType.RequestCancelled
+            or WhatsAppNotificationType.RequestReopened)
+            && string.IsNullOrWhiteSpace(configured.Name))
+            return new WhatsAppTemplateDefinition
+            {
+                Name = StatusUpdateTemplateName,
+                Language = string.IsNullOrWhiteSpace(configured.Language)
+                    ? "pt_BR" : configured.Language
+            };
+        return configured;
+    }
 }

@@ -62,6 +62,7 @@ export interface AssistantDocument {
   documentType: string;
   originalFileName: string;
   version: number;
+  documentDate?: string | null;
   isActive: boolean;
   processingStatus: string;
   processingError: string | null;

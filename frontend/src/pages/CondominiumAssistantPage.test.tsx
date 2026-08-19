@@ -73,12 +73,13 @@ describe("CondominiumAssistantPage", () => {
         <CondominiumDocumentsPage />
       </MemoryRouter>,
     );
-    await user.type(screen.getByRole("textbox", { name: "Nome" }), "Regimento");
     await user.upload(
       container.querySelector('input[type="file"]')!,
       new File(["pdf"], "rules.pdf", { type: "application/pdf" }),
     );
-    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    const title = screen.getByRole("textbox", { name: "Nome rules.pdf" });
+    await user.clear(title); await user.type(title, "Regimento");
+    await user.click(screen.getByRole("button", { name: "Enviar documentos" }));
 
     expect(
       await screen.findByText("O arquivo excede o limite de 25 MB."),
@@ -93,13 +94,11 @@ describe("CondominiumAssistantPage", () => {
         <CondominiumDocumentsPage />
       </MemoryRouter>,
     );
-    await user.type(screen.getByRole("textbox", { name: "Nome" }), "Regimento");
     await user.upload(
       container.querySelector('input[type="file"]')!,
       new File(["pdf"], "rules.pdf", { type: "application/pdf" }),
     );
-
-    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await user.click(screen.getByRole("button", { name: "Enviar documentos" }));
 
     await waitFor(() =>
       expect(assistant.uploadDocument).toHaveBeenCalledTimes(1),
@@ -114,13 +113,11 @@ describe("CondominiumAssistantPage", () => {
         <CondominiumDocumentsPage />
       </MemoryRouter>,
     );
-    await user.type(screen.getByRole("textbox", { name: "Nome" }), "Regimento");
     await user.upload(
       container.querySelector('input[type="file"]')!,
       new File(["pdf"], "rules.pdf", { type: "application/pdf" }),
     );
-
-    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await user.click(screen.getByRole("button", { name: "Enviar documentos" }));
 
     expect(
       await screen.findByText(

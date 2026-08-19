@@ -256,6 +256,84 @@ public sealed class WhatsAppNotificationDispatcherTests
         Assert.Equal("Mensagem contextual", outbound.Content);
     }
 
+    [Fact]
+    public async Task Cancelled_outside_window_uses_approved_status_template_by_default()
+    {
+        await using var host = await CoreEndpointTestHost.StartAsync(_ => { });
+        var requestId = await SeedAsync(host, UserCondition.OutsideSessionWindow);
+
+        await host.WithDbAsync(async db =>
+            await NewDispatcher(db).EnqueueAsync(requestId,
+                WhatsAppNotificationType.RequestCancelled,
+                $"cancelled:{Guid.NewGuid():N}",
+                "*Seu atendimento foi cancelado.*\n\nMotivo informado.", null,
+                CancellationToken.None));
+
+        var outbound = await host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().SingleAsync());
+        Assert.Equal(WhatsAppOutboundStatus.Pending, outbound.Status);
+        Assert.Equal(WhatsAppSendMode.Template, outbound.SendMode);
+        Assert.Equal("request_status_update", outbound.TemplateName);
+        Assert.Equal("pt_BR", outbound.TemplateLanguage);
+    }
+
+    [Fact]
+    public async Task Cancelled_inside_window_uses_session_text()
+    {
+        await using var host = await CoreEndpointTestHost.StartAsync(_ => { });
+        var requestId = await SeedAsync(host, UserCondition.Enabled);
+
+        await host.WithDbAsync(async db =>
+            await NewDispatcher(db).EnqueueAsync(requestId,
+                WhatsAppNotificationType.RequestCancelled,
+                $"cancelled-session:{Guid.NewGuid():N}", "cancelled", null,
+                CancellationToken.None));
+
+        var outbound = await host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().SingleAsync());
+        Assert.Equal(WhatsAppOutboundStatus.Pending, outbound.Status);
+        Assert.Equal(WhatsAppSendMode.SessionText, outbound.SendMode);
+        Assert.Equal("request_status_update", outbound.TemplateName);
+    }
+
+    [Fact]
+    public async Task Cancelled_without_phone_is_safely_skipped()
+    {
+        await using var host = await CoreEndpointTestHost.StartAsync(_ => { });
+        var requestId = await SeedAsync(host, UserCondition.MissingPhone);
+
+        await host.WithDbAsync(async db =>
+            await NewDispatcher(db).EnqueueAsync(requestId,
+                WhatsAppNotificationType.RequestCancelled,
+                $"cancelled-phone:{Guid.NewGuid():N}", "cancelled", null,
+                CancellationToken.None));
+
+        var outbound = await host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().SingleAsync());
+        Assert.Equal(WhatsAppOutboundStatus.Skipped, outbound.Status);
+        Assert.Equal("Telefone inválido.", outbound.LastErrorDescription);
+    }
+
+    [Fact]
+    public async Task Disabled_whatsapp_safely_records_cancelled_as_skipped()
+    {
+        await using var host = await CoreEndpointTestHost.StartAsync(_ => { });
+        var requestId = await SeedAsync(host, UserCondition.OutsideSessionWindow);
+
+        await host.WithDbAsync(async db =>
+            await new WhatsAppNotificationDispatcher(db,
+                Options.Create(new WhatsAppOptions { Enabled = false }),
+                NullLogger<WhatsAppNotificationDispatcher>.Instance).EnqueueAsync(
+                    requestId, WhatsAppNotificationType.RequestCancelled,
+                    $"cancelled-disabled:{Guid.NewGuid():N}", "cancelled", null,
+                    CancellationToken.None));
+
+        var outbound = await host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().SingleAsync());
+        Assert.Equal(WhatsAppOutboundStatus.Skipped, outbound.Status);
+        Assert.Equal("Integração desabilitada.", outbound.LastErrorDescription);
+    }
+
     [Theory]
     [InlineData(UserCondition.PreferenceDisabled, "Preferência desabilitada.")]
     [InlineData(UserCondition.MissingPhone, "Telefone inválido.")]

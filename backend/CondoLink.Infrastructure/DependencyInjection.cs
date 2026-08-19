@@ -57,8 +57,11 @@ public static class DependencyInjection
                 "JWT expiration minutes must be greater than zero.");
         }
 
-        services.AddDbContext<AppDbContext>(
-            options => options.UseNpgsql(connectionString));
+        services.AddSingleton<QueryPerformanceScope>();
+        services.AddSingleton<QueryPerformanceInterceptor>();
+        services.AddDbContext<AppDbContext>((provider, options) => options
+            .UseNpgsql(connectionString)
+            .AddInterceptors(provider.GetRequiredService<QueryPerformanceInterceptor>()));
 
         services
             .AddIdentityCore<ApplicationUser>(options =>

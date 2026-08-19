@@ -1,10 +1,12 @@
 using System.Net;
+using System.Text.Json;
 using CondoLink.Api.Features.Observability;
 using CondoLink.Api.Features.Overwatch;
 using CondoLink.Api.Features.Auth;
 using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Domain.Entities;
 using Microsoft.Extensions.DependencyInjection;
+using CondoLink.Infrastructure.Persistence;
 
 namespace CondoLink.Tests;
 
@@ -33,6 +35,39 @@ public sealed class OperationalObservabilityTests
     [Fact]
     public void Operational_reason_is_reduced_to_safe_code()
         => Assert.Equal("invalid_reason_code", OperationalTelemetry.SafeCode("timeout: user@example.com"));
+
+    [Fact]
+    public void Api_metrics_aggregate_latency_errors_payload_and_query_counts()
+    {
+        var now = DateTime.UtcNow;
+        var metrics = new ApiRequestMetrics();
+        metrics.Record(new(now.AddMinutes(-2), "GET", "/requests/{id}", 200, 100, 1200, 2, 0, 15, 10));
+        metrics.Record(new(now.AddMinutes(-1), "GET", "/requests/{id}", 500, 900, 1800, 6, 1, 700, 600));
+
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(metrics.Performance(now)));
+        var oneHour = json.RootElement.GetProperty("periods")[0];
+        var endpoint = json.RootElement.GetProperty("topSlowest")[0];
+        Assert.Equal(2, oneHour.GetProperty("requests").GetInt32());
+        Assert.Equal(500, oneHour.GetProperty("averageMs").GetDouble());
+        Assert.Equal(900, oneHour.GetProperty("p95Ms").GetDouble());
+        Assert.Equal(1, oneHour.GetProperty("errors5xx").GetInt32());
+        Assert.Equal(4, oneHour.GetProperty("averageQueries").GetDouble());
+        Assert.Equal("/requests/{id}", endpoint.GetProperty("Route").GetString());
+        Assert.Equal(6, endpoint.GetProperty("MaximumQueries").GetInt32());
+    }
+
+    [Fact]
+    public void Query_scope_counts_commands_and_restores_outer_scope()
+    {
+        var scope = new QueryPerformanceScope();
+        using (scope.Begin())
+        {
+            scope.Record(25);
+            scope.Record(600);
+            Assert.Equal(new QueryPerformanceSnapshot(2, 1, 625, 600), scope.Snapshot());
+        }
+        Assert.Equal(new QueryPerformanceSnapshot(0, 0, 0, 0), scope.Snapshot());
+    }
 
     [Fact]
     public async Task System_endpoint_allows_only_platform_admin()

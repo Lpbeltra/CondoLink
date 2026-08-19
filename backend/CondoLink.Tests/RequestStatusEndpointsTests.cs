@@ -34,7 +34,8 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
             application.MapUpdateRequestStatus();
             application.MapUpdateRequestPriority();
         }, builder => builder.Services
-            .AddScoped<WhatsAppNotificationDispatcher>());
+            .AddScoped<WhatsAppNotificationDispatcher>()
+            .Configure<WhatsAppOptions>(options => options.Enabled = true));
 
         await _host.WithDbAsync(async db =>
         {
@@ -263,6 +264,44 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         var toOpen = await manager.PatchAsJsonAsync(
             $"/requests/{_requestId}/status", new { status = "Open" });
         Assert.Equal(HttpStatusCode.OK, toOpen.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(RequestSource.Portal)]
+    [InlineData(RequestSource.WhatsApp)]
+    public async Task Cancellation_persists_history_and_enqueues_one_resident_notification(
+        RequestSource source)
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var resident = await db.Set<ApplicationUser>()
+                .SingleAsync(x => x.Id == _residentId);
+            resident.Update(resident.FullName, "(11) 99999-0001");
+            await db.Requests.Where(x => x.Id == _requestId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Source, source));
+            await db.SaveChangesAsync();
+        });
+
+        const string reason = "Esta solicitacao foi aberta em duplicidade.";
+        var response = await _host.ClientFor(_managerId).PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "Cancelled", reason });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(RequestStatus.Cancelled, await CurrentStatusAsync());
+        var history = Assert.Single(await HistoryAsync());
+        Assert.Equal(RequestStatus.Cancelled, history.NewStatus);
+        Assert.Equal(reason, history.Reason);
+        var outbound = Assert.Single(await _host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync()));
+        Assert.Equal(WhatsAppOutboundStatus.Pending, outbound.Status);
+        Assert.Equal(WhatsAppNotificationType.RequestCancelled,
+            outbound.NotificationType);
+        Assert.Equal(WhatsAppSendMode.Template, outbound.SendMode);
+        Assert.Equal("request_status_update", outbound.TemplateName);
+        Assert.Equal("*Seu atendimento foi cancelado.*\n\n" + reason,
+            outbound.Content);
+        Assert.Equal($"request-status:{history.Id}", outbound.IdempotencyKey);
     }
 
     [Theory]

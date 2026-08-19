@@ -16,6 +16,7 @@ const response: system.SystemStatus = {
   ai:{status:'Unknown',configured:true,periods:[{period:'1h',metrics:{calls:0,failures:0,inputTokens:0,outputTokens:0,totalTokens:0}}],breakdown:[]},
   email:{status:'Disabled',enabled:false,configured:false,failures24h:0,successes24h:0},
   recentEvents:[{timestamp:'2026-08-18T11:58:00Z',component:'WhatsApp',category:'Outbound',severity:'Error',reasonCode:'batch_failed'}],
+  performance:{periods:[{period:'24h',requests:120,averageMs:180,p95Ms:650,errors5xx:1,averageResponseBytes:2048,averageQueries:4.2,slowQueries:2}],topSlowest:[{method:'GET',route:'/requests/{requestId}',calls:20,averageMs:300,p95Ms:650,errors5xx:0,averageQueries:5,maximumQueries:7,slowQueries:1,averageResponseBytes:4096}]},
 }
 afterEach(()=>vi.restoreAllMocks())
 describe('OverwatchSystemPage',()=>{

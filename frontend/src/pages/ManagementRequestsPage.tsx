@@ -98,7 +98,7 @@ export function ManagementRequestsPage() {
   }, [activeCondominiumId, priority, refreshManagementContext, status])
 
   useEffect(() => { void load() }, [load])
-  const poll = useCallback(() => { void load(true) }, [load])
+  const poll = useCallback(() => load(true), [load])
   useVisiblePolling(poll)
   const setFilter=(key:'status'|'priority'|'categoryId'|'search'|'sort'|'direction',value:string)=>setSearchParams(setManagementRequestFilter(searchParams,key,value))
   const setCategory=(value:string)=>setFilter('categoryId',value)

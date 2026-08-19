@@ -46,7 +46,7 @@ export function NotificationBell() {
       loadVersion.current += 1
     }
   }, [refresh])
-  const poll = useCallback(() => { void refresh() }, [refresh])
+  const poll = useCallback(() => refresh(), [refresh])
   useVisiblePolling(poll)
 
   const open = async (event: React.MouseEvent<HTMLElement>) => {

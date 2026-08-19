@@ -42,8 +42,8 @@ public static class CondominiumAssistantEndpoints
                 x.OriginalFileName, x.Version, x.DocumentDate, x.IsActive, x.ProcessingStatus,
                 x.ProcessingError, x.CreatedAt, x.UpdatedAt,
                 NeedsReindexing = x.ProcessingStatus == CondominiumDocumentProcessingStatus.Ready
-                    && db.CondominiumDocumentChunks.Any(chunk => chunk.CondominiumDocumentId == x.Id
-                        && chunk.EmbeddingModel != embeddings.Model) }).ToArrayAsync(ct));
+                    && !db.CondominiumDocumentChunks.Any(chunk => chunk.CondominiumDocumentId == x.Id
+                        && chunk.EmbeddingModel == embeddings.Model) }).ToArrayAsync(ct));
     }
 
     private static async Task<IResult> UploadDocument(Guid condominiumId, HttpRequest request,

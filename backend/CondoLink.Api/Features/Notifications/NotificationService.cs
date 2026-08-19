@@ -160,6 +160,12 @@ public sealed class NotificationService(
         RequestStatus previousStatus, string? reason,
         CancellationToken cancellationToken)
     {
+        // Cancellation is an administrative fact. Preserve the manager's
+        // comment verbatim (within the existing safe length limit) instead of
+        // making delivery depend on an optional AI synthesis.
+        if (request.Status == RequestStatus.Cancelled)
+            return StatusChangedContent(request.Title, previousStatus,
+                request.Status, reason);
         if (string.IsNullOrWhiteSpace(reason))
             return StatusChangedContent(request.Title, previousStatus,
                 request.Status, reason);
@@ -187,8 +193,8 @@ public sealed class NotificationService(
                 "Resident status synthesis used fallback. RequestId: {RequestId}; NewStatus: {NewStatus}; FailureType: {FailureType}; Delivery: {Delivery}.",
                 request.Id, request.Status, exception.GetType().Name, "Fallback");
         }
-        var fallbackReason = request.Status is RequestStatus.Resolved
-            or RequestStatus.Cancelled ? null : reason;
+        var fallbackReason = request.Status == RequestStatus.Resolved
+            ? null : reason;
         return StatusChangedContent(request.Title, previousStatus,
             request.Status, fallbackReason);
     }
