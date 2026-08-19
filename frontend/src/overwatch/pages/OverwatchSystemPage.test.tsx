@@ -31,4 +31,16 @@ describe('OverwatchSystemPage',()=>{
     render(<OverwatchSystemPage/>); await screen.findByText('WhatsAppOutboundWorker'); fireEvent.click(screen.getByRole('button',{name:'Atualizar'}))
     await waitFor(()=>expect(call).toHaveBeenCalledTimes(2)); expect(await screen.findByText('Não foi possível carregar a saúde do sistema.')).toBeInTheDocument()
   })
+  it('exports with loading feedback and shows a safe error',async()=>{
+    vi.spyOn(system,'getSystemStatus').mockResolvedValue(response)
+    let finish!:()=>void
+    const download=vi.spyOn(system,'downloadSystemDiagnostic').mockImplementation(()=>new Promise<void>(resolve=>{finish=resolve}))
+    render(<OverwatchSystemPage/>); await screen.findByText('WhatsAppOutboundWorker')
+    fireEvent.click(screen.getByRole('button',{name:'Exportar diagnóstico'}))
+    expect(screen.getByRole('button',{name:'Gerando diagnóstico...'})).toBeDisabled()
+    finish(); await waitFor(()=>expect(download).toHaveBeenCalledTimes(1))
+    download.mockRejectedValueOnce(new Error('offline'))
+    fireEvent.click(await screen.findByRole('button',{name:'Exportar diagnóstico'}))
+    expect(await screen.findByText('Não foi possível gerar o diagnóstico.')).toBeInTheDocument()
+  })
 })

@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
+import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded'
 import { Alert, Box, Button, Card, CardContent, Chip, Grid, Skeleton, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material'
 import { PageContainer } from '../../components/PageContainer'
 import { useVisiblePolling } from '../../hooks/useVisiblePolling'
-import { duration, getSystemStatus, statusLabel, type HealthState, type SystemStatus } from '../system'
+import { downloadSystemDiagnostic, duration, getSystemStatus, statusLabel, type HealthState, type SystemStatus } from '../system'
 const stateColor = (s: HealthState): 'success'|'warning'|'error'|'default' => s === 'Healthy' ? 'success' : s === 'Unhealthy' ? 'error' : s === 'Disabled' ? 'default' : 'warning'
 const showDate = (v?: string) => v ? new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'medium' }).format(new Date(v)) : '—'
 function State({ value }: { value: HealthState }) { return <Chip size="small" color={stateColor(value)} label={statusLabel[value]} /> }
 export function OverwatchSystemPage() {
-  const [data,setData]=useState<SystemStatus|null>(null); const [loading,setLoading]=useState(true); const [error,setError]=useState('')
+  const [data,setData]=useState<SystemStatus|null>(null); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [generating,setGenerating]=useState(false); const [diagnosticError,setDiagnosticError]=useState('')
   const load=useCallback(async()=>{try{setError('');setData(await getSystemStatus())}catch{setError('Não foi possível carregar a saúde do sistema.')}finally{setLoading(false)}},[])
   useEffect(()=>{void load()},[load]); const poll=useCallback(()=>load(),[load]); useVisiblePolling(poll,30_000)
-  return <PageContainer><Stack direction={{xs:'column',sm:'row'}} justifyContent="space-between" gap={2}><Box><Typography variant="h1">Sistema</Typography><Typography color="text.secondary" mt={1}>Saúde e atividade operacional da Comvy.</Typography></Box><Button variant="outlined" startIcon={<RefreshRoundedIcon/>} onClick={()=>void load()}>Atualizar</Button></Stack>
+  const download=async()=>{setGenerating(true);setDiagnosticError('');try{await downloadSystemDiagnostic()}catch{setDiagnosticError('Não foi possível gerar o diagnóstico.')}finally{setGenerating(false)}}
+  return <PageContainer><Stack direction={{xs:'column',sm:'row'}} justifyContent="space-between" gap={2}><Box><Typography variant="h1">Sistema</Typography><Typography color="text.secondary" mt={1}>Saúde e atividade operacional da Comvy.</Typography></Box><Stack direction="row" gap={1}><Button variant="outlined" startIcon={<RefreshRoundedIcon/>} onClick={()=>void load()}>Atualizar</Button><Button variant="contained" startIcon={<DownloadRoundedIcon/>} disabled={generating} onClick={()=>void download()}>{generating?'Gerando diagnóstico...':'Exportar diagnóstico'}</Button></Stack></Stack>
+  {diagnosticError&&<Alert severity="error" sx={{mt:2}}>{diagnosticError}</Alert>}
   {error&&<Alert severity="error" sx={{mt:2}} action={<Button color="inherit" onClick={()=>void load()}>Tentar novamente</Button>}>{error}</Alert>}
   {loading&&!data?<Skeleton variant="rounded" height={180} sx={{mt:3}}/>:data&&<>
     <Card elevation={0} sx={{mt:3,borderLeft:5,borderColor:`${stateColor(data.globalStatus)}.main`}}><CardContent><Typography variant="overline">Comvy Status</Typography><Stack direction="row" alignItems="center" gap={2}><Typography variant="h2">{{Healthy:'Operacional',Degraded:'Degradado',Unhealthy:'Indisponível',Unknown:'Desconhecido',Disabled:'Desabilitado'}[data.globalStatus]}</Typography><State value={data.globalStatus}/></Stack><Typography variant="caption" color="text.secondary">Atualizado em {showDate(data.generatedAt)}</Typography></CardContent></Card>

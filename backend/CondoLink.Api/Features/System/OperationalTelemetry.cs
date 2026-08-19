@@ -98,11 +98,28 @@ public sealed record EndpointPerformance(string Method,string Route,int Calls,do
 public sealed class OperationalRetentionWorker(IServiceScopeFactory scopes, OperationalTelemetry telemetry, ILogger<OperationalRetentionWorker> logger) : BackgroundService
 {
     internal static readonly TimeSpan Interval = TimeSpan.FromHours(24);
+    internal static bool ShouldRemoveHeartbeat(WorkerHeartbeat row, DateTime now)
+    {
+        var workerWindow = TimeSpan.FromSeconds(Math.Max(1, row.ExpectedIntervalSeconds) * 30L);
+        var retention = workerWindow > TimeSpan.FromDays(7) ? workerWindow : TimeSpan.FromDays(7);
+        return row.LastHeartbeatAt != default && now - row.LastHeartbeatAt > retention;
+    }
+    internal static async Task<int> DeleteExpiredHeartbeatsAsync(AppDbContext db,
+        DateTime now, CancellationToken ct = default)
+    {
+        var candidates = await db.WorkerHeartbeats
+            .Where(x => x.LastHeartbeatAt < now.AddDays(-7)).ToListAsync(ct);
+        var expired = candidates.Where(x => ShouldRemoveHeartbeat(x, now)).ToArray();
+        if (expired.Length == 0) return 0;
+        db.WorkerHeartbeats.RemoveRange(expired);
+        await db.SaveChangesAsync(ct);
+        return expired.Length;
+    }
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
-            try { await telemetry.RecordWorkerAsync(nameof(OperationalRetentionWorker), true, Interval, "started", ct: ct); await using var s = scopes.CreateAsyncScope(); var db = s.ServiceProvider.GetRequiredService<AppDbContext>(); var cutoff = DateTime.UtcNow.AddDays(-30); var count = await db.AiOperationMetrics.Where(x => x.Timestamp < cutoff).ExecuteDeleteAsync(ct) + await db.OperationalEvents.Where(x => x.Timestamp < cutoff).ExecuteDeleteAsync(ct); await telemetry.RecordWorkerAsync(nameof(OperationalRetentionWorker), true, Interval, "completed", true, count, ct: ct); }
+            try { await telemetry.RecordWorkerAsync(nameof(OperationalRetentionWorker), true, Interval, "started", ct: ct); await using var s = scopes.CreateAsyncScope(); var db = s.ServiceProvider.GetRequiredService<AppDbContext>(); var now = DateTime.UtcNow; var cutoff = now.AddDays(-30); var count = await db.AiOperationMetrics.Where(x => x.Timestamp < cutoff).ExecuteDeleteAsync(ct) + await db.OperationalEvents.Where(x => x.Timestamp < cutoff).ExecuteDeleteAsync(ct); count += await DeleteExpiredHeartbeatsAsync(db, now, ct); await telemetry.RecordWorkerAsync(nameof(OperationalRetentionWorker), true, Interval, "completed", true, count, ct: ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex) { logger.LogError(ex, "Operational retention failed."); await telemetry.EventAsync("Workers", "Retention", "Error", "retention_failed", ct: CancellationToken.None); }
             await Task.Delay(Interval, ct);

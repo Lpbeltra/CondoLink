@@ -6,6 +6,7 @@ using CondoLink.Api.Features.Auth;
 using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Domain.Entities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 using CondoLink.Infrastructure.Persistence;
 
 namespace CondoLink.Tests;
@@ -30,6 +31,21 @@ public sealed class OperationalObservabilityTests
         var first = new WorkerHeartbeat("Worker", "node-a", true, 10);
         var second = new WorkerHeartbeat("Worker", "node-b", true, 10);
         Assert.NotEqual(first.Id, second.Id); Assert.NotEqual(first.InstanceId, second.InstanceId);
+    }
+
+    [Fact]
+    public void Active_worker_window_uses_each_workers_expected_interval()
+    {
+        var now = DateTime.UtcNow;
+        var current = new WorkerHeartbeat("Worker", "current", true, 10);
+        current.Beat(now.AddSeconds(-20), true, 10);
+        var old = new WorkerHeartbeat("Worker", "old-deployment", true, 10);
+        old.Beat(now.AddMinutes(-10), true, 10);
+        Assert.True(GetSystemStatus.IsActiveInstance(current, now));
+        Assert.False(GetSystemStatus.IsActiveInstance(old, now));
+        Assert.True(OperationalRetentionWorker.ShouldRemoveHeartbeat(old,
+            now.AddDays(8)));
+        Assert.False(OperationalRetentionWorker.ShouldRemoveHeartbeat(current, now));
     }
 
     [Fact]
@@ -74,9 +90,9 @@ public sealed class OperationalObservabilityTests
     {
         await using var host = await CoreEndpointTestHost.StartAsync(app => app.MapGetSystemStatus(), builder =>
         {
-            builder.Services.Configure<WhatsAppOptions>(_ => { });
-            builder.Services.Configure<EmailOptions>(_ => { });
-            builder.Services.Configure<RequestDraftAiOptions>(_ => { });
+            builder.Services.Configure<WhatsAppOptions>(x => x.AccessToken = "wa_secret_value");
+            builder.Services.Configure<EmailOptions>(x => x.Password = "smtp_secret_value");
+            builder.Services.Configure<RequestDraftAiOptions>(x => x.ApiKey = "ai_secret_value");
             builder.Services.AddSingleton<ApiRequestMetrics>();
         });
         Assert.Equal(HttpStatusCode.Unauthorized, (await host.AnonymousClient().GetAsync("/overwatch/system")).StatusCode);
@@ -86,5 +102,74 @@ public sealed class OperationalObservabilityTests
         Assert.Equal(HttpStatusCode.Forbidden, (await manager.GetAsync("/overwatch/system")).StatusCode);
         var admin = host.ClientFor(Guid.NewGuid()); admin.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
         Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync("/overwatch/system")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await host.AnonymousClient().GetAsync("/overwatch/system/diagnostic")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await resident.GetAsync("/overwatch/system/diagnostic")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await manager.GetAsync("/overwatch/system/diagnostic")).StatusCode);
+        var diagnostic = await admin.GetAsync("/overwatch/system/diagnostic");
+        Assert.Equal(HttpStatusCode.OK, diagnostic.StatusCode);
+        Assert.Equal("text/plain", diagnostic.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("utf-8", diagnostic.Content.Headers.ContentType?.CharSet);
+        Assert.Matches("comvy-diagnostico-\\d{4}-\\d{2}-\\d{2}-\\d{6}\\.txt",
+            diagnostic.Content.Headers.ContentDisposition?.FileName ?? "");
+        var text = await diagnostic.Content.ReadAsStringAsync();
+        Assert.Contains("STATUS GERAL", text);
+        Assert.Contains("WORKERS", text);
+        Assert.Contains("PERFORMANCE DA API", text);
+        Assert.Contains("EVENTOS OPERACIONAIS RECENTES", text);
+        Assert.DoesNotContain("connection string", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("wa_secret_value", text);
+        Assert.DoesNotContain("smtp_secret_value", text);
+        Assert.DoesNotContain("ai_secret_value", text);
+    }
+
+    [Fact]
+    public async Task Old_instance_is_hidden_and_does_not_override_current_worker_health()
+    {
+        await using var host = await CoreEndpointTestHost.StartAsync(
+            app => app.MapGetSystemStatus(), builder =>
+            {
+                builder.Services.Configure<WhatsAppOptions>(_ => { });
+                builder.Services.Configure<EmailOptions>(_ => { });
+                builder.Services.Configure<RequestDraftAiOptions>(_ => { });
+                builder.Services.AddSingleton<ApiRequestMetrics>();
+            });
+        var now = DateTime.UtcNow;
+        await host.WithDbAsync(async db =>
+        {
+            var current = new WorkerHeartbeat("WhatsAppOutboundWorker", "current", true, 10);
+            current.Beat(now.AddSeconds(-5), true, 10);
+            var old = new WorkerHeartbeat("WhatsAppOutboundWorker", "old-container", true, 10);
+            old.Beat(now.AddDays(-8), true, 10);
+            var closure = new WorkerHeartbeat("RequestClosureWorker", "current", true, 10);
+            closure.Beat(now.AddSeconds(-5), true, 10);
+            var retention = new WorkerHeartbeat("OperationalRetentionWorker", "current", true, 86400);
+            retention.Beat(now.AddMinutes(-1), true, 86400);
+            db.AddRange(current, old, closure, retention, new OperationalEvent(now, "Workers",
+                "Execution", "Error", "safe_failure", "request-123"),
+                new OperationalEvent(now, "Email", "Send", "Error",
+                    "resident@example.com", "5511999999999"));
+            await db.SaveChangesAsync();
+        });
+        var admin = host.ClientFor(Guid.NewGuid());
+        admin.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
+        using var json = JsonDocument.Parse(await admin.GetStringAsync("/overwatch/system"));
+        var workers = json.RootElement.GetProperty("workers").EnumerateArray().ToArray();
+        Assert.Equal(3, workers.Length);
+        Assert.DoesNotContain(workers,
+            x => x.GetProperty("instanceId").GetString() == "old-container");
+        var workerComponent = json.RootElement.GetProperty("components")
+            .EnumerateArray().Single(x => x.GetProperty("name").GetString() == "Workers");
+        Assert.Equal("Healthy", workerComponent.GetProperty("status").GetString());
+        var diagnostic = await admin.GetStringAsync("/overwatch/system/diagnostic");
+        Assert.Contains("safe_failure", diagnostic);
+        Assert.Contains("request-123", diagnostic);
+        Assert.DoesNotContain("old-container", diagnostic);
+        Assert.DoesNotContain("resident@example.com", diagnostic);
+        Assert.DoesNotContain("5511999999999", diagnostic);
+        Assert.Contains("[redacted]", diagnostic);
+        Assert.Equal(1, await host.WithDbAsync(db =>
+            OperationalRetentionWorker.DeleteExpiredHeartbeatsAsync(db, now)));
+        Assert.Equal(3, (await host.WithDbAsync(db =>
+            db.WorkerHeartbeats.AsNoTracking().ToArrayAsync())).Length);
     }
 }
