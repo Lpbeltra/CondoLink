@@ -176,6 +176,32 @@ public sealed class WhatsAppNotificationDispatcherTests
     }
 
     [Fact]
+    public async Task Identified_recent_inbound_opens_session_when_meta_phone_omits_brazilian_ninth_digit()
+    {
+        await using var host = await CoreEndpointTestHost.StartAsync(_ => { });
+        var requestId = await SeedAsync(host, UserCondition.OutsideSessionWindow);
+        await host.WithDbAsync(async db =>
+        {
+            var user = await db.Set<ApplicationUser>().SingleAsync();
+            user.Update(user.FullName, "(44) 99756-2161");
+            var inbound = new WhatsAppInboundMessage(
+                $"wamid.{Guid.NewGuid():N}", "+554497562161", "text", "oi",
+                DateTime.UtcNow);
+            inbound.Complete(user.Id, "main_menu", DateTime.UtcNow);
+            db.Add(inbound);
+            await db.SaveChangesAsync();
+        });
+
+        await DispatchAsync(host, requestId);
+
+        var outbound = await host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().SingleAsync());
+        Assert.Equal(WhatsAppOutboundStatus.Pending, outbound.Status);
+        Assert.Equal(WhatsAppSendMode.SessionText, outbound.SendMode);
+        Assert.Null(outbound.LastErrorDescription);
+    }
+
+    [Fact]
     public async Task Information_requested_outside_window_uses_configured_template()
     {
         await using var host = await CoreEndpointTestHost.StartAsync(_ => { });

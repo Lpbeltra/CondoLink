@@ -114,12 +114,18 @@ public sealed class WhatsAppNotificationDispatcher(
                 .CountAsync(x => x.IsActive && x.NormalizedPhoneNumber == phone, ct) > 1;
 
             stage = "resolving_send_mode";
-            var lastInboundAt = phone is null ? null : await db.WhatsAppInboundMessages
-                .AsNoTracking().Where(x => x.PhoneNumber == phone)
+            var sessionCutoff = DateTime.UtcNow.AddHours(-24);
+            var lastInboundAt = user is null ? null : await db.WhatsAppInboundMessages
+                .AsNoTracking().Where(x => x.ReceivedAt >= sessionCutoff
+                    && (x.IdentifiedUserId == userId || x.PhoneNumber == phone))
                 .MaxAsync(x => (DateTime?)x.ReceivedAt, ct);
-            var sessionOpen = lastInboundAt >= DateTime.UtcNow.AddHours(-24);
+            var sessionOpen = lastInboundAt >= sessionCutoff;
             var template = TemplateFor(type, settings.Templates);
             var mode = sessionOpen ? WhatsAppSendMode.SessionText : WhatsAppSendMode.Template;
+            logger.LogInformation(
+                "WhatsApp delivery mode resolved. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; SessionOpen: {SessionOpen}; DeliveryMode: {DeliveryMode}; DiagnosticsVersion: {DiagnosticsVersion}.",
+                requestId, condominiumId, type, sessionOpen, mode,
+                DiagnosticsVersion);
             var skipReason = !settings.Enabled ? "Integração desabilitada."
                 : !condominium.WhatsAppUpdatesEnabled ? "Condomínio desabilitado."
                 : user is null || !user.IsActive ? "Usuário inativo."
@@ -152,11 +158,12 @@ public sealed class WhatsAppNotificationDispatcher(
             var status = skipReason is null
                 ? WhatsAppOutboundStatus.Pending : WhatsAppOutboundStatus.Skipped;
             stage = "creating_outbound";
-            db.WhatsAppOutboundMessages.Add(new WhatsAppOutboundMessage(
+            var outbound = new WhatsAppOutboundMessage(
                 request.Id, requestMessageId, userId,
                 request.CondominiumId, phone ?? string.Empty, type, mode,
                 idempotencyKey, content, template.Name, template.Language,
-                DateTime.UtcNow, status, skipReason));
+                DateTime.UtcNow, status, skipReason);
+            db.WhatsAppOutboundMessages.Add(outbound);
             messagesCreated = 1;
             Log("Persisting", "OutboundMessageCreated", 1);
             if (skipReason is null && type == WhatsAppNotificationType.InformationRequested)
@@ -196,6 +203,11 @@ public sealed class WhatsAppNotificationDispatcher(
                 }
                 throw;
             }
+            logger.LogInformation(
+                "WhatsApp outbound persisted. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; OutboundId: {OutboundId}; Decision: {Decision}; Reason: {Reason}; SessionOpen: {SessionOpen}; DeliveryMode: {DeliveryMode}; MessagesCreated: {MessagesCreated}; DiagnosticsVersion: {DiagnosticsVersion}.",
+                requestId, condominiumId, type, outbound.Id,
+                skipReason is null ? "Enqueued" : "Skipped", technicalReason,
+                sessionOpen, mode, 1, DiagnosticsVersion);
             Log(skipReason is null ? "Enqueued" : "Skipped", technicalReason, 1);
             stage = "completed";
             Log("Finished", "Completed", 1);

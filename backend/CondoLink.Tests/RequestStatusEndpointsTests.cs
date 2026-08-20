@@ -216,6 +216,50 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Recent_whatsapp_inbound_enqueues_closure_as_session_message_once()
+    {
+        const string metaPhoneWithoutNinthDigit = "+554497562161";
+        const string conclusion = "Tag entregue na portaria.";
+        await _host.WithDbAsync(async db =>
+        {
+            var resident = await db.Set<ApplicationUser>()
+                .SingleAsync(x => x.Id == _residentId);
+            resident.Update(resident.FullName, "(44) 99756-2161");
+            var inbound = new WhatsAppInboundMessage(
+                "wamid.closure-regression", metaPhoneWithoutNinthDigit,
+                "text", "Abrir atendimento", DateTime.UtcNow);
+            inbound.Complete(_residentId, "request_created", DateTime.UtcNow);
+            db.Add(inbound);
+            await db.SaveChangesAsync();
+        });
+
+        var manager = _host.ClientFor(_managerId);
+        var response = await manager.PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "Resolved", reason = conclusion });
+        var duplicate = await manager.PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "Resolved", reason = conclusion });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+        var outbound = Assert.Single(await _host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync()));
+        Assert.Equal(_requestId, outbound.RequestId);
+        Assert.Equal(_residentId, outbound.UserId);
+        Assert.Equal("+5544997562161", outbound.DestinationPhone);
+        Assert.Equal(WhatsAppNotificationType.StatusChanged,
+            outbound.NotificationType);
+        Assert.Equal(WhatsAppOutboundStatus.Pending, outbound.Status);
+        Assert.Equal(WhatsAppSendMode.SessionText, outbound.SendMode);
+        Assert.Contains(conclusion, outbound.Content);
+        Assert.Contains("1 - Sim, finalizar atendimento", outbound.Content);
+        Assert.Contains("2 - Ainda tenho uma dÃºvida", outbound.Content);
+        var history = Assert.Single(await HistoryAsync());
+        Assert.Equal($"request-status:{history.Id}", outbound.IdempotencyKey);
+    }
+
+    [Fact]
     public async Task Setting_the_status_a_request_already_has_returns_409()
     {
         var response = await _host.ClientFor(_managerId).PatchAsJsonAsync(
