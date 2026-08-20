@@ -524,7 +524,7 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             "Tag entregue na portaria.");
         Assert.Contains("Tag entregue na portaria.", content);
         Assert.Contains("1 - Sim, finalizar atendimento", content);
-        Assert.Contains("2 - Ainda tenho uma dÃºvida", content);
+        Assert.Contains("2 - Ainda tenho uma dúvida", content);
         Assert.DoesNotContain("Seu atendimento foi finalizado", content);
     }
 
@@ -551,7 +551,11 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             .AsNoTracking().ToArrayAsync());
         Assert.Contains("Tag entregue na portaria.", outbound.Content);
         Assert.Contains("1 - Sim, finalizar atendimento", outbound.Content);
-        Assert.Contains("2 - Ainda tenho uma dÃºvida", outbound.Content);
+        Assert.Contains("2 - Ainda tenho uma dúvida", outbound.Content);
+        Assert.Contains("administração", outbound.Content);
+        Assert.Contains("solicitação", outbound.Content);
+        Assert.Contains("concluída", outbound.Content);
+        Assert.DoesNotContain("Ã", outbound.Content);
         Assert.DoesNotContain("Seu atendimento foi finalizado", outbound.Content);
     }
 

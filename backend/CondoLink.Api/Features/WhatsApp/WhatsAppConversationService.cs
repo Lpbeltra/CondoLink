@@ -104,15 +104,17 @@ public sealed class WhatsAppConversationService(
                 administrativeAudioFailure = new(transcription.Error!,
                     "admin_audio_transcription_failed");
         }
-        var administrativeResponse = identifiedUser is null ? null
+        var routeAdministrative = identifiedUser is not null
+            && (hasAdministrativeAccess || IsAdministrativeFlow(session.State));
+        var administrativeResponse = !routeAdministrative ? null
             : administrativeAudioFailure ?? await administrativeResidents.TryHandleAsync(
-                identifiedUser, session, administrativeText, now, expires, ct);
-        administrativeResponse ??= identifiedUser is null ? null
+                identifiedUser!, session, administrativeText, now, expires, ct);
+        administrativeResponse ??= !routeAdministrative ? null
             : await administrativeResidentMutation.TryHandleAsync(
-                identifiedUser, session, administrativeText, now, expires, ct);
-        administrativeResponse ??= identifiedUser is null ? null
+                identifiedUser!, session, administrativeText, now, expires, ct);
+        administrativeResponse ??= !routeAdministrative ? null
             : await administrativeResidentLookup.TryHandleAsync(
-                identifiedUser, session, administrativeText, now, expires, ct);
+                identifiedUser!, session, administrativeText, now, expires, ct);
         Guid? identifiedUserId = identifiedUser?.Id;
         if (administrativeResponse is not null)
         {
@@ -189,6 +191,10 @@ public sealed class WhatsAppConversationService(
             initialRequestIdPresent,
             requirementFound,
             routingDecision);
+        logger.LogInformation(
+            "WhatsApp conversation routing. SessionId: {SessionId}; IdentifiedUserId: {IdentifiedUserId}; ConversationState: {ConversationState}; RequestId: {RequestId}; RoutingDecision: {RoutingDecision}; Reason: {Reason}.",
+            session.Id, identifiedUserId, session.State, session.RequestId,
+            routingDecision, result);
         logger.LogInformation("WhatsApp inbound final processing result: {ProcessingResult}.", result);
         try
         {
@@ -362,22 +368,25 @@ public sealed class WhatsAppConversationService(
         var residentReplyButton = ResidentReplyButtonChoice(message);
         var text = message.Text?.Trim();
         var command = NormalizeCommand(text);
-        var activeClosure = await ActiveClosure(identity, ct);
         if (session.State == WhatsAppConversationState.AwaitingClosureQuestion)
         {
-            if (activeClosure is null || !session.RequestId.HasValue) { session.End(now); return ("Esse atendimento nÃ£o aguarda mais manifestaÃ§Ã£o.", "closure_no_longer_active"); }
-            if (string.IsNullOrWhiteSpace(text)) return ("Pode enviar sua dÃºvida ou observaÃ§Ã£o.", "closure_question_required");
-            var questioned = await closures.QuestionAsync(session.RequestId.Value, identity.UserId, text, ct);
+            var activeClosure = await ActiveClosure(session.RequestId, identity, ct);
+            if (activeClosure is null) { session.End(now); return ("Esse atendimento não aguarda mais manifestação.", "closure_no_longer_active"); }
+            if (string.IsNullOrWhiteSpace(text)) return ("Pode enviar sua dúvida ou observação.", "closure_question_required");
+            var questioned = await closures.QuestionAsync(activeClosure.Value,
+                identity.UserId, text, ct);
             session.End(now);
-            return questioned.Succeeded ? ("AtualizaÃ§Ã£o enviada. A administraÃ§Ã£o darÃ¡ continuidade ao atendimento.", "closure_questioned")
-                : ("Esse atendimento nÃ£o aguarda mais manifestaÃ§Ã£o.", "closure_conflict");
+            return questioned.Succeeded ? ("Atualização enviada. A administração dará continuidade ao atendimento.", "closure_questioned")
+                : ("Esse atendimento não aguarda mais manifestação.", "closure_conflict");
         }
-        if (activeClosure is not null)
+        if (session.State == WhatsAppConversationState.AwaitingClosureConfirmation)
         {
-            session.AwaitClosure(activeClosure.Value, now, expires);
-            if (text == "1") { var result = await closures.ConfirmAsync(activeClosure.Value, identity.UserId, ct); session.End(now); return result.Succeeded ? ("Atendimento finalizado. âœ“", "closure_confirmed") : ("Esse atendimento nÃ£o aguarda mais confirmaÃ§Ã£o.", "closure_conflict"); }
-            if (text == "2") { session.AwaitClosureQuestion(now, expires); return ("Pode enviar sua dÃºvida ou observaÃ§Ã£o.", "awaiting_closure_question"); }
-            return ("A administraÃ§Ã£o informou que sua solicitaÃ§Ã£o foi concluÃ­da.\n\nEstÃ¡ tudo certo?\n\n1 - Sim, finalizar atendimento\n2 - Ainda tenho uma dÃºvida", "awaiting_closure_confirmation");
+            var activeClosure = await ActiveClosure(session.RequestId, identity, ct);
+            if (activeClosure is null) { session.End(now); return ("Esse atendimento não aguarda mais confirmação.", "closure_no_longer_active"); }
+            if (text == "1") { var result = await closures.ConfirmAsync(activeClosure.Value, identity.UserId, ct); session.End(now); return result.Succeeded ? ("Atendimento finalizado. ✓", "closure_confirmed") : ("Esse atendimento não aguarda mais confirmação.", "closure_conflict"); }
+            if (text == "2") { session.AwaitClosureQuestion(now, expires); return ("Pode enviar sua dúvida ou observação.", "awaiting_closure_question"); }
+            session.Restart(now, expires);
+            return (MainMenu(identity.FullName), "closure_choice_not_selected");
         }
         logger.LogInformation(
             "WhatsApp message routing. SessionState: {SessionState}; MessageType: {MessageType}; HasMediaId: {HasMediaId}; HasMimeType: {HasMimeType}; HasFileName: {HasFileName}; ProcessingBranch: {ProcessingBranch}.",
@@ -812,7 +821,7 @@ public sealed class WhatsAppConversationService(
         RequestStatus.WaitingForResident => "Aguardando morador",
         RequestStatus.WaitingForManager => "Dar andamento",
         RequestStatus.WaitingForThirdParty => "Aguardando terceiro",
-        RequestStatus.WaitingForResidentClosure => "ConcluÃ­do pela administraÃ§Ã£o â€” aguardando sua confirmaÃ§Ã£o",
+        RequestStatus.WaitingForResidentClosure => "Concluído pela administração — aguardando sua confirmação",
         RequestStatus.Resolved => "Resolvida",
         RequestStatus.Cancelled => "Cancelada",
         _ => "Status indisponível"
@@ -1203,7 +1212,7 @@ public sealed class WhatsAppConversationService(
         }
         await DiscardDraftAttachments(session, ct);
         session.End(now);
-        return ("Resposta enviada. âœ“\n\nA administraÃ§Ã£o foi notificada e darÃ¡ continuidade ao atendimento.",
+        return ("Resposta enviada. ✓\n\nA administração foi notificada e dará continuidade ao atendimento.",
             "resident_reply_sent");
     }
 
@@ -1282,16 +1291,34 @@ public sealed class WhatsAppConversationService(
         return matches.Length == 1 ? matches[0] : null;
     }
 
-    private async Task<Guid?> ActiveClosure(ResolvedIdentity identity, CancellationToken ct)
+    private async Task<Guid?> ActiveClosure(Guid? requestId,
+        ResolvedIdentity identity, CancellationToken ct)
     {
-        var matches = await db.Requests.AsNoTracking().Where(x => x.AuthorUserId == identity.UserId
+        if (!requestId.HasValue) return null;
+        return await db.Requests.AsNoTracking().Where(x => x.Id == requestId.Value
+                && x.AuthorUserId == identity.UserId
                 && x.CondominiumId == identity.CondominiumId && (x.TargetUnitId == null || x.TargetUnitId == identity.UnitId)
                 && x.Status == RequestStatus.WaitingForResidentClosure)
             .Join(db.RequestClosureConfirmations.AsNoTracking().Where(x => x.Status == RequestClosureConfirmationStatus.Pending),
                 request => request.Id, confirmation => confirmation.RequestId, (request, _) => request.Id)
-            .Take(2).ToArrayAsync(ct);
-        return matches.Length == 1 ? matches[0] : null;
+            .SingleOrDefaultAsync(ct);
     }
+
+    private static bool IsAdministrativeFlow(WhatsAppConversationState state) => state is
+        WhatsAppConversationState.CollectingAdminResidentData
+        or WhatsAppConversationState.SelectingAdminResidentUnit
+        or WhatsAppConversationState.ConfirmingAdminResident
+        or WhatsAppConversationState.CorrectingAdminResident
+        or WhatsAppConversationState.CollectingAdminResidentLookup
+        or WhatsAppConversationState.SelectingAdminLookupCondominium
+        or WhatsAppConversationState.SelectingAdminLookupUnit
+        or WhatsAppConversationState.SelectingAdminLookupResident
+        or WhatsAppConversationState.CollectingAdminResidentMutation
+        or WhatsAppConversationState.SelectingAdminMutationCondominium
+        or WhatsAppConversationState.SelectingAdminMutationResident
+        or WhatsAppConversationState.SelectingAdminMutationSourceUnit
+        or WhatsAppConversationState.SelectingAdminMutationDestinationUnit
+        or WhatsAppConversationState.ConfirmingAdminResidentMutation;
 
     private async Task<OutboundCorrelationResult> CorrelatedResidentReplyRequirement(
         string? replyToExternalMessageId,

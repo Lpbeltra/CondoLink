@@ -188,6 +188,36 @@ public sealed class WhatsAppNotificationDispatcher(
                     or WhatsAppConversationState.AwaitingResidentReplyChoice)
                     session.OfferResidentReply(request.Id, now, expires);
             }
+            if (skipReason is null
+                && type == WhatsAppNotificationType.StatusChanged
+                && request.Status == RequestStatus.WaitingForResidentClosure
+                && sessionOpen)
+            {
+                stage = "associating_closure_session";
+                var session = await db.WhatsAppSessions
+                    .Where(x => x.UserId == userId)
+                    .OrderByDescending(x => x.LastInteractionAt)
+                    .FirstOrDefaultAsync(ct);
+                if (session is not null && session.State is
+                    WhatsAppConversationState.MainMenu
+                    or WhatsAppConversationState.Ended)
+                {
+                    session.AwaitClosure(request.Id, DateTime.UtcNow,
+                        DateTime.UtcNow.AddHours(1));
+                    logger.LogInformation(
+                        "WhatsApp closure associated. SessionId: {SessionId}; IdentifiedUserId: {IdentifiedUserId}; ConversationState: {ConversationState}; RequestId: {RequestId}; NotificationType: {NotificationType}; DeliveryMode: {DeliveryMode}; Reason: {Reason}; DiagnosticsVersion: {DiagnosticsVersion}.",
+                        session.Id, userId, session.State, request.Id, type, mode,
+                        "ProactiveClosureOutbound", DiagnosticsVersion);
+                }
+                else
+                {
+                    logger.LogInformation(
+                        "WhatsApp closure association skipped. SessionId: {SessionId}; IdentifiedUserId: {IdentifiedUserId}; ConversationState: {ConversationState}; RequestId: {RequestId}; NotificationType: {NotificationType}; DeliveryMode: {DeliveryMode}; Reason: {Reason}; DiagnosticsVersion: {DiagnosticsVersion}.",
+                        session?.Id, userId, session?.State, request.Id, type, mode,
+                        session is null ? "SessionNotFound" : "UnrelatedFlowActive",
+                        DiagnosticsVersion);
+                }
+            }
             stage = "saving_outbound";
             try
             {

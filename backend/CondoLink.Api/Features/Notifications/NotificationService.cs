@@ -317,7 +317,7 @@ public sealed class NotificationService(
         RequestStatus.WaitingForResident => "Aguardando morador",
         RequestStatus.WaitingForManager => "Dar andamento",
         RequestStatus.WaitingForThirdParty => "Aguardando terceiro",
-        RequestStatus.WaitingForResidentClosure => "ConcluÃ­do pela administraÃ§Ã£o â€” aguardando sua confirmaÃ§Ã£o",
+        RequestStatus.WaitingForResidentClosure => "Concluído pela administração — aguardando sua confirmação",
         RequestStatus.Resolved => "Resolvida",
         RequestStatus.Cancelled => "Cancelada",
         _ => status.ToString()
@@ -360,9 +360,9 @@ public sealed class NotificationService(
                 "Estamos aguardando uma etapa externa para continuar seu atendimento."
                 + context,
             RequestStatus.WaitingForResidentClosure =>
-                "*A administraÃ§Ã£o informou que sua solicitaÃ§Ã£o foi concluÃ­da:*\n\n"
-                + (comment ?? "A atuaÃ§Ã£o da administraÃ§Ã£o foi concluÃ­da.")
-                + "\n\nEstÃ¡ tudo certo?\n\n1 - Sim, finalizar atendimento\n2 - Ainda tenho uma dÃºvida",
+                "*A administração informou que sua solicitação foi concluída:*\n\n"
+                + (comment ?? "A atuação da administração foi concluída.")
+                + "\n\nEstá tudo certo?\n\n1 - Sim, finalizar atendimento\n2 - Ainda tenho uma dúvida",
             RequestStatus.InProgress =>
                 "A administração retomou o andamento do seu atendimento." + context,
             RequestStatus.Resolved =>

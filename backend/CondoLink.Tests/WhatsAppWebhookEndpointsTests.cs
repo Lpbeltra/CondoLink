@@ -456,7 +456,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Resident_cannot_use_administrative_lookup()
+    public async Task Resident_free_text_does_not_enter_administrative_lookup()
     {
         _administrativeLookupExtraction.Result = new(true,
             new("resident_lookup", "Maria Silva", null, null, "101",
@@ -465,8 +465,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.resident-forbidden-lookup",
             "Qual o telefone da Maria Silva da unidade 101?"));
 
-        Assert.Equal("Esse recurso está disponível apenas para a administração do condomínio.",
-            _fake.Messages.Last().Text);
+        Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
         Assert.DoesNotContain("maria@example.com", _fake.Messages.Last().Text);
         Assert.DoesNotContain("99999", _fake.Messages.Last().Text);
     }
@@ -665,7 +664,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Resident_cannot_start_membership_mutation()
+    public async Task Resident_free_text_does_not_enter_administrative_mutation()
     {
         _administrativeMutationExtraction.Result = new(true,
             new("resident_membership_deactivate", "Maria", null,
@@ -674,8 +673,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.resident-mutation-forbidden",
             "Remova a Maria da unidade 101"));
 
-        Assert.Equal("Esse recurso está disponível apenas para a administração do condomínio.",
-            _fake.Messages.Last().Text);
+        Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
     }
 
     [Fact]
@@ -840,11 +838,11 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Resident_cannot_start_administrative_registration()
+    public async Task Resident_admin_like_text_stays_in_residential_entry_flow()
     {
         await PostAsync(TextPayload("wamid.admin-forbidden", "Cadastrar morador"));
 
-        Assert.Contains("somente para administradores autorizados", _fake.Messages.Last().Text);
+        Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
         Assert.Equal(1, await _host.WithDbAsync(db => db.Users.CountAsync()));
     }
 
@@ -2757,12 +2755,14 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 cancellationToken);
     }
 
-    private async Task<Guid> ArrangeClosureAsync(DateTime? requestedAt = null)
+    private async Task<Guid> ArrangeClosureAsync(DateTime? requestedAt = null,
+        bool associateSession = true)
     {
         return await _host.WithDbAsync(async db =>
         {
             var at = requestedAt ?? DateTime.UtcNow;
-            var category = new Category(_condominiumId, "Portaria", null);
+            var category = new Category(_condominiumId,
+                $"Portaria {Guid.NewGuid():N}", null);
             var request = new CondoLink.Domain.Entities.Request(_condominiumId,
                 _userId, _unitId, category.Id, "Tag", "SolicitaÃ§Ã£o de tag");
             request.ChangeStatus(RequestStatus.WaitingForResidentClosure, at);
@@ -2772,6 +2772,18 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             db.AddRange(category, request, history,
                 new RequestClosureConfirmation(request.Id, history.Id,
                     history.Reason!, at));
+            if (associateSession)
+            {
+                var session = await db.WhatsAppSessions.SingleOrDefaultAsync();
+                if (session is null)
+                {
+                    session = new WhatsAppSession("+5511999990001", at,
+                        at.AddMinutes(30));
+                    session.Identify(_userId);
+                    db.Add(session);
+                }
+                session.AwaitClosure(request.Id, at, at.AddHours(1));
+            }
             await db.SaveChangesAsync();
             return request.Id;
         });
@@ -2841,7 +2853,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.closure-confirm", "1"));
         await PostAsync(TextPayload("wamid.closure-confirm", "1"));
 
-        Assert.Equal("Atendimento finalizado. âœ“", _fake.Messages.Last().Text);
+        Assert.Equal("Atendimento finalizado. ✓", _fake.Messages.Last().Text);
         await _host.WithDbAsync(async db =>
         {
             Assert.Equal(RequestStatus.Resolved,
@@ -2890,6 +2902,42 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Equal(RequestStatus.Resolved,
             await _host.WithDbAsync(db => db.Requests.Where(x => x.Id == requestId)
                 .Select(x => x.Status).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Pending_closures_do_not_capture_a_new_unassociated_conversation()
+    {
+        var first = await ArrangeClosureAsync(associateSession: false);
+        var second = await ArrangeClosureAsync(associateSession: false);
+
+        await PostAsync(TextPayload("wamid.unassociated-closures", "Oi"));
+
+        Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(WhatsAppConversationState.MainMenu, session.State);
+            Assert.Null(session.RequestId);
+            Assert.Equal(2, await db.Requests.CountAsync(x =>
+                (x.Id == first || x.Id == second)
+                && x.Status == RequestStatus.WaitingForResidentClosure));
+        });
+    }
+
+    [Fact]
+    public async Task Generic_text_does_not_replay_an_explicit_closure_prompt()
+    {
+        var requestId = await ArrangeClosureAsync();
+
+        await PostAsync(TextPayload("wamid.closure-generic", "Oi"));
+
+        Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("solicitação foi concluída", _fake.Messages.Last().Text);
+        Assert.Equal(RequestStatus.WaitingForResidentClosure,
+            await _host.WithDbAsync(db => db.Requests.Where(x => x.Id == requestId)
+                .Select(x => x.Status).SingleAsync()));
+        Assert.Null(await _host.WithDbAsync(db => db.WhatsAppSessions
+            .Select(x => x.RequestId).SingleAsync()));
     }
 
     private sealed class FakeAdministrativeResidentLookupExtractionService

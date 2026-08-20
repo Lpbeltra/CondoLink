@@ -229,7 +229,11 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
                 "wamid.closure-regression", metaPhoneWithoutNinthDigit,
                 "text", "Abrir atendimento", DateTime.UtcNow);
             inbound.Complete(_residentId, "request_created", DateTime.UtcNow);
-            db.Add(inbound);
+            var session = new WhatsAppSession(metaPhoneWithoutNinthDigit,
+                DateTime.UtcNow, DateTime.UtcNow.AddMinutes(30));
+            session.Identify(_residentId);
+            session.End(DateTime.UtcNow);
+            db.AddRange(inbound, session);
             await db.SaveChangesAsync();
         });
 
@@ -254,7 +258,13 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         Assert.Equal(WhatsAppSendMode.SessionText, outbound.SendMode);
         Assert.Contains(conclusion, outbound.Content);
         Assert.Contains("1 - Sim, finalizar atendimento", outbound.Content);
-        Assert.Contains("2 - Ainda tenho uma dÃºvida", outbound.Content);
+        Assert.Contains("2 - Ainda tenho uma dúvida", outbound.Content);
+        Assert.DoesNotContain("Ã", outbound.Content);
+        var session = await _host.WithDbAsync(db => db.WhatsAppSessions
+            .AsNoTracking().SingleAsync());
+        Assert.Equal(WhatsAppConversationState.AwaitingClosureConfirmation,
+            session.State);
+        Assert.Equal(_requestId, session.RequestId);
         var history = Assert.Single(await HistoryAsync());
         Assert.Equal($"request-status:{history.Id}", outbound.IdempotencyKey);
     }

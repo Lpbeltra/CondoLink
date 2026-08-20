@@ -38,7 +38,7 @@ public sealed class RequestClosureService(AppDbContext db, NotificationService n
                 .SetProperty(x => x.DecidedAt, now).SetProperty(x => x.ResponseMessageId, message == null ? null : (Guid?)message.Id)
                 .SetProperty(x => x.UpdatedAt, now), ct);
         if (changed != 1 || pending != 1) { await tx.RollbackAsync(ct); return new(false, "already_decided"); }
-        var historyText = confirmed ? "Morador confirmou a conclusÃ£o do atendimento."
+        var historyText = confirmed ? "Morador confirmou a conclusão do atendimento."
             : $"Novo questionamento do morador: {question![..Math.Min(question.Length, 462)]}";
         db.RequestStatusHistories.Add(new RequestStatusHistory(requestId, RequestStatus.WaitingForResidentClosure,
             target, residentId, historyText, now));
@@ -75,7 +75,7 @@ public sealed class RequestClosureService(AppDbContext db, NotificationService n
                 foreach (var session in sessions) session.End(now);
                 db.RequestStatusHistories.Add(new RequestStatusHistory(row.RequestId, RequestStatus.WaitingForResidentClosure,
                     RequestStatus.Resolved, row.ChangedByUserId,
-                    "O prazo para manifestaÃ§Ã£o do morador foi encerrado sem novo questionamento.", now));
+                    "O prazo para manifestação do morador foi encerrado sem novo questionamento.", now));
                 await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); count++;
                 if (analysis is not null) await analysis.RefreshAsync(row.RequestId, "closure_expired", ct);
             }

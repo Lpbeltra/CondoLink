@@ -12,6 +12,22 @@ namespace CondoLink.Tests;
 public sealed class MetaWhatsAppClientTests
 {
     [Fact]
+    public async Task Session_text_preserves_utf8_closure_content()
+    {
+        const string content = "A administração informou que sua solicitação foi concluída. Ainda tenho uma dúvida.";
+        var handler = new RecordingHandler();
+
+        var result = await NewClient(handler).SendTextAsync(
+            "+5511999990001", content, default);
+
+        Assert.True(result.Succeeded);
+        using var json = JsonDocument.Parse(handler.Body!);
+        Assert.Equal(content, json.RootElement.GetProperty("text")
+            .GetProperty("body").GetString());
+        Assert.DoesNotContain("Ã", handler.Body);
+    }
+
+    [Fact]
     public async Task First_access_template_has_two_body_values_and_dynamic_url_suffix()
     {
         var handler = new RecordingHandler();
