@@ -72,8 +72,11 @@ public sealed class NotificationService(
                     Block = block == null ? null : block.Identifier
                 }).SingleOrDefaultAsync(cancellationToken)
             : null;
-        var content = ManagerNewRequestContent(residentName, location?.Unit,
-            location?.Block, request.Title);
+        var condominiumName = await dbContext.Condominiums.AsNoTracking()
+            .Where(x => x.Id == request.CondominiumId)
+            .Select(x => x.Name).SingleAsync(cancellationToken);
+        var content = ManagerNewRequestContent(condominiumName, residentName,
+            location?.Unit, location?.Block, request.Title);
         var managerId = managerIds[0];
         await whatsApp.EnqueueForUserAsync(request.Id, managerId,
             WhatsAppNotificationType.ManagerNewRequest,
@@ -160,6 +163,12 @@ public sealed class NotificationService(
         RequestStatus previousStatus, string? reason,
         CancellationToken cancellationToken)
     {
+        // Closure is still awaiting the resident's decision. Keep both choices
+        // deterministic and let RequestClosureService remain their authority.
+        if (request.Status == RequestStatus.WaitingForResidentClosure)
+            return StatusChangedContent(request.Title, previousStatus,
+                request.Status, reason);
+
         // Cancellation is an administrative fact. Preserve the manager's
         // comment verbatim (within the existing safe length limit) instead of
         // making delivery depend on an optional AI synthesis.
@@ -275,6 +284,12 @@ public sealed class NotificationService(
                 membership => membership.Id,
                 role => role.CondominiumMembershipId,
                 (membership, _) => membership.UserId)
+            .Join(
+                dbContext.Set<CondoLink.Infrastructure.Identity.ApplicationUser>()
+                    .AsNoTracking().Where(user => user.IsActive),
+                userId => userId,
+                user => user.Id,
+                (userId, _) => userId)
             .Distinct()
             .ToArrayAsync(cancellationToken);
 
@@ -345,9 +360,9 @@ public sealed class NotificationService(
                 "Estamos aguardando uma etapa externa para continuar seu atendimento."
                 + context,
             RequestStatus.WaitingForResidentClosure =>
-                "*A administraÃ§Ã£o concluiu sua solicitaÃ§Ã£o.*\n\n"
+                "*A administraÃ§Ã£o informou que sua solicitaÃ§Ã£o foi concluÃ­da:*\n\n"
                 + (comment ?? "A atuaÃ§Ã£o da administraÃ§Ã£o foi concluÃ­da.")
-                + "\n\nEsse atendimento pode ser encerrado?\n\n1 - Sim, finalizar\n2 - Tenho uma nova dÃºvida",
+                + "\n\nEstÃ¡ tudo certo?\n\n1 - Sim, finalizar atendimento\n2 - Ainda tenho uma dÃºvida",
             RequestStatus.InProgress =>
                 "A administração retomou o andamento do seu atendimento." + context,
             RequestStatus.Resolved =>
@@ -390,8 +405,8 @@ public sealed class NotificationService(
         $"*\"{Shorten(title, 120)}\"*\n\n{question.Trim()}\n\n" +
         "1 - Responder agora\n2 - Responder depois";
 
-    internal static string ManagerNewRequestContent(string residentName,
-        string? unit, string? block, string? title)
+    internal static string ManagerNewRequestContent(string condominiumName,
+        string residentName, string? unit, string? block, string? title)
     {
         var location = string.IsNullOrWhiteSpace(unit)
             ? "Unidade não informada"
@@ -405,7 +420,7 @@ public sealed class NotificationService(
         }
         var subject = string.IsNullOrWhiteSpace(title)
             ? "Solicitação sem assunto" : Shorten(title, 160);
-        return $"*Nova solicitação recebida*\n\n{Shorten(residentName, 160)}\n"
-            + $"{location}\nAssunto: {subject}";
+        return $"*Nova solicitação recebida*\n\n{Shorten(condominiumName, 160)}\n"
+            + $"{Shorten(residentName, 160)} · {location}\nAssunto: {subject}";
     }
 }

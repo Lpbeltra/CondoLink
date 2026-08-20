@@ -167,6 +167,7 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         Assert.Equal("manager_new_request", outbound.TemplateName);
         Assert.Equal(WhatsAppSendMode.Template, outbound.SendMode);
         Assert.Contains("*Nova solicitação recebida*", outbound.Content);
+        Assert.Contains(_condominium.Name, outbound.Content);
         Assert.Contains(_resident.FullName, outbound.Content);
         Assert.Contains("Apto 1201 · Bloco 1", outbound.Content);
         Assert.Contains("Assunto: TAG da garagem", outbound.Content);
@@ -194,12 +195,152 @@ public sealed class NotificationServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Multiple_active_managers_do_not_choose_a_whatsapp_recipient()
+    {
+        _managerA.Update("Síndico A", "11988887777");
+        _managerB.Update("Síndico B", "11977776666");
+        await _db.SaveChangesAsync();
+        var request = await AddRequestAsync(_resident.Id);
+        var dispatcher = new WhatsAppNotificationDispatcher(_db,
+            Options.Create(new WhatsAppOptions { Enabled = true }),
+            NullLogger<WhatsAppNotificationDispatcher>.Instance);
+
+        await new NotificationService(_db, dispatcher,
+            NullLogger<NotificationService>.Instance)
+            .NotifyRequestCreatedAsync(request, _category.Name, default);
+
+        Assert.Empty(await _db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync());
+        Assert.True(await _db.Requests.AnyAsync(x => x.Id == request.Id));
+    }
+
+    [Fact]
+    public async Task Inactive_manager_is_not_a_manager_notification_candidate()
+    {
+        _managerA.SetActiveStatus(false);
+        var membershipB = await _db.CondominiumMemberships
+            .SingleAsync(x => x.UserId == _managerB.Id);
+        (await _db.CondominiumMembershipRoles.SingleAsync(x =>
+            x.CondominiumMembershipId == membershipB.Id)).Deactivate();
+        await _db.SaveChangesAsync();
+        var request = await AddRequestAsync(_resident.Id);
+
+        await _service.NotifyRequestCreatedAsync(request, _category.Name, default);
+
+        Assert.Empty(await RecipientsAsync());
+    }
+
+    [Fact]
+    public async Task Manager_notification_is_global_and_does_not_require_unit_membership_or_residential_preference()
+    {
+        _managerA.Update("Síndico A", "11988887777");
+        _managerA.SetReceiveWhatsAppUpdates(false);
+        var membershipB = await _db.CondominiumMemberships
+            .SingleAsync(x => x.UserId == _managerB.Id);
+        (await _db.CondominiumMembershipRoles.SingleAsync(x =>
+            x.CondominiumMembershipId == membershipB.Id)).Deactivate();
+        await _db.SaveChangesAsync();
+        var request = await AddRequestAsync(_resident.Id);
+        var options = new WhatsAppOptions { Enabled = true };
+        options.Templates.ManagerNewRequest.Name = "manager_new_request";
+        options.Templates.ManagerNewRequest.Language = "pt_BR";
+        var dispatcher = new WhatsAppNotificationDispatcher(_db,
+            Options.Create(options),
+            NullLogger<WhatsAppNotificationDispatcher>.Instance);
+
+        await new NotificationService(_db, dispatcher,
+            NullLogger<NotificationService>.Instance)
+            .NotifyRequestCreatedAsync(request, _category.Name, default);
+
+        var outbound = Assert.Single(await _db.WhatsAppOutboundMessages
+            .AsNoTracking().ToArrayAsync());
+        Assert.Equal(_managerA.Id, outbound.UserId);
+        Assert.Equal(WhatsAppOutboundStatus.Pending, outbound.Status);
+        Assert.False(await _db.UnitMemberships.AnyAsync(x =>
+            x.UserId == _managerA.Id));
+    }
+
+    [Fact]
+    public async Task Same_manager_receives_each_condominium_with_explicit_context()
+    {
+        _managerA.Update("Síndico A", "11988887777");
+        var membershipB = await _db.CondominiumMemberships
+            .SingleAsync(x => x.UserId == _managerB.Id);
+        (await _db.CondominiumMembershipRoles.SingleAsync(x =>
+            x.CondominiumMembershipId == membershipB.Id)).Deactivate();
+        var second = new Condominium("Residencial Beta", null, null);
+        var secondCategory = new Category(second.Id, "Portaria", null);
+        _db.AddRange(second, secondCategory);
+        var secondMembership = new CondominiumMembership(_managerA.Id, second.Id);
+        _db.Add(secondMembership);
+        _db.Add(new CondominiumMembershipRole(secondMembership.Id,
+            CondominiumRole.Manager));
+        await _db.SaveChangesAsync();
+        var firstRequest = await AddRequestAsync(_resident.Id, "Garagem");
+        var secondRequest = new DomainRequest(second.Id, _resident.Id, null,
+            secondCategory.Id, "Visitante", "Descrição");
+        _db.Add(secondRequest);
+        await _db.SaveChangesAsync();
+        var options = new WhatsAppOptions { Enabled = true };
+        options.Templates.ManagerNewRequest.Name = "manager_new_request";
+        options.Templates.ManagerNewRequest.Language = "pt_BR";
+        var service = new NotificationService(_db,
+            new WhatsAppNotificationDispatcher(_db, Options.Create(options),
+                NullLogger<WhatsAppNotificationDispatcher>.Instance),
+            NullLogger<NotificationService>.Instance);
+
+        await service.NotifyRequestCreatedAsync(firstRequest, _category.Name, default);
+        await service.NotifyRequestCreatedAsync(secondRequest, secondCategory.Name, default);
+
+        var rows = await _db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync();
+        Assert.Equal(2, rows.Length);
+        Assert.All(rows, x => Assert.Equal(_managerA.Id, x.UserId));
+        Assert.Contains(_condominium.Name,
+            rows.Single(x => x.RequestId == firstRequest.Id).Content);
+        Assert.Contains(second.Name,
+            rows.Single(x => x.RequestId == secondRequest.Id).Content);
+    }
+
+    [Theory]
+    [InlineData(false, true, "Telefone inválido.")]
+    [InlineData(true, false, "Template não configurado.")]
+    public async Task Missing_delivery_configuration_skips_whatsapp_without_losing_request(
+        bool hasPhone, bool hasTemplate, string expectedReason)
+    {
+        if (hasPhone) _managerA.Update("Síndico A", "11988887777");
+        var membershipB = await _db.CondominiumMemberships
+            .SingleAsync(x => x.UserId == _managerB.Id);
+        (await _db.CondominiumMembershipRoles.SingleAsync(x =>
+            x.CondominiumMembershipId == membershipB.Id)).Deactivate();
+        await _db.SaveChangesAsync();
+        var request = await AddRequestAsync(_resident.Id);
+        var options = new WhatsAppOptions { Enabled = true };
+        if (hasTemplate)
+        {
+            options.Templates.ManagerNewRequest.Name = "manager_new_request";
+            options.Templates.ManagerNewRequest.Language = "pt_BR";
+        }
+        var service = new NotificationService(_db,
+            new WhatsAppNotificationDispatcher(_db, Options.Create(options),
+                NullLogger<WhatsAppNotificationDispatcher>.Instance),
+            NullLogger<NotificationService>.Instance);
+
+        await service.NotifyRequestCreatedAsync(request, _category.Name, default);
+
+        var outbound = Assert.Single(await _db.WhatsAppOutboundMessages
+            .AsNoTracking().ToArrayAsync());
+        Assert.Equal(WhatsAppOutboundStatus.Skipped, outbound.Status);
+        Assert.Equal(expectedReason, outbound.LastErrorDescription);
+        Assert.True(await _db.Requests.AnyAsync(x => x.Id == request.Id));
+    }
+
+    [Fact]
     public void Manager_new_request_content_works_without_block()
     {
-        Assert.Equal("*Nova solicitação recebida*\n\nTatiana Custódio\n"
-            + "Apto 1201\nAssunto: TAG da garagem",
+        Assert.Equal("*Nova solicitação recebida*\n\nResidencial Monticello\n"
+            + "Tatiana Custódio · Apto 1201\nAssunto: TAG da garagem",
             NotificationService.ManagerNewRequestContent(
-                "Tatiana Custódio", "1201", null, "TAG da garagem"));
+                "Residencial Monticello", "Tatiana Custódio", "1201", null,
+                "TAG da garagem"));
     }
 
     // ---- status changed ----
@@ -382,8 +523,36 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             RequestStatus.InProgress, RequestStatus.WaitingForResidentClosure,
             "Tag entregue na portaria.");
         Assert.Contains("Tag entregue na portaria.", content);
-        Assert.Contains("1 - Sim, finalizar", content);
-        Assert.Contains("2 - Tenho uma nova dÃºvida", content);
+        Assert.Contains("1 - Sim, finalizar atendimento", content);
+        Assert.Contains("2 - Ainda tenho uma dÃºvida", content);
+        Assert.DoesNotContain("Seu atendimento foi finalizado", content);
+    }
+
+    [Fact]
+    public async Task Waiting_for_resident_closure_preserves_comment_and_choices_without_ai_synthesis()
+    {
+        var ai = new FakeAi(new(true,
+            "*Seu atendimento foi finalizado.*",
+            "succeeded", "model-test"));
+        var dispatcher = new WhatsAppNotificationDispatcher(_db,
+            Options.Create(new WhatsAppOptions()),
+            NullLogger<WhatsAppNotificationDispatcher>.Instance);
+        var service = new NotificationService(_db, dispatcher,
+            NullLogger<NotificationService>.Instance, ai);
+        var request = await AddRequestAsync(_resident.Id);
+        request.ChangeStatus(RequestStatus.WaitingForResidentClosure,
+            DateTime.UtcNow);
+
+        await service.NotifyStatusChangedAsync(request, RequestStatus.InProgress,
+            _managerA.Id, default, Guid.NewGuid(), "Tag entregue na portaria.");
+
+        Assert.Equal(0, ai.SynthesisCalls);
+        var outbound = Assert.Single(await _db.WhatsAppOutboundMessages
+            .AsNoTracking().ToArrayAsync());
+        Assert.Contains("Tag entregue na portaria.", outbound.Content);
+        Assert.Contains("1 - Sim, finalizar atendimento", outbound.Content);
+        Assert.Contains("2 - Ainda tenho uma dÃºvida", outbound.Content);
+        Assert.DoesNotContain("Seu atendimento foi finalizado", outbound.Content);
     }
 
     [Theory]

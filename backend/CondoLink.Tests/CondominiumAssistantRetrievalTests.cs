@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Net;
+using System.Text;
 using CondoLink.Api.Features.CondominiumAssistant;
 using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Domain.Entities;
@@ -46,6 +48,78 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
     {
         Assert.Empty(await Service().RetrieveAsync(condominiumId,
             "Qual é a regra para criação de abelhas?", null, default));
+    }
+
+    [Fact]
+    public async Task Model_expansion_finds_semantically_equivalent_rule_in_third_document_and_reranks_it()
+    {
+        var investigativeCondominium = Guid.NewGuid();
+        AddInvestigative(investigativeCondominium, "Manual da garagem",
+            "As vagas devem permanecer sinalizadas.", new float[] { 0, 1, 0 });
+        AddInvestigative(investigativeCondominium, "Convenção geral",
+            "Os condôminos devem preservar o patrimônio.", new float[] { 0, 0, 1 });
+        var expected = AddInvestigative(investigativeCondominium, "Regimento interno",
+            "Animais devem ser conduzidos nas áreas comuns conforme as regras de circulação.",
+            new float[] { 1, 0, 0 });
+        await db.SaveChangesAsync();
+        var handler = new InvestigativeChatHandler(
+            ["animais nas áreas comuns", "circulação de pets", "uso do elevador por animais"]);
+        var ai = new RequestDraftAiOptions { Enabled = true, ApiKey = "test", Model = "test-chat" };
+
+        var results = await Service(new InvestigativeEmbeddingService(),
+            new HttpClient(handler) { BaseAddress = new Uri("https://test/") }, ai)
+            .RetrieveAsync(investigativeCondominium,
+                "Meu cachorro pode andar no elevador?", null, default);
+
+        Assert.NotEmpty(results);
+        Assert.Equal(expected.Id, results[0].DocumentId);
+        Assert.Contains("Animais", results[0].Content);
+        Assert.Equal(1, handler.ExpansionCalls);
+        Assert.True(handler.RerankCalls >= 1);
+    }
+
+    [Fact]
+    public async Task Truly_absent_subject_stays_empty_after_expansion_and_fallback()
+    {
+        var investigativeCondominium = Guid.NewGuid();
+        AddInvestigative(investigativeCondominium, "Regimento",
+            "Mudanças ocorrem em dias úteis.", new float[] { 0, 1, 0 });
+        AddInvestigative(investigativeCondominium, "Convenção",
+            "Assembleias exigem convocação prévia.", new float[] { 0, 0, 1 });
+        AddInvestigative(investigativeCondominium, "Manual",
+            "Animais devem ser conduzidos nas áreas comuns.", new float[] { 1, 0, 0 });
+        await db.SaveChangesAsync();
+        var handler = new InvestigativeChatHandler(
+            ["horta comunitária", "cultivo de abelhas", "apicultura"]);
+        var ai = new RequestDraftAiOptions { Enabled = true, ApiKey = "test", Model = "test-chat" };
+
+        var results = await Service(new InvestigativeEmbeddingService(),
+            new HttpClient(handler) { BaseAddress = new Uri("https://test/") }, ai)
+            .RetrieveAsync(investigativeCondominium,
+                "Posso manter colmeias no terraço?", null, default);
+
+        Assert.Empty(results);
+        Assert.Equal(1, handler.ExpansionCalls);
+    }
+
+    [Fact]
+    public async Task Highly_relevant_chunk_includes_adjacent_context()
+    {
+        var document = Document("Regra contínua", CondominiumDocumentType.InternalRules);
+        db.Add(document);
+        db.Add(new CondominiumDocumentChunk(document.Id, condominiumId, 0,
+            "É proibido aos ocupantes", JsonSerializer.Serialize(new float[5]),
+            70, "Sossego", "semantic-test-v1"));
+        db.Add(new CondominiumDocumentChunk(document.Id, condominiumId, 1,
+            "produzir barulho após as 22h.", JsonSerializer.Serialize(Vector(1)),
+            70, "Sossego", "semantic-test-v1"));
+        await db.SaveChangesAsync();
+
+        var results = await Service().RetrieveAsync(condominiumId,
+            "Posso fazer barulho à noite?", null, default);
+
+        Assert.Contains(results, x => x.Content == "produzir barulho após as 22h.");
+        Assert.Contains(results, x => x.Content == "É proibido aos ocupantes");
     }
 
     [Fact]
@@ -124,8 +198,9 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
         Assert.Contains("15 de março de 2026", chunk); Assert.Contains("nº 42", chunk);
     }
 
-    private CondominiumAssistantService Service(IEmbeddingService? embedding = null) => new(db, embedding ?? new SemanticTestEmbeddingService(),
-        new HttpClient(), Options.Create(new RequestDraftAiOptions()),
+    private CondominiumAssistantService Service(IEmbeddingService? embedding = null,
+        HttpClient? client = null, RequestDraftAiOptions? ai = null) => new(db, embedding ?? new SemanticTestEmbeddingService(),
+        client ?? new HttpClient(), Options.Create(ai ?? new RequestDraftAiOptions()),
         Options.Create(new CondominiumAssistantOptions { MinimumRelevanceScore = .2 }),
         NullLogger<CondominiumAssistantService>.Instance);
 
@@ -155,6 +230,19 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
             JsonSerializer.Serialize(Vector(topic)), page, null, "semantic-test-v1"));
     }
 
+    private CondominiumDocument AddInvestigative(Guid targetCondominium,
+        string name, string content, float[] vector)
+    {
+        var document = new CondominiumDocument(targetCondominium, name,
+            CondominiumDocumentType.InternalRules, $"{name}.pdf", name,
+            "application/pdf", 1, null, Guid.NewGuid());
+        document.Ready();
+        db.Add(document);
+        db.Add(new CondominiumDocumentChunk(document.Id, targetCondominium, 0,
+            content, JsonSerializer.Serialize(vector), 1, null, "investigative-v1"));
+        return document;
+    }
+
     private static float[] Vector(int topic) { var result = new float[5]; result[topic - 1] = 1; return result; }
 
     private sealed class SemanticTestEmbeddingService : IEmbeddingService
@@ -167,6 +255,61 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
                 : normalized.Contains("vaga") ? 3 : normalized.Contains("condicionado") ? 4
                 : normalized.Contains("assembleia") ? 5 : 0;
             return Task.FromResult(topic == 0 ? new float[5] : Vector(topic));
+        }
+    }
+
+    private sealed class InvestigativeEmbeddingService : IEmbeddingService
+    {
+        public string Model => "investigative-v1";
+        public Task<float[]> EmbedAsync(string text, CancellationToken cancellationToken)
+        {
+            var value = text.ToLowerInvariant();
+            return Task.FromResult(value.Contains("animais") || value.Contains("pets")
+                ? new float[] { 1, 0, 0 } : new float[3]);
+        }
+    }
+
+    private sealed class InvestigativeChatHandler(string[] queries) : HttpMessageHandler
+    {
+        public int ExpansionCalls { get; private set; }
+        public int RerankCalls { get; private set; }
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            string content;
+            if (body.Contains("busca documental", StringComparison.Ordinal))
+            {
+                ExpansionCalls++;
+                content = JsonSerializer.Serialize(new { queries });
+            }
+            else
+            {
+                RerankCalls++;
+                using var requestJson = JsonDocument.Parse(body);
+                var userContent = requestJson.RootElement.GetProperty("messages")[1]
+                    .GetProperty("content").GetString()!;
+                var candidateJson = userContent[(userContent.IndexOf("Candidatos: ",
+                    StringComparison.Ordinal) + "Candidatos: ".Length)..];
+                using var candidateDocument = JsonDocument.Parse(candidateJson);
+                content = JsonSerializer.Serialize(new
+                {
+                    items = candidateDocument.RootElement.EnumerateArray().Select(item => new
+                    {
+                        id = item.GetProperty("id").GetGuid(),
+                        relevance = item.GetProperty("text").GetString()!
+                            .Contains("Animais", StringComparison.OrdinalIgnoreCase) ? .95 : .1
+                    }).ToArray()
+                });
+            }
+            var envelope = JsonSerializer.Serialize(new
+            {
+                choices = new[] { new { message = new { content } } }
+            });
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(envelope, Encoding.UTF8, "application/json")
+            };
         }
     }
 

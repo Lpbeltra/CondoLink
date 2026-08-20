@@ -91,11 +91,24 @@ public sealed class WhatsAppNotificationDispatcher(
                 }).SingleOrDefaultAsync(ct);
             stage = "checking_phone";
             var phone = user?.NormalizedPhoneNumber;
+            var validPhone = phone is not null
+                && PhoneNumberNormalizer.NormalizeWhatsAppIdentifier(phone) == phone;
             stage = "checking_membership";
             var activeMembership = user is not null && await db.CondominiumMemberships
                 .AsNoTracking().AnyAsync(x => x.UserId == userId
                     && x.CondominiumId == request.CondominiumId
                     && x.IsActive && x.EndedAt == null, ct);
+            var activeManagerRole = type != WhatsAppNotificationType.ManagerNewRequest
+                || user is not null && await db.CondominiumMemberships.AsNoTracking()
+                    .Where(x => x.UserId == userId
+                        && x.CondominiumId == request.CondominiumId
+                        && x.IsActive && x.EndedAt == null)
+                    .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x =>
+                            x.Role == CondominiumRole.Manager && x.IsActive
+                            && x.RevokedAt == null),
+                        membership => membership.Id,
+                        role => role.CondominiumMembershipId,
+                        (_, _) => true).AnyAsync(ct);
             var ambiguous = phone is not null && await db.Set<ApplicationUser>()
                 .AsNoTracking()
                 .CountAsync(x => x.IsActive && x.NormalizedPhoneNumber == phone, ct) > 1;
@@ -110,10 +123,12 @@ public sealed class WhatsAppNotificationDispatcher(
             var skipReason = !settings.Enabled ? "Integração desabilitada."
                 : !condominium.WhatsAppUpdatesEnabled ? "Condomínio desabilitado."
                 : user is null || !user.IsActive ? "Usuário inativo."
-                : !user.ReceiveWhatsAppUpdates ? "Preferência desabilitada."
-                : phone is null ? "Telefone inválido."
+                : type != WhatsAppNotificationType.ManagerNewRequest
+                    && !user.ReceiveWhatsAppUpdates ? "Preferência desabilitada."
+                : !validPhone ? "Telefone inválido."
                 : ambiguous ? "Telefone ambíguo."
                 : !activeMembership ? "Vínculo inativo."
+                : !activeManagerRole ? "Papel Manager inativo."
                 : mode == WhatsAppSendMode.Template
                     && (string.IsNullOrWhiteSpace(template.Name)
                         || string.IsNullOrWhiteSpace(template.Language))
@@ -123,10 +138,12 @@ public sealed class WhatsAppNotificationDispatcher(
                 : !condominium.WhatsAppUpdatesEnabled ? "CondominiumFeatureDisabled"
                 : user is null ? "UserNotFound"
                 : !user.IsActive ? "UserInactive"
-                : !user.ReceiveWhatsAppUpdates ? "UserPreferenceDisabled"
-                : phone is null ? "PhoneMissingOrInvalid"
+                : type != WhatsAppNotificationType.ManagerNewRequest
+                    && !user.ReceiveWhatsAppUpdates ? "UserPreferenceDisabled"
+                : !validPhone ? "PhoneMissingOrInvalid"
                 : ambiguous ? "PhoneAmbiguous"
                 : !activeMembership ? "MembershipInvalid"
+                : !activeManagerRole ? "ManagerRoleInvalid"
                 : mode == WhatsAppSendMode.Template
                     && (string.IsNullOrWhiteSpace(template.Name)
                         || string.IsNullOrWhiteSpace(template.Language))

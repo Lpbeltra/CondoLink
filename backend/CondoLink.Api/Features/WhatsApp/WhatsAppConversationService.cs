@@ -377,7 +377,7 @@ public sealed class WhatsAppConversationService(
             session.AwaitClosure(activeClosure.Value, now, expires);
             if (text == "1") { var result = await closures.ConfirmAsync(activeClosure.Value, identity.UserId, ct); session.End(now); return result.Succeeded ? ("Atendimento finalizado. âœ“", "closure_confirmed") : ("Esse atendimento nÃ£o aguarda mais confirmaÃ§Ã£o.", "closure_conflict"); }
             if (text == "2") { session.AwaitClosureQuestion(now, expires); return ("Pode enviar sua dÃºvida ou observaÃ§Ã£o.", "awaiting_closure_question"); }
-            return ("A administraÃ§Ã£o concluiu este atendimento.\n\n1 - Sim, finalizar\n2 - Tenho uma nova dÃºvida", "awaiting_closure_confirmation");
+            return ("A administraÃ§Ã£o informou que sua solicitaÃ§Ã£o foi concluÃ­da.\n\nEstÃ¡ tudo certo?\n\n1 - Sim, finalizar atendimento\n2 - Ainda tenho uma dÃºvida", "awaiting_closure_confirmation");
         }
         logger.LogInformation(
             "WhatsApp message routing. SessionState: {SessionState}; MessageType: {MessageType}; HasMediaId: {HasMediaId}; HasMimeType: {HasMimeType}; HasFileName: {HasFileName}; ProcessingBranch: {ProcessingBranch}.",
