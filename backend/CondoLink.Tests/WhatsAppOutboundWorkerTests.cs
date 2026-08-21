@@ -7,6 +7,30 @@ namespace CondoLink.Tests;
 public sealed class WhatsAppOutboundWorkerTests
 {
     [Fact]
+    public void Manager_new_request_template_maps_exactly_five_positional_values()
+    {
+        var payload = ManagerNewRequestTemplatePayload.Serialize(new(
+            "Residencial Monticello", "Tatiana Custódio", "1201", "1",
+            "TAG da garagem"));
+
+        Assert.Equal(
+            ["Residencial Monticello", "Tatiana Custódio", "1201", "1",
+                "TAG da garagem"],
+            WhatsAppOutboundWorker.ManagerNewRequestTemplateParameters(payload));
+    }
+
+    [Fact]
+    public void Manager_new_request_template_uses_dash_when_block_is_absent()
+    {
+        var payload = ManagerNewRequestTemplatePayload.Serialize(new(
+            "Residencial Monticello", "Tatiana Custódio", "1201", "-",
+            "TAG da garagem"));
+
+        Assert.Equal("-", WhatsAppOutboundWorker
+            .ManagerNewRequestTemplateParameters(payload)[3]);
+    }
+
+    [Fact]
     public void Status_template_maps_resident_name_and_context_in_meta_order()
     {
         Assert.Equal(["Tatiana", "Seu atendimento foi encerrado."],

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using MigraDoc;
 using MigraDoc.DocumentObjectModel;
 using MigraDoc.DocumentObjectModel.Tables;
 using MigraDoc.Rendering;
@@ -149,9 +150,11 @@ internal sealed class ResidentReportPdf
 
     private static void EnsureFontResolver()
     {
-        if (GlobalFontSettings.FontResolver is not null) return;
         lock (FontLock)
+        {
+            PredefinedFontsAndChars.ErrorFontName = FontFamily;
             GlobalFontSettings.FontResolver ??= new ComvyFontResolver();
+        }
     }
 }
 

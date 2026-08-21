@@ -135,9 +135,8 @@ public sealed class WhatsAppOutboundWorker(
                 }
                 else if (item.NotificationType == WhatsAppNotificationType.ManagerNewRequest)
                 {
-                    parameters = [content];
-                    bodyParameterName = settings.Templates.ManagerNewRequest
-                        .BodyParameterName;
+                    parameters = ManagerNewRequestTemplateParameters(
+                        item.TemplateParameterContent);
                 }
                 else if (item.NotificationType == WhatsAppNotificationType.ResidentFirstAccess)
                 {
@@ -197,6 +196,23 @@ public sealed class WhatsAppOutboundWorker(
                 item.Status);
         }
         return items.Length;
+    }
+
+    internal static IReadOnlyList<string> ManagerNewRequestTemplateParameters(
+        string? serializedPayload)
+    {
+        if (string.IsNullOrWhiteSpace(serializedPayload))
+            throw new InvalidOperationException(
+                "Manager new request template payload is missing.");
+        var payload = ManagerNewRequestTemplatePayload.Deserialize(serializedPayload);
+        return
+        [
+            payload.CondominiumName,
+            payload.ResidentName,
+            payload.UnitIdentifier,
+            payload.BlockIdentifier,
+            payload.RequestTitle
+        ];
     }
 
     internal static IReadOnlyList<string> StatusChangedTemplateParameters(

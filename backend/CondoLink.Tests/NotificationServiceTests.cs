@@ -172,6 +172,11 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         Assert.Contains("Apto 1201 · Bloco 1", outbound.Content);
         Assert.Contains("Assunto: TAG da garagem", outbound.Content);
         Assert.DoesNotContain("Descrição", outbound.Content);
+        Assert.Equal(
+            [_condominium.Name, _resident.FullName, "1201", "1",
+                "TAG da garagem"],
+            WhatsAppOutboundWorker.ManagerNewRequestTemplateParameters(
+                outbound.TemplateParameterContent));
     }
 
     [Fact]
@@ -341,6 +346,61 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             NotificationService.ManagerNewRequestContent(
                 "Residencial Monticello", "Tatiana Custódio", "1201", null,
                 "TAG da garagem"));
+    }
+
+    [Fact]
+    public async Task Manager_new_request_template_uses_dash_without_block()
+    {
+        _managerA.Update("Síndico A", "11988887777");
+        var managerBMembership = await _db.CondominiumMemberships
+            .SingleAsync(x => x.UserId == _managerB.Id);
+        (await _db.CondominiumMembershipRoles.SingleAsync(x =>
+            x.CondominiumMembershipId == managerBMembership.Id)).Deactivate();
+        await _db.SaveChangesAsync();
+        var request = await AddRequestAsync(_resident.Id, "TAG da garagem");
+        var options = new WhatsAppOptions { Enabled = true };
+        options.Templates.ManagerNewRequest.Name = "manager_new_request";
+        options.Templates.ManagerNewRequest.Language = "pt_BR";
+        var service = new NotificationService(_db,
+            new WhatsAppNotificationDispatcher(_db, Options.Create(options),
+                NullLogger<WhatsAppNotificationDispatcher>.Instance),
+            NullLogger<NotificationService>.Instance);
+
+        await service.NotifyRequestCreatedAsync(request, _category.Name, default);
+
+        var outbound = await _db.WhatsAppOutboundMessages.AsNoTracking().SingleAsync();
+        Assert.Equal("-", WhatsAppOutboundWorker
+            .ManagerNewRequestTemplateParameters(
+                outbound.TemplateParameterContent)[3]);
+    }
+
+    [Fact]
+    public async Task Manager_new_request_inside_window_preserves_session_text()
+    {
+        _managerA.Update("Síndico A", "+5511988887777");
+        var managerBMembership = await _db.CondominiumMemberships
+            .SingleAsync(x => x.UserId == _managerB.Id);
+        (await _db.CondominiumMembershipRoles.SingleAsync(x =>
+            x.CondominiumMembershipId == managerBMembership.Id)).Deactivate();
+        var inbound = new WhatsAppInboundMessage(
+            $"wamid.{Guid.NewGuid():N}", "+5511988887777", "text", "oi",
+            DateTime.UtcNow);
+        inbound.Complete(_managerA.Id, "main_menu", DateTime.UtcNow);
+        _db.Add(inbound);
+        await _db.SaveChangesAsync();
+        var request = await AddRequestAsync(_resident.Id, "TAG da garagem");
+        var options = new WhatsAppOptions { Enabled = true };
+        var service = new NotificationService(_db,
+            new WhatsAppNotificationDispatcher(_db, Options.Create(options),
+                NullLogger<WhatsAppNotificationDispatcher>.Instance),
+            NullLogger<NotificationService>.Instance);
+
+        await service.NotifyRequestCreatedAsync(request, _category.Name, default);
+
+        var outbound = await _db.WhatsAppOutboundMessages.AsNoTracking().SingleAsync();
+        Assert.Equal(WhatsAppSendMode.SessionText, outbound.SendMode);
+        Assert.Contains("*Nova solicitação recebida*", outbound.Content);
+        Assert.Contains("Assunto: TAG da garagem", outbound.Content);
     }
 
     // ---- status changed ----

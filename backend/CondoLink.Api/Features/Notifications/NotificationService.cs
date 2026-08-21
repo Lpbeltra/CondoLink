@@ -78,11 +78,20 @@ public sealed class NotificationService(
             .Select(x => x.Name).SingleAsync(cancellationToken);
         var content = ManagerNewRequestContent(condominiumName, residentName,
             location?.Unit, location?.Block, request.Title);
+        var templatePayload = ManagerNewRequestTemplatePayload.Serialize(new(
+            Shorten(condominiumName, 160),
+            Shorten(residentName, 160),
+            string.IsNullOrWhiteSpace(location?.Unit)
+                ? "-" : location.Unit.Trim(),
+            string.IsNullOrWhiteSpace(location?.Block)
+                ? "-" : NormalizeBlockIdentifier(location.Block),
+            string.IsNullOrWhiteSpace(request.Title)
+                ? "Solicitação sem assunto" : Shorten(request.Title, 160)));
         var managerId = managerIds[0];
         await whatsApp.EnqueueForUserAsync(request.Id, managerId,
             WhatsAppNotificationType.ManagerNewRequest,
             $"manager-new-request:{request.Id}:{managerId}", content, null,
-            cancellationToken);
+            cancellationToken, templatePayload);
     }
 
     /// <summary>
@@ -417,5 +426,12 @@ public sealed class NotificationService(
             ? "Solicitação sem assunto" : Shorten(title, 160);
         return $"*Nova solicitação recebida*\n\n{Shorten(condominiumName, 160)}\n"
             + $"{Shorten(residentName, 160)} · {location}\nAssunto: {subject}";
+    }
+
+    private static string NormalizeBlockIdentifier(string block)
+    {
+        var value = block.Trim();
+        return value.StartsWith("Bloco ", StringComparison.OrdinalIgnoreCase)
+            ? value[6..].Trim() : value;
     }
 }

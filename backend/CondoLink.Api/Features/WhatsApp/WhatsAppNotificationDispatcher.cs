@@ -29,8 +29,9 @@ public sealed class WhatsAppNotificationDispatcher(
     public async Task EnqueueForUserAsync(
         Guid requestId, Guid userId, WhatsAppNotificationType type,
         string idempotencyKey, string content, Guid? requestMessageId,
-        CancellationToken ct) => await EnqueueCoreAsync(requestId, userId,
-            type, idempotencyKey, content, requestMessageId, ct, null);
+        CancellationToken ct, string? templateParameterContent = null)
+        => await EnqueueCoreAsync(requestId, userId, type, idempotencyKey,
+            content, requestMessageId, ct, templateParameterContent);
 
     private async Task EnqueueCoreAsync(
         Guid requestId, Guid? recipientUserId, WhatsAppNotificationType type,

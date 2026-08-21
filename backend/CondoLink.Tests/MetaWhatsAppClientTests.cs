@@ -12,6 +12,35 @@ namespace CondoLink.Tests;
 public sealed class MetaWhatsAppClientTests
 {
     [Fact]
+    public async Task Manager_new_request_template_has_five_positional_body_values()
+    {
+        var handler = new RecordingHandler();
+
+        var result = await NewClient(handler).SendTemplateAsync(
+            "+5511999990001", "manager_new_request", "pt_BR",
+            ["Residencial Monticello", "Tatiana Custódio", "1201", "1",
+                "TAG da garagem"], [], default);
+
+        Assert.True(result.Succeeded);
+        using var json = JsonDocument.Parse(handler.Body!);
+        var template = json.RootElement.GetProperty("template");
+        Assert.Equal("manager_new_request", template.GetProperty("name").GetString());
+        Assert.Equal("pt_BR", template.GetProperty("language")
+            .GetProperty("code").GetString());
+        var components = template.GetProperty("components");
+        var parameters = components[0].GetProperty("parameters");
+        Assert.Equal(5, parameters.GetArrayLength());
+        Assert.Equal(
+            ["Residencial Monticello", "Tatiana Custódio", "1201", "1",
+                "TAG da garagem"],
+            parameters.EnumerateArray()
+                .Select(x => x.GetProperty("text").GetString()!).ToArray());
+        Assert.All(parameters.EnumerateArray(), parameter =>
+            Assert.False(parameter.TryGetProperty("parameter_name", out _)));
+        Assert.Single(components.EnumerateArray());
+    }
+
+    [Fact]
     public async Task Session_text_preserves_utf8_closure_content()
     {
         const string content = "A administração informou que sua solicitação foi concluída. Ainda tenho uma dúvida.";

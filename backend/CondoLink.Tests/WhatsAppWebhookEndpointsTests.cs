@@ -54,7 +54,11 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                     settings.AppSecret = AppSecret;
                     settings.VerifyToken = VerifyToken;
                     settings.SessionExpirationMinutes = 30;
+                    settings.Templates.ManagerNewRequest.Name =
+                        "manager_new_request";
+                    settings.Templates.ManagerNewRequest.Language = "pt_BR";
                 });
+                builder.Services.AddScoped<WhatsAppNotificationDispatcher>();
                 builder.Services.AddSingleton<IWhatsAppClient>(_fake);
                 builder.Services.AddSingleton<IRequestDraftAiService>(_ai);
                 builder.Services.AddSingleton<IResidentReplyAiService>(_replyAi);
@@ -1842,8 +1846,14 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     {
         await _host.WithDbAsync(async db =>
         {
+            var manager = CoreTestSeed.User(
+                "Síndico Teste", "sindico-flow@example.com");
+            manager.Update("Síndico Teste", "+5511999990002");
             db.Categories.Add(new Category(
                 _condominiumId, "Manutenção", null));
+            db.Add(manager);
+            CoreTestSeed.AddMember(db, manager.Id, _condominiumId,
+                CondominiumRole.Manager);
             await db.SaveChangesAsync();
         });
 
@@ -1870,6 +1880,17 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
             Assert.Null(session.RequestId);
             Assert.Null(session.DraftAiProposalJson);
             Assert.Equal(WhatsAppConversationState.Ended, session.State);
+            var managerOutbound = Assert.Single(await db.WhatsAppOutboundMessages
+                .Where(x => x.NotificationType
+                    == WhatsAppNotificationType.ManagerNewRequest)
+                .ToArrayAsync());
+            Assert.Equal(WhatsAppSendMode.Template, managerOutbound.SendMode);
+            Assert.Equal("manager_new_request", managerOutbound.TemplateName);
+            Assert.Equal(
+                ["Residencial Teste", "Maria Silva", "101", "-",
+                    request.Title],
+                WhatsAppOutboundWorker.ManagerNewRequestTemplateParameters(
+                    managerOutbound.TemplateParameterContent));
             return request.Id;
         });
 
