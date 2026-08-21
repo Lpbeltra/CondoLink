@@ -14,7 +14,7 @@ describe('request management actions', () => {
   })
 
   it('requires explicit confirmation for both shortcuts', () => {
-    expect(getStatusConfirmation(requestShortcutStatuses.resolve)).toBe('A conclusão será enviada ao morador para confirmação.')
+    expect(getStatusConfirmation(requestShortcutStatuses.resolve)).toBe('A solicitação será finalizada imediatamente, sem solicitar confirmação ao morador.')
     expect(getStatusConfirmation(requestShortcutStatuses.cancel)).toBe('Deseja cancelar esta solicitação?')
   })
 

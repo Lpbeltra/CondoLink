@@ -111,16 +111,15 @@ public sealed class NotificationService(
                 request.Id, request.Status);
             return;
         }
-        var content = request.Status == RequestStatus.WaitingForResident
-            ? ResidentReplyRequestedContent(request.Title, reason!)
-            : StatusChangedContent(request.Title, previousStatus, request.Status, reason);
+        var administrativeContent = AdministrativeContent(
+            request.Title, previousStatus, request.Status, reason);
 
         dbContext.Notifications.Add(new Notification(
             request.AuthorUserId,
             request.CondominiumId,
             NotificationType.RequestStatusChanged,
             "Status atualizado",
-            content,
+            administrativeContent,
             request.Id));
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -143,6 +142,15 @@ public sealed class NotificationService(
         }
         else
         {
+            var residentFullName = await dbContext
+                .Set<CondoLink.Infrastructure.Identity.ApplicationUser>()
+                .AsNoTracking()
+                .Where(user => user.Id == request.AuthorUserId)
+                .Select(user => user.FullName)
+                .SingleAsync(cancellationToken);
+            var content = StatusChangedContent(residentFullName,
+                request.Title, previousStatus, request.Status,
+                administrativeContent);
             logger?.LogInformation(
                 "WhatsApp notification flow. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; Decision: {Decision}; Reason: {Reason}",
                 request.Id, request.CondominiumId, type, "CallingWhatsAppDispatcher",
@@ -298,60 +306,76 @@ public sealed class NotificationService(
         _ => false
     };
 
-    internal static string StatusChangedContent(string title,
-        RequestStatus previousStatus, RequestStatus newStatus, string? reason)
+    internal static string AdministrativeContent(string title,
+        RequestStatus previousStatus, RequestStatus newStatus, string? approvedText)
     {
-        var comment = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
-        var context = comment is null ? string.Empty : $" Contexto: {comment}";
+        if (!string.IsNullOrWhiteSpace(approvedText))
+            return approvedText;
+
         return newStatus switch
         {
             RequestStatus.WaitingForThirdParty =>
-                comment ?? "Estamos aguardando uma etapa externa para continuar seu atendimento.",
+                "Estamos aguardando uma etapa externa para continuar seu atendimento.",
+            RequestStatus.WaitingForResident =>
+                "A administração precisa de uma informação sua para continuar o atendimento.",
             RequestStatus.WaitingForResidentClosure =>
-                "*A administração informou que sua solicitação foi concluída:*\n\n"
-                + (comment ?? "A atuação da administração foi concluída.")
-                + "\n\nEstá tudo certo?\n\n1 - Sim, finalizar atendimento\n2 - Ainda tenho uma dúvida",
+                "A atuação da administração foi concluída.",
             RequestStatus.InProgress =>
-                "A administração retomou o andamento do seu atendimento." + context,
+                "A administração retomou o andamento do seu atendimento.",
             RequestStatus.Resolved =>
-                "*Seu atendimento foi finalizado.*\n\n"
-                + (comment is null
-                    ? "A administração concluiu esta solicitação."
-                    : comment),
+                "A administração concluiu esta solicitação.",
             RequestStatus.Cancelled =>
-                "*Seu atendimento foi cancelado.*\n\n"
-                + (comment is null
-                    ? "A administração encerrou esta solicitação."
-                    : comment),
+                "A administração encerrou esta solicitação.",
             RequestStatus.Open when previousStatus is RequestStatus.Resolved
-                or RequestStatus.Cancelled =>
-                "Seu atendimento foi reaberto e voltará a ser analisado pela administração."
-                + context,
-            _ => $"Há uma atualização no atendimento *\"{Shorten(title, 80)}\"*."
-                + context
+                or RequestStatus.Cancelled => "Seu atendimento foi reaberto.",
+            _ => $"Há uma atualização no atendimento \"{Shorten(title, 80)}\"."
         };
     }
 
-    private static string TerminalContent(RequestStatus status, string message)
+    internal static string StatusChangedContent(string residentFullName,
+        string title, RequestStatus previousStatus, RequestStatus newStatus,
+        string approvedText)
     {
-        if (status is not (RequestStatus.Resolved or RequestStatus.Cancelled))
-            return message.Trim();
-
-        var heading = status == RequestStatus.Resolved
-            ? "*Seu atendimento foi finalizado.*"
-            : "*Seu atendimento foi cancelado.*";
-        var trimmed = message.Trim();
-        if (trimmed.StartsWith(heading, StringComparison.OrdinalIgnoreCase))
-            trimmed = trimmed[heading.Length..].TrimStart('\r', '\n', ' ');
-        return string.IsNullOrWhiteSpace(trimmed)
-            ? StatusChangedContent(string.Empty, RequestStatus.InProgress, status, null)
-            : $"{heading}\n\n{trimmed}";
+        var firstName = FirstName(residentFullName);
+        return newStatus switch
+        {
+            RequestStatus.WaitingForThirdParty =>
+                $"Olá, {firstName}! Há uma atualização sobre sua solicitação.\n\n"
+                + "A administração informou que o atendimento está aguardando um terceiro:\n\n"
+                + approvedText
+                + "\n\nVocê será avisado quando houver uma nova atualização.\n\n"
+                + NewInteractionInstruction,
+            RequestStatus.WaitingForResident =>
+                $"Olá, {firstName}! Precisamos de uma informação sua para continuar o atendimento.\n\n"
+                + approvedText + "\n\nResponda por aqui para continuar.",
+            RequestStatus.WaitingForResidentClosure =>
+                $"Olá, {firstName}! A administração informou que sua solicitação foi concluída:\n\n"
+                + approvedText + "\n\nEstá tudo certo?\n\n"
+                + "1 - Sim, finalizar atendimento\n2 - Ainda tenho uma dúvida",
+            RequestStatus.Resolved =>
+                $"Olá, {firstName}! Sua solicitação foi finalizada pela administração.\n\n"
+                + approvedText + "\n\n" + NewInteractionInstruction,
+            RequestStatus.Cancelled =>
+                $"Olá, {firstName}! Sua solicitação foi cancelada pela administração.\n\n"
+                + approvedText + "\n\n" + NewInteractionInstruction,
+            RequestStatus.Open when previousStatus is RequestStatus.Resolved
+                or RequestStatus.Cancelled =>
+                $"Olá, {firstName}! Sua solicitação foi reaberta e voltou a ser acompanhada pela administração.\n\n"
+                + approvedText + "\n\n" + NewInteractionInstruction,
+            _ => $"Olá, {firstName}! Há uma atualização no atendimento \"{Shorten(title, 80)}\".\n\n"
+                + approvedText
+        };
     }
 
-    internal static string ResidentReplyRequestedContent(string title, string question) =>
-        "A administração precisa de uma informação sua sobre a solicitação:\n\n" +
-        $"*\"{Shorten(title, 120)}\"*\n\n{question.Trim()}\n\n" +
-        "1 - Responder agora\n2 - Responder depois";
+    private const string NewInteractionInstruction =
+        "Se precisar de mais informações ou quiser iniciar outro atendimento, é só enviar \"Oi\".";
+
+    private static string FirstName(string fullName)
+    {
+        var trimmed = fullName.Trim();
+        var separator = trimmed.IndexOf(' ');
+        return separator < 0 ? trimmed : trimmed[..separator];
+    }
 
     internal static string ManagerNewRequestContent(string condominiumName,
         string residentName, string? unit, string? block, string? title)

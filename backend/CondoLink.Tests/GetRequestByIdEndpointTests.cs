@@ -290,7 +290,7 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
             new { status = "WaitingForThirdParty", reason = "Equipe acionada" });
         await manager.PatchAsJsonAsync(
             $"/requests/{_requestId}/status",
-            new { status = "Resolved", reason = "Serviço concluído" });
+            new { status = "WaitingForResidentClosure", reason = "Serviço concluído" });
 
         var body = await _host.ClientFor(_authorId)
             .GetFromJsonAsync<GetRequestById.Response>(

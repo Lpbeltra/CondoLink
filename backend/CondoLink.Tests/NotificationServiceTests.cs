@@ -391,15 +391,19 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         request.ChangeStatus(RequestStatus.WaitingForThirdParty, DateTime.UtcNow);
         var historyId = Guid.NewGuid();
 
+        const string approved = "Avisei a portaria sobre a solicitação da tag, eles vão te chamar no WhatsApp.";
         await service.NotifyStatusChangedAsync(request, RequestStatus.InProgress,
-            _managerA.Id, default, historyId, "Solicitada a TAG para a portaria");
+            _managerA.Id, default, historyId, approved);
         await service.NotifyStatusChangedAsync(request, RequestStatus.InProgress,
-            _managerA.Id, default, historyId, "Solicitada a TAG para a portaria");
+            _managerA.Id, default, historyId, approved);
 
         Assert.Equal(0, ai.SynthesisCalls);
         var outbound = Assert.Single(await _db.WhatsAppOutboundMessages
             .AsNoTracking().ToArrayAsync());
-        Assert.Equal("Solicitada a TAG para a portaria", outbound.Content);
+        Assert.Contains("Há uma atualização sobre sua solicitação", outbound.Content);
+        Assert.Contains("aguardando um terceiro", outbound.Content);
+        Assert.Contains(approved, outbound.Content);
+        Assert.Contains("enviar \"Oi\"", outbound.Content);
         Assert.DoesNotContain("prazo", outbound.Content,
             StringComparison.OrdinalIgnoreCase);
         Assert.Equal(WhatsAppNotificationType.StatusChanged, outbound.NotificationType);
@@ -426,10 +430,95 @@ public sealed class NotificationServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Waiting_for_resident_keeps_approved_text_without_generic_oi_instruction()
+    {
+        const string approved = "Envie uma foto do visor com o código exibido.";
+        var dispatcher = new WhatsAppNotificationDispatcher(_db,
+            Options.Create(new WhatsAppOptions()),
+            NullLogger<WhatsAppNotificationDispatcher>.Instance);
+        var service = new NotificationService(_db, dispatcher,
+            NullLogger<NotificationService>.Instance);
+        var request = await AddRequestAsync(_resident.Id);
+        request.ChangeStatus(RequestStatus.WaitingForResident, DateTime.UtcNow);
+
+        await service.NotifyStatusChangedAsync(request, RequestStatus.InProgress,
+            _managerA.Id, default, Guid.NewGuid(), approved);
+
+        Assert.Equal(approved, Assert.Single(await _db.Notifications
+            .AsNoTracking().ToArrayAsync()).Body);
+        var outbound = Assert.Single(await _db.WhatsAppOutboundMessages
+            .AsNoTracking().ToArrayAsync());
+        Assert.Contains("Precisamos de uma informação sua", outbound.Content);
+        Assert.Contains(approved, outbound.Content);
+        Assert.Contains("Responda por aqui", outbound.Content);
+        Assert.DoesNotContain("enviar \"Oi\"", outbound.Content);
+        Assert.Equal(WhatsAppNotificationType.InformationRequested,
+            outbound.NotificationType);
+    }
+
+    [Fact]
+    public void Original_and_ai_choice_change_only_the_literal_administrative_content()
+    {
+        const string original = "Avisei a portaria; eles vão chamar no WhatsApp.\nAguarde, por favor.";
+        const string suggestion = "A portaria recebeu a solicitação e entrará em contato pelo WhatsApp.";
+        var originalOutbound = NotificationService.StatusChangedContent(
+            "Maria da Silva", "Tag", RequestStatus.InProgress,
+            RequestStatus.WaitingForThirdParty, original);
+        var suggestionOutbound = NotificationService.StatusChangedContent(
+            "Maria da Silva", "Tag", RequestStatus.InProgress,
+            RequestStatus.WaitingForThirdParty, suggestion);
+
+        Assert.Contains(original, originalOutbound);
+        Assert.Contains(suggestion, suggestionOutbound);
+        Assert.Equal(originalOutbound.Replace(original, "{texto_aprovado}"),
+            suggestionOutbound.Replace(suggestion, "{texto_aprovado}"));
+    }
+
+    [Fact]
+    public void Operational_frames_fit_1500_characters_with_the_maximum_approved_text()
+    {
+        var approved = new string('á', 1000);
+        var longestFirstName = new string('N', 200);
+        var statuses = new[]
+        {
+            RequestStatus.WaitingForResident,
+            RequestStatus.WaitingForThirdParty,
+            RequestStatus.WaitingForResidentClosure,
+            RequestStatus.Resolved,
+            RequestStatus.Cancelled,
+            RequestStatus.Open
+        };
+
+        foreach (var status in statuses)
+        {
+            var previous = status == RequestStatus.Open
+                ? RequestStatus.Cancelled : RequestStatus.InProgress;
+            var content = NotificationService.StatusChangedContent(
+                longestFirstName, "Título", previous, status, approved);
+            Assert.True(content.Length <= 1500,
+                $"{status} produced {content.Length} characters.");
+        }
+    }
+
+    [Fact]
+    public void Reopened_frame_contextualizes_follow_up_and_preserves_approved_text()
+    {
+        const string approved = "A solicitação voltou para análise da equipe técnica.";
+        var content = NotificationService.StatusChangedContent(
+            "Maria da Silva", "Tag", RequestStatus.Cancelled,
+            RequestStatus.Open, approved);
+
+        Assert.Contains("Olá, Maria!", content);
+        Assert.Contains("foi reaberta", content);
+        Assert.Contains("voltou a ser acompanhada", content);
+        Assert.Contains(approved, content);
+        Assert.Contains("enviar \"Oi\"", content);
+    }
+
+    [Fact]
     public async Task Resolved_status_with_reason_does_not_use_ai_synthesis()
     {
         var status = RequestStatus.Resolved;
-        const string heading = "*Seu atendimento foi finalizado.*";
         var ai = new FakeAi(new(true,
             "A TAG está disponível na portaria.",
             "succeeded", "model-test"));
@@ -448,8 +537,14 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             _managerA.Id, default, Guid.NewGuid(), "TAG entregue na portaria");
 
         Assert.Equal(0, ai.SynthesisCalls);
-        Assert.Equal($"{heading}\n\nTAG entregue na portaria",
+        Assert.Equal("TAG entregue na portaria",
             Assert.Single(await _db.Notifications.AsNoTracking().ToArrayAsync()).Body);
+        var outbound = Assert.Single(await _db.WhatsAppOutboundMessages
+            .AsNoTracking().ToArrayAsync());
+        Assert.Contains("solicitação foi finalizada", outbound.Content);
+        Assert.Contains("TAG entregue na portaria", outbound.Content);
+        Assert.Contains("enviar \"Oi\"", outbound.Content);
+        Assert.Empty(await _db.RequestClosureConfirmations.AsNoTracking().ToArrayAsync());
     }
 
     [Fact]
@@ -473,35 +568,10 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             .AsNoTracking().ToArrayAsync());
         Assert.Equal(WhatsAppNotificationType.RequestCancelled,
             outbound.NotificationType);
-        Assert.Equal("*Seu atendimento foi cancelado.*\n\n" + reason,
-            outbound.Content);
-    }
-
-    [Fact]
-    public void Status_notification_content_follows_the_whatsapp_template_with_optional_comment()
-    {
-        var withoutComment = NotificationService.StatusChangedContent(
-            "Vazamento", RequestStatus.InProgress,
-            RequestStatus.WaitingForThirdParty, null);
-        var withComment = NotificationService.StatusChangedContent(
-            "Vazamento", RequestStatus.InProgress,
-            RequestStatus.WaitingForResident, "Envie uma foto.");
-
-        Assert.Equal("Estamos aguardando uma etapa externa para continuar seu atendimento.",
-            withoutComment);
-        Assert.DoesNotContain("Contexto", withoutComment);
-        Assert.Contains("Contexto: Envie uma foto.", withComment);
-    }
-
-    [Fact]
-    public void Status_notification_uses_resident_facing_language_without_internal_labels()
-    {
-        Assert.Contains("etapa externa", NotificationService.StatusChangedContent(
-            "Vazamento", RequestStatus.InProgress, RequestStatus.WaitingForThirdParty, null));
-        Assert.Contains("finalizado", NotificationService.StatusChangedContent(
-            "Vazamento", RequestStatus.InProgress, RequestStatus.Resolved, null));
-        Assert.DoesNotContain("WaitingFor", NotificationService.StatusChangedContent(
-            "Vazamento", RequestStatus.InProgress, RequestStatus.WaitingForThirdParty, null));
+        Assert.Contains("solicitação foi cancelada", outbound.Content);
+        Assert.Contains(reason, outbound.Content);
+        Assert.DoesNotContain("solicitação foi finalizada", outbound.Content);
+        Assert.Contains("enviar \"Oi\"", outbound.Content);
     }
 
     [Fact]
@@ -516,7 +586,7 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         Assert.Equal(WhatsAppNotificationType.StatusChanged,
             NotificationService.StatusNotificationType(
                 RequestStatus.InProgress, RequestStatus.WaitingForResidentClosure));
-        var content = NotificationService.StatusChangedContent("Tag",
+        var content = NotificationService.StatusChangedContent("Maria", "Tag",
             RequestStatus.InProgress, RequestStatus.WaitingForResidentClosure,
             "Tag entregue na portaria.");
         Assert.Contains("Tag entregue na portaria.", content);
@@ -554,6 +624,7 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         Assert.Contains("concluída", outbound.Content);
         Assert.DoesNotContain("Ã", outbound.Content);
         Assert.DoesNotContain("Seu atendimento foi finalizado", outbound.Content);
+        Assert.DoesNotContain("enviar \"Oi\"", outbound.Content);
     }
 
     [Theory]
@@ -607,16 +678,6 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         Assert.Empty(await _db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync());
     }
 
-    [Theory]
-    [InlineData(RequestStatus.Resolved, "*Seu atendimento foi finalizado.*\n\nA administração concluiu esta solicitação.")]
-    [InlineData(RequestStatus.Cancelled, "*Seu atendimento foi cancelado.*\n\nA administração encerrou esta solicitação.")]
-    public void Terminal_statuses_have_deterministic_resident_fallbacks(
-        RequestStatus status, string expected)
-    {
-        Assert.Equal(expected, NotificationService.StatusChangedContent(
-            "Vazamento", RequestStatus.InProgress, status, null));
-    }
-
     [Fact]
     public async Task Terminal_ai_failure_uses_deterministic_fallback()
     {
@@ -635,8 +696,9 @@ public sealed class NotificationServiceTests : IAsyncLifetime
 
         var outbound = Assert.Single(await _db.WhatsAppOutboundMessages
             .AsNoTracking().ToArrayAsync());
-        Assert.Equal("*Seu atendimento foi finalizado.*\n\n"
-            + "O reparo foi concluído", outbound.Content);
+        Assert.Contains("solicitação foi finalizada", outbound.Content);
+        Assert.Contains("O reparo foi concluído", outbound.Content);
+        Assert.Contains("enviar \"Oi\"", outbound.Content);
     }
 
     // ---- messages ----

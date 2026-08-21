@@ -13,7 +13,7 @@ export function getRequestActionVisibility(status: RequestStatus) {
 export const requestShortcutStatuses = { resolve: 'Resolved', cancel: 'Cancelled' } as const
 
 export function getStatusConfirmation(status: RequestStatus) {
-  if (status === 'Resolved') return 'A conclusão será enviada ao morador para confirmação.'
+  if (status === 'Resolved') return 'A solicitação será finalizada imediatamente, sem solicitar confirmação ao morador.'
   if (status === 'Cancelled') return 'Deseja cancelar esta solicitação?'
   return null
 }

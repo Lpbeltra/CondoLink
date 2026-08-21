@@ -125,9 +125,6 @@ public static class UpdateRequestStatus
                 error = "A comment is required for the selected status."
             });
         }
-        if (newStatus == RequestStatus.Resolved)
-            newStatus = RequestStatus.WaitingForResidentClosure;
-
         if (targetRequest.Status == newStatus)
         {
             return Results.Conflict(

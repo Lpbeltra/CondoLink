@@ -180,7 +180,7 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
             new { status = "InProgress", reason = "  Equipe acionada  " });
         await manager.PatchAsJsonAsync(
             $"/requests/{_requestId}/status",
-            new { status = "Resolved", reason = "Serviço concluído" });
+            new { status = "WaitingForResidentClosure", reason = "Serviço concluído" });
 
         var history = await HistoryAsync();
         Assert.Equal(2, history.Count);
@@ -200,7 +200,7 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
 
         var resolved = await manager.PatchAsJsonAsync(
             $"/requests/{_requestId}/status",
-            new { status = "Resolved", reason = "Problema corrigido" });
+            new { status = "WaitingForResidentClosure", reason = "Problema corrigido" });
         var resolvedBody = await resolved.Content
             .ReadFromJsonAsync<UpdateRequestStatus.Response>();
         Assert.Equal("WaitingForResidentClosure", resolvedBody!.Status);
@@ -243,10 +243,10 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         var manager = _host.ClientFor(_managerId);
         var response = await manager.PatchAsJsonAsync(
             $"/requests/{_requestId}/status",
-            new { status = "Resolved", reason = conclusion });
+            new { status = "WaitingForResidentClosure", reason = conclusion });
         var duplicate = await manager.PatchAsJsonAsync(
             $"/requests/{_requestId}/status",
-            new { status = "Resolved", reason = conclusion });
+            new { status = "WaitingForResidentClosure", reason = conclusion });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
@@ -270,6 +270,31 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         Assert.Equal(_requestId, session.RequestId);
         var history = Assert.Single(await HistoryAsync());
         Assert.Equal($"request-status:{history.Id}", outbound.IdempotencyKey);
+    }
+
+    [Fact]
+    public async Task Resolved_finalizes_immediately_without_closure_confirmation()
+    {
+        const string approved = "A tag foi entregue diretamente ao morador.";
+
+        var response = await _host.ClientFor(_managerId).PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "Resolved", reason = approved });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content
+            .ReadFromJsonAsync<UpdateRequestStatus.Response>();
+        Assert.Equal("Resolved", body!.Status);
+        Assert.NotNull(body.ResolvedAt);
+        Assert.Empty(await _host.WithDbAsync(db => db.RequestClosureConfirmations
+            .AsNoTracking().ToArrayAsync()));
+        Assert.Equal(approved, Assert.Single(await _host.WithDbAsync(db =>
+            db.Notifications.AsNoTracking().ToArrayAsync())).Body);
+        var outbound = Assert.Single(await _host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync()));
+        Assert.Contains("solicitação foi finalizada", outbound.Content);
+        Assert.Contains(approved, outbound.Content);
+        Assert.Contains("enviar \"Oi\"", outbound.Content);
     }
 
     [Fact]
@@ -356,8 +381,10 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
             outbound.NotificationType);
         Assert.Equal(WhatsAppSendMode.Template, outbound.SendMode);
         Assert.Equal("request_status_update", outbound.TemplateName);
-        Assert.Equal("*Seu atendimento foi cancelado.*\n\n" + reason,
-            outbound.Content);
+        Assert.Contains("solicitação foi cancelada", outbound.Content);
+        Assert.Contains(reason, outbound.Content);
+        Assert.DoesNotContain("solicitação foi finalizada", outbound.Content);
+        Assert.Contains("enviar \"Oi\"", outbound.Content);
         Assert.Equal($"request-status:{history.Id}", outbound.IdempotencyKey);
     }
 
@@ -471,9 +498,7 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         Assert.Equal(Assert.Single(await HistoryAsync()).Id, requirement.RequestStatusHistoryId);
         var notification = Assert.Single(await _host.WithDbAsync(db =>
             db.Notifications.AsNoTracking().ToArrayAsync()));
-        Assert.Contains("A administração precisa de uma informação sua", notification.Body);
-        Assert.Contains("Responder agora", notification.Body);
-        Assert.Contains("Envie uma foto do local.", notification.Body);
+        Assert.Equal("Envie uma foto do local.", notification.Body);
     }
 
     [Fact]
@@ -700,7 +725,7 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Waiting_for_third_party_sends_the_exact_utf8_multiline_message_to_portal_and_whatsapp()
+    public async Task Waiting_for_third_party_keeps_exact_utf8_text_in_portal_and_wraps_whatsapp()
     {
         const string message = "Fornecedor acionado para revisão.\nSem prazo prometido — aguardando retorno técnico.";
         var manager = _host.ClientFor(_managerId);
@@ -716,8 +741,12 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         Assert.Equal(message, (await HistoryAsync()).Last().Reason);
         Assert.Equal(message, Assert.Single(await _host.WithDbAsync(db =>
             db.Notifications.AsNoTracking().ToArrayAsync())).Body);
-        Assert.Equal(message, Assert.Single(await _host.WithDbAsync(db =>
-            db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync())).Content);
+        var outbound = Assert.Single(await _host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync())).Content;
+        Assert.Contains("Há uma atualização sobre sua solicitação", outbound);
+        Assert.Contains("aguardando um terceiro", outbound);
+        Assert.Contains(message, outbound);
+        Assert.Contains("enviar \"Oi\"", outbound);
     }
 
     [Fact]

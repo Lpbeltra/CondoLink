@@ -22,7 +22,7 @@ public sealed class WhatsAppOutboundMessageConfiguration
         b.Property(x => x.SendMode).HasColumnName("send_mode").HasConversion<int>().IsRequired();
         b.Property(x => x.TemplateName).HasColumnName("template_name").HasMaxLength(200);
         b.Property(x => x.TemplateLanguage).HasColumnName("template_language").HasMaxLength(20);
-        b.Property(x => x.Content).HasColumnName("content").HasMaxLength(1000).IsRequired();
+        b.Property(x => x.Content).HasColumnName("content").HasMaxLength(1500).IsRequired();
         b.Property(x => x.ExternalMessageId).HasColumnName("external_message_id").HasMaxLength(200);
         b.Property(x => x.Status).HasColumnName("status").HasConversion<int>().IsRequired();
         b.Property(x => x.AttemptCount).HasColumnName("attempt_count").IsRequired();

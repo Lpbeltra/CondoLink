@@ -40,7 +40,7 @@ export function RequestManagementActions({ requestId, status, priority, onUpdate
       const changedStatus = nextStatus
       await updateRequestStatus(requestId, changedStatus, message.trim() || null)
       closeStatus(); await onUpdated()
-      setSuccess(changedStatus === 'Open' ? 'Solicitação reaberta com sucesso.' : changedStatus === 'Resolved' ? 'Conclusão enviada ao morador.' : changedStatus === 'Cancelled' ? 'Solicitação cancelada com sucesso.' : 'Status atualizado com sucesso.')
+      setSuccess(changedStatus === 'Open' ? 'Solicitação reaberta com sucesso.' : changedStatus === 'Resolved' ? 'Solicitação finalizada com sucesso.' : changedStatus === 'WaitingForResidentClosure' ? 'Conclusão enviada ao morador.' : changedStatus === 'Cancelled' ? 'Solicitação cancelada com sucesso.' : 'Status atualizado com sucesso.')
     } catch (requestError) { setError(friendlyError(requestError)) } finally { setIsSaving(false) }
   }
   const generateSuggestion = async () => {

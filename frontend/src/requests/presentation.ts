@@ -46,11 +46,11 @@ export function isClosedRequest(status: RequestStatus) {
 }
 
 export const allowedStatusTransitions: Record<RequestStatus, RequestStatus[]> = {
-  Open: ['InProgress', 'Resolved', 'Cancelled'],
-  InProgress: ['WaitingForResident', 'WaitingForManager', 'WaitingForThirdParty', 'Resolved', 'Cancelled'],
-  WaitingForResident: ['InProgress', 'Resolved', 'Cancelled'],
-  WaitingForThirdParty: ['InProgress', 'Resolved', 'Cancelled'],
-  WaitingForManager: ['InProgress', 'Resolved', 'Cancelled'],
+  Open: ['InProgress', 'WaitingForResidentClosure', 'Resolved', 'Cancelled'],
+  InProgress: ['WaitingForResident', 'WaitingForManager', 'WaitingForThirdParty', 'WaitingForResidentClosure', 'Resolved', 'Cancelled'],
+  WaitingForResident: ['InProgress', 'WaitingForResidentClosure', 'Resolved', 'Cancelled'],
+  WaitingForThirdParty: ['InProgress', 'WaitingForResidentClosure', 'Resolved', 'Cancelled'],
+  WaitingForManager: ['InProgress', 'WaitingForResidentClosure', 'Resolved', 'Cancelled'],
   WaitingForResidentClosure: ['InProgress', 'Cancelled'],
   Resolved: ['Open'],
   Cancelled: ['Open'],

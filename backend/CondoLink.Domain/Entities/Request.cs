@@ -131,24 +131,29 @@ public sealed class Request
             RequestStatus.Open =>
                 newStatus is RequestStatus.InProgress
                     or RequestStatus.WaitingForResidentClosure
+                    or RequestStatus.Resolved
                     or RequestStatus.Cancelled,
             RequestStatus.InProgress =>
                 newStatus is RequestStatus.WaitingForResident
                     or RequestStatus.WaitingForManager
                     or RequestStatus.WaitingForThirdParty
                     or RequestStatus.WaitingForResidentClosure
+                    or RequestStatus.Resolved
                     or RequestStatus.Cancelled,
             RequestStatus.WaitingForResident =>
                 newStatus is RequestStatus.InProgress
                     or RequestStatus.WaitingForResidentClosure
+                    or RequestStatus.Resolved
                     or RequestStatus.Cancelled,
             RequestStatus.WaitingForThirdParty =>
                 newStatus is RequestStatus.InProgress
                     or RequestStatus.WaitingForResidentClosure
+                    or RequestStatus.Resolved
                     or RequestStatus.Cancelled,
             RequestStatus.WaitingForManager =>
                 newStatus is RequestStatus.InProgress
                     or RequestStatus.WaitingForResidentClosure
+                    or RequestStatus.Resolved
                     or RequestStatus.Cancelled,
             RequestStatus.Resolved => newStatus == RequestStatus.Open,
             RequestStatus.Cancelled => newStatus == RequestStatus.Open,
