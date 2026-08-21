@@ -130,7 +130,8 @@ public sealed class WhatsAppOutboundWorker(
                         .Where(x => x.Id == item.UserId)
                         .Select(x => x.FullName)
                         .SingleAsync(ct);
-                    parameters = StatusChangedTemplateParameters(fullName, content);
+                    parameters = StatusChangedTemplateParameters(fullName,
+                        item.TemplateParameterContent ?? content);
                 }
                 else if (item.NotificationType == WhatsAppNotificationType.ManagerNewRequest)
                 {

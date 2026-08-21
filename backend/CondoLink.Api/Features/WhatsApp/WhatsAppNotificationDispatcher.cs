@@ -21,20 +21,21 @@ public sealed class WhatsAppNotificationDispatcher(
         string idempotencyKey,
         string content,
         Guid? requestMessageId,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? templateParameterContent = null)
         => await EnqueueCoreAsync(requestId, null, type, idempotencyKey,
-            content, requestMessageId, ct);
+            content, requestMessageId, ct, templateParameterContent);
 
     public async Task EnqueueForUserAsync(
         Guid requestId, Guid userId, WhatsAppNotificationType type,
         string idempotencyKey, string content, Guid? requestMessageId,
         CancellationToken ct) => await EnqueueCoreAsync(requestId, userId,
-            type, idempotencyKey, content, requestMessageId, ct);
+            type, idempotencyKey, content, requestMessageId, ct, null);
 
     private async Task EnqueueCoreAsync(
         Guid requestId, Guid? recipientUserId, WhatsAppNotificationType type,
         string idempotencyKey, string content, Guid? requestMessageId,
-        CancellationToken ct)
+        CancellationToken ct, string? templateParameterContent)
     {
         var stage = "loading_request";
         var condominiumId = Guid.Empty;
@@ -162,7 +163,7 @@ public sealed class WhatsAppNotificationDispatcher(
                 request.Id, requestMessageId, userId,
                 request.CondominiumId, phone ?? string.Empty, type, mode,
                 idempotencyKey, content, template.Name, template.Language,
-                DateTime.UtcNow, status, skipReason);
+                DateTime.UtcNow, status, skipReason, templateParameterContent);
             db.WhatsAppOutboundMessages.Add(outbound);
             messagesCreated = 1;
             Log("Persisting", "OutboundMessageCreated", 1);

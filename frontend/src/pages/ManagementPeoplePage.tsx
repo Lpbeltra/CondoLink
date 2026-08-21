@@ -62,6 +62,7 @@ import type {
 import { formatDateTime } from "../requests/presentation";
 import { getPersonBadges } from "../management/peoplePresentation";
 import { temporaryCredentialsWhatsAppText } from "../auth/temporaryCredentials";
+import { UnitAutocomplete } from "../management/components/UnitAutocomplete";
 
 interface CredentialResult {
   fullName: string;
@@ -924,26 +925,17 @@ export function ManagementPeoplePage() {
                   />
                 </>
               )}
-              <TextField
-                select
-                label="Associar a uma unidade (opcional)"
+              <UnitAutocomplete
+                units={units}
                 value={unitId}
-                onChange={(e) => {
-                  setUnitId(e.target.value);
-                  if (!e.target.value) {
+                onChange={(nextUnitId) => {
+                  setUnitId(nextUnitId);
+                  if (!nextUnitId) {
                     setResident(false);
                     setPrimary(false);
                   }
                 }}
-              >
-                <MenuItem value="">Nenhuma unidade</MenuItem>
-                {units.map((unit) => (
-                  <MenuItem key={unit.id} value={unit.id}>
-                    {unit.block ? `Bloco ${unit.block} · ` : ""}
-                    {unit.identifier}
-                  </MenuItem>
-                ))}
-              </TextField>
+              />
               {unitId && (
                 <>
                   <TextField

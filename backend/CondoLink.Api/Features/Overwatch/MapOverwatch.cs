@@ -4,6 +4,7 @@ using CondoLink.Api.Features.Overwatch.Managers;
 using CondoLink.Api.Features.Overwatch.ManagementCompanies;
 using CondoLink.Api.Features.Overwatch.ManagementCompanyEmployees;
 using CondoLink.Api.Features.Overwatch.ManagementCompanyRequestCategories;
+using CondoLink.Api.Features.Overwatch.OperationalMessages;
 
 
 namespace CondoLink.Api.Features.Overwatch;
@@ -53,6 +54,7 @@ public static class MapOverwatch
             endpoints.MapCreateManagementCompanyRequestCategory();
             endpoints.MapUpdateManagementCompanyRequestCategory();
             endpoints.MapUpdateManagementCompanyRequestCategoryStatus();
+            endpoints.MapOperationalMessageEndpoints();
 
         return endpoints;
     }

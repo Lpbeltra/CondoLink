@@ -4,6 +4,7 @@ using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using DomainRequest = CondoLink.Domain.Entities.Request;
 using CondoLink.Api.Features.WhatsApp;
+using CondoLink.Api.Features.OperationalMessages;
 
 namespace CondoLink.Api.Features.Notifications;
 
@@ -16,7 +17,8 @@ namespace CondoLink.Api.Features.Notifications;
 public sealed class NotificationService(
     AppDbContext dbContext,
     WhatsAppNotificationDispatcher? whatsApp = null,
-    ILogger<NotificationService>? logger = null)
+    ILogger<NotificationService>? logger = null,
+    OperationalMessageTemplateService? operationalMessages = null)
 {
     /// <summary>
     /// Notifies the managers of a condominium that a new request was opened.
@@ -148,9 +150,16 @@ public sealed class NotificationService(
                 .Where(user => user.Id == request.AuthorUserId)
                 .Select(user => user.FullName)
                 .SingleAsync(cancellationToken);
-            var content = StatusChangedContent(residentFullName,
-                request.Title, previousStatus, request.Status,
-                administrativeContent);
+            var templateKey = OperationalTemplateKey(previousStatus, request.Status);
+            var content = operationalMessages is null || templateKey is null
+                ? StatusChangedContent(residentFullName, request.Title,
+                    previousStatus, request.Status, administrativeContent)
+                : await operationalMessages.ComposeAsync(templateKey,
+                    FirstName(residentFullName),
+                    await dbContext.Condominiums.AsNoTracking()
+                        .Where(x => x.Id == request.CondominiumId)
+                        .Select(x => x.Name).SingleAsync(cancellationToken),
+                    administrativeContent, cancellationToken);
             logger?.LogInformation(
                 "WhatsApp notification flow. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; Decision: {Decision}; Reason: {Reason}",
                 request.Id, request.CondominiumId, type, "CallingWhatsAppDispatcher",
@@ -158,7 +167,8 @@ public sealed class NotificationService(
             await whatsApp.EnqueueAsync(
                 request.Id, type, $"request-status:{statusHistoryId}",
                 content,
-                null, cancellationToken);
+                null, cancellationToken,
+                templateParameterContent: administrativeContent);
             logger?.LogInformation(
                 "WhatsApp notification enqueue completed. RequestId: {RequestId}; NewStatus: {NewStatus}; NotificationType: {NotificationType}.",
                 request.Id, request.Status, type);
@@ -304,6 +314,19 @@ public sealed class NotificationService(
             or RequestStatus.Cancelled,
         RequestStatus.InProgress => false,
         _ => false
+    };
+
+    internal static string? OperationalTemplateKey(RequestStatus previousStatus,
+        RequestStatus currentStatus) => currentStatus switch
+    {
+        RequestStatus.WaitingForThirdParty => "WaitingForThirdParty",
+        RequestStatus.WaitingForResident => "WaitingForResident",
+        RequestStatus.WaitingForResidentClosure => "WaitingForResidentClosure",
+        RequestStatus.Resolved => "Resolved",
+        RequestStatus.Cancelled => "Cancelled",
+        RequestStatus.Open when previousStatus is RequestStatus.Resolved
+            or RequestStatus.Cancelled => "Reopened",
+        _ => null
     };
 
     internal static string AdministrativeContent(string title,

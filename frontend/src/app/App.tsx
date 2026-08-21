@@ -35,6 +35,7 @@ import { OverwatchManagementCompanyDetailsPage } from '../overwatch/pages/Overwa
 import { OverwatchManagersPage } from '../overwatch/pages/OverwatchManagersPage'
 import { OverwatchManagerDetailsPage } from '../overwatch/pages/OverwatchManagerDetailsPage'
 import { OverwatchSystemPage } from '../overwatch/pages/OverwatchSystemPage'
+import { OverwatchMessagesPage } from '../overwatch/pages/OverwatchMessagesPage'
 import { getProtectedRouteAccess } from '../auth/routeAccess'
 
 function ProtectedRoute() {
@@ -96,6 +97,7 @@ export function App() {
                     <Route path="managers" element={<OverwatchManagersPage />} />
                     <Route path="managers/:managerId" element={<OverwatchManagerDetailsPage />} />
                     <Route path="system" element={<OverwatchSystemPage />} />
+                    <Route path="messages" element={<OverwatchMessagesPage />} />
                   </Route>
                 </Route>
               </Route>

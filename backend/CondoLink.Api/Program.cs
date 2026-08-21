@@ -24,6 +24,7 @@ using CondoLink.Api.Features.Overwatch;
 using CondoLink.Api.Features.Overwatch.Managers;
 using Microsoft.EntityFrameworkCore;
 using CondoLink.Api.Features.Observability;
+using CondoLink.Api.Features.OperationalMessages;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -34,6 +35,7 @@ builder.Services.AddScoped<CondominiumMembershipService>();
 builder.Services.AddScoped<CondoLink.Api.Features.Categories.RequestCategoryResolver>();
 builder.Services.AddScoped<ManagerOnboardingService>();
 builder.Services.AddScoped<NotificationService>();
+builder.Services.AddScoped<OperationalMessageTemplateService>();
 builder.Services.AddScoped<RequestAiAnalysisRefresher>();
 builder.Services.AddScoped<ResidentReplyService>();
 builder.Services.AddScoped<RequestClosureService>();
