@@ -1090,7 +1090,7 @@ public static class CondominiumSetupEndpoints
     private static bool TryFirstAccessChannel(
         string? value, bool legacyEmail, out string channel)
     {
-        var normalized = NormalizeLookup(value);
+        var normalized = NormalizeLookup(Optional(value));
         if (normalized is null)
         {
             channel = legacyEmail ? "Email" : "None";

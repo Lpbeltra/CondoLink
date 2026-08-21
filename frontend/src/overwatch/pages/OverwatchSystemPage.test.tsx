@@ -27,7 +27,7 @@ describe('OverwatchSystemPage',()=>{
     expect(screen.getByText(/1 erros 5xx \(0.83%\)/)).toBeInTheDocument()
     expect(screen.getByText('Interativo')).toBeInTheDocument()
     expect(screen.getAllByText('Degradado').length).toBeGreaterThan(0)
-    expect(screen.getByText('Indisponível')).toBeInTheDocument(); expect(screen.getAllByText('Desconhecido').length).toBeGreaterThan(0); expect(screen.getAllByText('Desabilitado').length).toBeGreaterThan(0); expect(screen.getByText('Item mais antigo: 37s · 1 falhas/24h')).toBeInTheDocument(); expect(screen.getByText('Sem atividade')).toBeInTheDocument(); expect(screen.getAllByText('batch_failed').length).toBeGreaterThan(0)
+    expect(screen.getByText('Crítico')).toBeInTheDocument(); expect(screen.getAllByText('Desconhecido').length).toBeGreaterThan(0); expect(screen.getAllByText('Desabilitado').length).toBeGreaterThan(0); expect(screen.getByText('Item mais antigo: 37s · 1 falhas/24h')).toBeInTheDocument(); expect(screen.getByText('Sem atividade')).toBeInTheDocument(); expect(screen.getAllByText('batch_failed').length).toBeGreaterThan(0)
   })
   it('refreshes and exposes API errors',async()=>{
     const call=vi.spyOn(system,'getSystemStatus').mockResolvedValueOnce(response).mockRejectedValueOnce(new Error())

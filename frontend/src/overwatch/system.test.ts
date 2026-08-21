@@ -3,7 +3,7 @@ const get = vi.hoisted(() => vi.fn())
 vi.mock('../services/api', () => ({ api: { get } }))
 import { downloadSystemDiagnostic, duration, statusLabel } from './system'
 describe('system observability presentation', () => {
-  it('covers every operational state', () => expect(Object.values(statusLabel)).toEqual(['Saudável','Degradado','Indisponível','Desconhecido','Desabilitado']))
+  it('covers every operational state', () => expect(Object.values(statusLabel)).toEqual(['Saudável','Degradado','Crítico','Desconhecido','Desabilitado']))
   it('formats queue age', () => { expect(duration(37)).toBe('37s'); expect(duration(125)).toBe('2min'); expect(duration(undefined)).toBe('—') })
   it('downloads through authenticated HTTP and revokes the object URL', async () => {
     const blob = new Blob(['diagnostic'])

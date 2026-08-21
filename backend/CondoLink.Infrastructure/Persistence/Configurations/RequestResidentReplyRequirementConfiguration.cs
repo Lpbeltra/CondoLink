@@ -26,7 +26,7 @@ public sealed class RequestResidentReplyRequirementConfiguration
         builder.Property(x => x.LastReminderAt).HasColumnName("last_reminder_at");
         builder.Property(x => x.CreatedAt).HasColumnName("created_at");
         builder.Property(x => x.UpdatedAt).HasColumnName("updated_at");
-        builder.Property(x => x.Question).HasMaxLength(500).IsRequired();
+        builder.Property(x => x.Question).HasMaxLength(1000).IsRequired();
         builder.HasIndex(x => x.RequestId).HasFilter("is_active = true").IsUnique();
         builder.HasIndex(x => new { x.RequestId, x.RequestedAt });
         builder.HasOne<Request>().WithMany().HasForeignKey(x => x.RequestId)

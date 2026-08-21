@@ -26,15 +26,18 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
     private Guid _otherManagerId;
     private Guid _residentId;
     private Guid _requestId;
+    private readonly StatusSuggestionAi _statusSuggestionAi = new();
 
     public async Task InitializeAsync()
     {
         _host = await CoreEndpointTestHost.StartAsync(application =>
         {
             application.MapUpdateRequestStatus();
+            application.MapSuggestRequestStatusMessage();
             application.MapUpdateRequestPriority();
         }, builder => builder.Services
             .AddScoped<WhatsAppNotificationDispatcher>()
+            .AddSingleton<IRequestDraftAiService>(_statusSuggestionAi)
             .Configure<WhatsAppOptions>(options => options.Enabled = true));
 
         await _host.WithDbAsync(async db =>
@@ -374,23 +377,23 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Reason_of_exactly_500_characters_is_accepted()
+    public async Task Reason_of_exactly_1000_characters_is_accepted()
     {
         var response = await _host.ClientFor(_managerId).PatchAsJsonAsync(
             $"/requests/{_requestId}/status",
-            new { status = "InProgress", reason = new string('a', 500) });
+            new { status = "InProgress", reason = new string('a', 1000) });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var history = Assert.Single(await HistoryAsync());
-        Assert.Equal(500, history.Reason!.Length);
+        Assert.Equal(1000, history.Reason!.Length);
     }
 
     [Fact]
-    public async Task Reason_longer_than_500_characters_returns_400()
+    public async Task Reason_longer_than_1000_characters_returns_400()
     {
         var response = await _host.ClientFor(_managerId).PatchAsJsonAsync(
             $"/requests/{_requestId}/status",
-            new { status = "InProgress", reason = new string('a', 501) });
+            new { status = "InProgress", reason = new string('a', 1001) });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(RequestStatus.Open, await CurrentStatusAsync());
@@ -696,6 +699,55 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         Assert.Empty(await HistoryAsync());
     }
 
+    [Fact]
+    public async Task Waiting_for_third_party_sends_the_exact_utf8_multiline_message_to_portal_and_whatsapp()
+    {
+        const string message = "Fornecedor acionado para revisão.\nSem prazo prometido — aguardando retorno técnico.";
+        var manager = _host.ClientFor(_managerId);
+        var started = await manager.PatchAsJsonAsync(
+            $"/requests/{_requestId}/status", new { status = "InProgress" });
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+
+        var response = await manager.PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "WaitingForThirdParty", reason = message });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(message, (await HistoryAsync()).Last().Reason);
+        Assert.Equal(message, Assert.Single(await _host.WithDbAsync(db =>
+            db.Notifications.AsNoTracking().ToArrayAsync())).Body);
+        Assert.Equal(message, Assert.Single(await _host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync())).Content);
+    }
+
+    [Fact]
+    public async Task Ai_suggestion_does_not_change_status_or_persist_a_message()
+    {
+        var response = await _host.ClientFor(_managerId).PostAsJsonAsync(
+            $"/requests/{_requestId}/status-message-suggestion",
+            new { status = "WaitingForThirdParty", message = "fornecedor acionado\nsem prazo" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<SuggestRequestStatusMessage.Response>();
+        Assert.Equal("Fornecedor acionado\nsem prazo.", body!.Suggestion);
+        Assert.Equal(RequestStatus.Open, await CurrentStatusAsync());
+        Assert.Empty(await HistoryAsync());
+        Assert.Empty(await _host.WithDbAsync(db => db.Notifications.AsNoTracking().ToArrayAsync()));
+        Assert.Empty(await _host.WithDbAsync(db => db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync()));
+    }
+
+    [Fact]
+    public async Task Ai_suggestion_rejects_1001_characters()
+    {
+        var callsBefore = _statusSuggestionAi.Calls;
+        var response = await _host.ClientFor(_managerId).PostAsJsonAsync(
+            $"/requests/{_requestId}/status-message-suggestion",
+            new { status = "WaitingForThirdParty", message = new string('á', 1001) });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(callsBefore, _statusSuggestionAi.Calls);
+    }
+
     private Task<RequestStatus> CurrentStatusAsync() =>
         _host.WithDbAsync(db => db.Requests
             .AsNoTracking()
@@ -710,4 +762,22 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
             .OrderBy(item => item.CreatedAt)
             .ThenBy(item => item.Id)
             .ToListAsync());
+
+    private sealed class StatusSuggestionAi : IRequestDraftAiService
+    {
+        public int Calls { get; private set; }
+
+        public Task<ResidentStatusSynthesisResult> SynthesizeResidentStatusAsync(
+            string requestTitle, string newStatus, string reason,
+            CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(new ResidentStatusSynthesisResult(true,
+                "Fornecedor acionado\nsem prazo.", "succeeded", "test"));
+        }
+
+        public Task<RequestDraftAiResult> ProposeAsync(string originalReport,
+            IReadOnlyCollection<string> activeCategories, string condominiumName,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
 }

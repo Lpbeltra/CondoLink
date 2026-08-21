@@ -11,7 +11,7 @@ namespace CondoLink.Tests;
 public sealed class RequestDraftAiServiceTests
 {
     [Fact]
-    public async Task Resident_status_prompt_forbids_unfounded_courtesy_and_requires_terminal_heading()
+    public async Task Resident_status_prompt_preserves_the_decision_and_forbids_unfounded_courtesy()
     {
         string? requestBody = null;
         var service = Service(async (request, ct) =>
@@ -27,8 +27,9 @@ public sealed class RequestDraftAiServiceTests
         using var payload = JsonDocument.Parse(requestBody!);
         var prompt = payload.RootElement.GetProperty("messages")[0]
             .GetProperty("content").GetString();
-        Assert.Contains("*Seu atendimento foi finalizado.*", prompt);
-        Assert.Contains("*Seu atendimento foi cancelado.*", prompt);
+        Assert.Contains("Preserve integralmente o sentido", prompt);
+        Assert.Contains("decisão administrativa", prompt);
+        Assert.Contains("Retorne apenas uma sugestão", prompt);
         Assert.Contains("agradecimentos", prompt,
             StringComparison.OrdinalIgnoreCase);
         Assert.Contains("cortesia sem valor informativo", prompt,

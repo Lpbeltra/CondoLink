@@ -187,9 +187,11 @@ public sealed class OperationalObservabilityTests
             old.Beat(now.AddDays(-8), true, 10);
             var closure = new WorkerHeartbeat("RequestClosureWorker", "current", true, 10);
             closure.Beat(now.AddSeconds(-5), true, 10);
+            var inactivity = new WorkerHeartbeat("WhatsAppConversationInactivityWorker", "current", true, 10);
+            inactivity.Beat(now.AddSeconds(-5), true, 10);
             var retention = new WorkerHeartbeat("OperationalRetentionWorker", "current", true, 86400);
             retention.Beat(now.AddMinutes(-1), true, 86400);
-            db.AddRange(current, old, closure, retention, new OperationalEvent(now, "Workers",
+            db.AddRange(current, old, closure, inactivity, retention, new OperationalEvent(now, "Workers",
                 "Execution", "Error", "safe_failure", "request-123"),
                 new OperationalEvent(now, "Email", "Send", "Error",
                     "resident@example.com", "5511999999999"));
@@ -199,7 +201,7 @@ public sealed class OperationalObservabilityTests
         admin.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
         using var json = JsonDocument.Parse(await admin.GetStringAsync("/overwatch/system"));
         var workers = json.RootElement.GetProperty("workers").EnumerateArray().ToArray();
-        Assert.Equal(3, workers.Length);
+        Assert.Equal(4, workers.Length);
         Assert.DoesNotContain(workers,
             x => x.GetProperty("instanceId").GetString() == "old-container");
         var workerComponent = json.RootElement.GetProperty("components")
@@ -214,7 +216,7 @@ public sealed class OperationalObservabilityTests
         Assert.Contains("[redacted]", diagnostic);
         Assert.Equal(1, await host.WithDbAsync(db =>
             OperationalRetentionWorker.DeleteExpiredHeartbeatsAsync(db, now)));
-        Assert.Equal(3, (await host.WithDbAsync(db =>
+        Assert.Equal(4, (await host.WithDbAsync(db =>
             db.WorkerHeartbeats.AsNoTracking().ToArrayAsync())).Length);
     }
 }

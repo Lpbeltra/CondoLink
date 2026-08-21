@@ -68,6 +68,12 @@ export async function updateRequestStatus(requestId: string, status: RequestStat
   return (await api.patch(`/requests/${requestId}/status`, { status, reason })).data
 }
 
+export async function suggestRequestStatusMessage(requestId: string, status: RequestStatus, message: string) {
+  return (await api.post<{ suggestion: string }>(
+    `/requests/${requestId}/status-message-suggestion`, { status, message },
+  )).data
+}
+
 export async function updateRequestPriority(requestId: string, priority: RequestPriority) {
   return (await api.patch(`/requests/${requestId}/priority`, { priority })).data
 }

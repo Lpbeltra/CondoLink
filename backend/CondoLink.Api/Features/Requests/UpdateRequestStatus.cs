@@ -112,10 +112,10 @@ public static class UpdateRequestStatus
         var reason = request.Reason?.Trim();
         reason = string.IsNullOrEmpty(reason) ? null : reason;
 
-        if (reason?.Length > 500)
+        if (reason?.Length > 1000)
         {
             return Results.BadRequest(
-                new { error = "Reason must not exceed 500 characters." });
+                new { error = "A mensagem pode ter no máximo 1000 caracteres." });
         }
 
         if (RequiresReason(newStatus) && reason is null)

@@ -335,6 +335,7 @@ app.MapGetRequestById();
 app.MapListMyRequests();
 app.MapListCondominiumRequests();
 app.MapUpdateRequestStatus();
+app.MapSuggestRequestStatusMessage();
 app.MapUpdateRequestPriority();
 app.MapCreateResidentReply();
 app.MapManageResidentClosure();

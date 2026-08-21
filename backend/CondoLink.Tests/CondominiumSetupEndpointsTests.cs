@@ -218,7 +218,7 @@ public sealed class CondominiumSetupEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Confirmation_creates_credentials_and_all_links_atomically()
+    public async Task Confirmation_creates_user_and_all_links_atomically_without_exposing_credentials()
     {
         var draft = new SetupRequest(
             false,
@@ -243,8 +243,7 @@ public sealed class CondominiumSetupEndpointsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var result = await response.Content
             .ReadFromJsonAsync<SetupConfirmationResponse>();
-        var credential = Assert.Single(result!.Credentials);
-        Assert.False(string.IsNullOrWhiteSpace(credential.TemporaryPassword));
+        Assert.Empty(result!.Credentials);
         await _host.WithServicesAsync(async services =>
         {
             var userManager =
@@ -254,8 +253,6 @@ public sealed class CondominiumSetupEndpointsTests : IAsyncLifetime
             Assert.NotNull(user);
             Assert.True(user!.MustChangePassword);
             Assert.True(user.ReceiveWhatsAppUpdates);
-            Assert.True(await userManager.CheckPasswordAsync(
-                user, credential.TemporaryPassword));
         });
         await _host.WithDbAsync(async db =>
         {

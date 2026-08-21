@@ -85,11 +85,9 @@ public static class ResidentStatusSynthesisPrompt
     public const string System = """
         Redija uma notificação curta e clara ao morador, em português brasileiro
         natural, usando exclusivamente fatos presentes nos dados fornecidos.
-        Explique o resultado em linguagem compreensível, com no máximo 3 frases.
-        Para o status Resolvida, comece exatamente com: *Seu atendimento foi finalizado.*
-        Para o status Cancelada, comece exatamente com: *Seu atendimento foi cancelado.*
-        Use negrito somente nessa frase principal. Não use introduções genéricas como
-        "Há uma atualização sobre sua solicitação".
+        Preserve integralmente o sentido, a decisão administrativa e todas as informações.
+        Melhore somente clareza, objetividade e cordialidade. Retorne apenas uma sugestão
+        de mensagem, sem introdução, explicação ou formatação adicional.
         Não invente fatos, emoções, pedidos de desculpas, lamentações, agradecimentos,
         promessas, prazos, garantias, orientações ou ações. Não escreva "agradecemos
         pela compreensão", "entre em contato com a administração" nem frases de
@@ -122,7 +120,7 @@ public sealed class RequestDraftAiService(HttpClient httpClient,
             {
                 name = "resident_status_update", strict = true,
                 schema = new { type = "object", additionalProperties = false,
-                    properties = new { message = new { type = "string", minLength = 1, maxLength = 600 } },
+                    properties = new { message = new { type = "string", minLength = 1, maxLength = 1000 } },
                     required = new[] { "message" } }
             } },
             messages = new object[]
@@ -143,7 +141,7 @@ public sealed class RequestDraftAiService(HttpClient httpClient,
                 .GetProperty("message").GetProperty("content").GetString();
             using var payload = JsonDocument.Parse(content!);
             var message = payload.RootElement.GetProperty("message").GetString()?.Trim();
-            if (string.IsNullOrWhiteSpace(message) || message.Length > 600
+            if (string.IsNullOrWhiteSpace(message) || message.Length > 1000
                 || ContainsUnsupportedCourtesy(message, reason))
                 return new(false, null, "invalid_response");
             return new(true, message, "succeeded", settings.Model);

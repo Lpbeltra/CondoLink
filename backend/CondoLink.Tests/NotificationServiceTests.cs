@@ -373,12 +373,11 @@ public sealed class NotificationServiceTests : IAsyncLifetime
 
         var notification = await _db.Notifications.AsNoTracking().SingleAsync();
         Assert.Equal(_managerA.Id, notification.RecipientUserId);
-        Assert.Contains("aguardando uma etapa externa", notification.Body);
-        Assert.Contains("Contexto: Aguardando fornecedor", notification.Body);
+        Assert.Equal("Aguardando fornecedor", notification.Body);
     }
 
     [Fact]
-    public async Task Waiting_for_third_party_uses_ai_synthesis_and_enqueues_once()
+    public async Task Waiting_for_third_party_preserves_approved_text_and_enqueues_once()
     {
         var ai = new FakeAi(new(true,
             "Estamos aguardando a emissão da TAG para a portaria. Você será avisado quando houver novidade.",
@@ -387,7 +386,7 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             Options.Create(new WhatsAppOptions()),
             NullLogger<WhatsAppNotificationDispatcher>.Instance);
         var service = new NotificationService(_db, dispatcher,
-            NullLogger<NotificationService>.Instance, ai);
+            NullLogger<NotificationService>.Instance);
         var request = await AddRequestAsync(_resident.Id, "TAG de acesso");
         request.ChangeStatus(RequestStatus.WaitingForThirdParty, DateTime.UtcNow);
         var historyId = Guid.NewGuid();
@@ -397,10 +396,10 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         await service.NotifyStatusChangedAsync(request, RequestStatus.InProgress,
             _managerA.Id, default, historyId, "Solicitada a TAG para a portaria");
 
-        Assert.Equal(1, ai.SynthesisCalls);
+        Assert.Equal(0, ai.SynthesisCalls);
         var outbound = Assert.Single(await _db.WhatsAppOutboundMessages
             .AsNoTracking().ToArrayAsync());
-        Assert.Contains("aguardando a emissão da TAG", outbound.Content);
+        Assert.Equal("Solicitada a TAG para a portaria", outbound.Content);
         Assert.DoesNotContain("prazo", outbound.Content,
             StringComparison.OrdinalIgnoreCase);
         Assert.Equal(WhatsAppNotificationType.StatusChanged, outbound.NotificationType);
@@ -414,7 +413,7 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             Options.Create(new WhatsAppOptions()),
             NullLogger<WhatsAppNotificationDispatcher>.Instance);
         var service = new NotificationService(_db, dispatcher,
-            NullLogger<NotificationService>.Instance, ai);
+            NullLogger<NotificationService>.Instance);
         var request = await AddRequestAsync(_resident.Id);
         request.ChangeStatus(RequestStatus.WaitingForThirdParty, DateTime.UtcNow);
 
@@ -422,14 +421,12 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             _managerA.Id, default, Guid.NewGuid(), "Fornecedor acionado");
 
         var notification = await _db.Notifications.AsNoTracking().SingleAsync();
-        Assert.Equal("Estamos aguardando uma etapa externa para continuar seu atendimento. "
-            + "Contexto: Fornecedor acionado",
-            notification.Body);
+        Assert.Equal("Fornecedor acionado", notification.Body);
         Assert.Single(await _db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync());
     }
 
     [Fact]
-    public async Task Resolved_status_with_reason_uses_ai_synthesis()
+    public async Task Resolved_status_with_reason_does_not_use_ai_synthesis()
     {
         var status = RequestStatus.Resolved;
         const string heading = "*Seu atendimento foi finalizado.*";
@@ -440,7 +437,7 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             Options.Create(new WhatsAppOptions()),
             NullLogger<WhatsAppNotificationDispatcher>.Instance);
         var service = new NotificationService(_db, dispatcher,
-            NullLogger<NotificationService>.Instance, ai);
+            NullLogger<NotificationService>.Instance);
         var request = await AddRequestAsync(_resident.Id);
         if (status == RequestStatus.Resolved)
             request.ChangeStatus(RequestStatus.WaitingForResidentClosure,
@@ -450,8 +447,8 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         await service.NotifyStatusChangedAsync(request, RequestStatus.InProgress,
             _managerA.Id, default, Guid.NewGuid(), "TAG entregue na portaria");
 
-        Assert.Equal(1, ai.SynthesisCalls);
-        Assert.Equal($"{heading}\n\nA TAG está disponível na portaria.",
+        Assert.Equal(0, ai.SynthesisCalls);
+        Assert.Equal($"{heading}\n\nTAG entregue na portaria",
             Assert.Single(await _db.Notifications.AsNoTracking().ToArrayAsync()).Body);
     }
 
@@ -463,7 +460,7 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             Options.Create(new WhatsAppOptions()),
             NullLogger<WhatsAppNotificationDispatcher>.Instance);
         var service = new NotificationService(_db, dispatcher,
-            NullLogger<NotificationService>.Instance, ai);
+            NullLogger<NotificationService>.Instance);
         var request = await AddRequestAsync(_resident.Id);
         request.ChangeStatus(RequestStatus.Cancelled, DateTime.UtcNow);
         const string reason = "Esta solicitacao foi aberta em duplicidade.";
@@ -538,7 +535,7 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             Options.Create(new WhatsAppOptions()),
             NullLogger<WhatsAppNotificationDispatcher>.Instance);
         var service = new NotificationService(_db, dispatcher,
-            NullLogger<NotificationService>.Instance, ai);
+            NullLogger<NotificationService>.Instance);
         var request = await AddRequestAsync(_resident.Id);
         request.ChangeStatus(RequestStatus.WaitingForResidentClosure,
             DateTime.UtcNow);
@@ -628,7 +625,7 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             Options.Create(new WhatsAppOptions()),
             NullLogger<WhatsAppNotificationDispatcher>.Instance);
         var service = new NotificationService(_db, dispatcher,
-            NullLogger<NotificationService>.Instance, ai);
+            NullLogger<NotificationService>.Instance);
         var request = await AddRequestAsync(_resident.Id);
         request.ChangeStatus(RequestStatus.WaitingForResidentClosure, DateTime.UtcNow);
         request.ChangeStatus(RequestStatus.Resolved, DateTime.UtcNow.AddMilliseconds(1));
@@ -639,7 +636,7 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         var outbound = Assert.Single(await _db.WhatsAppOutboundMessages
             .AsNoTracking().ToArrayAsync());
         Assert.Equal("*Seu atendimento foi finalizado.*\n\n"
-            + "A administração concluiu esta solicitação.", outbound.Content);
+            + "O reparo foi concluído", outbound.Content);
     }
 
     // ---- messages ----

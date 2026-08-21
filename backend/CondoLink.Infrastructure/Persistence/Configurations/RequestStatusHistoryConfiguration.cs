@@ -19,7 +19,7 @@ public sealed class RequestStatusHistoryConfiguration
         builder.Property(history => history.PreviousStatus).HasColumnName("previous_status").HasConversion<int?>();
         builder.Property(history => history.NewStatus).HasColumnName("new_status").HasConversion<int>().IsRequired();
         builder.Property(history => history.ChangedByUserId).HasColumnName("changed_by_user_id").IsRequired();
-        builder.Property(history => history.Reason).HasColumnName("reason").HasMaxLength(500);
+        builder.Property(history => history.Reason).HasColumnName("reason").HasMaxLength(1000);
         builder.Property(history => history.CreatedAt).HasColumnName("created_at").IsRequired();
 
         builder.HasOne<DomainRequest>().WithMany().HasForeignKey(history => history.RequestId).OnDelete(DeleteBehavior.Restrict);

@@ -37,7 +37,7 @@ public sealed class NotificationConfiguration
 
         builder.Property(notification => notification.Body)
             .HasColumnName("body")
-            .HasMaxLength(500)
+            .HasMaxLength(1500)
             .IsRequired();
 
         builder.Property(notification => notification.RequestId)

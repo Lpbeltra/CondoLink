@@ -180,13 +180,17 @@ public sealed class EndpointAuthorizationCoverageTests
         builder.Services.AddScoped<RequestClosureService>();
         builder.Services.AddScoped<ResidentReplyService>();
         builder.Services.AddScoped<FirstAccessService>();
+        builder.Services.AddScoped<FirstAccessWhatsAppInvitationService>();
         builder.Services.AddScoped<CondominiumAssistantService>();
         builder.Services.AddSingleton<ApiRequestMetrics>();
         builder.Services.Configure<WhatsAppOptions>(_ => { });
         builder.Services.Configure<EmailOptions>(_ => { });
         builder.Services.Configure<RequestDraftAiOptions>(_ => { });
+        builder.Services.AddHttpClient<IRequestDraftAiService, RequestDraftAiService>();
         builder.Services.AddAuthorization();
         builder.Services.AddSingleton<LocalFileStorage>();
+        builder.Services.AddSingleton<ICondominiumDocumentStorage>(services =>
+            services.GetRequiredService<LocalFileStorage>());
 
         var app = builder.Build();
 
@@ -241,6 +245,7 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapAddCondominiumMember();
         app.MapAddCondominiumMemberRole();
         app.MapListCondominiumMembers();
+        app.MapExportCondominiumMembersPdf();
         app.MapManageResidentLifecycle();
         app.MapOnboardCondominiumMember();
         app.MapResetMemberTemporaryPassword();
@@ -272,6 +277,7 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapListMyRequests();
         app.MapListCondominiumRequests();
         app.MapUpdateRequestStatus();
+        app.MapSuggestRequestStatusMessage();
         app.MapUpdateRequestPriority();
 
         app.MapGetRequestReport();

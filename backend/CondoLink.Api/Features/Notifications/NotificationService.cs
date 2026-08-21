@@ -16,8 +16,7 @@ namespace CondoLink.Api.Features.Notifications;
 public sealed class NotificationService(
     AppDbContext dbContext,
     WhatsAppNotificationDispatcher? whatsApp = null,
-    ILogger<NotificationService>? logger = null,
-    IRequestDraftAiService? ai = null)
+    ILogger<NotificationService>? logger = null)
 {
     /// <summary>
     /// Notifies the managers of a condominium that a new request was opened.
@@ -114,15 +113,14 @@ public sealed class NotificationService(
         }
         var content = request.Status == RequestStatus.WaitingForResident
             ? ResidentReplyRequestedContent(request.Title, reason!)
-            : await StatusContentAsync(request, previousStatus, reason,
-                cancellationToken);
+            : StatusChangedContent(request.Title, previousStatus, request.Status, reason);
 
         dbContext.Notifications.Add(new Notification(
             request.AuthorUserId,
             request.CondominiumId,
             NotificationType.RequestStatusChanged,
             "Status atualizado",
-            Shorten(content, 500),
+            content,
             request.Id));
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -157,55 +155,6 @@ public sealed class NotificationService(
                 "WhatsApp notification enqueue completed. RequestId: {RequestId}; NewStatus: {NewStatus}; NotificationType: {NotificationType}.",
                 request.Id, request.Status, type);
         }
-    }
-
-    private async Task<string> StatusContentAsync(DomainRequest request,
-        RequestStatus previousStatus, string? reason,
-        CancellationToken cancellationToken)
-    {
-        // Closure is still awaiting the resident's decision. Keep both choices
-        // deterministic and let RequestClosureService remain their authority.
-        if (request.Status == RequestStatus.WaitingForResidentClosure)
-            return StatusChangedContent(request.Title, previousStatus,
-                request.Status, reason);
-
-        // Cancellation is an administrative fact. Preserve the manager's
-        // comment verbatim (within the existing safe length limit) instead of
-        // making delivery depend on an optional AI synthesis.
-        if (request.Status == RequestStatus.Cancelled)
-            return StatusChangedContent(request.Title, previousStatus,
-                request.Status, reason);
-        if (string.IsNullOrWhiteSpace(reason))
-            return StatusChangedContent(request.Title, previousStatus,
-                request.Status, reason);
-        try
-        {
-            var result = ai is null
-                ? new ResidentStatusSynthesisResult(false, null, "unavailable")
-                : await ai.SynthesizeResidentStatusAsync(request.Title,
-                    Describe(request.Status), reason.Trim(), cancellationToken);
-            if (result.Succeeded && !string.IsNullOrWhiteSpace(result.Message))
-            {
-                var content = TerminalContent(request.Status, result.Message);
-                logger?.LogInformation(
-                    "Resident status synthesis succeeded. RequestId: {RequestId}; NewStatus: {NewStatus}; Model: {Model}; Delivery: {Delivery}.",
-                    request.Id, request.Status, result.Model, "AI");
-                return content;
-            }
-            logger?.LogWarning(
-                "Resident status synthesis used fallback. RequestId: {RequestId}; NewStatus: {NewStatus}; Outcome: {Outcome}; Delivery: {Delivery}.",
-                request.Id, request.Status, result.Outcome, "Fallback");
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            logger?.LogWarning(
-                "Resident status synthesis used fallback. RequestId: {RequestId}; NewStatus: {NewStatus}; FailureType: {FailureType}; Delivery: {Delivery}.",
-                request.Id, request.Status, exception.GetType().Name, "Fallback");
-        }
-        var fallbackReason = request.Status == RequestStatus.Resolved
-            ? null : reason;
-        return StatusChangedContent(request.Title, previousStatus,
-            request.Status, fallbackReason);
     }
 
     /// <summary>
@@ -353,12 +302,11 @@ public sealed class NotificationService(
         RequestStatus previousStatus, RequestStatus newStatus, string? reason)
     {
         var comment = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
-        var context = comment is null ? string.Empty : $" Contexto: {Shorten(comment, 300)}";
+        var context = comment is null ? string.Empty : $" Contexto: {comment}";
         return newStatus switch
         {
             RequestStatus.WaitingForThirdParty =>
-                "Estamos aguardando uma etapa externa para continuar seu atendimento."
-                + context,
+                comment ?? "Estamos aguardando uma etapa externa para continuar seu atendimento.",
             RequestStatus.WaitingForResidentClosure =>
                 "*A administração informou que sua solicitação foi concluída:*\n\n"
                 + (comment ?? "A atuação da administração foi concluída.")
@@ -369,12 +317,12 @@ public sealed class NotificationService(
                 "*Seu atendimento foi finalizado.*\n\n"
                 + (comment is null
                     ? "A administração concluiu esta solicitação."
-                    : Shorten(comment, 300)),
+                    : comment),
             RequestStatus.Cancelled =>
                 "*Seu atendimento foi cancelado.*\n\n"
                 + (comment is null
                     ? "A administração encerrou esta solicitação."
-                    : Shorten(comment, 300)),
+                    : comment),
             RequestStatus.Open when previousStatus is RequestStatus.Resolved
                 or RequestStatus.Cancelled =>
                 "Seu atendimento foi reaberto e voltará a ser analisado pela administração."
