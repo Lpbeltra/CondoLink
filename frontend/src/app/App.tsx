@@ -9,34 +9,38 @@ import { ChangePasswordPage } from '../pages/ChangePasswordPage'
 import { FirstAccessPage } from '../pages/FirstAccessPage'
 import { AppThemeProvider } from '../theme/AppThemeProvider'
 import { CondominiumProvider } from '../condominiums/CondominiumProvider'
-import { MyRequestsPage } from '../pages/MyRequestsPage'
-import { CreateRequestPage } from '../pages/CreateRequestPage'
-import { ManagementRequestDetailsPage, RequestDetailsPage } from '../pages/RequestDetailsPage'
-import { ManagementRequestsPage } from '../pages/ManagementRequestsPage'
 import { ManagementLayout } from '../management/components/ManagementLayout'
-import { ManagementUnitsPage } from '../pages/ManagementUnitsPage'
-import { CreateUnitPage } from '../pages/CreateUnitPage'
-import { UnitDetailsPage } from '../pages/UnitDetailsPage'
-import { ManagementCategoriesPage } from '../pages/ManagementCategoriesPage'
-import { MorePage } from '../pages/MorePage'
-import { ManagementPeoplePage } from '../pages/ManagementPeoplePage'
-import { ManagementReportsPage } from '../pages/ManagementReportsPage'
-import { ManagementBlocksPage } from '../pages/ManagementBlocksPage'
-import { CondominiumSetupPage } from '../pages/CondominiumSetupPage'
-import { CondominiumAssistantPage, CondominiumDocumentsPage } from '../pages/CondominiumAssistantPage'
 import { ManagementContextProvider } from '../management/ManagementContextProvider'
 import { OverwatchGuard } from '../overwatch/OverwatchGuard'
 import { OverwatchLayout } from '../overwatch/OverwatchLayout'
-import { OverwatchDashboardPage } from '../overwatch/pages/OverwatchDashboardPage'
-import { OverwatchCondominiumsPage } from '../overwatch/pages/OverwatchCondominiumsPage'
-import { OverwatchCondominiumDetailsPage } from '../overwatch/pages/OverwatchCondominiumDetailsPage'
-import { OverwatchManagementCompaniesPage } from '../overwatch/pages/OverwatchManagementCompaniesPage'
-import { OverwatchManagementCompanyDetailsPage } from '../overwatch/pages/OverwatchManagementCompanyDetailsPage'
-import { OverwatchManagersPage } from '../overwatch/pages/OverwatchManagersPage'
-import { OverwatchManagerDetailsPage } from '../overwatch/pages/OverwatchManagerDetailsPage'
-import { OverwatchSystemPage } from '../overwatch/pages/OverwatchSystemPage'
-import { OverwatchMessagesPage } from '../overwatch/pages/OverwatchMessagesPage'
 import { getProtectedRouteAccess } from '../auth/routeAccess'
+import { lazyPage } from './lazyPage'
+
+const MyRequestsPage = lazyPage(() => import('../pages/MyRequestsPage'), 'MyRequestsPage')
+const CreateRequestPage = lazyPage(() => import('../pages/CreateRequestPage'), 'CreateRequestPage')
+const RequestDetailsPage = lazyPage(() => import('../pages/RequestDetailsPage'), 'RequestDetailsPage')
+const ManagementRequestDetailsPage = lazyPage(() => import('../pages/RequestDetailsPage'), 'ManagementRequestDetailsPage')
+const ManagementRequestsPage = lazyPage(() => import('../pages/ManagementRequestsPage'), 'ManagementRequestsPage')
+const ManagementUnitsPage = lazyPage(() => import('../pages/ManagementUnitsPage'), 'ManagementUnitsPage')
+const CreateUnitPage = lazyPage(() => import('../pages/CreateUnitPage'), 'CreateUnitPage')
+const UnitDetailsPage = lazyPage(() => import('../pages/UnitDetailsPage'), 'UnitDetailsPage')
+const ManagementCategoriesPage = lazyPage(() => import('../pages/ManagementCategoriesPage'), 'ManagementCategoriesPage')
+const MorePage = lazyPage(() => import('../pages/MorePage'), 'MorePage')
+const ManagementPeoplePage = lazyPage(() => import('../pages/ManagementPeoplePage'), 'ManagementPeoplePage')
+const ManagementReportsPage = lazyPage(() => import('../pages/ManagementReportsPage'), 'ManagementReportsPage')
+const ManagementBlocksPage = lazyPage(() => import('../pages/ManagementBlocksPage'), 'ManagementBlocksPage')
+const CondominiumSetupPage = lazyPage(() => import('../pages/CondominiumSetupPage'), 'CondominiumSetupPage')
+const CondominiumAssistantPage = lazyPage(() => import('../pages/CondominiumAssistantPage'), 'CondominiumAssistantPage')
+const CondominiumDocumentsPage = lazyPage(() => import('../pages/CondominiumDocumentsPage'), 'CondominiumDocumentsPage')
+const OverwatchDashboardPage = lazyPage(() => import('../overwatch/pages/OverwatchDashboardPage'), 'OverwatchDashboardPage')
+const OverwatchCondominiumsPage = lazyPage(() => import('../overwatch/pages/OverwatchCondominiumsPage'), 'OverwatchCondominiumsPage')
+const OverwatchCondominiumDetailsPage = lazyPage(() => import('../overwatch/pages/OverwatchCondominiumDetailsPage'), 'OverwatchCondominiumDetailsPage')
+const OverwatchManagementCompaniesPage = lazyPage(() => import('../overwatch/pages/OverwatchManagementCompaniesPage'), 'OverwatchManagementCompaniesPage')
+const OverwatchManagementCompanyDetailsPage = lazyPage(() => import('../overwatch/pages/OverwatchManagementCompanyDetailsPage'), 'OverwatchManagementCompanyDetailsPage')
+const OverwatchManagersPage = lazyPage(() => import('../overwatch/pages/OverwatchManagersPage'), 'OverwatchManagersPage')
+const OverwatchManagerDetailsPage = lazyPage(() => import('../overwatch/pages/OverwatchManagerDetailsPage'), 'OverwatchManagerDetailsPage')
+const OverwatchSystemPage = lazyPage(() => import('../overwatch/pages/OverwatchSystemPage'), 'OverwatchSystemPage')
+const OverwatchMessagesPage = lazyPage(() => import('../overwatch/pages/OverwatchMessagesPage'), 'OverwatchMessagesPage')
 
 function ProtectedRoute() {
   const { user, isInitializing } = useAuth()

@@ -196,6 +196,22 @@ Configuração administrativa protegida:
 - `GET /management/condominiums/{id}/whatsapp/outbound`;
 - `POST /management/condominiums/{id}/whatsapp/outbound/{messageId}/retry`.
 
+### Molduras das mensagens operacionais
+
+Cada evento elegível (pedido de informação, mudança de status, resolução,
+cancelamento, reabertura) tem uma moldura de texto global — prefixo e sufixo
+em torno da mensagem escrita pelo síndico — configurável por
+`PlatformAdmin` em `GET/PUT/DELETE /overwatch/messages/{key}`. A edição afeta
+somente o texto dentro da janela de 24 horas; fora dela, o conteúdo depende do
+template Meta aprovado (`Templates__<Evento>__Name`/`Language`, ver
+"Configuração" acima), gerenciado externamente e fora do alcance dessa
+customização. `DELETE` restaura o padrão oficial (`IsOverride = false`). Não
+existe endpoint para criar um template novo — apenas editar a moldura de um
+evento já suportado pelo código. A tela de administração
+(`OverwatchMessagesPage`) mostra o modo (template Meta vs. texto livre na
+janela), uma prévia com dados fictícios e, quando a moldura foi customizada,
+a data da última atualização.
+
 Para diagnóstico global, inclusive das mensagens de confirmação que não
 pertencem a um condomínio, um `PlatformAdmin` pode usar:
 

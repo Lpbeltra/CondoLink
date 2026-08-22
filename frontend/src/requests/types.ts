@@ -128,6 +128,8 @@ export interface RequestCounts {
 
 export interface ManagementRequestsResponse {
   total: number
+  page: number
+  pageSize: number
   counts: RequestCounts
   items: ManagementRequestItem[]
 }

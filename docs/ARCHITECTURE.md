@@ -1388,3 +1388,83 @@ ou navegadores diferentes.
   reutilizadas; contas novas recebem senha temporária e seguem o fluxo
   obrigatório de primeiro acesso. As credenciais novas são retornadas somente
   na confirmação.
+
+## Tratamento de erro, resiliência HTTP, paginação e streaming do assistente
+
+- **Erro centralizado**: `CondoLink.Api.Common` define `AppException` e os
+  subtipos `NotFoundAppException`, `ForbiddenAppException`,
+  `ConflictAppException`, `UnauthorizedAppException` e `ValidationAppException`.
+  `AppExceptionHandler` (`IExceptionHandler`) converte exceções não tratadas em
+  `ProblemDetails` padronizado (400/401/403/404/409/500), ocultando
+  `exception.Message` fora de `Development` para erros 500. Registrado em
+  `Program.cs` via `AddExceptionHandler`/`UseExceptionHandler`, posicionado
+  depois do middleware de telemetria existente (que continua medindo/logando
+  toda requisição, agora sem depender de a exceção "estourar" para calcular o
+  status). A migração é incremental: os ~470 `Results.BadRequest/NotFound/...`
+  já existentes não foram reescritos; código novo ou tocado por outro motivo
+  deve preferir lançar as exceções do `Common`.
+- **Resiliência HTTP para IA**: `CondoLink.Api.Common.OpenAiResilience`
+  adiciona retry (2 tentativas, backoff exponencial com jitter) e circuit
+  breaker aos 7 `HttpClient` tipados usados pelos serviços de IA
+  (embeddings, assistente, rascunho de solicitação, extração/consulta/mutação
+  de moradores administrativos, resposta a morador, transcrição de áudio),
+  via `Microsoft.Extensions.Http.Resilience`. Deliberadamente sem `AddTimeout`
+  na política — o timeout de negócio de cada serviço (`CancellationTokenSource`
+  configurado a partir de `RequestDraftAiOptions`/`RequestDraftAiAudioOptions`)
+  continua sendo a única fonte de verdade do prazo total. Não aplicado ao
+  `MetaWhatsAppClient` (fora de escopo; já tem timeout e lógica de
+  transiência próprios).
+- **Paginação em `ListCondominiumRequests`**: `CondoLink.Api.Common.PagedResult`
+  guarda a lógica de normalização de `page`/`pageSize` (`page` mínimo 1,
+  `pageSize` padrão 200, máximo 500). O endpoint `GET /management/requests`
+  ganhou os parâmetros opcionais `page`, `pageSize` e `search` (busca por
+  título, autor, categoria e unidade/bloco, via `.ToLower().Contains()` —
+  não `EF.Functions.ILike`, que não traduz sob o provedor SQLite usado nos
+  testes de integração). `Total` passou a ser um `CountAsync()` real sobre a
+  query filtrada, em vez do tamanho da lista já materializada em memória.
+  Como o frontend ainda decide busca textual, ordenação e filtro de categoria
+  no cliente sobre a lista completa, o `pageSize` padrão (200) foi escolhido
+  para preservar o comportamento visual atual sem paginação de fato — mover
+  essas responsabilidades para o backend e construir os controles de página
+  na UI é trabalho futuro deliberadamente não incluído nesta rodada. Nenhum
+  outro endpoint `List*` foi paginado; o padrão está pronto para reaproveitar.
+- **Streaming do assistente de IA**: `CondominiumAssistantOptions.StreamingEnabled`
+  (padrão `false`) controla um modo SSE opcional nos mesmos endpoints
+  `POST /condominiums/{id}/assistant/messages` e
+  `.../assistant/conversations/{id}/messages`, acionado com `?stream=true`.
+  Com a flag desligada (padrão), o comportamento é idêntico ao anterior — o
+  parâmetro é ignorado e a resposta continua sendo um JSON único. Com a flag
+  ligada, a resposta é `text/event-stream` com eventos `sources` (todas as
+  fontes recuperadas pelo RAG, antes da filtragem por citação — apenas
+  informativo, para o cliente trocar o indicador de "buscando"), `token`
+  (delta de texto por chunk da OpenAI) e `done` (resposta completa,
+  `conversation` e fontes já filtradas por citação — mesmo formato que a
+  resposta síncrona). `CondominiumAssistantService.AskStreamAsync` reaproveita
+  o mesmo pipeline de recuperação de `AskAsync` (extraído para
+  `PrepareAnswerContextAsync`), diferindo apenas na chamada final ao chat
+  (`ChatStreamAsync`, com `stream: true` e leitura incremental via
+  `HttpCompletionOption.ResponseHeadersRead`). `OpenAiTelemetryHandler` foi
+  ajustado para não bufferizar o corpo da resposta quando o `Content-Type` é
+  `text/event-stream`. No frontend, `assistant/streamAssistant.ts` sempre
+  envia `?stream=true` e decide como interpretar a resposta pelo
+  `Content-Type` recebido — se não for SSE (flag desligada ou backend antigo
+  durante um deploy assíncrono), trata como o JSON de sempre. Isso permite
+  publicar o código de streaming no frontend antes de habilitar a flag no
+  backend sem quebrar nada.
+- **OCR de documentos escaneados**: um PDF sem camada de texto (ata
+  fotografada/escaneada) hoje falha com `Unsupported` e nenhum chunk é criado
+  — o assistente então diz "não encontrei essa informação", o que parece um
+  bug para quem acabou de subir o arquivo certo. `DocumentOcrOptions`
+  (`DocumentOcr__Enabled`, padrão `false`) liga um fallback: para páginas com
+  texto insuficiente, `CondominiumDocumentProcessor` extrai as imagens já
+  incorporadas na página via PdfPig (`IPdfImage.RawBytes`/`TryGetPng` —
+  não há renderização de página, só as imagens que o PDF já contém) e pede a
+  um modelo de visão da OpenAI (`OpenAiDocumentOcrService`, mesma conta/chave
+  usada pelo resto do assistente) para transcrever cada uma. Limite de páginas
+  por documento (`MaximumPagesPerDocument`, padrão 30) protege contra custo
+  descontrolado em documentos inteiramente escaneados e muito longos. Também
+  independentemente do OCR: quando o assistente não encontra nenhuma evidência
+  para uma pergunta E existem documentos ativos com status `Failed`/
+  `Unsupported` no condomínio, a resposta ganha uma frase determinística
+  apontando isso (`AppendUnprocessedDocumentsHintAsync`), em vez de depender do
+  modelo notar e mencionar sozinho.

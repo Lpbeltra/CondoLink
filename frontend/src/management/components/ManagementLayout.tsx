@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { Alert, Box, Skeleton, Tab, Tabs, Typography } from '@mui/material'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 
@@ -40,7 +41,13 @@ export function ManagementLayout() {
     )
   }
 
-  if (isStandalonePage) return <Outlet />
+  if (isStandalonePage) {
+    return (
+      <Suspense fallback={<PageContainer><Skeleton variant="rounded" height={240} /></PageContainer>}>
+        <Outlet />
+      </Suspense>
+    )
+  }
 
   const value = location.pathname.startsWith('/management/blocks')
     ? '/management/blocks'
@@ -97,7 +104,9 @@ export function ManagementLayout() {
 
       {activeCondominiumId ? (
         <Box mt={{ xs: -2, md: -4 }}>
-          <Outlet />
+          <Suspense fallback={<PageContainer maxWidth={1440}><Skeleton variant="rounded" height={240} /></PageContainer>}>
+            <Outlet />
+          </Suspense>
         </Box>
       ) : (
         <PageContainer maxWidth={1440}>

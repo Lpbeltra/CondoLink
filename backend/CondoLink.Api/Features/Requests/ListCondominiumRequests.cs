@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using CondoLink.Api.Common;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
@@ -21,6 +22,9 @@ public static class ListCondominiumRequests
         return endpoints;
     }
 
+    private const int DefaultPageSize = 200;
+    private const int MaximumPageSize = 500;
+
     private static async Task<IResult> HandleAsync(
         string? status,
         string? priority,
@@ -28,6 +32,9 @@ public static class ListCondominiumRequests
         Guid? targetUnitId,
         Guid? authorUserId,
         Guid? condominiumId,
+        string? search,
+        int? page,
+        int? pageSize,
         ClaimsPrincipal principal,
         AppDbContext dbContext,
         CancellationToken cancellationToken)
@@ -166,49 +173,68 @@ public static class ListCondominiumRequests
             requests = requests.Where(request => request.AuthorUserId == authorUserId.Value);
         }
 
-        var rows = await (
-                from request in requests
-                join author in dbContext.Set<ApplicationUser>().AsNoTracking()
-                    on request.AuthorUserId equals author.Id
-                join category in dbContext.Categories.AsNoTracking()
-                    on request.CategoryId equals category.Id
-                join condominium in dbContext.Condominiums.AsNoTracking()
-                    on request.CondominiumId equals condominium.Id
-                join unit in dbContext.Units.AsNoTracking()
-                    on request.TargetUnitId equals unit.Id into targetUnits
-                from unit in targetUnits.DefaultIfEmpty()
-                orderby request.Status == RequestStatus.Resolved
-                        || request.Status == RequestStatus.Cancelled,
-                    request.Priority descending,
-                    request.UpdatedAt descending,
-                    request.Id descending
-                select new
-                {
-                    request.Id,
-                    request.CondominiumId,
-                    CondominiumName = condominium.Name,
-                    AuthorId = author.Id,
-                    AuthorFullName = author.FullName,
-                    CategoryId = category.Id,
-                    CategoryName = category.Name,
-                    TargetUnitId = unit == null ? (Guid?)null : unit.Id,
-                    TargetUnitIdentifier = unit == null ? null : unit.Identifier,
-                    TargetUnitBlock = unit == null ? null : dbContext.CondominiumBlocks.Where(block => block.Id == unit.BlockId).Select(block => block.Identifier).FirstOrDefault(),
-                    request.Title,
-                    request.Status,
-                    request.Priority,
-                    request.CreatedAt,
-                    request.UpdatedAt,
-                    request.ResolvedAt
-                    ,HasUnreadResidentReply = dbContext.RequestResidentReplyRequirements
-                        .Any(requirement => requirement.RequestId == request.Id
-                            && requirement.HasUnreadAnswer)
-                    ,HasUnreadResidentUpdate = dbContext.Notifications
-                        .Any(notification => notification.RequestId == request.Id
-                            && notification.RecipientUserId == authenticatedUserId
-                            && notification.Type == NotificationType.ResidentRequestUpdated
-                            && notification.ReadAt == null)
-                })
+        var projected =
+            from request in requests
+            join author in dbContext.Set<ApplicationUser>().AsNoTracking()
+                on request.AuthorUserId equals author.Id
+            join category in dbContext.Categories.AsNoTracking()
+                on request.CategoryId equals category.Id
+            join condominium in dbContext.Condominiums.AsNoTracking()
+                on request.CondominiumId equals condominium.Id
+            join unit in dbContext.Units.AsNoTracking()
+                on request.TargetUnitId equals unit.Id into targetUnits
+            from unit in targetUnits.DefaultIfEmpty()
+            select new
+            {
+                request.Id,
+                request.CondominiumId,
+                CondominiumName = condominium.Name,
+                AuthorId = author.Id,
+                AuthorFullName = author.FullName,
+                CategoryId = category.Id,
+                CategoryName = category.Name,
+                TargetUnitId = unit == null ? (Guid?)null : unit.Id,
+                TargetUnitIdentifier = unit == null ? null : unit.Identifier,
+                TargetUnitBlock = unit == null ? null : dbContext.CondominiumBlocks.Where(block => block.Id == unit.BlockId).Select(block => block.Identifier).FirstOrDefault(),
+                request.Title,
+                request.Status,
+                request.Priority,
+                request.CreatedAt,
+                request.UpdatedAt,
+                request.ResolvedAt
+                ,HasUnreadResidentReply = dbContext.RequestResidentReplyRequirements
+                    .Any(requirement => requirement.RequestId == request.Id
+                        && requirement.HasUnreadAnswer)
+                ,HasUnreadResidentUpdate = dbContext.Notifications
+                    .Any(notification => notification.RequestId == request.Id
+                        && notification.RecipientUserId == authenticatedUserId
+                        && notification.Type == NotificationType.ResidentRequestUpdated
+                        && notification.ReadAt == null)
+            };
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            projected = projected.Where(row =>
+                row.Title.ToLower().Contains(term)
+                || row.AuthorFullName.ToLower().Contains(term)
+                || row.CategoryName.ToLower().Contains(term)
+                || (row.TargetUnitIdentifier != null && row.TargetUnitIdentifier.ToLower().Contains(term))
+                || (row.TargetUnitBlock != null && row.TargetUnitBlock.ToLower().Contains(term)));
+        }
+
+        var (normalizedPage, normalizedPageSize) =
+            PagedResult.Normalize(page, pageSize, DefaultPageSize, MaximumPageSize);
+
+        var total = await projected.CountAsync(cancellationToken);
+
+        var rows = await projected
+            .OrderBy(row => row.Status == RequestStatus.Resolved || row.Status == RequestStatus.Cancelled)
+            .ThenByDescending(row => row.Priority)
+            .ThenByDescending(row => row.UpdatedAt)
+            .ThenByDescending(row => row.Id)
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
             .ToListAsync(cancellationToken);
 
         var items = rows
@@ -234,7 +260,7 @@ public static class ListCondominiumRequests
                 item.HasUnreadResidentUpdate))
             .ToArray();
 
-        return Results.Ok(new Response(rows.Count, counts, items));
+        return Results.Ok(new Response(total, normalizedPage, normalizedPageSize, counts, items));
     }
 
     public static IQueryable<DomainRequest> AuthorizedRequests(AppDbContext dbContext, Guid managerUserId)
@@ -310,6 +336,8 @@ public static class ListCondominiumRequests
 
     public sealed record Response(
         int Total,
+        int Page,
+        int PageSize,
         CountsResponse Counts,
         IReadOnlyList<ItemResponse> Items);
 }

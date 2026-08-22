@@ -15,15 +15,20 @@ api.interceptors.response.use(
   },
 )
 
+export function getErrorMessageForStatus(status: number | undefined) {
+  if (status === undefined) return 'Não foi possível conectar ao servidor. Tente novamente.'
+  if (status === 400) return 'Os dados informados são inválidos. Revise e tente novamente.'
+  if (status === 401) return 'Sua sessão expirou. Entre novamente.'
+  if (status === 403) return 'Você não possui permissão para realizar esta ação.'
+  if (status === 404) return 'O conteúdo solicitado não foi encontrado.'
+  if (status === 409) return 'A operação não pôde ser concluída devido ao estado atual dos dados.'
+  if (status >= 500) return 'A Comvy está temporariamente indisponível.'
+  return 'Não foi possível concluir esta ação. Verifique os dados e tente novamente.'
+}
+
 export function getErrorMessage(error: unknown) {
-  if (axios.isAxiosError<{ error?: string }>(error)) {
-    if (!error.response) return 'Não foi possível conectar ao servidor. Tente novamente.'
-    if (error.response.status === 400) return 'Os dados informados são inválidos. Revise e tente novamente.'
-    if (error.response.status === 401) return 'Sua sessão expirou. Entre novamente.'
-    if (error.response.status === 403) return 'Você não possui permissão para realizar esta ação.'
-    if (error.response.status === 404) return 'O conteúdo solicitado não foi encontrado.'
-    if (error.response.status === 409) return 'A operação não pôde ser concluída devido ao estado atual dos dados.'
-    if (error.response.status >= 500) return 'A Comvy está temporariamente indisponível.'
+  if (axios.isAxiosError(error)) {
+    return getErrorMessageForStatus(error.response?.status)
   }
   return 'Não foi possível concluir esta ação. Verifique os dados e tente novamente.'
 }

@@ -10,8 +10,6 @@ import {
 const assistant = vi.hoisted(() => ({
   listConversations: vi.fn(),
   getConversation: vi.fn(),
-  startConversation: vi.fn(),
-  askAssistant: vi.fn(),
   removeRequestContext: vi.fn(),
   deleteConversation: vi.fn(),
   listDocuments: vi.fn(),
@@ -23,6 +21,10 @@ vi.mock("../assistant/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../assistant/api")>()),
   ...assistant,
 }));
+const streamAssistantMock = vi.hoisted(() => vi.fn());
+vi.mock("../assistant/streamAssistant", () => ({
+  streamAssistant: streamAssistantMock,
+}));
 vi.mock("../management/ManagementContext", () => ({
   useManagementContext: () => ({ activeCondominiumId: "condo-1" }),
 }));
@@ -30,6 +32,8 @@ vi.mock("../management/ManagementContext", () => ({
 describe("CondominiumAssistantPage", () => {
   beforeEach(() => {
     Object.values(assistant).forEach((mock) => mock.mockReset());
+    streamAssistantMock.mockReset();
+    streamAssistantMock.mockResolvedValue(undefined);
     assistant.listConversations.mockResolvedValue({
       items: [],
       hasMore: false,
@@ -207,7 +211,7 @@ describe("CondominiumAssistantPage", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Nova conversa" }),
     );
-    expect(assistant.startConversation).not.toHaveBeenCalled();
+    expect(streamAssistantMock).not.toHaveBeenCalled();
     expect(
       screen.getByText(
         "Pergunte sobre documentos, regras ou informações do condomínio.",
@@ -220,11 +224,6 @@ describe("CondominiumAssistantPage", () => {
 
   it("sends with Enter, keeps Shift+Enter as a line break and ignores empty input", async () => {
     const user = userEvent.setup();
-    assistant.startConversation.mockResolvedValue({
-      conversation: { id: "chat-1", requestId: null },
-      answer: "ok",
-      sources: [],
-    });
     render(
       <MemoryRouter>
         <CondominiumAssistantPage />
@@ -234,17 +233,69 @@ describe("CondominiumAssistantPage", () => {
       name: "Pergunte ao assistente",
     });
     await user.type(input, "{enter}");
-    expect(assistant.startConversation).not.toHaveBeenCalled();
+    expect(streamAssistantMock).not.toHaveBeenCalled();
     await user.type(input, "linha 1{shift>}{enter}{/shift}linha 2");
-    expect(assistant.startConversation).not.toHaveBeenCalled();
+    expect(streamAssistantMock).not.toHaveBeenCalled();
     await user.type(input, "{enter}");
     await waitFor(() =>
-      expect(assistant.startConversation).toHaveBeenCalledWith(
-        "condo-1",
-        "linha 1\nlinha 2",
-        undefined,
+      expect(streamAssistantMock).toHaveBeenCalledWith(
+        "/condominiums/condo-1/assistant/messages",
+        { question: "linha 1\nlinha 2", requestId: undefined },
+        expect.objectContaining({
+          onSources: expect.any(Function),
+          onToken: expect.any(Function),
+          onDone: expect.any(Function),
+          onError: expect.any(Function),
+        }),
+        expect.anything(),
       ),
     );
+  });
+
+  it("renders streamed tokens incrementally and reconciles with the final answer", async () => {
+    const user = userEvent.setup();
+    streamAssistantMock.mockImplementation(async (_path, _body, handlers) => {
+      handlers.onSources([]);
+      handlers.onToken("Olá ");
+      handlers.onToken("mundo!");
+      handlers.onDone({
+        answer: "Olá mundo!",
+        sources: [],
+        conversation: { id: "chat-1", requestId: null },
+      });
+    });
+    render(
+      <MemoryRouter>
+        <CondominiumAssistantPage />
+      </MemoryRouter>,
+    );
+    const input = await screen.findByRole("textbox", {
+      name: "Pergunte ao assistente",
+    });
+    await user.type(input, "Qual o horário da piscina?{enter}");
+
+    expect(await screen.findByText("Olá mundo!")).toBeInTheDocument();
+  });
+
+  it("drops the empty answer bubble and shows the error when streaming fails", async () => {
+    const user = userEvent.setup();
+    streamAssistantMock.mockImplementation(async (_path, _body, handlers) => {
+      handlers.onError("O assistente está temporariamente indisponível.");
+    });
+    render(
+      <MemoryRouter>
+        <CondominiumAssistantPage />
+      </MemoryRouter>,
+    );
+    const input = await screen.findByRole("textbox", {
+      name: "Pergunte ao assistente",
+    });
+    await user.type(input, "Qual o horário da piscina?{enter}");
+
+    expect(
+      await screen.findByText("O assistente está temporariamente indisponível."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Qual o horário da piscina?")).toBeInTheDocument();
   });
 
   it("downloads an inactive document through the authenticated API", async () => {

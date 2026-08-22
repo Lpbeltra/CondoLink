@@ -16,6 +16,7 @@ using CondoLink.Api.Features.UnitMemberships;
 using CondoLink.Api.Features.Units;
 using CondoLink.Api.Features.Users;
 using CondoLink.Api.Features.WhatsApp;
+using CondoLink.Api.Common;
 using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.OpenApi;
@@ -31,6 +32,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddComvyDataProtection(builder.Configuration);
 builder.Services.AddOpenApi();
+builder.Services.AddExceptionHandler<AppExceptionHandler>();
+builder.Services.AddProblemDetails();
 builder.Services.AddScoped<CondominiumMembershipService>();
 builder.Services.AddScoped<CondoLink.Api.Features.Categories.RequestCategoryResolver>();
 builder.Services.AddScoped<ManagerOnboardingService>();
@@ -47,14 +50,24 @@ builder.Services.AddHttpClient<IEmbeddingService, OpenAiEmbeddingService>((servi
 {
     var settings = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<RequestDraftAiOptions>>().Value;
     client.BaseAddress = new Uri(settings.BaseUrl);
-}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "AssistantEmbedding"));
+}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "AssistantEmbedding"))
+.AddOpenAiResilience("openai-assistant-embedding");
+builder.Services.Configure<DocumentOcrOptions>(
+    builder.Configuration.GetSection(DocumentOcrOptions.SectionName));
+builder.Services.AddHttpClient<IDocumentOcrService, OpenAiDocumentOcrService>((services, client) =>
+{
+    var settings = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<DocumentOcrOptions>>().Value;
+    client.BaseAddress = new Uri(settings.BaseUrl);
+}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "DocumentOcr"))
+.AddOpenAiResilience("openai-document-ocr");
 builder.Services.AddScoped<CondominiumDocumentProcessor>();
 builder.Services.AddHttpClient<CondominiumAssistantService>((services, client) =>
 {
     var settings = services.GetRequiredService<
         Microsoft.Extensions.Options.IOptions<RequestDraftAiOptions>>().Value;
     client.BaseAddress = new Uri(settings.BaseUrl);
-}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "AssistantChat"));
+}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "AssistantChat"))
+.AddOpenAiResilience("openai-assistant-chat");
 builder.Services.AddScoped<WhatsAppNotificationDispatcher>();
 builder.Services.Configure<WhatsAppOptions>(
     builder.Configuration.GetSection(WhatsAppOptions.SectionName));
@@ -70,34 +83,39 @@ builder.Services.AddHttpClient<IRequestDraftAiService, RequestDraftAiService>((s
     var settings = services.GetRequiredService<
         Microsoft.Extensions.Options.IOptions<RequestDraftAiOptions>>().Value;
     client.BaseAddress = new Uri(settings.BaseUrl);
-}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "RequestDraft"));
+}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "RequestDraft"))
+.AddOpenAiResilience("openai-request-draft");
 builder.Services.AddHttpClient<IAdministrativeResidentExtractionService,
     AdministrativeResidentExtractionService>((services, client) =>
 {
     var settings = services.GetRequiredService<
         Microsoft.Extensions.Options.IOptions<RequestDraftAiOptions>>().Value;
     client.BaseAddress = new Uri(settings.BaseUrl);
-}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "ResidentExtraction"));
+}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "ResidentExtraction"))
+.AddOpenAiResilience("openai-resident-extraction");
 builder.Services.AddHttpClient<IAdministrativeResidentLookupExtractionService,
     AdministrativeResidentLookupExtractionService>((services, client) =>
 {
     var settings = services.GetRequiredService<
         Microsoft.Extensions.Options.IOptions<RequestDraftAiOptions>>().Value;
     client.BaseAddress = new Uri(settings.BaseUrl);
-}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "ResidentLookup"));
+}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "ResidentLookup"))
+.AddOpenAiResilience("openai-resident-lookup");
 builder.Services.AddHttpClient<IAdministrativeResidentMutationExtractionService,
     AdministrativeResidentMutationExtractionService>((services, client) =>
 {
     var settings = services.GetRequiredService<
         Microsoft.Extensions.Options.IOptions<RequestDraftAiOptions>>().Value;
     client.BaseAddress = new Uri(settings.BaseUrl);
-}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "ResidentMutation"));
+}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "ResidentMutation"))
+.AddOpenAiResilience("openai-resident-mutation");
 builder.Services.AddHttpClient<IResidentReplyAiService, ResidentReplyAiService>((services, client) =>
 {
     var settings = services.GetRequiredService<
         Microsoft.Extensions.Options.IOptions<RequestDraftAiOptions>>().Value;
     client.BaseAddress = new Uri(settings.BaseUrl);
-}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "RequestAnalysis"));
+}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "RequestAnalysis"))
+.AddOpenAiResilience("openai-request-analysis");
 builder.Services.Configure<RequestDraftAiAudioOptions>(
     builder.Configuration.GetSection(RequestDraftAiAudioOptions.SectionName));
 builder.Services.AddHttpClient<IWhatsAppAudioTranscriptionService,
@@ -106,7 +124,8 @@ builder.Services.AddHttpClient<IWhatsAppAudioTranscriptionService,
     var settings = services.GetRequiredService<
         Microsoft.Extensions.Options.IOptions<RequestDraftAiAudioOptions>>().Value;
     client.BaseAddress = new Uri(settings.BaseUrl);
-}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "AudioTranscription"));
+}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "AudioTranscription"))
+.AddOpenAiResilience("openai-audio-transcription");
 builder.Services.AddScoped<AuthenticationSessionService>();
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
 builder.Services.Configure<FirstAccessOptions>(builder.Configuration.GetSection(FirstAccessOptions.SectionName));
@@ -248,6 +267,7 @@ app.Use(async (context, next) =>
             app.Logger.LogWarning("Slow or failed request. Method: {Method}; Route: {Route}; Status: {Status}; DurationMs: {DurationMs}; ResponseBytes: {ResponseBytes}; QueryCount: {QueryCount}; SqlDurationMs: {SqlDurationMs}.",context.Request.Method,route,status,Math.Round(duration,1),context.Response.ContentLength,query.QueryCount,Math.Round(query.TotalDurationMs,1));
     }
 });
+app.UseExceptionHandler();
 app.UseAuthentication();
 app.UseAuthorization();
 

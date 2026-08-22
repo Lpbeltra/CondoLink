@@ -1067,13 +1067,13 @@ public sealed class WhatsAppConversationService(
             if (string.IsNullOrWhiteSpace(message.MediaId))
             {
                 MarkAudioFailure(session, now, expires);
-                return (AudioFailurePrompt(), "resident_reply_audio_missing");
+                return (AudioFailurePrompt(residentReply: true), "resident_reply_audio_missing");
             }
             var media = await client.DownloadMediaAsync(message.MediaId, ct);
             if (!media.Succeeded || media.Content is null)
             {
                 MarkAudioFailure(session, now, expires);
-                return (AudioFailurePrompt(), "resident_reply_audio_download_failed");
+                return (AudioFailurePrompt(residentReply: true), "resident_reply_audio_download_failed");
             }
             var contentType = media.ContentType ?? message.MediaContentType;
             var extension = AttachmentPolicy.PreferredExtension(contentType);
@@ -1096,7 +1096,7 @@ public sealed class WhatsAppConversationService(
                 await db.SaveChangesAsync(ct);
                 storage.Delete(key);
                 MarkAudioFailure(session, now, expires);
-                return (AudioFailurePrompt(), "resident_reply_transcription_failed");
+                return (AudioFailurePrompt(residentReply: true), "resident_reply_transcription_failed");
             }
             return await OrganizeResidentReply(session, requirement.Question,
                 transcription.Text, draft.Id, now, expires, ct);
@@ -1955,12 +1955,12 @@ public sealed class WhatsAppConversationService(
         catch (JsonException) { return false; }
     }
 
-    private static string AudioFailurePrompt() =>
+    private static string AudioFailurePrompt(bool residentReply = false) =>
         "Não consegui compreender o áudio.\n\n" +
         "Você pode:\n\n" +
         "1 - Enviar outro áudio\n" +
-        "2 - Escrever a descrição\n" +
-        "3 - Cancelar";
+        $"2 - Escrever a {(residentReply ? "resposta" : "descrição")}\n" +
+        $"3 - {(residentReply ? "Cancelar e responder depois" : "Cancelar")}";
 
     private static void MarkAudioFailure(
         WhatsAppSession session, DateTime now, DateTime expires) =>

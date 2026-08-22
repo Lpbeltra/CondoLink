@@ -121,6 +121,13 @@ public sealed class CondominiumDocumentPdfTests
             ++calls > 1 ? throw new InvalidOperationException("technical embedding failure") : Task.FromResult(new[] { 1f });
     }
 
+    private sealed class DisabledOcrService : IDocumentOcrService
+    {
+        public bool Enabled => false;
+        public Task<string?> ExtractTextAsync(byte[] imageBytes, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("OCR must not run when disabled.");
+    }
+
     private sealed class ProcessorScope : IAsyncDisposable
     {
         private readonly SqliteConnection connection;
@@ -132,8 +139,8 @@ public sealed class CondominiumDocumentPdfTests
             CondominiumDocument document, IEmbeddingService embeddings)
         {
             this.connection = connection; Db = db; Document = document;
-            Processor = new(db, embeddings, Options.Create(new CondominiumAssistantOptions()),
-                NullLogger<CondominiumDocumentProcessor>.Instance);
+            Processor = new(db, embeddings, new DisabledOcrService(), Options.Create(new CondominiumAssistantOptions()),
+                Options.Create(new DocumentOcrOptions()), NullLogger<CondominiumDocumentProcessor>.Instance);
         }
 
         public static async Task<ProcessorScope> Create(IEmbeddingService? embeddings = null)

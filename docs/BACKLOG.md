@@ -403,7 +403,10 @@ Criar fluxo para solicitar, receber e comparar orçamentos.
 
 ## Entidade ManagementCompany
 
-Representar administradoras de condomínio.
+**Já implementado.** `ManagementCompany` existe com funcionários vinculados
+(`ManagementCompanyEmployee`) e administração via `/overwatch/management-companies`.
+
+~~Representar administradoras de condomínio.~~
 
 ---
 
@@ -529,9 +532,15 @@ Enviar notificações pela PWA.
 
 ## WhatsApp
 
-Avaliar integração oficial com WhatsApp.
+**Já implementado.** Ver `docs/whatsapp-integration.md`: WhatsApp Cloud API
+oficial da Meta, menu conversacional para solicitações, fila de notificações
+transacionais (`whatsapp_outbound_messages`) com templates aprovados fora da
+janela de 24h, e molduras de mensagem operacional configuráveis em
+`/overwatch/messages`.
 
-Possíveis usos:
+~~Avaliar integração oficial com WhatsApp.~~
+
+Possíveis usos (já cobertos):
 
 * avisos;
 * atualizações de solicitação;
@@ -585,6 +594,9 @@ Permitir filtros por:
 ---
 
 ## Exportação
+
+**PDF parcialmente implementado.** Já existem `ExportCondominiumMembersPdf` e
+o relatório de morador (`ResidentReportPdf`). CSV e Excel continuam pendentes.
 
 Exportar dados em:
 
@@ -792,7 +804,11 @@ Criar ações rápidas para operações frequentes.
 
 ## Modo escuro
 
-Adicionar tema escuro.
+**Já implementado.** `AppThemeProvider` segue `prefers-color-scheme` e permite
+alternar system/light/dark, com tokens de cor validados por contraste AA em
+teste automatizado (`theme/contrast.test.ts`).
+
+~~Adicionar tema escuro.~~
 
 ---
 
@@ -1124,6 +1140,12 @@ Relatórios básicos
 Importação de unidades e moradores
 Melhorias no fluxo de encomendas
 ```
+
+**Paginação real (backend) já implementada apenas em `GET /management/requests`**
+(`page`/`pageSize`/`search`, ver `docs/ARCHITECTURE.md`). Busca, ordenação e
+filtro de categoria continuam resolvidos no cliente sobre a página retornada;
+mover isso para o backend e construir os controles de paginação na UI
+continua pendente. Os demais endpoints `List*` ainda carregam tudo em memória.
 
 ## Médio prazo
 

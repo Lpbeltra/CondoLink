@@ -140,7 +140,8 @@ public sealed class ResidentReplyEndpointsTests : IAsyncLifetime
         using var form = new MultipartFormDataContent();
         form.Add(new StringContent("Resposta"), "message");
         var file = new ByteArrayContent([1]); file.Headers.ContentType = new("image/png"); form.Add(file, "files", "foto.png");
-        await Assert.ThrowsAnyAsync<Exception>(() => host.ClientFor(residentId).PostAsync($"/requests/{requestId}/resident-reply", form));
+        var response = await host.ClientFor(residentId).PostAsync($"/requests/{requestId}/resident-reply", form);
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         await host.WithDbAsync(async db =>
         {
             Assert.Equal(RequestStatus.WaitingForResident, (await db.Requests.SingleAsync(x => x.Id == requestId)).Status);

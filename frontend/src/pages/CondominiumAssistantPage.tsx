@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { streamAssistant } from "../assistant/streamAssistant";
 import {
   Alert,
   Box,
@@ -13,7 +14,6 @@ import {
   DialogTitle,
   Drawer,
   IconButton,
-  MenuItem,
   Skeleton,
   Stack,
   TextField,
@@ -24,27 +24,15 @@ import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import { useSearchParams } from "react-router-dom";
 import { PageContainer } from "../components/PageContainer";
 import { useManagementContext } from "../management/ManagementContext";
+import { getErrorMessage } from "../services/api";
 import {
-  askAssistant,
   deleteConversation,
-  deleteDocument,
   downloadDocument,
-  DOCUMENT_FILE_TOO_LARGE_MESSAGE,
   getConversation,
-  getDocumentUploadError,
   listConversations,
-  listDocuments,
-  MAXIMUM_DOCUMENT_FILE_BYTES,
-  MAXIMUM_DOCUMENT_FILE_MEGABYTES,
   removeRequestContext,
-  reprocessDocument,
-  setDocumentActive,
-  startConversation,
-  uploadDocument,
   type AssistantConversation,
-  type AssistantDocument,
   type AssistantMessage,
-  type AssistantSource,
 } from "../assistant/api";
 export { CondominiumDocumentsPage } from './CondominiumDocumentsPage'
 
@@ -74,7 +62,10 @@ export function CondominiumAssistantPage() {
   const [historyError, setHistoryError] = useState("");
   const [drawer, setDrawer] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => streamAbortRef.current?.abort(), []);
   const loadHistory = async (
     page = 1,
     append = false,
@@ -90,8 +81,8 @@ export function CondominiumAssistantPage() {
       setHistoryPage(page);
       setHasMore(result.hasMore);
       setHistoryError("");
-    } catch {
-      setHistoryError("Não foi possível carregar suas conversas.");
+    } catch (loadHistoryError) {
+      setHistoryError(getErrorMessage(loadHistoryError));
     } finally {
       setHistoryLoading(false);
     }
@@ -108,6 +99,7 @@ export function CondominiumAssistantPage() {
   }, [messages, sending]);
   const open = async (item: AssistantConversation) => {
     if (!activeCondominiumId) return;
+    streamAbortRef.current?.abort();
     setOpening(true);
     setDrawer(false);
     try {
@@ -121,13 +113,14 @@ export function CondominiumAssistantPage() {
           ? "O atendimento associado a esta conversa não está mais disponível. A conversa pode continuar sem esse contexto."
           : "",
       );
-    } catch {
-      setError("Não foi possível abrir esta conversa.");
+    } catch (openError) {
+      setError(getErrorMessage(openError));
     } finally {
       setOpening(false);
     }
   };
   const fresh = () => {
+    streamAbortRef.current?.abort();
     setConversation(null);
     setMessages([]);
     setRequestContext(null);
@@ -139,8 +132,10 @@ export function CondominiumAssistantPage() {
   const send = async () => {
     if (!activeCondominiumId || !question.trim() || sending) return;
     const value = question.trim();
+    const answerId = `answer-${Date.now()}`;
     setQuestion("");
     setSending(true);
+    setSearching(true);
     setError("");
     setMessages((x) => [
       ...x,
@@ -152,55 +147,77 @@ export function CondominiumAssistantPage() {
         sources: [],
       },
     ]);
+    streamAbortRef.current?.abort();
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    const path = conversation
+      ? `/condominiums/${activeCondominiumId}/assistant/conversations/${conversation.id}/messages`
+      : `/condominiums/${activeCondominiumId}/assistant/messages`;
+    const body = conversation
+      ? { question: value }
+      : { question: value, requestId: pendingRequestId };
+    const upsertAnswer = (content: string, sources: AssistantMessage["sources"]) =>
+      setMessages((x) =>
+        x.some((m) => m.id === answerId)
+          ? x.map((m) => (m.id === answerId ? { ...m, content, sources } : m))
+          : [
+              ...x,
+              {
+                id: answerId,
+                role: "Assistant",
+                content,
+                createdAt: new Date().toISOString(),
+                sources,
+              },
+            ],
+      );
     try {
-      if (!conversation) {
-        const result = await startConversation(
-          activeCondominiumId,
-          value,
-          pendingRequestId,
-        );
-        setConversation(result.conversation);
-        setPendingRequestId(undefined);
-        setMessages((x) => [
-          ...x,
-          {
-            id: `answer-${Date.now()}`,
-            role: "Assistant",
-            content: result.answer,
-            createdAt: new Date().toISOString(),
-            sources: result.sources.map((source) => ({
-              source,
-              documentCurrentlyActive: true,
-            })),
+      await streamAssistant(
+        path,
+        body,
+        {
+          onSources: () => setSearching(false),
+          onToken: (delta) =>
+            setMessages((x) =>
+              x.some((m) => m.id === answerId)
+                ? x.map((m) =>
+                    m.id === answerId ? { ...m, content: m.content + delta } : m,
+                  )
+                : [
+                    ...x,
+                    {
+                      id: answerId,
+                      role: "Assistant",
+                      content: delta,
+                      createdAt: new Date().toISOString(),
+                      sources: [],
+                    },
+                  ],
+            ),
+          onDone: (result) => {
+            if (!conversation && result.conversation) {
+              setConversation(result.conversation);
+              setPendingRequestId(undefined);
+            }
+            upsertAnswer(
+              result.answer,
+              result.sources.map((source) => ({
+                source,
+                documentCurrentlyActive: true,
+              })),
+            );
+            void loadHistory();
           },
-        ]);
-      } else {
-        const result = await askAssistant(
-          activeCondominiumId,
-          conversation.id,
-          value,
-        );
-        setMessages((x) => [
-          ...x,
-          {
-            id: `answer-${Date.now()}`,
-            role: "Assistant",
-            content: result.answer,
-            createdAt: new Date().toISOString(),
-            sources: result.sources.map((source) => ({
-              source,
-              documentCurrentlyActive: true,
-            })),
+          onError: (message) => {
+            setMessages((x) => x.filter((m) => m.id !== answerId));
+            setError(message);
           },
-        ]);
-      }
-      await loadHistory();
-    } catch {
-      setError(
-        "O assistente está temporariamente indisponível. Sua pergunta foi preservada quando a conversa já havia sido criada.",
+        },
+        controller.signal,
       );
     } finally {
       setSending(false);
+      setSearching(false);
     }
   };
   const remove = async () => {
@@ -399,10 +416,8 @@ export function CondominiumAssistantPage() {
                                         source.documentId,
                                         source.documentName,
                                       );
-                                    } catch {
-                                      setError(
-                                        "Não foi possível baixar o documento. Tente novamente.",
-                                      );
+                                    } catch (downloadError) {
+                                      setError(getErrorMessage(downloadError));
                                     }
                                   }}
                                   label={`${source.documentName}${source.pageNumber ? ` — pág. ${source.pageNumber}` : ""}${documentCurrentlyActive ? "" : " · documento atualmente inativo"}`}
@@ -419,7 +434,7 @@ export function CondominiumAssistantPage() {
                     </Stack>
                   ))
                 )}
-                {sending && (
+                {sending && searching && (
                   <Stack direction="row" gap={1}>
                     <CircularProgress size={18} />
                     <Typography color="text.secondary">
@@ -466,228 +481,6 @@ export function CondominiumAssistantPage() {
           <DialogActions>
             <Button onClick={() => setDeleteOpen(false)}>Cancelar</Button>
             <Button color="error" onClick={() => void removeConversation()}>
-              Excluir
-            </Button>
-          </DialogActions>
-        </Dialog>
-      </Stack>
-    </PageContainer>
-  );
-}
-
-function LegacyCondominiumDocumentsPage() {
-  const { activeCondominiumId } = useManagementContext();
-  const [documents, setDocuments] = useState<AssistantDocument[]>([]);
-  const [file, setFile] = useState<File | null>(null);
-  const [name, setName] = useState("");
-  const [type, setType] = useState("Other");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [deleting, setDeleting] = useState<AssistantDocument | null>(null);
-  const load = async () => {
-    if (activeCondominiumId)
-      setDocuments(await listDocuments(activeCondominiumId));
-  };
-  useEffect(() => {
-    void load();
-  }, [activeCondominiumId]);
-  const selectFile = (selected: File | null) => {
-    if (selected && selected.size > MAXIMUM_DOCUMENT_FILE_BYTES) {
-      setFile(null);
-      setError(DOCUMENT_FILE_TOO_LARGE_MESSAGE);
-      return;
-    }
-    setFile(selected);
-    setError("");
-  };
-  const upload = async () => {
-    if (!activeCondominiumId || !file || !name.trim()) return;
-    if (file.size > MAXIMUM_DOCUMENT_FILE_BYTES) {
-      setError(DOCUMENT_FILE_TOO_LARGE_MESSAGE);
-      return;
-    }
-    const form = new FormData();
-    form.append("file", file);
-    form.append("name", name);
-    form.append("documentType", type);
-    setLoading(true);
-    setError("");
-    try {
-      await uploadDocument(activeCondominiumId, form);
-      setFile(null);
-      setName("");
-      await load();
-    } catch (uploadError) {
-      setError(getDocumentUploadError(uploadError));
-    } finally {
-      setLoading(false);
-    }
-  };
-  const confirmDelete = async () => {
-    if (!activeCondominiumId || !deleting) return;
-    setError("");
-    try {
-      await deleteDocument(activeCondominiumId, deleting.id);
-      setDocuments((current) =>
-        current.filter((document) => document.id !== deleting.id),
-      );
-      setDeleting(null);
-    } catch {
-      setError("Não foi possível excluir o documento. Tente novamente.");
-    }
-  };
-  return (
-    <PageContainer>
-      <Stack gap={2}>
-        <Typography variant="h1">Documentos</Typography>
-        {error && <Alert severity="error">{error}</Alert>}
-        <Card>
-          <CardContent>
-            <Stack direction={{ xs: "column", md: "row" }} gap={2}>
-              <TextField
-                label="Nome"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-              <TextField
-                select
-                label="Tipo"
-                value={type}
-                onChange={(e) => setType(e.target.value)}
-                sx={{ minWidth: 200 }}
-              >
-                {[
-                  "Convention",
-                  "InternalRules",
-                  "Minutes",
-                  "Contract",
-                  "Manual",
-                  "Notice",
-                  "Other",
-                ].map((value) => (
-                  <MenuItem key={value} value={value}>
-                    {value}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <Button component="label" variant="outlined">
-                {file?.name ?? "Selecionar PDF, DOCX ou TXT"}
-                <input
-                  hidden
-                  type="file"
-                  accept=".pdf,.docx,.txt"
-                  onChange={(e) => selectFile(e.target.files?.[0] ?? null)}
-                />
-              </Button>
-              <Button
-                variant="contained"
-                disabled={loading || !file || !name.trim()}
-                onClick={() => void upload()}
-              >
-                Enviar
-              </Button>
-            </Stack>
-            <Typography variant="caption" color="text.secondary">
-              PDF, DOCX ou TXT · máximo {MAXIMUM_DOCUMENT_FILE_MEGABYTES} MB
-            </Typography>
-          </CardContent>
-        </Card>
-        {documents.map((document) => (
-          <Card key={document.id}>
-            <CardContent>
-              <Stack
-                direction={{ xs: "column", sm: "row" }}
-                justifyContent="space-between"
-              >
-                <div>
-                  <Typography fontWeight={800}>{document.name}</Typography>
-                  <Typography color="text.secondary">
-                    {document.originalFileName} · versão {document.version}
-                  </Typography>
-                  {document.processingError && (
-                    <Alert severity="warning" sx={{ mt: 1 }}>
-                      {document.processingError}
-                    </Alert>
-                  )}
-                </div>
-                <Stack direction="row" gap={1} alignItems="center">
-                  <Chip
-                    label={document.processingStatus}
-                    color={
-                      document.processingStatus === "Ready"
-                        ? "success"
-                        : "default"
-                    }
-                  />
-                  {document.needsReindexing && (
-                    <Chip label="Reindexação necessária" color="warning" />
-                  )}
-                  {(document.needsReindexing ||
-                    document.processingStatus === "Failed" ||
-                    document.processingStatus === "Unsupported") && (
-                    <Button
-                      onClick={async () => {
-                        await reprocessDocument(
-                          activeCondominiumId!,
-                          document.id,
-                        );
-                        await load();
-                      }}
-                    >
-                      Reprocessar
-                    </Button>
-                  )}
-                  <Button
-                    onClick={async () => {
-                      await setDocumentActive(
-                        activeCondominiumId!,
-                        document.id,
-                        !document.isActive,
-                      );
-                      await load();
-                    }}
-                  >
-                    {document.isActive ? "Inativar" : "Ativar"}
-                  </Button>
-                  <Button
-                    onClick={async () => {
-                      setError("");
-                      try {
-                        await downloadDocument(
-                          activeCondominiumId!,
-                          document.id,
-                          document.originalFileName,
-                        );
-                      } catch {
-                        setError(
-                          "Não foi possível baixar o documento. Tente novamente.",
-                        );
-                      }
-                    }}
-                  >
-                    Baixar
-                  </Button>
-                  <IconButton
-                    aria-label={`Excluir ${document.name}`}
-                    title="Excluir"
-                    onClick={() => setDeleting(document)}
-                  >
-                    <DeleteOutlineRoundedIcon />
-                  </IconButton>
-                </Stack>
-              </Stack>
-            </CardContent>
-          </Card>
-        ))}
-        <Dialog open={Boolean(deleting)} onClose={() => setDeleting(null)}>
-          <DialogTitle>Excluir documento?</DialogTitle>
-          <DialogContent>
-            “{deleting?.name}” será removido definitivamente. Esta ação não pode
-            ser desfeita.
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setDeleting(null)}>Cancelar</Button>
-            <Button color="error" onClick={() => void confirmDelete()}>
               Excluir
             </Button>
           </DialogActions>

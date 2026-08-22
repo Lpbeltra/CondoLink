@@ -617,9 +617,10 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
             END;
             """));
 
-        await Assert.ThrowsAnyAsync<Exception>(() => _host.ClientFor(_managerId)
+        var response = await _host.ClientFor(_managerId)
             .PatchAsJsonAsync($"/requests/{_requestId}/status",
-                new { status = "InProgress" }));
+                new { status = "InProgress" });
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
 
         Assert.Equal(RequestStatus.Open, await CurrentStatusAsync());
         Assert.Empty(await HistoryAsync());

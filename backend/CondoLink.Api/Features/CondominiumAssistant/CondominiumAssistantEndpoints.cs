@@ -260,14 +260,23 @@ public static class CondominiumAssistantEndpoints
     }
 
     private static async Task<IResult> Ask(Guid condominiumId, Guid conversationId, AskRequest body,
-        ClaimsPrincipal principal, AppDbContext db, CondominiumAssistantService assistant,
-        IOptions<CondominiumAssistantOptions> options, CancellationToken ct)
+        bool? stream, ClaimsPrincipal principal, AppDbContext db, CondominiumAssistantService assistant,
+        IOptions<CondominiumAssistantOptions> options, HttpResponse response, CancellationToken ct)
     {
         var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
         var conversation = await OwnConversation(condominiumId, conversationId, access.UserId, db, ct); if (conversation is null) return Results.NotFound();
         var question = body.Question?.Trim(); if (string.IsNullOrWhiteSpace(question) || question.Length > options.Value.MaximumQuestionCharacters) return Results.BadRequest(new { error = "Informe uma pergunta de até 2.000 caracteres." });
         if (conversation.RequestId is Guid requestId && !await db.Requests.AnyAsync(x => x.Id == requestId && x.CondominiumId == condominiumId, ct))
         { conversation.RemoveRequestContext(); await db.SaveChangesAsync(ct); }
+
+        if (stream == true && options.Value.StreamingEnabled)
+        {
+            db.CondominiumAssistantMessages.Add(new(conversationId, CondominiumAssistantRole.User, question));
+            conversation.Touch();
+            await db.SaveChangesAsync(ct);
+            return await StreamAnswerAsync(response, db, assistant, conversation, question, isNewConversation: false, ct);
+        }
+
         try
         {
             db.CondominiumAssistantMessages.Add(new(conversationId, CondominiumAssistantRole.User, question));
@@ -282,8 +291,8 @@ public static class CondominiumAssistantEndpoints
     }
 
     private static async Task<IResult> StartConversation(Guid condominiumId, StartConversationRequest body,
-        ClaimsPrincipal principal, AppDbContext db, CondominiumAssistantService assistant,
-        IOptions<CondominiumAssistantOptions> options, CancellationToken ct)
+        bool? stream, ClaimsPrincipal principal, AppDbContext db, CondominiumAssistantService assistant,
+        IOptions<CondominiumAssistantOptions> options, HttpResponse response, CancellationToken ct)
     {
         var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
         var question = body.Question?.Trim();
@@ -297,6 +306,10 @@ public static class CondominiumAssistantEndpoints
         db.CondominiumAssistantConversations.Add(conversation);
         db.CondominiumAssistantMessages.Add(new(conversation.Id, CondominiumAssistantRole.User, question));
         await db.SaveChangesAsync(ct);
+
+        if (stream == true && options.Value.StreamingEnabled)
+            return await StreamAnswerAsync(response, db, assistant, conversation, question, isNewConversation: true, ct);
+
         try
         {
             var result = await assistant.AskAsync(conversation, question, ct);
@@ -310,6 +323,63 @@ public static class CondominiumAssistantEndpoints
         {
             return Results.Json(new { error = "A conversa foi salva, mas o assistente está temporariamente indisponível.", conversationId = conversation.Id }, statusCode: 503);
         }
+    }
+
+    /// <summary>
+    /// Writes the assistant's answer as Server-Sent Events instead of a single
+    /// JSON payload: a <c>sources</c> event once retrieval finishes (all recovered
+    /// sources, informational only), one <c>token</c> event per streamed delta, and
+    /// a final <c>done</c> event carrying the full answer and citation-filtered
+    /// sources — the same shape the non-streaming response returns, so the
+    /// frontend only needs to read the final event to reconcile state. On failure,
+    /// an <c>error</c> event is sent instead; a client-initiated cancellation
+    /// (<paramref name="ct"/> firing) is left to propagate and drops the
+    /// connection without writing anything further.
+    /// </summary>
+    private static async Task<IResult> StreamAnswerAsync(HttpResponse response, AppDbContext db,
+        CondominiumAssistantService assistant, CondominiumAssistantConversation conversation,
+        string question, bool isNewConversation, CancellationToken ct)
+    {
+        response.Headers.ContentType = "text/event-stream";
+        response.Headers.CacheControl = "no-cache";
+        response.Headers["X-Accel-Buffering"] = "no";
+
+        async Task WriteEventAsync(string eventName, object payload)
+        {
+            await response.WriteAsync($"event: {eventName}\ndata: {JsonSerializer.Serialize(payload)}\n\n", ct);
+            await response.Body.FlushAsync(ct);
+        }
+
+        try
+        {
+            var result = await assistant.AskStreamAsync(conversation, question,
+                (sources, token) => WriteEventAsync("sources", new { sources }),
+                (delta, token) => WriteEventAsync("token", new { delta }),
+                ct);
+
+            db.CondominiumAssistantMessages.Add(new(conversation.Id, CondominiumAssistantRole.Assistant,
+                result.Answer, JsonSerializer.Serialize(result.Sources)));
+            conversation.Touch();
+            await db.SaveChangesAsync(ct);
+
+            await WriteEventAsync("done", new
+            {
+                conversation,
+                answer = result.Answer,
+                sources = result.Sources,
+            });
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            await WriteEventAsync("error", new
+            {
+                message = isNewConversation
+                    ? "A conversa foi salva, mas o assistente está temporariamente indisponível."
+                    : "O assistente está temporariamente indisponível. Tente novamente.",
+            });
+        }
+
+        return Results.Empty;
     }
 
     private static async Task<IResult> DeleteConversation(Guid condominiumId, Guid conversationId,

@@ -55,7 +55,8 @@ public sealed class OpenAiTelemetryHandler(IServiceScopeFactory scopes, TimeProv
             try
             {
                 string? model = null; int? input = null; int? output = null; int? total = null;
-                if (response?.Content is not null)
+                var isStreamingResponse = response?.Content?.Headers.ContentType?.MediaType == "text/event-stream";
+                if (response?.Content is not null && !isStreamingResponse)
                 {
                     var json = await response.Content.ReadAsStringAsync(CancellationToken.None);
                     try { if (!string.IsNullOrWhiteSpace(json)) using (var doc = JsonDocument.Parse(json))

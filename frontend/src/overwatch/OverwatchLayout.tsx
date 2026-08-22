@@ -1,4 +1,5 @@
-import { Box, Toolbar } from '@mui/material'
+import { Suspense } from 'react'
+import { Box, Skeleton, Toolbar } from '@mui/material'
 import { Outlet } from 'react-router-dom'
 import { AppHeader } from '../layout/AppHeader'
 import { drawerWidth } from '../layout/Sidebar'
@@ -19,7 +20,9 @@ export function OverwatchLayout() {
         sx={{ overflowX: 'hidden' }}
       >
         <Toolbar sx={{ minHeight: { xs: '64px !important', md: '72px !important' } }} />
-        <Outlet />
+        <Suspense fallback={<Skeleton variant="rounded" height={240} sx={{ m: 2 }} />}>
+          <Outlet />
+        </Suspense>
       </Box>
       <OverwatchMobileNavigation />
     </Box>

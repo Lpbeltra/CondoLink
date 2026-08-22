@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using CondoLink.Api.Common;
 using CondoLink.Api.Features.Auth;
 using CondoLink.Api.Features.Categories;
 using CondoLink.Api.Features.CondominiumMembers;
@@ -93,9 +94,12 @@ internal sealed class CoreEndpointTestHost : IAsyncDisposable
         builder.Services.AddScoped<RequestCategoryResolver>();
         builder.Services.AddScoped<CondominiumMembershipService>();
         builder.Services.AddScoped<AuthenticationSessionService>();
+        builder.Services.AddExceptionHandler<AppExceptionHandler>();
+        builder.Services.AddProblemDetails();
         configureServices?.Invoke(builder);
 
         _application = builder.Build();
+        _application.UseExceptionHandler();
         _application.UseAuthentication();
         _application.UseAuthorization();
         mapEndpoints(_application);

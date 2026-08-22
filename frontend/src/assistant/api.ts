@@ -1,5 +1,5 @@
 import axios from "axios";
-import { api } from "../services/api";
+import { api, getErrorMessage } from "../services/api";
 
 export const MAXIMUM_DOCUMENT_FILE_MEGABYTES = 25;
 export const MAXIMUM_DOCUMENT_FILE_BYTES =
@@ -17,8 +17,7 @@ export function getDocumentUploadError(error: unknown) {
     const message =
       error.response?.data?.message ?? error.response?.data?.error;
     if (message) return message;
-    if (!error.response)
-      return "Não foi possível conectar ao servidor. Tente novamente.";
+    if (!error.response) return getErrorMessage(error);
   }
   return "Não foi possível enviar o documento. Tente novamente.";
 }

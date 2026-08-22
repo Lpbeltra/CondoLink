@@ -39,6 +39,9 @@ export async function listManagementRequests(filters: {
   status?: RequestStatus
   priority?: RequestPriority
   condominiumId?: string
+  search?: string
+  page?: number
+  pageSize?: number
 }) {
   return (await api.get<ManagementRequestsResponse>(
     '/management/requests',

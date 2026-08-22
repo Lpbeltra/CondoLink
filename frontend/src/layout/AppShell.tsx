@@ -1,8 +1,9 @@
+import { Suspense } from 'react'
 import { Box, Button, Skeleton, Stack, Toolbar } from '@mui/material'
 import { Outlet } from 'react-router-dom'
 import { AppHeader } from './AppHeader'
 import { MobileBottomNavigation } from './MobileBottomNavigation'
-import { drawerWidth, Sidebar } from './Sidebar'
+import { Sidebar } from './Sidebar'
 import { useCondominium } from '../condominiums/CondominiumContext'
 import { EmptyState } from '../components/EmptyState'
 import { PageContainer } from '../components/PageContainer'
@@ -28,7 +29,11 @@ export function AppShell() {
     <PageContainer><EmptyState title="Não foi possível carregar seus condomínios" description={error} action={<Button variant="contained" onClick={() => void refreshCondominiums()}>Tentar novamente</Button>} /></PageContainer>
   ) : !hasContext && !hasPlatformAdminAccess(user) ? (
     <PageContainer><EmptyState title="Nenhum condomínio disponível" description="Sua conta ainda não possui acesso a um condomínio. Entre em contato com o responsável pela administração." /></PageContainer>
-  ) : <Outlet />
+  ) : (
+    <Suspense fallback={<PageContainer><Skeleton variant="rounded" height={240} /></PageContainer>}>
+      <Outlet />
+    </Suspense>
+  )
 
   return (
     <Box minHeight="100dvh" display="flex">
