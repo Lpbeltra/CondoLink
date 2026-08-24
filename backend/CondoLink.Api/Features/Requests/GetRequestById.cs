@@ -282,7 +282,8 @@ public static class GetRequestById
                     on link.ReminderId equals reminder.Id
                 where link.RequestId == request.Id
                 select new AgendaReminderSummaryResponse(reminder.Id, reminder.Title,
-                    reminder.NextOccurrenceAtUtc, reminder.RecurrenceType.ToString()))
+                    reminder.NextOccurrenceAtUtc, reminder.RecurrenceType.ToString(),
+                    reminder.IsActive, reminder.CompletedAt))
                 .SingleOrDefaultAsync(cancellationToken);
 
         var response = new Response(
@@ -366,7 +367,8 @@ public static class GetRequestById
     public sealed record ResidentSummaryResponse(string FullName, string? Block,
         string? Unit, string? PhoneNumber, string? Email, string? Relationship);
     public sealed record AgendaReminderSummaryResponse(Guid Id, string Title,
-        DateTime? NextOccurrenceAtUtc, string RecurrenceType);
+        DateTime? NextOccurrenceAtUtc, string RecurrenceType, bool IsActive,
+        DateTime? CompletedAt);
 
     public sealed record StatusHistoryResponse(
         Guid Id,
@@ -399,5 +401,8 @@ public static class GetRequestById
         ResidentSummaryResponse? ResidentSummary,
         AgendaReminderSummaryResponse? AgendaReminder,
         bool HasUnreadResidentReply,
-        bool HasUnreadResidentUpdate);
+        bool HasUnreadResidentUpdate)
+    {
+        public string Protocol => RequestProtocol.From(Id);
+    }
 }

@@ -10,6 +10,12 @@ persistentes, e-mail e SessionText dentro da janela WhatsApp. Pendente externa:
 aprovação e confirmação do contrato Meta de `manager_agenda_reminder` para o
 canal fora da janela de 24 horas.
 
+Concluídos no ajuste de uso real: carregamento confiável de unidades/Requests,
+checklist pesquisável, criação contextual a partir da Request, conclusão e
+reativação seguras, além da exposição do protocolo legado nos pontos operacionais.
+Permanece como evolução avaliar um protocolo público persistido com unicidade
+formal caso o volume torne insuficiente o prefixo legado derivado do GUID.
+
 Este documento registra ideias, funcionalidades futuras e melhorias que não fazem parte do MVP atual.
 
 O backlog não representa compromisso de implementação.

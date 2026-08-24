@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using CondoLink.Api.Features.Agenda;
 using CondoLink.Api.Features.Notifications;
 using CondoLink.Api.Features.Requests;
@@ -79,6 +80,18 @@ public sealed class AgendaTests : IAsyncLifetime
     public async Task Manager_creates_updates_and_deletes_reminder_with_multiple_requests()
     {
         var client = _host.ClientFor(_managerId);
+        var options = await client.GetAsync(
+            $"/management/condominiums/{_condominiumId}/agenda/options");
+        Assert.Equal(HttpStatusCode.OK, options.StatusCode);
+        using (var json = JsonDocument.Parse(await options.Content.ReadAsStringAsync()))
+        {
+            Assert.Single(json.RootElement.GetProperty("units").EnumerateArray());
+            var requests = json.RootElement.GetProperty("requests").EnumerateArray().ToArray();
+            Assert.Equal(2, requests.Length);
+            Assert.Equal(RequestProtocol.From(_firstRequestId),
+                requests.Single(x => x.GetProperty("id").GetGuid() == _firstRequestId)
+                    .GetProperty("protocol").GetString());
+        }
         var create = await client.PostAsJsonAsync(
             $"/management/condominiums/{_condominiumId}/agenda", Input(
                 [_firstRequestId, _secondRequestId], _unitId));
@@ -144,6 +157,36 @@ public sealed class AgendaTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Completion_stops_worker_and_reactivation_is_safe()
+    {
+        var client = _host.ClientFor(_managerId);
+        var create = await client.PostAsJsonAsync(
+            $"/management/condominiums/{_condominiumId}/agenda",
+            Input([], _unitId, startsAt: DateTime.UtcNow.AddMinutes(-1)));
+        var id = (await create.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync(
+            $"/management/condominiums/{_condominiumId}/agenda/{id}/complete", null)).StatusCode);
+        var completed = await _host.WithDbAsync(db => db.AgendaReminders
+            .AsNoTracking().SingleAsync(x => x.Id == id));
+        Assert.False(completed.IsActive); Assert.NotNull(completed.CompletedAt);
+        Assert.Null(completed.NextOccurrenceAtUtc);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync(
+            $"/management/condominiums/{_condominiumId}/agenda/{id}/reactivate", null)).StatusCode);
+        var reactivated = await _host.WithDbAsync(db => db.AgendaReminders
+            .AsNoTracking().SingleAsync(x => x.Id == id));
+        Assert.True(reactivated.IsActive);
+        Assert.True(reactivated.NextOccurrenceAtUtc > DateTime.UtcNow);
+
+        var oneTime = await client.PostAsJsonAsync(
+            $"/management/condominiums/{_condominiumId}/agenda",
+            Input([], _unitId, "Avulso", "None", DateTime.UtcNow.AddMinutes(-1)));
+        var oneTimeId = (await oneTime.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        await client.PostAsync($"/management/condominiums/{_condominiumId}/agenda/{oneTimeId}/complete", null);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsync(
+            $"/management/condominiums/{_condominiumId}/agenda/{oneTimeId}/reactivate", null)).StatusCode);
+    }
+
+    [Fact]
     public async Task Worker_resolves_current_manager_and_records_both_channels_once()
     {
         var reminderId = await _host.WithDbAsync(async db =>
@@ -184,10 +227,11 @@ public sealed class AgendaTests : IAsyncLifetime
     }
 
     private static object Input(Guid[] requests, Guid unitId,
-        string title = "Retorno elevadores") => new { title,
+        string title = "Retorno elevadores", string recurrenceType = "Monthly",
+        DateTime? startsAt = null) => new { title,
         description = "Cobrar posicionamento.", unitId,
         relatedThirdParty = "Elevadores Paraná",
-        startsAtUtc = DateTime.UtcNow.AddHours(1), recurrenceType = "Monthly",
+        startsAtUtc = startsAt ?? DateTime.UtcNow.AddHours(1), recurrenceType,
         notifyByWhatsApp = true, notifyByEmail = true, requestIds = requests };
     private sealed record IdResponse(Guid Id);
     private sealed class RecordingEmailSender : IEmailSender

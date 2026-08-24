@@ -332,7 +332,10 @@ public static class ListCondominiumRequests
         DateTime UpdatedAt,
         DateTime? ResolvedAt,
         bool HasUnreadResidentReply,
-        bool HasUnreadResidentUpdate);
+        bool HasUnreadResidentUpdate)
+    {
+        public string Protocol => RequestProtocol.From(Id);
+    }
 
     public sealed record Response(
         int Total,

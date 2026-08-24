@@ -22,6 +22,9 @@ const dateFormatter = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 
 const dateTimeFormatter = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 
 export function formatDate(value: string) { return dateFormatter.format(new Date(value)) }
+export function formatRequestProtocol(id: string, protocol?: string) {
+  return (protocol || id.replace(/-/g, '').slice(0, 8)).toUpperCase()
+}
 export function formatDateTime(value: string) { return dateTimeFormatter.format(new Date(value)).replace(',', ' às') }
 
 export function formatResidentPhone(value: string | null | undefined) {

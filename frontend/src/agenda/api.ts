@@ -14,3 +14,9 @@ export async function saveAgendaReminder(condominiumId: string, input: AgendaInp
 export async function deleteAgendaReminder(condominiumId: string, reminderId: string) {
   await api.delete(`${root(condominiumId)}/${reminderId}`)
 }
+export async function completeAgendaReminder(condominiumId: string, reminderId: string) {
+  await api.post(`${root(condominiumId)}/${reminderId}/complete`)
+}
+export async function reactivateAgendaReminder(condominiumId: string, reminderId: string) {
+  await api.post(`${root(condominiumId)}/${reminderId}/reactivate`)
+}

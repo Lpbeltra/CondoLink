@@ -23,6 +23,25 @@ local; a mensal preserva o dia original, usa o último dia válido em meses curt
 e volta ao dia original nos meses seguintes. Edição recalcula somente o futuro e
 não remove ocorrências históricas.
 
+O formulário obtém unidades e Requests elegíveis em uma única operação escopada
+ao condomínio. Requests terminais e vínculos pertencentes a outro lembrete não
+são oferecidos; ao editar, os vínculos do próprio lembrete permanecem disponíveis.
+A seleção é um checklist pesquisável. O fluxo iniciado no detalhe da Request usa
+`/management/agenda?create=true&requestId=...`, preserva o contexto após refresh e
+mantém a Request de origem fixa até a criação.
+
+Conclusão manual define `IsActive=false`, preenche `CompletedAt` e remove apenas a
+próxima ocorrência, preservando vínculos e entregas históricas. Reativação
+recorrente calcula a próxima ocorrência estritamente futura segundo a referência
+original. Um lembrete avulso vencido exige edição para uma data futura antes da
+reativação, evitando disparo retroativo. O worker considera somente lembretes
+ativos.
+
+O protocolo humano exibido é o identificador legado já usado no WhatsApp: os oito
+primeiros caracteres hexadecimais maiúsculos do `Request.Id`. Ele é estável e
+imutável por derivação, mas ainda não possui constraint própria de unicidade no
+banco; não foi criado um segundo identificador neste lote.
+
 Este documento descreve a arquitetura inicial do CondoLink.
 
 O objetivo é definir uma estrutura clara para o MVP, mantendo o projeto simples, testável e preparado para evolução.

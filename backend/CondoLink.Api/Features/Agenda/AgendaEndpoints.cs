@@ -5,6 +5,7 @@ using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
+using CondoLink.Api.Features.Requests;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -22,6 +23,8 @@ public static class AgendaEndpoints
         group.MapPost("", CreateAsync);
         group.MapPut("/{reminderId:guid}", UpdateAsync);
         group.MapDelete("/{reminderId:guid}", DeleteAsync);
+        group.MapPost("/{reminderId:guid}/complete", CompleteAsync);
+        group.MapPost("/{reminderId:guid}/reactivate", ReactivateAsync);
         return app;
     }
 
@@ -56,7 +59,17 @@ public static class AgendaEndpoints
                 db.AgendaReminderRequests.Count(l => l.ReminderId == x.Id),
                 db.AgendaReminderRequests.Where(l => l.ReminderId == x.Id)
                     .Select(l => l.RequestId).ToArray())).ToArrayAsync(ct);
-        return Results.Ok(rows);
+        var linkedIds = rows.SelectMany(x => x.RequestIds).Distinct().ToArray();
+        var linked = await db.Requests.AsNoTracking()
+            .Where(x => linkedIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.Title }).ToArrayAsync(ct);
+        var linkedById = linked.ToDictionary(x => x.Id, x =>
+            new RequestLinkResponse(x.Id, RequestProtocol.From(x.Id), x.Title));
+        return Results.Ok(rows.Select(row => row with
+        {
+            LinkedRequests = row.RequestIds.Where(linkedById.ContainsKey)
+                .Select(id => linkedById[id]).ToArray()
+        }));
     }
 
     private static async Task<IResult> OptionsAsync(Guid condominiumId,
@@ -65,22 +78,43 @@ public static class AgendaEndpoints
     {
         var access = await Authorize(principal, condominiumId, db, ct);
         if (!access.Allowed) return access.Result!;
-        var units = await db.Units.AsNoTracking().Where(x => x.CondominiumId == condominiumId && x.IsActive)
-            .OrderBy(x => x.Identifier).Select(x => new { x.Id, x.Identifier,
-                Block = db.CondominiumBlocks.Where(b => b.Id == x.BlockId)
-                    .Select(b => b.Identifier).FirstOrDefault() }).ToArrayAsync(ct);
-        var requests = await db.Requests.AsNoTracking()
-            .Where(x => x.CondominiumId == condominiumId
-                && x.Status != RequestStatus.Resolved && x.Status != RequestStatus.Cancelled)
-            .Select(x => new RequestOption(x.Id, x.Id.ToString(), x.Title,
-                db.Set<ApplicationUser>().Where(u => u.Id == x.AuthorUserId)
-                    .Select(u => u.FullName).FirstOrDefault()!,
-                db.Units.Where(u => u.Id == x.TargetUnitId)
-                    .Select(u => u.Identifier).FirstOrDefault(), x.Status.ToString(),
-                db.AgendaReminderRequests.Where(l => l.RequestId == x.Id)
-                    .Select(l => (Guid?)l.ReminderId).FirstOrDefault()))
-            .Where(x => x.LinkedReminderId == null || x.LinkedReminderId == reminderId)
-            .OrderByDescending(x => x.Protocol).ToArrayAsync(ct);
+        var units = await (from unit in db.Units.AsNoTracking()
+            join block in db.CondominiumBlocks.AsNoTracking()
+                on unit.BlockId equals block.Id into blocks
+            from block in blocks.DefaultIfEmpty()
+            where unit.CondominiumId == condominiumId && unit.IsActive
+            orderby unit.Identifier
+            select new { unit.Id, unit.CondominiumId, unit.Identifier,
+                unit.BlockId, Block = block == null ? null : block.Identifier })
+            .ToArrayAsync(ct);
+        var rawRequests = await (from request in db.Requests.AsNoTracking()
+            join user in db.Set<ApplicationUser>().AsNoTracking()
+                on request.AuthorUserId equals user.Id
+            join unit in db.Units.AsNoTracking()
+                on request.TargetUnitId equals unit.Id into requestUnits
+            from unit in requestUnits.DefaultIfEmpty()
+            join block in db.CondominiumBlocks.AsNoTracking()
+                on unit.BlockId equals block.Id into unitBlocks
+            from block in unitBlocks.DefaultIfEmpty()
+            where request.CondominiumId == condominiumId
+                && request.Status != RequestStatus.Resolved
+                && request.Status != RequestStatus.Cancelled
+            orderby request.CreatedAt descending
+            select new { request.Id, request.Title, user.FullName,
+                UnitIdentifier = unit == null ? null : unit.Identifier,
+                Block = block == null ? null : block.Identifier,
+                request.Status }).ToArrayAsync(ct);
+        var requestIds = rawRequests.Select(x => x.Id).ToArray();
+        var links = await db.AgendaReminderRequests.AsNoTracking()
+            .Where(x => requestIds.Contains(x.RequestId))
+            .ToDictionaryAsync(x => x.RequestId, x => x.ReminderId, ct);
+        var requests = rawRequests
+            .Where(x => !links.TryGetValue(x.Id, out var linked)
+                || linked == reminderId)
+            .Select(x => new RequestOption(x.Id, RequestProtocol.From(x.Id),
+                x.Title, x.FullName, x.UnitIdentifier, x.Block,
+                x.Status.ToString(), links.GetValueOrDefault(x.Id)))
+            .ToArray();
         return Results.Ok(new { units, requests });
     }
 
@@ -159,6 +193,48 @@ public static class AgendaEndpoints
         db.Remove(reminder); await db.SaveChangesAsync(ct); return Results.NoContent();
     }
 
+    private static async Task<IResult> CompleteAsync(Guid condominiumId,
+        Guid reminderId, ClaimsPrincipal principal, AppDbContext db,
+        CancellationToken ct)
+    {
+        var access = await Authorize(principal, condominiumId, db, ct);
+        if (!access.Allowed) return access.Result!;
+        var reminder = await db.AgendaReminders.SingleOrDefaultAsync(x =>
+            x.Id == reminderId && x.CondominiumId == condominiumId, ct);
+        if (reminder is null) return Results.NotFound();
+        reminder.Complete(DateTime.UtcNow); await db.SaveChangesAsync(ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> ReactivateAsync(Guid condominiumId,
+        Guid reminderId, ClaimsPrincipal principal, AppDbContext db,
+        CancellationToken ct)
+    {
+        var access = await Authorize(principal, condominiumId, db, ct);
+        if (!access.Allowed) return access.Result!;
+        var reminder = await db.AgendaReminders.SingleOrDefaultAsync(x =>
+            x.Id == reminderId && x.CondominiumId == condominiumId, ct);
+        if (reminder is null) return Results.NotFound();
+        if (reminder.IsActive) return Results.Conflict(new { error = "O lembrete já está ativo." });
+        var now = DateTime.UtcNow;
+        DateTime? next = reminder.RecurrenceType == AgendaRecurrenceType.None
+            ? reminder.StartsAtUtc > now ? reminder.StartsAtUtc : null
+            : NextFuture(reminder, now);
+        if (!next.HasValue) return Results.Conflict(new
+        { error = "Defina uma nova data futura antes de reativar este lembrete." });
+        reminder.Reactivate(next.Value, now); await db.SaveChangesAsync(ct);
+        return Results.NoContent();
+    }
+
+    private static DateTime NextFuture(AgendaReminder reminder, DateTime now)
+    {
+        var next = reminder.StartsAtUtc;
+        while (next <= now)
+            next = AgendaRecurrence.Next(next, reminder.RecurrenceType,
+                reminder.RecurrenceDayOfMonth, reminder.TimeZoneId)!.Value;
+        return next;
+    }
+
     private static async Task<Access> Authorize(ClaimsPrincipal principal,
         Guid condominiumId, AppDbContext db, CancellationToken ct)
     {
@@ -187,9 +263,13 @@ public static class AgendaEndpoints
         DateTime StartsAtUtc, DateTime? NextOccurrenceAtUtc, string TimeZoneId,
         string RecurrenceType, bool NotifyByWhatsApp, bool NotifyByEmail,
         bool IsActive, DateTime? CompletedAt, DateTime CreatedAt,
-        int RequestCount, Guid[] RequestIds);
+        int RequestCount, Guid[] RequestIds)
+    {
+        public IReadOnlyList<RequestLinkResponse> LinkedRequests { get; init; } = [];
+    }
+    public sealed record RequestLinkResponse(Guid Id, string Protocol, string Title);
     public sealed record RequestOption(Guid Id, string Protocol, string Title,
-        string ResidentName, string? UnitIdentifier, string Status,
+        string ResidentName, string? UnitIdentifier, string? Block, string Status,
         Guid? LinkedReminderId);
     private sealed record Access(bool Allowed, Guid UserId, IResult? Result);
 }

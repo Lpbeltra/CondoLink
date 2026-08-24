@@ -10,11 +10,14 @@ import { suggestRequestStatusMessage, updateRequestPriority, updateRequestStatus
 import { allowedStatusTransitions, priorityPresentation, statusPresentation } from '../presentation'
 import type { RequestPriority, RequestStatus } from '../types'
 import { canSubmitStatus, getRequestActionVisibility, getStatusConfirmation, requestShortcutStatuses } from '../requestActions'
+import { useNavigate } from 'react-router-dom'
+import type { AgendaReminderSummary } from '../types'
 
-interface Props { requestId: string; status: RequestStatus; priority: RequestPriority; onUpdated: () => Promise<void> }
+interface Props { requestId: string; status: RequestStatus; priority: RequestPriority; agendaReminder?: AgendaReminderSummary | null; onUpdated: () => Promise<void> }
 const residentStatuses: RequestStatus[] = ['WaitingForResident', 'WaitingForThirdParty', 'WaitingForResidentClosure', 'Resolved', 'Cancelled', 'Open']
 
-export function RequestManagementActions({ requestId, status, priority, onUpdated }: Props) {
+export function RequestManagementActions({ requestId, status, priority, agendaReminder, onUpdated }: Props) {
+  const navigate = useNavigate()
   const [statusOpen, setStatusOpen] = useState(false), [priorityOpen, setPriorityOpen] = useState(false)
   const [nextStatus, setNextStatus] = useState<RequestStatus | ''>(''), [nextPriority, setNextPriority] = useState<RequestPriority | ''>('')
   const [reason, setReason] = useState(''), [suggestion, setSuggestion] = useState(''), [suggestionSource, setSuggestionSource] = useState('')
@@ -66,6 +69,7 @@ export function RequestManagementActions({ requestId, status, priority, onUpdate
       {actions.changePriority && <Button variant="outlined" color="secondary" disabled={isSaving} onClick={() => { setError(''); setSuccess(''); setPriorityOpen(true) }}>Alterar prioridade</Button>}
       {actions.resolve && <Button variant="contained" color="success" startIcon={<CheckCircleOutlineRoundedIcon />} disabled={isSaving} onClick={() => openStatus(requestShortcutStatuses.resolve)}>Resolver</Button>}
       {actions.cancel && <Button variant="contained" color="error" startIcon={<CancelOutlinedIcon />} disabled={isSaving} onClick={() => openStatus(requestShortcutStatuses.cancel)}>Cancelar</Button>}
+      {agendaReminder ? <Button variant="outlined" onClick={() => navigate('/management/agenda')}>Abrir lembrete{agendaReminder.isActive ? '' : ' concluído'}</Button> : status !== 'Resolved' && status !== 'Cancelled' && <Button variant="outlined" onClick={() => navigate(`/management/agenda?create=true&requestId=${requestId}`)}>Vincular lembrete</Button>}
     </Box>
 
     <Dialog open={statusOpen} onClose={() => { if (!isSaving && !isSuggesting) closeStatus() }} fullWidth maxWidth="sm">

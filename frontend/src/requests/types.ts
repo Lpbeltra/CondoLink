@@ -9,6 +9,7 @@ export interface Person { id: string; fullName: string; isManager?: boolean }
 
 export interface RequestListItem {
   id: string
+  protocol?: string
   condominiumId: string
   category: RequestCategory
   targetUnit: TargetUnit | null
@@ -45,7 +46,7 @@ export interface RequestDetails extends RequestListItem {
   hasUnreadResidentUpdate?: boolean
 }
 
-export interface AgendaReminderSummary { id: string; title: string; nextOccurrenceAtUtc: string | null; recurrenceType: 'None' | 'Weekly' | 'Monthly' }
+export interface AgendaReminderSummary { id: string; title: string; nextOccurrenceAtUtc: string | null; recurrenceType: 'None' | 'Weekly' | 'Monthly'; isActive: boolean; completedAt: string | null }
 
 export interface ResidentSummary {
   fullName: string

@@ -115,5 +115,8 @@ public static class ListMyRequests
         string Priority,
         DateTime CreatedAt,
         DateTime UpdatedAt,
-        DateTime? ResolvedAt);
+        DateTime? ResolvedAt)
+    {
+        public string Protocol => RequestProtocol.From(Id);
+    }
 }

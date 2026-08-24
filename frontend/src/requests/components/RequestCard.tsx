@@ -1,7 +1,7 @@
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import { Box, Card, CardActionArea, CardContent, Stack, Typography } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
-import { formatRelativeDate } from '../presentation'
+import { formatRelativeDate, formatRequestProtocol } from '../presentation'
 import type { RequestListItem } from '../types'
 import { RequestPriorityChip } from './RequestPriorityChip'
 import { RequestStatusChip } from './RequestStatusChip'
@@ -15,7 +15,8 @@ export function RequestCard({ request }: { request: RequestListItem }) {
         <CardContent sx={{ p: { xs: 2.25, sm: 2.75 } }}>
           <Box display="flex" gap={1.5} alignItems="flex-start">
             <Box flex={1} minWidth={0}>
-              <Typography color="text.secondary" fontSize=".8rem" fontWeight={700}>{request.category.name}</Typography>
+              <Typography color="primary.main" fontSize=".76rem" fontWeight={800}>Atendimento #{formatRequestProtocol(request.id, request.protocol)}</Typography>
+              <Typography color="text.secondary" fontSize=".8rem" fontWeight={700} mt={.25}>{request.category.name}</Typography>
               <Typography variant="h3" mt={.5}>{request.title}</Typography>
             </Box>
             <ChevronRightRoundedIcon color="action" />

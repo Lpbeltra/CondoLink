@@ -1,7 +1,7 @@
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import { Alert, Box, Card, CardActionArea, CardContent, Stack, Typography } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
-import { formatRelativeDate } from '../presentation'
+import { formatRelativeDate, formatRequestProtocol } from '../presentation'
 import type { ManagementRequestItem } from '../types'
 import { RequestPriorityChip } from './RequestPriorityChip'
 import { RequestStatusChip } from './RequestStatusChip'
@@ -12,7 +12,7 @@ export function ManagementRequestCard({ request }: { request: ManagementRequestI
   return <Card elevation={0} sx={{ boxShadow: 'none' }}><CardActionArea onClick={() => navigate(`/management/requests/${request.id}`)}>
     <CardContent sx={{ p: { xs: 2.25, sm: 2.75 } }}>
       <Box display="flex" gap={2} alignItems="flex-start">
-        <Box flex={1} minWidth={0}><Typography variant="h3">{request.title}</Typography><Typography color="text.secondary" fontSize=".84rem" mt={.5}>{request.author.fullName} · {request.category.name}</Typography></Box>
+        <Box flex={1} minWidth={0}><Typography color="primary.main" fontSize=".76rem" fontWeight={800}>Atendimento #{formatRequestProtocol(request.id, request.protocol)}</Typography><Typography variant="h3" mt={.35}>{request.title}</Typography><Typography color="text.secondary" fontSize=".84rem" mt={.5}>{request.author.fullName} · {request.category.name}</Typography></Box>
         <ChevronRightRoundedIcon color="action" />
       </Box>
       <Stack direction="row" flexWrap="wrap" gap={1} mt={2}><RequestStatusChip status={request.status} /><RequestPriorityChip priority={request.priority} /></Stack>

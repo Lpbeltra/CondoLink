@@ -9,7 +9,7 @@ import { RequestConversation } from '../requests/components/RequestConversation'
 import { RequestPriorityChip } from '../requests/components/RequestPriorityChip'
 import { RequestStatusChip } from '../requests/components/RequestStatusChip'
 import { RequestTimeline } from '../requests/components/RequestTimeline'
-import { formatDateTime, getRequestError, isClosedRequest } from '../requests/presentation'
+import { formatDateTime, formatRequestProtocol, getRequestError, isClosedRequest } from '../requests/presentation'
 import type { RequestDetails, RequestMessage } from '../requests/types'
 import { RequestManagementActions } from '../requests/components/RequestManagementActions'
 import { RequestAttachments } from '../requests/components/RequestAttachments'
@@ -81,7 +81,8 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
         <Grid size={{ xs: 12, lg: 8 }}>
           <Card elevation={0}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}>
             <Stack direction="row" flexWrap="wrap" gap={1} mb={2}><RequestStatusChip status={details.status} /><RequestPriorityChip priority={details.priority} /></Stack>
-            <Typography variant="h1">{details.title}</Typography>
+            <Typography color="primary.main" fontWeight={800}>Atendimento #{formatRequestProtocol(details.id, details.protocol)}</Typography>
+            <Typography variant="h1" mt={.5}>{details.title}</Typography>
             <Typography color="text.secondary" mt={1}>{details.category.name} · aberta em {formatDateTime(details.createdAt)}</Typography>
             <Divider sx={{ my: 3 }} />
             <Typography variant="h3" mb={1}>Descrição</Typography><Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{details.description}</Typography>
@@ -89,8 +90,7 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
           </CardContent></Card>
           {managementMode && details.residentSummary
             && <ResidentSummaryCard resident={details.residentSummary} />}
-          {managementMode && <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 3 } }}><Typography variant="h3">Lembrete relacionado</Typography>{details.agendaReminder ? <Stack mt={1} direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} justifyContent="space-between" gap={1}><Box><Typography fontWeight={800}>{details.agendaReminder.title}</Typography><Typography color="text.secondary">{details.agendaReminder.nextOccurrenceAtUtc ? formatDateTime(details.agendaReminder.nextOccurrenceAtUtc) : 'Concluído'} · {details.agendaReminder.recurrenceType === 'Weekly' ? 'Semanal' : details.agendaReminder.recurrenceType === 'Monthly' ? 'Mensal' : 'Não repete'}</Typography></Box><Button onClick={() => navigate('/management/agenda')}>Abrir na Agenda</Button></Stack> : !isClosedRequest(details.status) ? <Button sx={{ mt: 1 }} variant="outlined" onClick={() => navigate(`/management/agenda?requestId=${details.id}`)}>Vincular à Agenda</Button> : <Typography color="text.secondary" mt={1}>Atendimento encerrado sem lembrete relacionado.</Typography>}</CardContent></Card>}
-          {canViewInternal && <RequestManagementActions requestId={details.id} status={details.status} priority={details.priority} onUpdated={load} />}
+          {canViewInternal && <RequestManagementActions requestId={details.id} status={details.status} priority={details.priority} agendaReminder={details.agendaReminder} onUpdated={load} />}
           {!managementMode && details.residentClosureProposal && <ResidentClosurePanel requestId={details.id} proposal={details.residentClosureProposal} onUpdated={async feedback => { if (feedback) setActionFeedback(feedback); await load() }} />}
           <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}><Typography variant="h2" mb={.5}>Atualizações</Typography><Typography color="text.secondary" mb={3}>{residentReadOnly ? 'Consulte o histórico de mensagens do atendimento.' : 'Registre novas informações e acompanhe o atendimento.'}</Typography><RequestConversation requestId={details.id} status={details.status} messages={messages} residentSummary={details.aiAnalysis?.description} readOnly={residentReadOnly || residentClosurePending || (!managementMode && Boolean(details.residentReplyRequirement))} onMessageCreated={(message) => setMessages((current) => [...current, message])} /></CardContent></Card>
           {canViewInternal && <RequestAiAssistant analysis={details.aiAnalysis} />}
