@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AxiosError } from 'axios'
-import { allowedStatusTransitions, canSendMessage, filterRequestsByCondominium, formatRelativeDate, getRequestError, priorityPresentation, statusPresentation } from './presentation'
+import { allowedStatusTransitions, canSendMessage, filterRequestsByCondominium, formatRelativeDate, formatResidentPhone, getRequestError, priorityPresentation, statusPresentation } from './presentation'
 import type { RequestListItem } from './types'
 
 const request = (id: string, condominiumId: string): RequestListItem => ({ id, condominiumId, category: { id: 'category', name: 'Manutenção' }, targetUnit: null, title: id, status: 'Open', priority: 'Normal', createdAt: '2026-07-16T12:00:00Z', updatedAt: '2026-07-16T12:00:00Z', resolvedAt: null })
@@ -21,6 +21,12 @@ describe('request presentation', () => {
 
   it('formats recent updates', () => {
     expect(formatRelativeDate('2026-07-16T11:55:00Z', new Date('2026-07-16T12:00:00Z'))).toBe('Atualizada há 5 min')
+  })
+
+  it('formats Brazilian phones and preserves international presentation', () => {
+    expect(formatResidentPhone('+5511999990001')).toBe('+55 (11) 99999-0001')
+    expect(formatResidentPhone('+1 212 555 1234')).toBe('+1 212 555 1234')
+    expect(formatResidentPhone(null)).toBe('Não informado')
   })
 
   it('blocks messages for both closed request states', () => {

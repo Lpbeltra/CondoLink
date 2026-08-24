@@ -177,7 +177,15 @@ public sealed class NotificationService(
                 request.Id, type, $"request-status:{statusHistoryId}",
                 content,
                 null, cancellationToken,
-                templateParameterContent: administrativeContent);
+                templateParameterContent: administrativeContent,
+                requestStatusHistoryId: statusHistoryId,
+                requestClosureConfirmationId: request.Status == RequestStatus.WaitingForResidentClosure
+                    ? await dbContext.RequestClosureConfirmations.AsNoTracking()
+                        .Where(x => x.RequestId == request.Id
+                            && x.RequestStatusHistoryId == statusHistoryId
+                            && x.Status == RequestClosureConfirmationStatus.Pending)
+                        .Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken)
+                    : null);
             logger?.LogInformation(
                 "WhatsApp notification enqueue completed. RequestId: {RequestId}; NewStatus: {NewStatus}; NotificationType: {NotificationType}.",
                 request.Id, request.Status, type);

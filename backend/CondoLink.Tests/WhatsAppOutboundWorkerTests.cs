@@ -31,11 +31,30 @@ public sealed class WhatsAppOutboundWorkerTests
     }
 
     [Fact]
-    public void Status_template_maps_resident_name_and_context_in_meta_order()
+    public void Status_template_maps_exactly_the_resident_first_name()
     {
-        Assert.Equal(["Tatiana", "Seu atendimento foi encerrado."],
+        Assert.Equal(["Tatiana"],
             WhatsAppOutboundWorker.StatusChangedTemplateParameters(
-                "Tatiana Custodio", "Seu atendimento foi encerrado."));
+                "Tatiana Custodio"));
+    }
+
+    [Fact]
+    public void Closure_template_maps_name_and_literal_conclusion()
+    {
+        Assert.Equal(["Tatiana", "Serviço concluído literalmente."],
+            WhatsAppOutboundWorker.ClosureTemplateParameters(
+                "Tatiana Custodio", "Serviço concluído literalmente."));
+    }
+
+    [Fact]
+    public void Finalization_template_maps_exactly_four_utf8_positional_values()
+    {
+        Assert.Equal(
+            ["Érica", "Reparo da iluminação do salão", "FINALIZADA",
+                "Lâmpadas substituídas; serviço concluído."],
+            WhatsAppOutboundWorker.FinalizationTemplateParameters(
+                "Érica Gonçalves", "Reparo da iluminação do salão",
+                "Lâmpadas substituídas; serviço concluído."));
     }
 
     [Fact]

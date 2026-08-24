@@ -287,12 +287,17 @@ public sealed class ManagerOnboardingService(AppDbContext dbContext)
         bool isActive,
         CancellationToken cancellationToken)
     {
-        var manager = await (
-                from user in dbContext.Users
-                join userRole in dbContext.UserRoles on user.Id equals userRole.UserId
-                join role in dbContext.Roles on userRole.RoleId equals role.Id
-                where user.Id == managerId && role.Name == "Manager"
-                select user)
+        var manager = await dbContext.Users.Where(user => user.Id == managerId && (
+                dbContext.UserRoles.Any(userRole => userRole.UserId == user.Id
+                    && dbContext.Roles.Any(role => role.Id == userRole.RoleId
+                        && role.Name == "Manager"))
+                || dbContext.CondominiumMemberships.Any(membership =>
+                    membership.UserId == user.Id && membership.IsActive
+                    && membership.EndedAt == null
+                    && dbContext.CondominiumMembershipRoles.Any(role =>
+                        role.CondominiumMembershipId == membership.Id
+                        && role.Role == CondominiumRole.Manager
+                        && role.IsActive && role.RevokedAt == null))))
             .SingleOrDefaultAsync(cancellationToken);
         if (manager is null)
         {

@@ -38,7 +38,16 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         }, builder => builder.Services
             .AddScoped<WhatsAppNotificationDispatcher>()
             .AddSingleton<IRequestDraftAiService>(_statusSuggestionAi)
-            .Configure<WhatsAppOptions>(options => options.Enabled = true));
+            .Configure<WhatsAppOptions>(options =>
+            {
+                options.Enabled = true;
+                options.Templates.ResidentClosureConfirmation.Name =
+                    "resident_closure_confirmation";
+                options.Templates.ResidentClosureConfirmation.Language = "pt_BR";
+                options.Templates.Resolved.Name =
+                    "task_finalization_notification";
+                options.Templates.Resolved.Language = "pt_BR";
+            }));
 
         await _host.WithDbAsync(async db =>
         {
@@ -270,6 +279,85 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         Assert.Equal(_requestId, session.RequestId);
         var history = Assert.Single(await HistoryAsync());
         Assert.Equal($"request-status:{history.Id}", outbound.IdempotencyKey);
+    }
+
+    [Fact]
+    public async Task Inbound_older_than_24_hours_enqueues_correlated_status_template_once()
+    {
+        const string comment = "A empresa responsável já recebeu a solicitação.";
+        await SeedOldIdentifiedInboundAsync();
+
+        var manager = _host.ClientFor(_managerId);
+        var response = await manager.PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "WaitingForThirdParty", reason = comment });
+        var duplicate = await manager.PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "WaitingForThirdParty", reason = comment });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+        var history = Assert.Single(await HistoryAsync());
+        var outbound = Assert.Single(await _host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync()));
+        Assert.Equal(WhatsAppSendMode.Template, outbound.SendMode);
+        Assert.Equal("request_status_update", outbound.TemplateName);
+        Assert.Equal("pt_BR", outbound.TemplateLanguage);
+        Assert.Equal(_requestId, outbound.RequestId);
+        Assert.Equal(history.Id, outbound.RequestStatusHistoryId);
+        Assert.Null(outbound.RequestClosureConfirmationId);
+        Assert.Contains(comment, outbound.Content);
+        Assert.Equal($"request-status:{history.Id}", outbound.IdempotencyKey);
+    }
+
+    [Fact]
+    public async Task Inbound_older_than_24_hours_enqueues_correlated_closure_template()
+    {
+        const string conclusion = "A solicitação foi atendida pela portaria.";
+        await SeedOldIdentifiedInboundAsync();
+
+        var response = await _host.ClientFor(_managerId).PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "WaitingForResidentClosure", reason = conclusion });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var history = Assert.Single(await HistoryAsync());
+        var confirmation = Assert.Single(await _host.WithDbAsync(db =>
+            db.RequestClosureConfirmations.AsNoTracking().ToArrayAsync()));
+        var outbound = Assert.Single(await _host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync()));
+        Assert.Equal(WhatsAppSendMode.Template, outbound.SendMode);
+        Assert.Equal("resident_closure_confirmation", outbound.TemplateName);
+        Assert.Equal("pt_BR", outbound.TemplateLanguage);
+        Assert.Equal(_requestId, outbound.RequestId);
+        Assert.Equal(history.Id, outbound.RequestStatusHistoryId);
+        Assert.Equal(confirmation.Id, outbound.RequestClosureConfirmationId);
+        Assert.Equal(conclusion, outbound.TemplateParameterContent);
+    }
+
+    [Fact]
+    public async Task Inbound_older_than_24_hours_resolves_without_closure_and_enqueues_finalization()
+    {
+        const string conclusion = "Iluminação reparada integralmente.";
+        await SeedOldIdentifiedInboundAsync();
+
+        var response = await _host.ClientFor(_managerId).PatchAsJsonAsync(
+            $"/requests/{_requestId}/status",
+            new { status = "Resolved", reason = conclusion });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var request = await _host.WithDbAsync(db => db.Requests.AsNoTracking()
+            .SingleAsync(x => x.Id == _requestId));
+        Assert.Equal(RequestStatus.Resolved, request.Status);
+        Assert.NotNull(request.ResolvedAt);
+        Assert.Empty(await _host.WithDbAsync(db =>
+            db.RequestClosureConfirmations.AsNoTracking().ToArrayAsync()));
+        var outbound = Assert.Single(await _host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().ToArrayAsync()));
+        Assert.Equal(WhatsAppSendMode.Template, outbound.SendMode);
+        Assert.Equal("task_finalization_notification", outbound.TemplateName);
+        Assert.Equal("pt_BR", outbound.TemplateLanguage);
+        Assert.Equal(conclusion, outbound.TemplateParameterContent);
     }
 
     [Fact]
@@ -777,6 +865,26 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(callsBefore, _statusSuggestionAi.Calls);
     }
+
+    private Task SeedOldIdentifiedInboundAsync() => _host.WithDbAsync(async db =>
+    {
+        var resident = await db.Set<ApplicationUser>()
+            .SingleAsync(x => x.Id == _residentId);
+        resident.Update(resident.FullName, "(11) 99999-0001");
+        var receivedAt = DateTime.UtcNow.AddHours(-25);
+        var inbound = new WhatsAppInboundMessage(
+            $"wamid.old-{Guid.NewGuid():N}", resident.NormalizedPhoneNumber!,
+            "text", "Oi", receivedAt);
+        inbound.Complete(_residentId, "main_menu", receivedAt);
+        db.Add(inbound);
+        await db.SaveChangesAsync();
+        await db.WhatsAppInboundMessages.Where(x => x.Id == inbound.Id)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.ReceivedAt, receivedAt));
+        await db.Requests.Where(x => x.Id == _requestId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(x => x.Status, RequestStatus.InProgress));
+    });
 
     private Task<RequestStatus> CurrentStatusAsync() =>
         _host.WithDbAsync(db => db.Requests

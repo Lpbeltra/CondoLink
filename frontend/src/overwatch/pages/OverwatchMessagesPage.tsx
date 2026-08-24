@@ -77,6 +77,7 @@ function TemplateEditDialog({
               {editing?.metaTemplateLanguage ? ` · ${editing.metaTemplateLanguage}` : ''}
             </b>
             , gerenciado externamente.
+            {editing?.metaQuickReplies?.length ? ` Botões: ${editing.metaQuickReplies.join(' · ')}.` : ''}
           </Alert>
           {editing && updateSummary(editing) && (
             <Typography variant="caption" color="text.secondary">{updateSummary(editing)}</Typography>

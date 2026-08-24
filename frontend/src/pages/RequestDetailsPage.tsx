@@ -19,6 +19,7 @@ import { ResidentReplyPanel } from '../requests/components/ResidentReplyPanel'
 import { ResidentClosurePanel } from '../requests/components/ResidentClosurePanel'
 import { ResidentUpdateAcknowledgement } from '../requests/components/ResidentUpdateAcknowledgement'
 import { useVisiblePolling } from '../hooks/useVisiblePolling'
+import { ResidentSummaryCard } from '../requests/components/ResidentSummaryCard'
 
 interface RequestDetailsPageProps {
   managementCondominiumId?: string | null
@@ -86,6 +87,8 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
             <Typography variant="h3" mb={1}>Descrição</Typography><Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{details.description}</Typography>
             {unit && <><Divider sx={{ my: 3 }} /><Typography variant="h3" mb={1}>Unidade relacionada</Typography><Typography>{unit}</Typography></>}
           </CardContent></Card>
+          {managementMode && details.residentSummary
+            && <ResidentSummaryCard resident={details.residentSummary} />}
           {canViewInternal && <RequestManagementActions requestId={details.id} status={details.status} priority={details.priority} onUpdated={load} />}
           {!managementMode && details.residentClosureProposal && <ResidentClosurePanel requestId={details.id} proposal={details.residentClosureProposal} onUpdated={async feedback => { if (feedback) setActionFeedback(feedback); await load() }} />}
           <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}><Typography variant="h2" mb={.5}>Atualizações</Typography><Typography color="text.secondary" mb={3}>{residentReadOnly ? 'Consulte o histórico de mensagens do atendimento.' : 'Registre novas informações e acompanhe o atendimento.'}</Typography><RequestConversation requestId={details.id} status={details.status} messages={messages} residentSummary={details.aiAnalysis?.description} readOnly={residentReadOnly || residentClosurePending || (!managementMode && Boolean(details.residentReplyRequirement))} onMessageCreated={(message) => setMessages((current) => [...current, message])} /></CardContent></Card>

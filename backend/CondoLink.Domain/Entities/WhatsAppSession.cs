@@ -24,6 +24,7 @@ public sealed class WhatsAppSession
     public Guid? CondominiumId { get; private set; }
     public Guid? UnitId { get; private set; }
     public Guid? RequestId { get; private set; }
+    public Guid? RequestClosureConfirmationId { get; private set; }
     public Guid? CategoryId { get; private set; }
     public string? DraftDescription { get; private set; }
     public string? DraftAiProposalJson { get; private set; }
@@ -54,6 +55,7 @@ public sealed class WhatsAppSession
         CondominiumId = condominiumId;
         UnitId = unitId;
         RequestId = null;
+        RequestClosureConfirmationId = null;
         CategoryId = null;
         DraftDescription = null;
         DraftAiProposalJson = null;
@@ -67,6 +69,7 @@ public sealed class WhatsAppSession
         CondominiumId = null;
         UnitId = null;
         RequestId = null;
+        RequestClosureConfirmationId = null;
         CategoryId = null;
         DraftDescription = null;
         DraftAiProposalJson = null;
@@ -85,6 +88,7 @@ public sealed class WhatsAppSession
         PreviousState = State;
         State = WhatsAppConversationState.MainMenu;
         RequestId = null;
+        RequestClosureConfirmationId = null;
         CategoryId = null;
         DraftDescription = null;
         DraftAiProposalJson = null;
@@ -289,8 +293,9 @@ public sealed class WhatsAppSession
         MoveTo(WhatsAppConversationState.CollectingResidentReplyAttachments,
             now, expiresAt, CondominiumId);
 
-    public void AwaitClosure(Guid requestId, DateTime now, DateTime expiresAt)
-    { RequestId = requestId; MoveTo(WhatsAppConversationState.AwaitingClosureConfirmation, now, expiresAt, CondominiumId); }
+    public void AwaitClosure(Guid requestId, DateTime now, DateTime expiresAt,
+        Guid? confirmationId = null)
+    { RequestId = requestId; RequestClosureConfirmationId = confirmationId; MoveTo(WhatsAppConversationState.AwaitingClosureConfirmation, now, expiresAt, CondominiumId); }
     public void AwaitClosureQuestion(DateTime now, DateTime expiresAt) =>
         MoveTo(WhatsAppConversationState.AwaitingClosureQuestion, now, expiresAt, CondominiumId);
 
@@ -312,6 +317,7 @@ public sealed class WhatsAppSession
         DraftDescription = null;
         DraftAiProposalJson = null;
         RequestId = null;
+        RequestClosureConfirmationId = null;
         Page = 0;
         Version = Guid.NewGuid();
     }
@@ -333,6 +339,7 @@ public sealed class WhatsAppSession
         CondominiumId = null;
         UnitId = null;
         RequestId = null;
+        RequestClosureConfirmationId = null;
         CategoryId = null;
         DraftDescription = null;
         DraftAiProposalJson = null;
@@ -349,6 +356,7 @@ public sealed class WhatsAppSession
         CondominiumId = null;
         UnitId = null;
         RequestId = null;
+        RequestClosureConfirmationId = null;
         CategoryId = null;
         DraftDescription = null;
         DraftAiProposalJson = null;

@@ -319,3 +319,44 @@ O webhook limita o corpo a 256 KiB, valida JSON e assinatura antes de
 processar, audita IDs externos para idempotência e retorna `200` após processar
 os eventos aceitos. Falhas internas retornam `503`, permitindo nova tentativa
 pela Meta.
+
+## Janela de 24 horas e templates operacionais
+
+A janela da Meta não encerra a `Request` e é independente do timeout de 30
+minutos de `WhatsAppSession`. Todo inbound válido registra `ReceivedAt`; a
+identidade é resolvida prioritariamente por `IdentifiedUserId`, com telefone
+normalizado (inclusive compatibilidade brasileira sem nono dígito) como apoio.
+
+| Intenção/status | Dentro de 24h | Fora de 24h | Contrato Meta |
+|---|---|---|---|
+| `WaitingForThirdParty`, `Reopened` e atualização genérica | `SessionText` com moldura Overwatch + texto literal | `request_status_update` | `pt_BR`; body `{{1}}` primeiro nome; `request_status_view`/“Ver atualização” |
+| `Cancelled` | `SessionText` correspondente | `request_status_update` (não há template específico aprovado) | mesmo contrato genérico |
+| `WaitingForResident` | `SessionText` próprio | `resident_reply_required` | contrato e botões existentes preservados |
+| `WaitingForResidentClosure` | `SessionText` com conclusão e opções | `resident_closure_confirmation` | `pt_BR`; `{{1}}` primeiro nome; `{{2}}` conclusão literal; `closure_confirm` e `closure_question` |
+| Resolver (`Resolved` unilateral) | `SessionText` de finalização | `task_finalization_notification` | `pt_BR`; `{{1}}` primeiro nome; `{{2}}` título da Request; `{{3}}` `FINALIZADA`; `{{4}}` conclusão literal; botão estático “Portal Comvy”; sem confirmação |
+
+`request_status_update` não transporta o texto administrativo. O outbound
+persiste o `Content` completo, o conteúdo literal em
+`TemplateParameterContent`, `RequestId` e `RequestStatusHistoryId`. Ao receber
+“Ver atualização”, o webhook exige o `context.id` do outbound respondido,
+reabre a janela e envia imediatamente o `Content` como `SessionText`, sem menu.
+
+Os botões de closure também exigem esse contexto e o outbound persiste
+`RequestClosureConfirmationId`. “Finalizar atendimento” decide exatamente essa
+confirmação; “Ainda tenho uma dúvida” associa a sessão à mesma Request e à mesma
+confirmação para a próxima mensagem. Título traduzido é apenas compatibilidade;
+as chaves de negócio são os IDs estáveis. Webhooks e cliques repetidos permanecem
+idempotentes pelas chaves externas e pela atualização condicional do estado.
+
+Templates Meta são gerenciados externamente. O Overwatch apenas exibe nome,
+idioma e botões; seus overrides afetam somente `SessionText`. Falha de um
+template usa o retry/backoff normal e nunca troca por template de outra intenção.
+
+```text
+WhatsApp__Templates__StatusChanged__Name=request_status_update
+WhatsApp__Templates__StatusChanged__Language=pt_BR
+WhatsApp__Templates__ResidentClosureConfirmation__Name=resident_closure_confirmation
+WhatsApp__Templates__ResidentClosureConfirmation__Language=pt_BR
+WhatsApp__Templates__Resolved__Name=task_finalization_notification
+WhatsApp__Templates__Resolved__Language=pt_BR
+```

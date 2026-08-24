@@ -26,16 +26,24 @@ public static class ListOverwatchManagers
         AppDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        var eligibleRoleNames = eligibleForAssignment is true
-            ? new[] { "Manager", "PlatformAdmin" }
-            : new[] { "Manager" };
         var query = dbContext.Users
             .AsNoTracking()
-            .Where(user => dbContext.UserRoles.Any(userRole =>
+            .Where(user => (eligibleForAssignment == true
+                && dbContext.UserRoles.Any(userRole =>
                 userRole.UserId == user.Id &&
                 dbContext.Roles.Any(role =>
                     role.Id == userRole.RoleId &&
-                    eligibleRoleNames.Contains(role.Name!))));
+                    (role.Name == "Manager" || role.Name == "PlatformAdmin"))))
+                || dbContext.UserRoles.Any(userRole =>
+                    userRole.UserId == user.Id && dbContext.Roles.Any(role =>
+                        role.Id == userRole.RoleId && role.Name == "Manager"))
+                || dbContext.CondominiumMemberships.Any(membership =>
+                    membership.UserId == user.Id && membership.IsActive
+                    && membership.EndedAt == null
+                    && dbContext.CondominiumMembershipRoles.Any(role =>
+                        role.CondominiumMembershipId == membership.Id
+                        && role.Role == Domain.Enums.CondominiumRole.Manager
+                        && role.IsActive && role.RevokedAt == null)));
 
         if (eligibleForAssignment is true)
         {

@@ -26,6 +26,7 @@ public sealed class WhatsAppTemplateOptions
     public WhatsAppTemplateDefinition AdministrationMessage { get; set; } = new();
     public WhatsAppTemplateDefinition InformationRequested { get; set; } = new();
     public WhatsAppTemplateDefinition StatusChanged { get; set; } = new();
+    public WhatsAppTemplateDefinition ResidentClosureConfirmation { get; set; } = new();
     public WhatsAppTemplateDefinition Resolved { get; set; } = new();
     public WhatsAppTemplateDefinition Cancelled { get; set; } = new();
     public WhatsAppTemplateDefinition Reopened { get; set; } = new();

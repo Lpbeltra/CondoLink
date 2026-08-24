@@ -11,14 +11,25 @@ public sealed class RequestClosureService(AppDbContext db, NotificationService n
     ILogger<RequestClosureService>? logger = null)
 {
     public Task<Result> ConfirmAsync(Guid requestId, Guid residentId, CancellationToken ct) =>
-        DecideAsync(requestId, residentId, null, true, MessageChannel.Portal, ct);
+        DecideAsync(requestId, null, residentId, null, true, MessageChannel.Portal, ct);
+    public Task<Result> ConfirmAsync(Guid requestId, Guid confirmationId,
+        Guid residentId, CancellationToken ct) =>
+        DecideAsync(requestId, confirmationId, residentId, null, true,
+            MessageChannel.WhatsAppResidentUpdate, ct);
     public Task<Result> QuestionAsync(Guid requestId, Guid residentId, string text, CancellationToken ct) =>
         QuestionAsync(requestId, residentId, text, MessageChannel.WhatsAppResidentUpdate, ct);
     public Task<Result> QuestionAsync(Guid requestId, Guid residentId, string text,
         MessageChannel channel, CancellationToken ct) =>
-        DecideAsync(requestId, residentId, text.Trim()[..Math.Min(text.Trim().Length, 4000)], false, channel, ct);
+        DecideAsync(requestId, null, residentId, text.Trim()[..Math.Min(text.Trim().Length, 4000)], false, channel, ct);
 
-    private async Task<Result> DecideAsync(Guid requestId, Guid residentId, string? question, bool confirmed,
+    public Task<Result> QuestionAsync(Guid requestId, Guid confirmationId,
+        Guid residentId, string text, CancellationToken ct) =>
+        DecideAsync(requestId, confirmationId, residentId,
+            text.Trim()[..Math.Min(text.Trim().Length, 4000)], false,
+            MessageChannel.WhatsAppResidentUpdate, ct);
+
+    private async Task<Result> DecideAsync(Guid requestId, Guid? confirmationId,
+        Guid residentId, string? question, bool confirmed,
         MessageChannel channel, CancellationToken ct)
     {
         var request = await db.Requests.AsNoTracking().SingleOrDefaultAsync(x => x.Id == requestId, ct);
@@ -33,6 +44,7 @@ public sealed class RequestClosureService(AppDbContext db, NotificationService n
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, target).SetProperty(x => x.UpdatedAt, now)
                 .SetProperty(x => x.ResolvedAt, confirmed ? (DateTime?)now : null), ct);
         var pending = await db.RequestClosureConfirmations.Where(x => x.RequestId == requestId
+                && (!confirmationId.HasValue || x.Id == confirmationId.Value)
                 && x.Status == RequestClosureConfirmationStatus.Pending && x.ExpiresAt > now)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, confirmed ? RequestClosureConfirmationStatus.Confirmed : RequestClosureConfirmationStatus.Questioned)
                 .SetProperty(x => x.DecidedAt, now).SetProperty(x => x.ResponseMessageId, message == null ? null : (Guid?)message.Id)

@@ -19,11 +19,18 @@ public static class UpdateOverwatchManager
     {
         if (string.IsNullOrWhiteSpace(request.FullName) || string.IsNullOrWhiteSpace(request.Email))
             return Results.BadRequest(new { message = "Full name and email are required." });
-        var user = await (from current in db.Users
-            join userRole in db.UserRoles on current.Id equals userRole.UserId
-            join role in db.Roles on userRole.RoleId equals role.Id
-            where current.Id == managerId && role.Name == "Manager"
-            select current).SingleOrDefaultAsync(cancellationToken);
+        var user = await db.Users.Where(current => current.Id == managerId && (
+            db.UserRoles.Any(userRole => userRole.UserId == current.Id
+                && db.Roles.Any(role => role.Id == userRole.RoleId
+                    && role.Name == "Manager"))
+            || db.CondominiumMemberships.Any(membership =>
+                membership.UserId == current.Id && membership.IsActive
+                && membership.EndedAt == null
+                && db.CondominiumMembershipRoles.Any(role =>
+                    role.CondominiumMembershipId == membership.Id
+                    && role.Role == Domain.Enums.CondominiumRole.Manager
+                    && role.IsActive && role.RevokedAt == null))))
+            .SingleOrDefaultAsync(cancellationToken);
         if (user is null) return Results.NotFound(new { message = "Manager not found." });
         var error = ManagerValidation.Validate(request);
         if (error is not null) return Results.BadRequest(new { message = error });

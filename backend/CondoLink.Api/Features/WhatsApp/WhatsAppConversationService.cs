@@ -368,13 +368,19 @@ public sealed class WhatsAppConversationService(
         var residentReplyButton = ResidentReplyButtonChoice(message);
         var text = message.Text?.Trim();
         var command = NormalizeCommand(text);
+        var operationalReply = await HandleOperationalTemplateReply(
+            session, identity, message, now, expires, ct);
+        if (operationalReply is not null) return operationalReply.Value;
         if (session.State == WhatsAppConversationState.AwaitingClosureQuestion)
         {
             var activeClosure = await ActiveClosure(session.RequestId, identity, ct);
             if (activeClosure is null) { session.End(now); return ("Esse atendimento não aguarda mais manifestação.", "closure_no_longer_active"); }
             if (string.IsNullOrWhiteSpace(text)) return ("Pode enviar sua dúvida ou observação.", "closure_question_required");
-            var questioned = await closures.QuestionAsync(activeClosure.Value,
-                identity.UserId, text, ct);
+            var questioned = session.RequestClosureConfirmationId.HasValue
+                ? await closures.QuestionAsync(activeClosure.Value,
+                    session.RequestClosureConfirmationId.Value, identity.UserId, text, ct)
+                : await closures.QuestionAsync(activeClosure.Value,
+                    identity.UserId, text, ct);
             session.End(now);
             return questioned.Succeeded ? ("Atualização enviada. A administração dará continuidade ao atendimento.", "closure_questioned")
                 : ("Esse atendimento não aguarda mais manifestação.", "closure_conflict");
@@ -1253,6 +1259,94 @@ public sealed class WhatsAppConversationService(
             "resident_reply_later" => "resident_reply_later",
             _ => null
         };
+
+    private async Task<(string Response, string Result)?> HandleOperationalTemplateReply(
+        WhatsAppSession session, ResolvedIdentity identity,
+        NormalizedWhatsAppMessage message, DateTime now, DateTime expires,
+        CancellationToken ct)
+    {
+        var action = message.QuickReplyId switch
+        {
+            "request_status_view" => "status",
+            "closure_confirm" => "confirm",
+            "closure_question" => "question",
+            _ => message.QuickReplyTitle?.Trim() switch
+            {
+                "Ver atualização" => "status",
+                "Finalizar atendimento" => "confirm",
+                "Ainda tenho uma dúvida" => "question",
+                _ => null
+            }
+        };
+        if (action is null) return null;
+        if (string.IsNullOrWhiteSpace(message.ReplyToExternalMessageId))
+            return ("Não consegui correlacionar esta ação à solicitação. Consulte suas solicitações para continuar.",
+                "operational_reply_context_missing");
+
+        var outbound = await db.WhatsAppOutboundMessages.AsNoTracking()
+            .Where(x => x.ExternalMessageId == message.ReplyToExternalMessageId)
+            .Select(x => new
+            {
+                x.RequestId, x.RequestStatusHistoryId,
+                x.RequestClosureConfirmationId, x.UserId, x.CondominiumId,
+                x.NotificationType, x.SendMode, x.Status, x.Content
+            }).SingleOrDefaultAsync(ct);
+        if (outbound is null || outbound.UserId != identity.UserId
+            || outbound.CondominiumId != identity.CondominiumId
+            || !outbound.RequestId.HasValue
+            || outbound.SendMode != WhatsAppSendMode.Template
+            || outbound.Status is not WhatsAppOutboundStatus.Sent
+                and not WhatsAppOutboundStatus.Delivered
+                and not WhatsAppOutboundStatus.Read)
+            return ("Não consegui correlacionar esta ação à solicitação. Consulte suas solicitações para continuar.",
+                "operational_reply_correlation_failed");
+
+        var authorized = await db.Requests.AsNoTracking().AnyAsync(x =>
+            x.Id == outbound.RequestId && x.AuthorUserId == identity.UserId
+            && x.CondominiumId == identity.CondominiumId
+            && (x.TargetUnitId == null || x.TargetUnitId == identity.UnitId), ct);
+        if (!authorized)
+            return ("Não foi possível continuar este atendimento.",
+                "operational_reply_unauthorized");
+
+        if (action == "status")
+        {
+            if (outbound.NotificationType is not WhatsAppNotificationType.StatusChanged
+                and not WhatsAppNotificationType.RequestCancelled
+                and not WhatsAppNotificationType.RequestReopened
+                || !outbound.RequestStatusHistoryId.HasValue)
+                return ("Não consegui localizar a atualização solicitada.",
+                    "status_update_correlation_failed");
+            session.ShowOwnRequest(outbound.RequestId.Value, now, expires);
+            return (outbound.Content, "status_update_delivered");
+        }
+
+        if (outbound.NotificationType != WhatsAppNotificationType.StatusChanged
+            || !outbound.RequestClosureConfirmationId.HasValue)
+            return ("Esse atendimento não aguarda mais confirmação.",
+                "closure_correlation_failed");
+        var closureActive = await db.RequestClosureConfirmations.AsNoTracking()
+            .AnyAsync(x => x.Id == outbound.RequestClosureConfirmationId
+                && x.RequestId == outbound.RequestId
+                && x.Status == RequestClosureConfirmationStatus.Pending, ct);
+        if (!closureActive)
+            return ("Esse atendimento não aguarda mais confirmação.",
+                "closure_no_longer_active");
+        if (action == "confirm")
+        {
+            var confirmed = await closures.ConfirmAsync(outbound.RequestId.Value,
+                outbound.RequestClosureConfirmationId.Value, identity.UserId, ct);
+            session.End(now);
+            return confirmed.Succeeded
+                ? ("Atendimento finalizado. ✓", "closure_confirmed")
+                : ("Esse atendimento não aguarda mais confirmação.", "closure_conflict");
+        }
+        session.AwaitClosure(outbound.RequestId.Value, now, expires,
+            outbound.RequestClosureConfirmationId.Value);
+        session.AwaitClosureQuestion(now, expires);
+        return ("Pode enviar sua dúvida ou observação.",
+            "awaiting_closure_question");
+    }
 
     private (string, string) ResidentReplyCorrelationFailed(
         WhatsAppSession session, string fullName, DateTime now, DateTime expires)

@@ -253,7 +253,6 @@ public sealed class WhatsAppNotificationDispatcherTests
 
     [Theory]
     [InlineData(WhatsAppNotificationType.StatusChanged)]
-    [InlineData(WhatsAppNotificationType.RequestResolved)]
     [InlineData(WhatsAppNotificationType.RequestCancelled)]
     [InlineData(WhatsAppNotificationType.RequestReopened)]
     public async Task Resident_status_movements_share_the_configured_status_template(
@@ -280,6 +279,28 @@ public sealed class WhatsAppNotificationDispatcherTests
         Assert.Equal("request_status_update", outbound.TemplateName);
         Assert.Equal("pt_BR", outbound.TemplateLanguage);
         Assert.Equal("Mensagem contextual", outbound.Content);
+    }
+
+    [Fact]
+    public async Task Resolved_outside_window_uses_dedicated_finalization_template()
+    {
+        await using var host = await CoreEndpointTestHost.StartAsync(_ => { });
+        var requestId = await SeedAsync(host, UserCondition.OutsideSessionWindow);
+        await host.WithDbAsync(async db =>
+        {
+            var options = new WhatsAppOptions { Enabled = true };
+            options.Templates.Resolved.Name = "task_finalization_notification";
+            options.Templates.Resolved.Language = "pt_BR";
+            await new WhatsAppNotificationDispatcher(db, Options.Create(options),
+                NullLogger<WhatsAppNotificationDispatcher>.Instance).EnqueueAsync(
+                    requestId, WhatsAppNotificationType.RequestResolved,
+                    $"resolved:{Guid.NewGuid():N}", "Finalizada", null,
+                    CancellationToken.None, "Conclusão literal");
+        });
+        var outbound = await host.WithDbAsync(db =>
+            db.WhatsAppOutboundMessages.AsNoTracking().SingleAsync());
+        Assert.Equal(WhatsAppOutboundStatus.Pending, outbound.Status);
+        Assert.Equal("task_finalization_notification", outbound.TemplateName);
     }
 
     [Fact]
@@ -431,12 +452,26 @@ public sealed class WhatsAppNotificationDispatcherTests
         var request = new CondoLink.Domain.Entities.Request(condominium.Id,
             user.Id, null, category.Id, "Solicitação", "Descrição");
         db.AddRange(condominium, category, user, request);
-        if (condition == UserCondition.Enabled)
-            db.Add(new WhatsAppInboundMessage($"wamid.{Guid.NewGuid():N}",
-                user.NormalizedPhoneNumber!, "text", "menu", DateTime.UtcNow));
+        Guid? oldInboundId = null;
+        if (condition is UserCondition.Enabled or UserCondition.OutsideSessionWindow)
+        {
+            var receivedAt = condition == UserCondition.OutsideSessionWindow
+                ? DateTime.UtcNow.AddHours(-25)
+                : DateTime.UtcNow;
+            var inbound = new WhatsAppInboundMessage($"wamid.{Guid.NewGuid():N}",
+                user.NormalizedPhoneNumber!, "text", "menu", receivedAt);
+            inbound.Complete(user.Id, "main_menu", receivedAt);
+            db.Add(inbound);
+            if (condition == UserCondition.OutsideSessionWindow)
+                oldInboundId = inbound.Id;
+        }
         if (condition != UserCondition.MissingMembership)
             db.Add(new CondominiumMembership(user.Id, condominium.Id));
         await db.SaveChangesAsync();
+        if (oldInboundId.HasValue)
+            await db.WhatsAppInboundMessages.Where(x => x.Id == oldInboundId)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.ReceivedAt, DateTime.UtcNow.AddHours(-25)));
         return request.Id;
     });
 

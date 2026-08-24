@@ -76,6 +76,8 @@ public static class GetRequestById
                     item.request.CondominiumId,
                     item.request.AuthorUserId,
                     AuthorFullName = item.author.FullName,
+                    AuthorEmail = item.author.Email,
+                    AuthorPhoneNumber = item.author.PhoneNumber,
                     item.request.TargetUnitId,
                     item.request.CategoryId,
                     CategoryName = category.Name,
@@ -193,6 +195,7 @@ public static class GetRequestById
         ResidentClosureProposalResponse? residentClosureProposal = null;
         var hasUnreadResidentReply = false;
         var hasUnreadResidentUpdate = false;
+        ResidentSummaryResponse? residentSummary = null;
         if (request.AuthorUserId == authenticatedUserId)
         {
             residentReplyRequirement = await dbContext.RequestResidentReplyRequirements
@@ -213,6 +216,18 @@ public static class GetRequestById
         }
         if (isCondominiumManager)
         {
+            var relationship = request.TargetUnitId.HasValue
+                ? await dbContext.UnitMemberships.AsNoTracking()
+                    .Where(x => x.UserId == request.AuthorUserId
+                        && x.UnitId == request.TargetUnitId.Value
+                        && x.IsActive && x.EndedAt == null)
+                    .Select(x => (UnitRelationshipType?)x.RelationshipType)
+                    .SingleOrDefaultAsync(cancellationToken)
+                : null;
+            residentSummary = new ResidentSummaryResponse(
+                request.AuthorFullName, targetUnit?.Block,
+                targetUnit?.Identifier, request.AuthorPhoneNumber,
+                request.AuthorEmail, relationship?.ToString());
             hasUnreadResidentUpdate = await dbContext.Notifications
                 .AsNoTracking().AnyAsync(notification => notification.RequestId == id
                     && notification.RecipientUserId == authenticatedUserId
@@ -278,6 +293,7 @@ public static class GetRequestById
             originalReport,
             residentReplyRequirement,
             residentClosureProposal,
+            residentSummary,
             hasUnreadResidentReply,
             hasUnreadResidentUpdate);
 
@@ -336,6 +352,8 @@ public static class GetRequestById
         DateTime RequestedAt, bool IsActive);
     public sealed record ResidentClosureProposalResponse(string Conclusion,
         DateTime RequestedAt, DateTime ExpiresAt);
+    public sealed record ResidentSummaryResponse(string FullName, string? Block,
+        string? Unit, string? PhoneNumber, string? Email, string? Relationship);
 
     public sealed record StatusHistoryResponse(
         Guid Id,
@@ -365,6 +383,7 @@ public static class GetRequestById
         OriginalReportResponse? OriginalReport,
         ResidentReplyRequirementResponse? ResidentReplyRequirement,
         ResidentClosureProposalResponse? ResidentClosureProposal,
+        ResidentSummaryResponse? ResidentSummary,
         bool HasUnreadResidentReply,
         bool HasUnreadResidentUpdate);
 }

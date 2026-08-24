@@ -536,7 +536,10 @@ Enviar notificações pela PWA.
 oficial da Meta, menu conversacional para solicitações, fila de notificações
 transacionais (`whatsapp_outbound_messages`) com templates aprovados fora da
 janela de 24h, e molduras de mensagem operacional configuráveis em
-`/overwatch/messages`.
+`/overwatch/messages`. O fechamento da comunicação fora da janela também está concluído,
+com templates separados para atualização, confirmação de closure, resposta do
+morador e resolução unilateral, correlacionados pelo outbound persistido e não
+por busca global.
 
 ~~Avaliar integração oficial com WhatsApp.~~
 

@@ -4,6 +4,7 @@ export interface OperationalMessageTemplate {
   key: string; title: string; description: string; prefix: string; suffix: string
   structuralSuffix: string; dynamicContent: string; mode: string; modeLabel: string
   metaTemplateName: string | null; metaTemplateLanguage: string | null
+  metaQuickReplies: string[]
   isOverride: boolean; updatedAt: string | null; updatedByUserId: string | null
   partMaximumLength: number; outboundMaximumLength: number
 }

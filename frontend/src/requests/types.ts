@@ -39,8 +39,18 @@ export interface RequestDetails extends RequestListItem {
   originalReport: OriginalReport | null
   residentReplyRequirement: ResidentReplyRequirement | null
   residentClosureProposal?: ResidentClosureProposal | null
+  residentSummary?: ResidentSummary | null
   hasUnreadResidentReply?: boolean
   hasUnreadResidentUpdate?: boolean
+}
+
+export interface ResidentSummary {
+  fullName: string
+  block: string | null
+  unit: string | null
+  phoneNumber: string | null
+  email: string | null
+  relationship: 'Owner' | 'Tenant' | 'AuthorizedOccupant' | null
 }
 
 export interface ResidentReplyRequirement { id: string; question: string; requestedAt: string; isActive: boolean }

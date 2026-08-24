@@ -30,7 +30,7 @@ public static class OperationalMessageEndpoints
         var result = OperationalMessageTemplateService.Definitions.Select(definition =>
         {
             overrides.TryGetValue(definition.Key, out var configured);
-            var meta = MetaFor(definition.NotificationType, options.Value.Templates);
+            var meta = MetaFor(definition, options.Value.Templates);
             return Response(definition, configured?.Prefix ?? definition.Prefix,
                 configured?.Suffix ?? definition.Suffix, configured, meta.Name, meta.Language);
         });
@@ -56,7 +56,7 @@ public static class OperationalMessageEndpoints
         }
         else entity.Update(prefix, suffix, userId, now);
         await db.SaveChangesAsync(ct);
-        var meta = MetaFor(definition.NotificationType, options.Value.Templates);
+        var meta = MetaFor(definition, options.Value.Templates);
         return Results.Ok(Response(definition, entity.Prefix, entity.Suffix, entity, meta.Name, meta.Language));
     }
 
@@ -67,7 +67,7 @@ public static class OperationalMessageEndpoints
         if (definition is null) return Results.NotFound(new { message = "Gatilho não encontrado." });
         var entity = await db.OperationalMessageTemplates.SingleOrDefaultAsync(x => x.Key == key, ct);
         if (entity is not null) { db.Remove(entity); await db.SaveChangesAsync(ct); }
-        var meta = MetaFor(definition.NotificationType, options.Value.Templates);
+        var meta = MetaFor(definition, options.Value.Templates);
         return Results.Ok(Response(definition, definition.Prefix, definition.Suffix, null, meta.Name, meta.Language));
     }
 
@@ -79,17 +79,34 @@ public static class OperationalMessageEndpoints
             dynamicContent = "{MensagemDoSindico}",
             mode = "SessionAndMetaFallback", modeLabel = "Sessão + fallback Meta",
             metaTemplateName = metaName, metaTemplateLanguage = language,
+            metaQuickReplies = definition.Key switch
+            {
+                "WaitingForResidentClosure" => new[] { "Finalizar atendimento", "Ainda tenho uma dúvida" },
+                "WaitingForResident" => new[] { "Responder agora", "Lembrar-me em 3 horas" },
+                "Resolved" => Array.Empty<string>(),
+                _ => new[] { "Ver atualização" }
+            },
             isOverride = configured is not null, configured?.UpdatedAt, configured?.UpdatedByUserId,
             partMaximumLength = OperationalMessageTemplateService.PartMaximumLength,
             outboundMaximumLength = OperationalMessageTemplateService.OutboundMaximumLength
         };
 
-    private static WhatsAppTemplateDefinition MetaFor(WhatsAppNotificationType type, WhatsAppTemplateOptions options)
+    private static WhatsAppTemplateDefinition MetaFor(OperationalMessageDefinition definition,
+        WhatsAppTemplateOptions options)
     {
-        var configured = type == WhatsAppNotificationType.InformationRequested
-            ? options.InformationRequested : options.StatusChanged;
+        var configured = definition.Key switch
+        {
+            "WaitingForResident" => options.InformationRequested,
+            "WaitingForResidentClosure" => options.ResidentClosureConfirmation,
+            "Resolved" => options.Resolved,
+            _ => options.StatusChanged
+        };
         if (string.IsNullOrWhiteSpace(configured.Name)) return new WhatsAppTemplateDefinition
-        { Name = type == WhatsAppNotificationType.InformationRequested ? null : "request_status_update", Language = "pt_BR" };
+        { Name = definition.Key switch
+            {
+                "WaitingForResident" or "WaitingForResidentClosure" or "Resolved" => null,
+                _ => "request_status_update"
+            }, Language = "pt_BR" };
         return configured;
     }
 

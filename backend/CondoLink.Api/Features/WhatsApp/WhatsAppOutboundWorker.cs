@@ -130,8 +130,26 @@ public sealed class WhatsAppOutboundWorker(
                         .Where(x => x.Id == item.UserId)
                         .Select(x => x.FullName)
                         .SingleAsync(ct);
-                    parameters = StatusChangedTemplateParameters(fullName,
-                        item.TemplateParameterContent ?? content);
+                    if (item.NotificationType == WhatsAppNotificationType.StatusChanged
+                        && item.RequestClosureConfirmationId.HasValue)
+                    {
+                        parameters = ClosureTemplateParameters(fullName,
+                            item.TemplateParameterContent ?? content);
+                        quickReplies = ["closure_confirm", "closure_question"];
+                    }
+                    else if (item.NotificationType == WhatsAppNotificationType.RequestResolved)
+                    {
+                        var requestTitle = await db.Requests.AsNoTracking()
+                            .Where(x => x.Id == item.RequestId)
+                            .Select(x => x.Title).SingleAsync(ct);
+                        parameters = FinalizationTemplateParameters(fullName,
+                            requestTitle, item.TemplateParameterContent ?? content);
+                    }
+                    else
+                    {
+                        parameters = StatusChangedTemplateParameters(fullName);
+                        quickReplies = ["request_status_view"];
+                    }
                 }
                 else if (item.NotificationType == WhatsAppNotificationType.ManagerNewRequest)
                 {
@@ -216,7 +234,14 @@ public sealed class WhatsAppOutboundWorker(
     }
 
     internal static IReadOnlyList<string> StatusChangedTemplateParameters(
-        string fullName, string content) => [SafeFirstName(fullName), content];
+        string fullName) => [SafeFirstName(fullName)];
+
+    internal static IReadOnlyList<string> ClosureTemplateParameters(
+        string fullName, string conclusion) => [SafeFirstName(fullName), conclusion];
+
+    internal static IReadOnlyList<string> FinalizationTemplateParameters(
+        string fullName, string requestTitle, string conclusion) =>
+        [SafeFirstName(fullName), requestTitle, "FINALIZADA", conclusion];
 
     internal static string SafeFirstName(string? fullName)
     {

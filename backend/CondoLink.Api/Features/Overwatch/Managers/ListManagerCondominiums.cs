@@ -23,11 +23,18 @@ public static class ListManagerCondominiums
         AppDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        var managerExists = await (
-            from userRole in dbContext.UserRoles
-            join role in dbContext.Roles on userRole.RoleId equals role.Id
-            where userRole.UserId == managerId && role.Name == "Manager"
-            select userRole).AnyAsync(cancellationToken);
+        var managerExists = await dbContext.Users.AnyAsync(user =>
+            user.Id == managerId && (
+                dbContext.UserRoles.Any(userRole => userRole.UserId == user.Id
+                    && dbContext.Roles.Any(role => role.Id == userRole.RoleId
+                        && role.Name == "Manager"))
+                || dbContext.CondominiumMemberships.Any(membership =>
+                    membership.UserId == user.Id && membership.IsActive
+                    && membership.EndedAt == null
+                    && dbContext.CondominiumMembershipRoles.Any(role =>
+                        role.CondominiumMembershipId == membership.Id
+                        && role.Role == CondominiumRole.Manager
+                        && role.IsActive && role.RevokedAt == null))), cancellationToken);
         if (!managerExists)
         {
             return Results.NotFound(new { message = "Manager not found." });

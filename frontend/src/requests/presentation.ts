@@ -24,6 +24,23 @@ const dateTimeFormatter = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short',
 export function formatDate(value: string) { return dateFormatter.format(new Date(value)) }
 export function formatDateTime(value: string) { return dateTimeFormatter.format(new Date(value)).replace(',', ' às') }
 
+export function formatResidentPhone(value: string | null | undefined) {
+  if (!value?.trim()) return 'Não informado'
+  const raw = value.trim()
+  const digits = raw.replace(/\D/g, '')
+  if (!raw.startsWith('+') && digits.length === 11)
+    return `+55 (${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+  if (!raw.startsWith('+') && digits.length === 10)
+    return `+55 (${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`
+  if ((raw.startsWith('+55') || !raw.startsWith('+')) && digits.length === 13
+      && digits.startsWith('55'))
+    return `+55 (${digits.slice(2, 4)}) ${digits.slice(4, 9)}-${digits.slice(9)}`
+  if ((raw.startsWith('+55') || !raw.startsWith('+')) && digits.length === 12
+      && digits.startsWith('55'))
+    return `+55 (${digits.slice(2, 4)}) ${digits.slice(4, 8)}-${digits.slice(8)}`
+  return raw
+}
+
 export function formatRelativeDate(value: string, now = new Date()) {
   const minutes = Math.max(0, Math.floor((now.getTime() - new Date(value).getTime()) / 60_000))
   if (minutes < 1) return 'Atualizada agora'

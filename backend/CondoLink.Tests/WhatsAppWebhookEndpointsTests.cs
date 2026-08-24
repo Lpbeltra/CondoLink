@@ -2926,6 +2926,128 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Status_template_click_reopens_window_and_delivers_only_replied_request_update()
+    {
+        const string outboundExternalId = "wamid.status-request-b";
+        const string comment = "A empresa responsável já recebeu a solicitação.";
+        var arranged = await _host.WithDbAsync(async db =>
+        {
+            var category = new Category(_condominiumId,
+                $"Manutenção {Guid.NewGuid():N}", null);
+            var manager = CoreTestSeed.User("Síndico", "status-manager@example.com");
+            var at = DateTime.UtcNow.AddHours(-25);
+            var requestA = new CondoLink.Domain.Entities.Request(_condominiumId,
+                _userId, _unitId, category.Id, "Request A", "Relato A");
+            requestA.ChangeStatus(RequestStatus.WaitingForThirdParty, at);
+            var historyA = new RequestStatusHistory(requestA.Id,
+                RequestStatus.InProgress, RequestStatus.WaitingForThirdParty,
+                manager.Id, "Atualização da Request A.", at);
+            var requestB = new CondoLink.Domain.Entities.Request(_condominiumId,
+                _userId, _unitId, category.Id, "Request B", "Relato B");
+            requestB.ChangeStatus(RequestStatus.WaitingForThirdParty, at);
+            var historyB = new RequestStatusHistory(requestB.Id,
+                RequestStatus.InProgress, RequestStatus.WaitingForThirdParty,
+                manager.Id, comment, at);
+            var content = $"*Atualização do atendimento*\n\n{comment}";
+            var outbound = new WhatsAppOutboundMessage(requestB.Id, null, _userId,
+                _condominiumId, "+5511999990001",
+                WhatsAppNotificationType.StatusChanged, WhatsAppSendMode.Template,
+                $"status-view:{historyB.Id}", content,
+                "request_status_update", "pt_BR", at,
+                requestStatusHistoryId: historyB.Id);
+            outbound.StartProcessing();
+            outbound.MarkSent(outboundExternalId, at);
+            var oldInbound = new WhatsAppInboundMessage("wamid.old-status-window",
+                "+5511999990001", "text", "Oi", at);
+            oldInbound.Complete(_userId, "main_menu", at);
+            db.AddRange(category, manager, requestA, historyA, requestB, historyB,
+                outbound, oldInbound);
+            await db.SaveChangesAsync();
+            await db.WhatsAppInboundMessages.Where(x => x.Id == oldInbound.Id)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.ReceivedAt, at));
+            return (RequestAId: requestA.Id, RequestBId: requestB.Id, content, at);
+        });
+
+        var payload = TemplateQuickReplyPayload("wamid.status-view-click",
+            "request_status_view", "Ver atualização", outboundExternalId);
+        await PostAsync(payload);
+        var sentAfterFirstClick = _fake.Messages.Count;
+        await PostAsync(payload);
+
+        Assert.Equal(sentAfterFirstClick, _fake.Messages.Count);
+        Assert.Equal(arranged.content, _fake.Messages.Last().Text);
+        Assert.Contains(comment, _fake.Messages.Last().Text);
+        Assert.DoesNotContain("Como posso ajudar", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(arranged.RequestBId, session.RequestId);
+            Assert.True(session.LastInteractionAt > arranged.at);
+            Assert.Equal(RequestStatus.WaitingForThirdParty,
+                await db.Requests.Where(x => x.Id == arranged.RequestAId)
+                    .Select(x => x.Status).SingleAsync());
+            var inbound = await db.WhatsAppInboundMessages.SingleAsync(
+                x => x.ExternalMessageId == "wamid.status-view-click");
+            Assert.Equal(_userId, inbound.IdentifiedUserId);
+            Assert.True(inbound.ReceivedAt > arranged.at);
+            Assert.Equal("status_update_delivered", inbound.ProcessingResult);
+        });
+    }
+
+    [Fact]
+    public async Task Unknown_status_template_context_never_selects_an_arbitrary_request()
+    {
+        await PostAsync(TemplateQuickReplyPayload("wamid.status-unknown-context",
+            "request_status_view", "Ver atualização", "wamid.does-not-exist"));
+
+        Assert.Contains("Não consegui correlacionar", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Null(session.RequestId);
+            Assert.Equal("operational_reply_correlation_failed",
+                await db.WhatsAppInboundMessages
+                    .Where(x => x.ExternalMessageId == "wamid.status-unknown-context")
+                    .Select(x => x.ProcessingResult).SingleAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Closure_template_quick_reply_uses_the_replied_outbound_confirmation()
+    {
+        var requestId = await ArrangeClosureAsync(associateSession: false);
+        const string outboundExternalId = "wamid.closure-template-outbound";
+        await _host.WithDbAsync(async db =>
+        {
+            var confirmation = await db.RequestClosureConfirmations
+                .SingleAsync(x => x.RequestId == requestId);
+            var outbound = new WhatsAppOutboundMessage(requestId, null, _userId,
+                _condominiumId, "+5511999990001",
+                WhatsAppNotificationType.StatusChanged, WhatsAppSendMode.Template,
+                $"closure-template:{requestId}", "Mensagem completa",
+                "resident_closure_confirmation", "pt_BR", DateTime.UtcNow,
+                templateParameterContent: confirmation.Conclusion,
+                requestStatusHistoryId: confirmation.RequestStatusHistoryId,
+                requestClosureConfirmationId: confirmation.Id);
+            outbound.StartProcessing();
+            outbound.MarkSent(outboundExternalId, DateTime.UtcNow);
+            db.Add(outbound);
+            await db.SaveChangesAsync();
+        });
+
+        await PostAsync(TemplateQuickReplyPayload("wamid.closure-template-confirm",
+            "closure_confirm", "Finalizar atendimento", outboundExternalId));
+
+        Assert.Equal(RequestStatus.Resolved,
+            await _host.WithDbAsync(db => db.Requests.Where(x => x.Id == requestId)
+                .Select(x => x.Status).SingleAsync()));
+        Assert.Single(await _host.WithDbAsync(db => db.RequestStatusHistories
+            .Where(x => x.RequestId == requestId
+                && x.NewStatus == RequestStatus.Resolved).ToArrayAsync()));
+    }
+
+    [Fact]
     public async Task Pending_closures_do_not_capture_a_new_unassociated_conversation()
     {
         var first = await ArrangeClosureAsync(associateSession: false);

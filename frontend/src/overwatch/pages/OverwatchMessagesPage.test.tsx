@@ -16,6 +16,7 @@ const template: messages.OperationalMessageTemplate = {
   modeLabel: 'Template Meta',
   metaTemplateName: 'info_requested',
   metaTemplateLanguage: 'pt_BR',
+  metaQuickReplies: ['Ver atualização'],
   isOverride: true,
   updatedAt: '2026-08-18T12:00:00Z',
   updatedByUserId: 'user-123456',

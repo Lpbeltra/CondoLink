@@ -15,6 +15,8 @@ public sealed class WhatsAppOutboundMessageConfiguration
         b.Property(x => x.Id).HasColumnName("id");
         b.Property(x => x.RequestId).HasColumnName("request_id");
         b.Property(x => x.RequestMessageId).HasColumnName("request_message_id");
+        b.Property(x => x.RequestStatusHistoryId).HasColumnName("request_status_history_id");
+        b.Property(x => x.RequestClosureConfirmationId).HasColumnName("request_closure_confirmation_id");
         b.Property(x => x.UserId).HasColumnName("user_id").IsRequired();
         b.Property(x => x.CondominiumId).HasColumnName("condominium_id");
         b.Property(x => x.DestinationPhone).HasColumnName("destination_phone").HasMaxLength(20).IsRequired();

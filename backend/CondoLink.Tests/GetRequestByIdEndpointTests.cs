@@ -41,7 +41,9 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
             var otherCondominium = new Condominium("Residencial Beta", null, null);
             var block = new CondominiumBlock(condominium.Id, "Torre A");
             var unit = new Unit(condominium.Id, "101", block.Id, "1", null);
-            var author = CoreTestSeed.User("Autor", "autor@example.com");
+            var author = CoreTestSeed.User(
+                "Autor da Silva", "autor@example.com");
+            author.Update("Autor da Silva", "+55 11 99999-0001");
             var manager = CoreTestSeed.User("Sindico Alfa", "alfa@example.com");
             var otherManager = CoreTestSeed.User("Sindico Beta", "beta@example.com");
             var coResident = CoreTestSeed.User("Vizinho", "vizinho@example.com");
@@ -64,6 +66,8 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
                 condominium, otherCondominium, block, unit, author, manager,
                 otherManager, coResident, outsider, category, request,
                 analysis, originalReport, originalAudio);
+            db.UnitMemberships.Add(new UnitMembership(author.Id, unit.Id,
+                UnitRelationshipType.Tenant, true, true));
             CoreTestSeed.AddMember(
                 db, author.Id, condominium.Id, CondominiumRole.Resident);
             CoreTestSeed.AddMember(
@@ -97,7 +101,7 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
             .ReadFromJsonAsync<GetRequestById.Response>();
         Assert.Equal(_requestId, body!.Id);
         Assert.Equal(_authorId, body.Author.Id);
-        Assert.Equal("Autor", body.Author.FullName);
+        Assert.Equal("Autor da Silva", body.Author.FullName);
         Assert.Equal("Manutenção", body.Category.Name);
         Assert.Equal("InProgress", body.Status);
         Assert.Null(body.AiAnalysis);
@@ -124,6 +128,29 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
             .GetAsync($"/requests/{_requestId}");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Manager_receives_current_resident_summary_for_the_request_unit()
+    {
+        var body = await _host.ClientFor(_managerId)
+            .GetFromJsonAsync<GetRequestById.Response>($"/requests/{_requestId}");
+
+        Assert.NotNull(body!.ResidentSummary);
+        Assert.Equal("Autor da Silva", body.ResidentSummary.FullName);
+        Assert.Equal("Torre A", body.ResidentSummary.Block);
+        Assert.Equal("101", body.ResidentSummary.Unit);
+        Assert.Equal("+55 11 99999-0001", body.ResidentSummary.PhoneNumber);
+        Assert.Equal("autor@example.com", body.ResidentSummary.Email);
+        Assert.Equal("Tenant", body.ResidentSummary.Relationship);
+    }
+
+    [Fact]
+    public async Task Resident_summary_is_not_exposed_to_the_request_author()
+    {
+        var body = await _host.ClientFor(_authorId)
+            .GetFromJsonAsync<GetRequestById.Response>($"/requests/{_requestId}");
+        Assert.Null(body!.ResidentSummary);
     }
 
     [Fact]

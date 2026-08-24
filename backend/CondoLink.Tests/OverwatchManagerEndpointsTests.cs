@@ -237,6 +237,18 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
         Assert.DoesNotContain(regularManagers!, item => item.Id == platformAdminId);
         Assert.Contains(candidates!, item => item.Id == platformAdminId);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var linkedManagers = await _admin.GetFromJsonAsync<List<ManagerResponse>>(
+            "/overwatch/managers");
+        Assert.Equal(platformAdminId,
+            Assert.Single(linkedManagers!, item => item.Id == platformAdminId).Id);
+
+        var update = await _admin.PutAsJsonAsync(
+            $"/overwatch/managers/{platformAdminId}", new
+            {
+                fullName = "Bootstrap Admin", email = "bootstrap@example.com",
+                phoneNumber = "+1 212 555 1234"
+            });
+        Assert.Equal(HttpStatusCode.NoContent, update.StatusCode);
 
         await using var verifyScope = _application.Services.CreateAsyncScope();
         var verify = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -259,6 +271,7 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
         Assert.True(membershipRole.IsActive);
         Assert.Contains("PlatformAdmin", identityRoleNames);
         Assert.DoesNotContain("Manager", identityRoleNames);
+        Assert.Equal("+12125551234", user.NormalizedPhoneNumber);
     }
 
     [Fact]

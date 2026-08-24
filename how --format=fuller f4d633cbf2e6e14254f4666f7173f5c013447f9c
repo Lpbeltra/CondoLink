@@ -1,0 +1,83 @@
+[33mcommit f4d633cbf2e6e14254f4666f7173f5c013447f9c[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: Lisandro <truelisandropb@gmail.com>
+Date:   Fri Aug 21 21:37:22 2026 -0300
+
+    feat: erro centralizado, resiliencia HTTP, paginacao, streaming e OCR do assistente
+    
+    Backend:
+    - tratamento de erro centralizado via IExceptionHandler + ProblemDetails
+      (CondoLink.Api.Common: AppException e subtipos, AppExceptionHandler)
+    - resiliencia HTTP (retry + circuit breaker) nos clientes OpenAI, sem competir
+      com o timeout de negocio de cada servico
+    - paginacao real (page/pageSize/search) em GET /management/requests, com
+      CountAsync no lugar de Total calculado em memoria
+    - streaming SSE opcional (?stream=true, atras da flag StreamingEnabled) nos
+      endpoints do assistente de IA, com fallback sincrono inalterado
+    - fallback de OCR (OpenAiDocumentOcrService) para PDFs escaneados sem camada
+      de texto, atras da flag DocumentOcr__Enabled
+    - aviso deterministico na resposta do assistente quando nao ha evidencia e
+      existem documentos com falha de processamento no condominio
+    - correcao do status "Critico" do OpenAI no Overwatch quando a IA esta
+      desabilitada por configuracao (deveria ser "Desabilitado")
+    - ajuste de copy no fluxo de audio do WhatsApp: a opcao de cancelar durante
+      uma resposta a morador so adia a resposta, nao cancela nada — o texto agora
+      reflete isso, como as demais mensagens do mesmo fluxo
+    
+    Frontend:
+    - code splitting das paginas de rota via React.lazy + Suspense
+    - streaming incremental do assistente de IA (fetch + ReadableStream)
+    - tratamento de erro mais especifico no modulo assistant + remocao de codigo
+      morto (LegacyCondominiumDocumentsPage)
+    - refatoracao do OverwatchMessagesPage (bug de erro escondido pelo dialogo
+      aberto, quebra em subcomponentes, exibicao de ultima atualizacao)
+    - paginacao/busca em ManagementRequestsPage delegadas ao backend
+    - correcao de acentuacao no resumo de status "Conclusao pendente"
+    
+    Documentacao atualizada em ARCHITECTURE.md, BACKLOG.md e whatsapp-integration.md.
+    
+    Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+    Claude-Session: https://claude.ai/code/session_019mm1nk5GMYNTbrHfYivC1r
+
+ .env.example                                       |   6 [32m+[m
+ .../CondoLink.Api/Common/AppExceptionHandler.cs    |  57 [32m++++[m
+ backend/CondoLink.Api/Common/Exceptions.cs         |  20 [32m++[m
+ backend/CondoLink.Api/Common/OpenAiResilience.cs   |  25 [32m++[m
+ backend/CondoLink.Api/Common/PagedResult.cs        |  24 [32m++[m
+ backend/CondoLink.Api/CondoLink.Api.csproj         |   1 [32m+[m
+ .../CondominiumAssistantEndpoints.cs               |  78 [32m++++[m[31m-[m
+ .../CondominiumAssistantServices.cs                | 276 [32m++++++++++++++[m[31m-[m
+ .../Features/Overwatch/GetSystemStatus.cs          |   7 [32m+[m[31m-[m
+ .../Features/Requests/ListCondominiumRequests.cs   | 116 [32m++++[m[31m---[m
+ .../Features/System/OperationalTelemetry.cs        |   3 [32m+[m[31m-[m
+ .../WhatsApp/WhatsAppConversationService.cs        |  12 [32m+[m[31m-[m
+ backend/CondoLink.Api/Program.cs                   |  36 [32m+[m[31m-[m
+ .../CondoLink.Tests/AppExceptionHandlerTests.cs    |  85 [32m+++++[m
+ .../CondominiumAssistantStreamingTests.cs          | 153 [32m+++++++++[m
+ ...miniumAssistantUnprocessedDocumentsHintTests.cs | 183 [32m++++++++++[m
+ .../CondoLink.Tests/CondominiumDocumentPdfTests.cs |  11 [32m+[m[31m-[m
+ backend/CondoLink.Tests/CoreEndpointTestHost.cs    |   4 [32m+[m
+ backend/CondoLink.Tests/DocumentOcrTests.cs        | 186 [32m+++++++++++[m
+ .../ListCondominiumRequestsEndpointTests.cs        | 113 [32m+++++++[m
+ .../CondoLink.Tests/RequestStatusEndpointsTests.cs |   5 [32m+[m[31m-[m
+ .../CondoLink.Tests/ResidentReplyEndpointsTests.cs |   3 [32m+[m[31m-[m
+ docs/ARCHITECTURE.md                               |  80 [32m+++++[m
+ docs/BACKLOG.md                                    |  30 [32m+[m[31m-[m
+ docs/whatsapp-integration.md                       |  16 [32m+[m
+ frontend/src/app/App.tsx                           |  50 [32m+[m[31m--[m
+ frontend/src/app/lazyPage.ts                       |   8 [32m+[m
+ frontend/src/assistant/api.ts                      |   5 [32m+[m[31m-[m
+ frontend/src/assistant/streamAssistant.test.ts     | 122 [32m+++++++[m
+ frontend/src/assistant/streamAssistant.ts          | 130 [32m++++++++[m
+ frontend/src/layout/AppShell.tsx                   |   9 [32m+[m[31m-[m
+ .../src/management/components/ManagementLayout.tsx |  13 [32m+[m[31m-[m
+ frontend/src/overwatch/OverwatchLayout.tsx         |   7 [32m+[m[31m-[m
+ .../overwatch/pages/OverwatchMessagesPage.test.tsx |  82 [32m+++++[m
+ .../src/overwatch/pages/OverwatchMessagesPage.tsx  | 246 [32m++++++++++++[m[31m--[m
+ frontend/src/overwatch/system.ts                   |   2 [32m+[m[31m-[m
+ .../src/pages/CondominiumAssistantPage.test.tsx    |  79 [32m++++[m[31m-[m
+ frontend/src/pages/CondominiumAssistantPage.tsx    | 369 [32m+++++[m[31m----------------[m
+ frontend/src/pages/ManagementRequestsPage.tsx      |   2 [32m+[m[31m-[m
+ frontend/src/requests/api.ts                       |   3 [32m+[m
+ frontend/src/requests/types.ts                     |   2 [32m+[m
+ frontend/src/services/api.ts                       |  21 [32m+[m[31m-[m
+ 42 files changed, 2223 insertions(+), 457 deletions(-)

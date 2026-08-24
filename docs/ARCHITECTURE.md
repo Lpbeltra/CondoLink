@@ -486,6 +486,20 @@ CondominiumMembership
 CondominiumMembershipRole
 ```
 
+`PlatformAdmin` é uma autorização global e pode coexistir no mesmo
+`ApplicationUser` com um ou mais vínculos contextuais ativos de `Manager`.
+Consultas administrativas de síndicos consideram o vínculo e o papel ativos no
+condomínio independentemente do papel global; a policy `PlatformAdmin` continua
+sendo exigida para acessar o Overwatch. Um mesmo usuário é listado uma única
+vez, com a quantidade de condomínios calculada pelos vínculos ativos.
+
+O detalhe administrativo de uma Request expõe um resumo atual do autor (nome,
+telefone, e-mail, unidade, bloco quando aplicável e relação ativa com a
+unidade-alvo). Esses valores são projetados das entidades de identidade e
+vínculo e não são copiados para a Request. A unidade-alvo preserva a referência
+histórica da Request; a relação exibida reflete o vínculo ativo atual e pode
+estar ausente em cadastros legados.
+
 ## Identity
 
 O ASP.NET Core Identity será responsável por:
@@ -1201,6 +1215,28 @@ Possíveis evoluções:
 
 * notificações em tempo real;
 * templates de resposta;
+
+### Correlação operacional do WhatsApp fora da janela Meta
+
+`Request` e `WhatsAppSession` continuam agregados distintos. A fila
+`WhatsAppOutboundMessage` guarda `RequestId`, `RequestStatusHistoryId` e, quando
+aplicável, `RequestClosureConfirmationId`, além do ID externo retornado pela
+Meta. O webhook usa o `context.id` da resposta para localizar esse outbound;
+não seleciona a última Request nem uma confirmação global.
+
+Dentro de 24 horas o conteúdo composto pelo Overwatch é enviado como
+`SessionText`. Fora da janela, atualização genérica usa
+`request_status_update`, closure usa `resident_closure_confirmation`, pedido de
+resposta mantém `resident_reply_required` e resolução unilateral usa
+`task_finalization_notification`. O clique genérico reabre a janela e reproduz
+o `Content` persistido, que contém a moldura vigente no momento da aprovação e
+o texto administrativo literal. Retry técnico reutiliza o mesmo outbound;
+transições usam updates condicionais para tolerar webhook ou clique duplicado.
+
+O contrato posicional de `task_finalization_notification · pt_BR` é
+`[primeiroNome, request.Title, "FINALIZADA", conclusãoLiteral]`. `FINALIZADA`
+é estrutural e não passa por IA. O botão “Portal Comvy” é URL estática no
+template Meta; o worker não envia componente nem parâmetro de URL para ele.
 * fluxos guiados;
 * base de conhecimento;
 * integrações com administradoras;

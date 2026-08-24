@@ -21,14 +21,19 @@ public static class GetOverwatchManager
         AppDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        var response = await (
-            from user in dbContext.Users.AsNoTracking()
-            join userRole in dbContext.UserRoles.AsNoTracking()
-                on user.Id equals userRole.UserId
-            join identityRole in dbContext.Roles.AsNoTracking()
-                on userRole.RoleId equals identityRole.Id
-            where user.Id == managerId && identityRole.Name == "Manager"
-            select new OverwatchManagerResponse(
+        var response = await dbContext.Users.AsNoTracking()
+            .Where(user => user.Id == managerId && (
+                dbContext.UserRoles.Any(userRole => userRole.UserId == user.Id
+                    && dbContext.Roles.Any(role => role.Id == userRole.RoleId
+                        && role.Name == "Manager"))
+                || dbContext.CondominiumMemberships.Any(membership =>
+                    membership.UserId == user.Id && membership.IsActive
+                    && membership.EndedAt == null
+                    && dbContext.CondominiumMembershipRoles.Any(role =>
+                        role.CondominiumMembershipId == membership.Id
+                        && role.Role == CondominiumRole.Manager
+                        && role.IsActive && role.RevokedAt == null))))
+            .Select(user => new OverwatchManagerResponse(
                 user.Id,
                 user.FullName,
                 user.Email!,

@@ -22,21 +22,25 @@ public sealed class WhatsAppNotificationDispatcher(
         string content,
         Guid? requestMessageId,
         CancellationToken ct,
-        string? templateParameterContent = null)
+        string? templateParameterContent = null,
+        Guid? requestStatusHistoryId = null,
+        Guid? requestClosureConfirmationId = null)
         => await EnqueueCoreAsync(requestId, null, type, idempotencyKey,
-            content, requestMessageId, ct, templateParameterContent);
+            content, requestMessageId, ct, templateParameterContent,
+            requestStatusHistoryId, requestClosureConfirmationId);
 
     public async Task EnqueueForUserAsync(
         Guid requestId, Guid userId, WhatsAppNotificationType type,
         string idempotencyKey, string content, Guid? requestMessageId,
         CancellationToken ct, string? templateParameterContent = null)
         => await EnqueueCoreAsync(requestId, userId, type, idempotencyKey,
-            content, requestMessageId, ct, templateParameterContent);
+            content, requestMessageId, ct, templateParameterContent, null, null);
 
     private async Task EnqueueCoreAsync(
         Guid requestId, Guid? recipientUserId, WhatsAppNotificationType type,
         string idempotencyKey, string content, Guid? requestMessageId,
-        CancellationToken ct, string? templateParameterContent)
+        CancellationToken ct, string? templateParameterContent,
+        Guid? requestStatusHistoryId, Guid? requestClosureConfirmationId)
     {
         var stage = "loading_request";
         var condominiumId = Guid.Empty;
@@ -122,7 +126,7 @@ public sealed class WhatsAppNotificationDispatcher(
                     && (x.IdentifiedUserId == userId || x.PhoneNumber == phone))
                 .MaxAsync(x => (DateTime?)x.ReceivedAt, ct);
             var sessionOpen = lastInboundAt >= sessionCutoff;
-            var template = TemplateFor(type, settings.Templates);
+            var template = TemplateFor(type, request.Status, settings.Templates);
             var mode = sessionOpen ? WhatsAppSendMode.SessionText : WhatsAppSendMode.Template;
             logger.LogInformation(
                 "WhatsApp delivery mode resolved. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; SessionOpen: {SessionOpen}; DeliveryMode: {DeliveryMode}; DiagnosticsVersion: {DiagnosticsVersion}.",
@@ -164,7 +168,8 @@ public sealed class WhatsAppNotificationDispatcher(
                 request.Id, requestMessageId, userId,
                 request.CondominiumId, phone ?? string.Empty, type, mode,
                 idempotencyKey, content, template.Name, template.Language,
-                DateTime.UtcNow, status, skipReason, templateParameterContent);
+                DateTime.UtcNow, status, skipReason, templateParameterContent,
+                requestStatusHistoryId, requestClosureConfirmationId);
             db.WhatsAppOutboundMessages.Add(outbound);
             messagesCreated = 1;
             Log("Persisting", "OutboundMessageCreated", 1);
@@ -257,7 +262,8 @@ public sealed class WhatsAppNotificationDispatcher(
     }
 
     private static WhatsAppTemplateDefinition TemplateFor(
-        WhatsAppNotificationType type, WhatsAppTemplateOptions templates)
+        WhatsAppNotificationType type, RequestStatus status,
+        WhatsAppTemplateOptions templates)
     {
         var configured = type switch
         {
@@ -267,12 +273,23 @@ public sealed class WhatsAppNotificationDispatcher(
                 templates.InformationRequested,
             WhatsAppNotificationType.ManagerNewRequest =>
                 templates.ManagerNewRequest,
+            WhatsAppNotificationType.RequestResolved => templates.Resolved,
+            WhatsAppNotificationType.StatusChanged
+                when status == RequestStatus.WaitingForResidentClosure =>
+                    templates.ResidentClosureConfirmation,
             _ => templates.StatusChanged
         };
-        if ((type is WhatsAppNotificationType.StatusChanged
-            or WhatsAppNotificationType.RequestResolved
-            or WhatsAppNotificationType.RequestCancelled
+        if ((type is WhatsAppNotificationType.RequestCancelled
             or WhatsAppNotificationType.RequestReopened)
+            && string.IsNullOrWhiteSpace(configured.Name))
+            return new WhatsAppTemplateDefinition
+            {
+                Name = StatusUpdateTemplateName,
+                Language = string.IsNullOrWhiteSpace(configured.Language)
+                    ? "pt_BR" : configured.Language
+            };
+        if (type == WhatsAppNotificationType.StatusChanged
+            && status != RequestStatus.WaitingForResidentClosure
             && string.IsNullOrWhiteSpace(configured.Name))
             return new WhatsAppTemplateDefinition
             {

@@ -12,7 +12,9 @@ public sealed class WhatsAppOutboundMessage
         WhatsAppSendMode sendMode, string idempotencyKey, string content,
         string? templateName, string? templateLanguage, DateTime now,
         WhatsAppOutboundStatus status = WhatsAppOutboundStatus.Pending,
-        string? error = null, string? templateParameterContent = null)
+        string? error = null, string? templateParameterContent = null,
+        Guid? requestStatusHistoryId = null,
+        Guid? requestClosureConfirmationId = null)
     {
         Id = Guid.NewGuid();
         RequestId = requestId;
@@ -25,6 +27,8 @@ public sealed class WhatsAppOutboundMessage
         IdempotencyKey = idempotencyKey;
         Content = content;
         TemplateParameterContent = templateParameterContent;
+        RequestStatusHistoryId = requestStatusHistoryId;
+        RequestClosureConfirmationId = requestClosureConfirmationId;
         TemplateName = templateName;
         TemplateLanguage = templateLanguage;
         Status = status;
@@ -38,6 +42,8 @@ public sealed class WhatsAppOutboundMessage
     public Guid Id { get; private set; }
     public Guid? RequestId { get; private set; }
     public Guid? RequestMessageId { get; private set; }
+    public Guid? RequestStatusHistoryId { get; private set; }
+    public Guid? RequestClosureConfirmationId { get; private set; }
     public Guid UserId { get; private set; }
     public Guid? CondominiumId { get; private set; }
     public string DestinationPhone { get; private set; } = null!;
