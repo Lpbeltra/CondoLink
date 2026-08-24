@@ -86,6 +86,7 @@ public sealed class RequestClosureServiceTests : IAsyncLifetime
             Assert.Equal(RequestClosureConfirmationStatus.Confirmed, confirmation.Status);
             Assert.NotNull(confirmation.DecidedAt);
             Assert.Single(await db.RequestStatusHistories.Where(x => x.NewStatus == RequestStatus.Resolved).ToArrayAsync());
+            Assert.Empty(await db.AgendaReminderRequests.ToArrayAsync());
         });
     }
 
@@ -125,6 +126,7 @@ public sealed class RequestClosureServiceTests : IAsyncLifetime
             Assert.Equal(RequestClosureConfirmationStatus.Expired,
                 await db.RequestClosureConfirmations.Select(x => x.Status).SingleAsync());
             Assert.Single(await db.RequestStatusHistories.Where(x => x.NewStatus == RequestStatus.Resolved).ToArrayAsync());
+            Assert.Empty(await db.AgendaReminderRequests.ToArrayAsync());
         });
     }
 
@@ -169,6 +171,7 @@ public sealed class RequestClosureServiceTests : IAsyncLifetime
         Assert.Equal(0, await InvokeAsync(s => s.ExpireBatchAsync(now.AddHours(1), 100, default)));
         Assert.Equal(RequestClosureConfirmationStatus.Cancelled,
             await _host.WithDbAsync(db => db.RequestClosureConfirmations.Select(x => x.Status).SingleAsync()));
+        Assert.Empty(await _host.WithDbAsync(db => db.AgendaReminderRequests.ToArrayAsync()));
     }
 
     private async Task ArrangePendingAsync(DateTime requestedAt)
@@ -183,6 +186,12 @@ public sealed class RequestClosureServiceTests : IAsyncLifetime
             db.RequestStatusHistories.Add(history);
             db.RequestClosureConfirmations.Add(new RequestClosureConfirmation(
                 _requestId, history.Id, history.Reason!, requestedAt));
+            var reminder = new AgendaReminder(request.CondominiumId, _managerId,
+                "Acompanhar tag", null, null, null, requestedAt.AddDays(1),
+                "America/Sao_Paulo", AgendaRecurrenceType.None, false, false,
+                requestedAt);
+            db.AddRange(reminder, new AgendaReminderRequest(reminder.Id,
+                _requestId, _managerId, requestedAt));
             var session = new WhatsAppSession("5511999999999", requestedAt, requestedAt.AddMinutes(30));
             session.AwaitClosure(_requestId, requestedAt, requestedAt.AddMinutes(30));
             db.WhatsAppSessions.Add(session);

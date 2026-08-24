@@ -12,5 +12,6 @@ public enum WhatsAppNotificationType
     LoginCode = 8,
     ManagerNewRequest = 9,
     ResidentFirstAccess = 10,
-    DraftInactivityTimeout = 11
+    DraftInactivityTimeout = 11,
+    ManagerAgendaReminder = 12
 }

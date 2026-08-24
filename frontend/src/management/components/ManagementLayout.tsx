@@ -22,6 +22,7 @@ export function ManagementLayout() {
     || location.pathname.startsWith('/management/reports')
     || location.pathname.startsWith('/management/assistant')
     || location.pathname.startsWith('/management/documents')
+    || location.pathname.startsWith('/management/agenda')
 
   if (isLoading) {
     return <PageContainer><Skeleton variant="rounded" height={160} /></PageContainer>

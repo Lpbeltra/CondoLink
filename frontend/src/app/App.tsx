@@ -28,6 +28,7 @@ const ManagementCategoriesPage = lazyPage(() => import('../pages/ManagementCateg
 const MorePage = lazyPage(() => import('../pages/MorePage'), 'MorePage')
 const ManagementPeoplePage = lazyPage(() => import('../pages/ManagementPeoplePage'), 'ManagementPeoplePage')
 const ManagementReportsPage = lazyPage(() => import('../pages/ManagementReportsPage'), 'ManagementReportsPage')
+const ManagementAgendaPage = lazyPage(() => import('../pages/ManagementAgendaPage'), 'ManagementAgendaPage')
 const ManagementBlocksPage = lazyPage(() => import('../pages/ManagementBlocksPage'), 'ManagementBlocksPage')
 const CondominiumSetupPage = lazyPage(() => import('../pages/CondominiumSetupPage'), 'CondominiumSetupPage')
 const CondominiumAssistantPage = lazyPage(() => import('../pages/CondominiumAssistantPage'), 'CondominiumAssistantPage')
@@ -77,6 +78,7 @@ export function App() {
                     <Route index element={<Navigate to="dashboard" replace />} />
                     <Route path="requests" element={<ManagementRequestsPage />} />
                     <Route path="requests/:requestId" element={<ManagementRequestDetailsPage />} />
+                    <Route path="agenda" element={<ManagementAgendaPage />} />
                     <Route path="units" element={<ManagementUnitsPage />} />
                     <Route path="units/new" element={<CreateUnitPage />} />
                     <Route path="units/:unitId" element={<UnitDetailsPage />} />

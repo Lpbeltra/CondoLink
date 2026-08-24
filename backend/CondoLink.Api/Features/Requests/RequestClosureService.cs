@@ -3,6 +3,7 @@ using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using CondoLink.Api.Features.Agenda;
 
 namespace CondoLink.Api.Features.Requests;
 
@@ -50,6 +51,7 @@ public sealed class RequestClosureService(AppDbContext db, NotificationService n
                 .SetProperty(x => x.DecidedAt, now).SetProperty(x => x.ResponseMessageId, message == null ? null : (Guid?)message.Id)
                 .SetProperty(x => x.UpdatedAt, now), ct);
         if (changed != 1 || pending != 1) { await tx.RollbackAsync(ct); return new(false, "already_decided"); }
+        await RequestAgendaLinkService.UnlinkIfTerminalAsync(db, requestId, target, ct);
         var historyText = confirmed ? "Morador confirmou a conclusão do atendimento."
             : $"Novo questionamento do morador: {question![..Math.Min(question.Length, 462)]}";
         db.RequestStatusHistories.Add(new RequestStatusHistory(requestId, RequestStatus.WaitingForResidentClosure,
@@ -82,6 +84,8 @@ public sealed class RequestClosureService(AppDbContext db, NotificationService n
                     .SetProperty(x => x.DecidedAt, now).SetProperty(x => x.FinalizedAutomatically, true).SetProperty(x => x.UpdatedAt, now), ct);
             if (changed == 1 && pending == 1)
             {
+                await RequestAgendaLinkService.UnlinkIfTerminalAsync(db,
+                    row.RequestId, RequestStatus.Resolved, ct);
                 var sessions = await db.WhatsAppSessions
                     .Where(x => x.RequestId == row.RequestId).ToArrayAsync(ct);
                 foreach (var session in sessions) session.End(now);

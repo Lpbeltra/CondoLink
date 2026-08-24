@@ -26,6 +26,7 @@ using CondoLink.Api.Features.Overwatch.Managers;
 using Microsoft.EntityFrameworkCore;
 using CondoLink.Api.Features.Observability;
 using CondoLink.Api.Features.OperationalMessages;
+using CondoLink.Api.Features.Agenda;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -141,6 +142,9 @@ builder.Services.AddHostedService<WhatsAppOutboundWorker>();
 builder.Services.AddHostedService<WhatsAppConversationInactivityWorker>();
 builder.Services.AddHostedService<RequestClosureWorker>();
 builder.Services.AddHostedService<OperationalRetentionWorker>();
+builder.Services.Configure<AgendaOptions>(
+    builder.Configuration.GetSection(AgendaOptions.SectionName));
+builder.Services.AddHostedService<AgendaReminderWorker>();
 builder.Services.AddHttpClient<IWhatsAppClient, MetaWhatsAppClient>(client =>
 {
     client.BaseAddress = new Uri("https://graph.facebook.com/");
@@ -361,6 +365,7 @@ app.MapSuggestRequestStatusMessage();
 app.MapUpdateRequestPriority();
 app.MapCreateResidentReply();
 app.MapManageResidentClosure();
+app.MapAgendaEndpoints();
 
 // Reports
 app.MapGetRequestReport();

@@ -2,6 +2,27 @@
 
 ## Objetivo
 
+## Agenda operacional
+
+A Agenda é escopada por `CondominiumId`, não pelo usuário criador. `AgendaReminder`
+registra `CreatedByUserId` apenas para auditoria e pode referenciar unidade do
+mesmo condomínio e terceiro textual. `AgendaReminderRequest` possui índice único
+em `RequestId`; uma Request ativa pertence a no máximo um lembrete. Transições
+para `Resolved` ou `Cancelled` removem o vínculo transacionalmente sem excluir o
+lembrete.
+
+Cada vencimento gera `AgendaReminderOccurrence`, única por lembrete e horário.
+O worker trabalha em lotes, avança a recorrência ao reivindicar a ocorrência e
+registra e-mail e WhatsApp separadamente. O destinatário precisa ser o único
+Manager contextual ativo do condomínio no disparo; criador e PlatformAdmin não
+são fallback.
+
+Datas são UTC e cada lembrete preserva o fuso IANA operacional. O padrão
+configurável é `America/Sao_Paulo`. A recorrência semanal preserva a referência
+local; a mensal preserva o dia original, usa o último dia válido em meses curtos
+e volta ao dia original nos meses seguintes. Edição recalcula somente o futuro e
+não remove ocorrências históricas.
+
 Este documento descreve a arquitetura inicial do CondoLink.
 
 O objetivo é definir uma estrutura clara para o MVP, mantendo o projeto simples, testável e preparado para evolução.

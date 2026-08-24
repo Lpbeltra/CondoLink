@@ -21,6 +21,7 @@ using CondoLink.Api.Features.Overwatch.Managers;
 using CondoLink.Api.Features.Users;
 using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Api.Features.Observability;
+using CondoLink.Api.Features.Agenda;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -279,6 +280,7 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapUpdateRequestStatus();
         app.MapSuggestRequestStatusMessage();
         app.MapUpdateRequestPriority();
+        app.MapAgendaEndpoints();
 
         app.MapGetRequestReport();
         app.MapNotifications();

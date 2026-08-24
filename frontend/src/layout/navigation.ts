@@ -6,6 +6,7 @@ import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded'
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded'
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded'
+import EventNoteRoundedIcon from '@mui/icons-material/EventNoteRounded'
 import type { SvgIconComponent } from '@mui/icons-material'
 import type { CondominiumRole } from '../condominiums/types'
 import type { CondominiumContext } from '../condominiums/types'
@@ -24,6 +25,7 @@ const commonItems: NavigationItem[] = [
   { label: 'Dashboard', path: '/management/dashboard', icon: AssessmentRoundedIcon, requiredRole: 'Manager' },
   { label: 'Solicitações', path: '/requests', icon: ForumRoundedIcon },
   { label: 'Atendimento', path: '/management/requests', icon: SupportAgentRoundedIcon, requiredRole: 'Manager' },
+  { label: 'Agenda', path: '/management/agenda', icon: EventNoteRoundedIcon, requiredRole: 'Manager' },
   { label: 'Assistente', path: '/management/assistant', icon: AutoAwesomeRoundedIcon, requiredRole: 'Manager' },
   { label: 'Documentos', path: '/management/documents', icon: DescriptionRoundedIcon, requiredRole: 'Manager' },
   { label: 'Gestão', path: '/management/units', icon: ApartmentRoundedIcon, requiredRole: 'Manager' },

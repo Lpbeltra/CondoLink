@@ -6,6 +6,7 @@ using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using CondoLink.Api.Features.Agenda;
 
 namespace CondoLink.Api.Features.Requests;
 
@@ -272,6 +273,8 @@ public static class UpdateRequestStatus
                 foreach (var requirement in unreadRequirements)
                     requirement.MarkAnswerRead(history.CreatedAt);
             }
+            await RequestAgendaLinkService.UnlinkIfTerminalAsync(dbContext,
+                request.Id, request.Status, cancellationToken);
             dbContext.RequestStatusHistories.Add(history);
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);

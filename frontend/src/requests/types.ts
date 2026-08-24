@@ -40,9 +40,12 @@ export interface RequestDetails extends RequestListItem {
   residentReplyRequirement: ResidentReplyRequirement | null
   residentClosureProposal?: ResidentClosureProposal | null
   residentSummary?: ResidentSummary | null
+  agendaReminder?: AgendaReminderSummary | null
   hasUnreadResidentReply?: boolean
   hasUnreadResidentUpdate?: boolean
 }
+
+export interface AgendaReminderSummary { id: string; title: string; nextOccurrenceAtUtc: string | null; recurrenceType: 'None' | 'Weekly' | 'Monthly' }
 
 export interface ResidentSummary {
   fullName: string

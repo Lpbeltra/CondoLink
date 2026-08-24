@@ -275,6 +275,16 @@ public static class GetRequestById
             }
         }
 
+        AgendaReminderSummaryResponse? agendaReminder = null;
+        if (isCondominiumManager)
+            agendaReminder = await (from link in dbContext.AgendaReminderRequests.AsNoTracking()
+                join reminder in dbContext.AgendaReminders.AsNoTracking()
+                    on link.ReminderId equals reminder.Id
+                where link.RequestId == request.Id
+                select new AgendaReminderSummaryResponse(reminder.Id, reminder.Title,
+                    reminder.NextOccurrenceAtUtc, reminder.RecurrenceType.ToString()))
+                .SingleOrDefaultAsync(cancellationToken);
+
         var response = new Response(
             request.Id,
             request.CondominiumId,
@@ -294,6 +304,7 @@ public static class GetRequestById
             residentReplyRequirement,
             residentClosureProposal,
             residentSummary,
+            agendaReminder,
             hasUnreadResidentReply,
             hasUnreadResidentUpdate);
 
@@ -354,6 +365,8 @@ public static class GetRequestById
         DateTime RequestedAt, DateTime ExpiresAt);
     public sealed record ResidentSummaryResponse(string FullName, string? Block,
         string? Unit, string? PhoneNumber, string? Email, string? Relationship);
+    public sealed record AgendaReminderSummaryResponse(Guid Id, string Title,
+        DateTime? NextOccurrenceAtUtc, string RecurrenceType);
 
     public sealed record StatusHistoryResponse(
         Guid Id,
@@ -384,6 +397,7 @@ public static class GetRequestById
         ResidentReplyRequirementResponse? ResidentReplyRequirement,
         ResidentClosureProposalResponse? ResidentClosureProposal,
         ResidentSummaryResponse? ResidentSummary,
+        AgendaReminderSummaryResponse? AgendaReminder,
         bool HasUnreadResidentReply,
         bool HasUnreadResidentUpdate);
 }

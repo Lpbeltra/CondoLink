@@ -56,6 +56,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<OperationalEvent> OperationalEvents => Set<OperationalEvent>();
     public DbSet<OperationalMessageTemplate> OperationalMessageTemplates =>
         Set<OperationalMessageTemplate>();
+    public DbSet<AgendaReminder> AgendaReminders => Set<AgendaReminder>();
+    public DbSet<AgendaReminderRequest> AgendaReminderRequests =>
+        Set<AgendaReminderRequest>();
+    public DbSet<AgendaReminderOccurrence> AgendaReminderOccurrences =>
+        Set<AgendaReminderOccurrence>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

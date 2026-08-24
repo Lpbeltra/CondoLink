@@ -2,6 +2,14 @@
 
 ## Objetivo
 
+## Agenda operacional
+
+Implementada a base por condomínio: CRUD, unidade/terceiro opcionais, vínculo
+único de Request, desvínculo terminal, recorrência semanal/mensal, ocorrências
+persistentes, e-mail e SessionText dentro da janela WhatsApp. Pendente externa:
+aprovação e confirmação do contrato Meta de `manager_agenda_reminder` para o
+canal fora da janela de 24 horas.
+
 Este documento registra ideias, funcionalidades futuras e melhorias que não fazem parte do MVP atual.
 
 O backlog não representa compromisso de implementação.
