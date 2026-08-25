@@ -9,12 +9,13 @@ describe('RequestConversation', () => {
     render(<RequestConversation requestId="request-id" status="InProgress" readOnly
       onMessageCreated={vi.fn()} messages={[
         { id: 'resident', requestId: 'request-id', author: { id: 'resident-id', fullName: 'Maria', isManager: false }, content: 'Relato do morador', channel: 'WhatsAppResidentUpdate', createdAt: '2026-08-01T10:00:00Z' },
-        { id: 'manager', requestId: 'request-id', author: { id: 'manager-id', fullName: 'Gestor', isManager: true }, content: 'Atualização da administração', channel: 'Portal', createdAt: '2026-08-02T10:00:00Z' },
-        { id: 'duplicate', requestId: 'request-id', author: { id: 'manager-id', fullName: 'Gestor', isManager: true }, content: 'Atualização da administração', channel: 'Portal', createdAt: '2026-07-31T10:00:00Z' },
+        { id: 'manager', requestId: 'request-id', author: { id: 'manager-id', fullName: 'Gestor', isManager: true }, content: 'Visita confirmada para amanhã.', channel: 'Portal', createdAt: '2026-08-02T10:00:00Z' },
+        { id: 'duplicate', requestId: 'request-id', author: { id: 'manager-id', fullName: 'Gestor', isManager: true }, content: 'Visita confirmada para amanhã.', channel: 'Portal', createdAt: '2026-07-31T10:00:00Z' },
       ]} />)
 
     expect(screen.getByText('Relato do morador')).toBeVisible()
     expect(screen.getAllByText('Atualização da administração')).toHaveLength(1)
+    expect(screen.getAllByText('Visita confirmada para amanhã.')).toHaveLength(1)
     const updates = screen.getAllByText(/Atualização da administração|Relato do morador/)
     expect(updates[0]).toHaveTextContent('Atualização da administração')
   })

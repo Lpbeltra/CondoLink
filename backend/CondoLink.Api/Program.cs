@@ -376,6 +376,7 @@ app.MapNotifications();
 // Request messages and attachments
 app.MapCreateRequestMessage();
 app.MapListRequestMessages();
+app.MapCreateAdministrativeRequestUpdate();
 app.MapRequestAttachments();
 
 // External integrations

@@ -267,6 +267,8 @@ public sealed class WhatsAppNotificationDispatcher(
     {
         var configured = type switch
         {
+            WhatsAppNotificationType.AdministrativeRequestUpdate =>
+                templates.StatusChanged,
             WhatsAppNotificationType.AdministrationMessage =>
                 templates.AdministrationMessage,
             WhatsAppNotificationType.InformationRequested =>
@@ -288,7 +290,8 @@ public sealed class WhatsAppNotificationDispatcher(
                 Language = string.IsNullOrWhiteSpace(configured.Language)
                     ? "pt_BR" : configured.Language
             };
-        if (type == WhatsAppNotificationType.StatusChanged
+        if (type is WhatsAppNotificationType.StatusChanged
+                or WhatsAppNotificationType.AdministrativeRequestUpdate
             && status != RequestStatus.WaitingForResidentClosure
             && string.IsNullOrWhiteSpace(configured.Name))
             return new WhatsAppTemplateDefinition

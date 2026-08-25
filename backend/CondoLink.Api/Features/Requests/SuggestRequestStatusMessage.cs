@@ -85,7 +85,8 @@ public static class SuggestRequestStatusMessage
         return !string.IsNullOrWhiteSpace(value)
             && !int.TryParse(value, out _)
             && Enum.TryParse(value, true, out status)
-            && status is RequestStatus.WaitingForResident
+            && status is RequestStatus.InProgress
+                or RequestStatus.WaitingForResident
                 or RequestStatus.WaitingForThirdParty
                 or RequestStatus.WaitingForResidentClosure
                 or RequestStatus.Resolved

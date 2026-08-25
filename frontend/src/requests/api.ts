@@ -77,6 +77,10 @@ export async function suggestRequestStatusMessage(requestId: string, status: Req
   )).data
 }
 
+export async function createAdministrativeRequestUpdate(requestId: string, content: string) {
+  return (await api.post(`/management/requests/${requestId}/updates`, { content })).data
+}
+
 export async function updateRequestPriority(requestId: string, priority: RequestPriority) {
   return (await api.patch(`/requests/${requestId}/priority`, { priority })).data
 }

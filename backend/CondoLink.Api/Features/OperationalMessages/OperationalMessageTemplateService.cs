@@ -21,6 +21,11 @@ public sealed partial class OperationalMessageTemplateService(AppDbContext db)
 
     public static IReadOnlyList<OperationalMessageDefinition> Definitions { get; } =
     [
+        new("InProgressUpdate", "Atualização — em andamento",
+            "Mensagem complementar enviada sem alterar um atendimento em andamento.",
+            "Olá, {PrimeiroNome}! Há uma nova atualização sobre sua solicitação.",
+            "O atendimento continua em andamento.\n\n" + NewInteraction, "",
+            WhatsAppNotificationType.AdministrativeRequestUpdate),
         new("WaitingForThirdParty", "Aguardando terceiro",
             "Mensagem enviada quando o atendimento depende de uma pessoa ou serviço externo.",
             "Olá, {PrimeiroNome}! Há uma atualização sobre sua solicitação.\n\nA administração informou que o atendimento está aguardando um terceiro:",

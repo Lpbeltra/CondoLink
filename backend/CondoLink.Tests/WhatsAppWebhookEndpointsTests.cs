@@ -3014,6 +3014,47 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Administrative_update_click_correlates_by_request_message_without_status_history()
+    {
+        const string externalId = "wamid.administrative-update";
+        const string content = "A empresa confirmou a visita para amanhã às 14h.";
+        var requestId = await _host.WithDbAsync(async db =>
+        {
+            var category = new Category(_condominiumId,
+                $"Atualização {Guid.NewGuid():N}", null);
+            var manager = CoreTestSeed.User("Síndico atualização",
+                $"manager-{Guid.NewGuid():N}@example.com");
+            var request = new CondoLink.Domain.Entities.Request(_condominiumId,
+                _userId, _unitId, category.Id, "Visita técnica", "Relato");
+            var message = new RequestMessage(request.Id, manager.Id, content);
+            var outbound = new WhatsAppOutboundMessage(request.Id, message.Id,
+                _userId, _condominiumId, "+5511999990001",
+                WhatsAppNotificationType.AdministrativeRequestUpdate,
+                WhatsAppSendMode.Template, $"request-update:{message.Id}:{_userId}",
+                $"Atualização da administração\n\n{content}",
+                "request_status_update", "pt_BR", DateTime.UtcNow.AddHours(-1));
+            outbound.StartProcessing(); outbound.MarkSent(externalId, DateTime.UtcNow);
+            db.AddRange(category, manager, request, message, outbound);
+            await db.SaveChangesAsync();
+            return request.Id;
+        });
+
+        await PostAsync(TemplateQuickReplyPayload("wamid.administrative-update-click",
+            "request_status_view", "Ver atualização", externalId));
+
+        Assert.Contains(content, _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal("status_update_delivered", await db.WhatsAppInboundMessages
+                .Where(x => x.ExternalMessageId == "wamid.administrative-update-click")
+                .Select(x => x.ProcessingResult).SingleAsync());
+            Assert.False(await db.WhatsAppOutboundMessages.Where(x => x.RequestId == requestId
+                && x.NotificationType == WhatsAppNotificationType.AdministrativeRequestUpdate)
+                .AnyAsync(x => x.RequestStatusHistoryId != null));
+        });
+    }
+
+    [Fact]
     public async Task Closure_template_quick_reply_uses_the_replied_outbound_confirmation()
     {
         var requestId = await ArrangeClosureAsync(associateSession: false);

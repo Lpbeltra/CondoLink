@@ -279,6 +279,7 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapListCondominiumRequests();
         app.MapUpdateRequestStatus();
         app.MapSuggestRequestStatusMessage();
+        app.MapCreateAdministrativeRequestUpdate();
         app.MapUpdateRequestPriority();
         app.MapAgendaEndpoints();
 

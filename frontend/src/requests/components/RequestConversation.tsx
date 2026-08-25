@@ -50,9 +50,10 @@ export function RequestConversation({ requestId, status, messages, onMessageCrea
         {timelineMessages.length === 0 && <Typography color="text.secondary">Ainda não há atualizações nesta solicitação.</Typography>}
         {timelineMessages.map((message) => (
           <Box key={message.id} borderLeft="4px solid" borderColor={getUpdateMarkerColor(message)} pl={2} py={.5}>
-            <Typography fontWeight={750} fontSize=".8rem">{message.isResidentReply ? 'Resposta do morador' : message.author.fullName}</Typography>
+            <Typography fontWeight={750} fontSize=".8rem">{message.isResidentReply ? 'Resposta do morador' : message.author.isManager ? 'Atualização da administração' : message.author.fullName}</Typography>
+            {message.author.isManager && <Typography color="text.secondary" fontSize=".72rem">{message.author.fullName} · {formatDateTime(message.createdAt)}</Typography>}
             <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.id === latestResidentId && residentSummary?.trim() ? residentSummary : message.content}</Typography>
-            <Typography color="text.secondary" fontSize=".72rem" mt={.75}>{formatDateTime(message.createdAt)}</Typography>
+            {!message.author.isManager && <Typography color="text.secondary" fontSize=".72rem" mt={.75}>{formatDateTime(message.createdAt)}</Typography>}
           </Box>
         ))}
       </Stack>

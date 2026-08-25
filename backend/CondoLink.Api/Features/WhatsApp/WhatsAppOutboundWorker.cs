@@ -122,6 +122,7 @@ public sealed class WhatsAppOutboundWorker(
                         .BodyParameterName;
                 }
                 else if (item.NotificationType is WhatsAppNotificationType.StatusChanged
+                    or WhatsAppNotificationType.AdministrativeRequestUpdate
                     or WhatsAppNotificationType.RequestResolved
                     or WhatsAppNotificationType.RequestCancelled
                     or WhatsAppNotificationType.RequestReopened)

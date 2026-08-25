@@ -31,6 +31,18 @@ antes da existência de uma solicitação são guardados em
 `whatsapp_sessions` mantém o estado retomável por telefone. Nenhum payload
 integral ou token é persistido.
 
+### Atualizações administrativas sem mudança de status
+
+Em `InProgress` e `WaitingForThirdParty`, a administração pode enviar uma nova
+mensagem sem transicionar a Request. A mensagem literal fica em `RequestMessage`.
+Com janela aberta, a moldura operacional efetiva e o texto são enviados em
+`SessionText`. Com janela fechada, `request_status_update · pt_BR` envia somente
+o primeiro nome e o botão `request_status_view`; o outbound guarda
+`RequestMessageId`. Ao clicar em `Ver atualização`, `context.id` correlaciona o
+outbound e entrega seu conteúdo exato, sem menu anterior e sem depender de
+`RequestStatusHistoryId`. Retries reutilizam
+`request-update:{RequestMessageId}:{ResidentUserId}`.
+
 O envio é isolado por `IWhatsAppClient`. A implementação atual usa o Graph API
 por `HttpClient`; testes usam um cliente fake. Futuras notificações devem ser
 decididas centralmente junto ao `NotificationService`, e não espalhadas pelos

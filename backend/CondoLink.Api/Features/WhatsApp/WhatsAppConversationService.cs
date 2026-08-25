@@ -1287,7 +1287,7 @@ public sealed class WhatsAppConversationService(
             .Where(x => x.ExternalMessageId == message.ReplyToExternalMessageId)
             .Select(x => new
             {
-                x.RequestId, x.RequestStatusHistoryId,
+                x.RequestId, x.RequestMessageId, x.RequestStatusHistoryId,
                 x.RequestClosureConfirmationId, x.UserId, x.CondominiumId,
                 x.NotificationType, x.SendMode, x.Status, x.Content
             }).SingleOrDefaultAsync(ct);
@@ -1311,10 +1311,14 @@ public sealed class WhatsAppConversationService(
 
         if (action == "status")
         {
+            var isAdministrativeUpdate = outbound.NotificationType ==
+                WhatsAppNotificationType.AdministrativeRequestUpdate;
             if (outbound.NotificationType is not WhatsAppNotificationType.StatusChanged
                 and not WhatsAppNotificationType.RequestCancelled
                 and not WhatsAppNotificationType.RequestReopened
-                || !outbound.RequestStatusHistoryId.HasValue)
+                and not WhatsAppNotificationType.AdministrativeRequestUpdate
+                || isAdministrativeUpdate && !outbound.RequestMessageId.HasValue
+                || !isAdministrativeUpdate && !outbound.RequestStatusHistoryId.HasValue)
                 return ("Não consegui localizar a atualização solicitada.",
                     "status_update_correlation_failed");
             session.ShowOwnRequest(outbound.RequestId.Value, now, expires);

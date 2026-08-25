@@ -436,6 +436,38 @@ public sealed class NotificationService(
             + $"{Shorten(residentName, 160)} · {location}\nAssunto: {subject}";
     }
 
+    public async Task NotifyAdministrativeUpdateAsync(
+        DomainRequest request, RequestMessage message,
+        CancellationToken cancellationToken)
+    {
+        dbContext.Notifications.Add(new Notification(request.AuthorUserId,
+            request.CondominiumId, NotificationType.RequestMessageReceived,
+            "Atualização da administração", Shorten(message.Content, 160),
+            request.Id));
+        await dbContext.SaveChangesAsync(cancellationToken);
+        if (whatsApp is null) return;
+
+        var resident = await dbContext
+            .Set<CondoLink.Infrastructure.Identity.ApplicationUser>()
+            .AsNoTracking().Where(x => x.Id == request.AuthorUserId)
+            .Select(x => x.FullName).SingleAsync(cancellationToken);
+        var condominium = await dbContext.Condominiums.AsNoTracking()
+            .Where(x => x.Id == request.CondominiumId).Select(x => x.Name)
+            .SingleAsync(cancellationToken);
+        var key = request.Status == RequestStatus.WaitingForThirdParty
+            ? "WaitingForThirdParty" : "InProgressUpdate";
+        var content = operationalMessages is null
+            ? StatusChangedContent(resident, request.Title, request.Status,
+                request.Status, message.Content)
+            : await operationalMessages.ComposeAsync(key, FirstName(resident),
+                condominium, message.Content, cancellationToken);
+        await whatsApp.EnqueueAsync(request.Id,
+            WhatsAppNotificationType.AdministrativeRequestUpdate,
+            $"request-update:{message.Id}:{request.AuthorUserId}", content,
+            message.Id, cancellationToken,
+            templateParameterContent: message.Content);
+    }
+
     private static string NormalizeBlockIdentifier(string block)
     {
         var value = block.Trim();

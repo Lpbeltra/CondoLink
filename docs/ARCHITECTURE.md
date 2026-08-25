@@ -44,6 +44,24 @@ banco; não foi criado um segundo identificador neste lote.
 
 Este documento descreve a arquitetura inicial do CondoLink.
 
+## Atualização administrativa sem transição
+
+Managers podem publicar uma atualização em Requests `InProgress` ou
+`WaitingForThirdParty` sem executar a máquina de estados. O conteúdo aprovado é
+persistido como `RequestMessage` de canal `Portal`, aparece para administração e
+morador na timeline e alimenta a atualização da análise. Não há
+`RequestStatusHistory`, alteração de `ResolvedAt`, closure, requirement ou
+prioridade.
+
+Cada entrega usa `WhatsAppNotificationType.AdministrativeRequestUpdate` e a chave
+`request-update:{RequestMessageId}:{ResidentUserId}`. Dentro da janela é
+`SessionText`; fora dela usa `request_status_update`. O outbound persiste
+`RequestMessageId`, permitindo que `request_status_view` entregue exatamente a
+mensagem respondida sem procurar a última Request ou criar histórico artificial.
+`WaitingForThirdParty` reutiliza sua moldura operacional; `InProgress` possui o
+gatilho somente leitura/configurável `InProgressUpdate` porque não existia uma
+moldura de envio para esse estado.
+
 O objetivo é definir uma estrutura clara para o MVP, mantendo o projeto simples, testável e preparado para evolução.
 
 A arquitetura deve apoiar o domínio do produto, sem adicionar abstrações ou camadas que não tragam benefício real.

@@ -18,6 +18,10 @@ formal caso o volume torne insuficiente o prefixo legado derivado do GUID.
 
 Este documento registra ideias, funcionalidades futuras e melhorias que não fazem parte do MVP atual.
 
+Concluído: atualização administrativa ao morador sem mudança de status, com
+timeline, sugestão opcional por IA, moldura operacional e correlação persistente
+pós-24h pelo `RequestMessageId`.
+
 O backlog não representa compromisso de implementação.
 
 Os itens devem ser priorizados com base em:

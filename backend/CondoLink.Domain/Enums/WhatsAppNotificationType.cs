@@ -13,5 +13,6 @@ public enum WhatsAppNotificationType
     ManagerNewRequest = 9,
     ResidentFirstAccess = 10,
     DraftInactivityTimeout = 11,
-    ManagerAgendaReminder = 12
+    ManagerAgendaReminder = 12,
+    AdministrativeRequestUpdate = 13
 }

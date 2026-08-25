@@ -6,7 +6,7 @@ import ReplayRoundedIcon from '@mui/icons-material/ReplayRounded'
 import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlineRounded'
 import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined'
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, InputLabel, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
-import { suggestRequestStatusMessage, updateRequestPriority, updateRequestStatus } from '../api'
+import { createAdministrativeRequestUpdate, suggestRequestStatusMessage, updateRequestPriority, updateRequestStatus } from '../api'
 import { allowedStatusTransitions, priorityPresentation, statusPresentation } from '../presentation'
 import type { RequestPriority, RequestStatus } from '../types'
 import { canSubmitStatus, getRequestActionVisibility, getStatusConfirmation, requestShortcutStatuses } from '../requestActions'
@@ -24,6 +24,8 @@ export function RequestManagementActions({ requestId, status, priority, agendaRe
   const [error, setError] = useState(''), [suggestionError, setSuggestionError] = useState(''), [success, setSuccess] = useState('')
   const [isSaving, setIsSaving] = useState(false), [isSuggesting, setIsSuggesting] = useState(false)
   const [shortcut, setShortcut] = useState<RequestStatus | null>(null)
+  const [updateOpen, setUpdateOpen] = useState(false), [updateText, setUpdateText] = useState('')
+  const [updateSuggestion, setUpdateSuggestion] = useState(''), [updateSuggestionSource, setUpdateSuggestionSource] = useState('')
   const transitions = allowedStatusTransitions[status], actions = getRequestActionVisibility(status)
   const canSuggest = !!nextStatus && residentStatuses.includes(nextStatus) && !!reason.trim()
   const suggestionIsStale = !!suggestion && suggestionSource !== reason
@@ -60,6 +62,10 @@ export function RequestManagementActions({ requestId, status, priority, agendaRe
     catch (requestError) { setError(friendlyError(requestError)) } finally { setIsSaving(false) }
   }
   const counterColor = reason.length >= 900 ? (reason.length > 1000 ? 'error.main' : 'warning.main') : 'text.secondary'
+  const updateAllowed = status === 'InProgress' || status === 'WaitingForThirdParty'
+  const updateSuggestionStale = !!updateSuggestion && updateSuggestionSource !== updateText
+  const suggestUpdate = async () => { if (!updateText.trim() || isSuggesting || updateText.length > 1000) return; const source = updateText; setIsSuggesting(true); setSuggestionError(''); try { const result = await suggestRequestStatusMessage(requestId, status, source.trim()); setUpdateSuggestion(result.suggestion); setUpdateSuggestionSource(source) } catch { setSuggestionError('Não foi possível gerar a sugestão. Você ainda pode enviar seu texto.') } finally { setIsSuggesting(false) } }
+  const sendUpdate = async (content: string) => { if (!content.trim() || content.length > 1000 || isSaving) return; setIsSaving(true); setError(''); try { await createAdministrativeRequestUpdate(requestId, content.trim()); setUpdateOpen(false); setUpdateText(''); setUpdateSuggestion(''); await onUpdated(); setSuccess('Atualização enviada sem alterar o status.') } catch (requestError) { setError(friendlyError(requestError)) } finally { setIsSaving(false) } }
 
   return <Paper elevation={0} sx={{ mt: 3, p: { xs: 2.5, sm: 3 }, border: '1px solid', borderColor: 'rgba(114,89,217,.25)', bgcolor: 'rgba(114,89,217,.035)' }}>
     <Typography variant="h3">Ações de atendimento</Typography><Typography color="text.secondary" mt={.5}>Atualize a situação desta solicitação.</Typography>
@@ -70,6 +76,7 @@ export function RequestManagementActions({ requestId, status, priority, agendaRe
       {actions.resolve && <Button variant="contained" color="success" startIcon={<CheckCircleOutlineRoundedIcon />} disabled={isSaving} onClick={() => openStatus(requestShortcutStatuses.resolve)}>Resolver</Button>}
       {actions.cancel && <Button variant="contained" color="error" startIcon={<CancelOutlinedIcon />} disabled={isSaving} onClick={() => openStatus(requestShortcutStatuses.cancel)}>Cancelar</Button>}
       {agendaReminder ? <Button variant="outlined" onClick={() => navigate('/management/agenda')}>Abrir lembrete{agendaReminder.isActive ? '' : ' concluído'}</Button> : status !== 'Resolved' && status !== 'Cancelled' && <Button variant="outlined" onClick={() => navigate(`/management/agenda?create=true&requestId=${requestId}`)}>Vincular lembrete</Button>}
+      {updateAllowed && <Button variant="outlined" color="secondary" onClick={() => { setError(''); setSuccess(''); setSuggestionError(''); setUpdateOpen(true) }}>Atualizar / enviar mensagem</Button>}
     </Box>
 
     <Dialog open={statusOpen} onClose={() => { if (!isSaving && !isSuggesting) closeStatus() }} fullWidth maxWidth="sm">
@@ -89,6 +96,15 @@ export function RequestManagementActions({ requestId, status, priority, agendaRe
       </Stack></DialogContent>
       <DialogActions sx={{ flexWrap: 'wrap' }}><Button onClick={closeStatus} disabled={isSaving || isSuggesting}>Voltar</Button>{suggestion && <Button variant="outlined" disabled={isSaving || !suggestion.trim() || suggestionIsStale} onClick={() => void saveStatus(suggestion)}>Enviar sugestão da IA</Button>}<Button variant="contained" color={nextStatus === 'Cancelled' ? 'error' : 'secondary'} disabled={!canSubmitStatus(nextStatus, isSaving) || isSuggesting || reason.length > 1000} onClick={() => void saveStatus(reason)}>{isSaving ? <CircularProgress size={20} color="inherit" /> : suggestion ? 'Enviar meu texto' : shortcut === 'Open' ? 'Confirmar reabertura' : shortcut === 'Resolved' ? 'Enviar conclusão' : shortcut === 'Cancelled' ? 'Confirmar cancelamento' : 'Confirmar'}</Button></DialogActions>
     </Dialog>
+
+    <Dialog open={updateOpen} onClose={() => !isSaving && !isSuggesting && setUpdateOpen(false)} fullWidth maxWidth="sm"><DialogTitle>Atualizar / enviar mensagem ao morador</DialogTitle><DialogContent><Stack spacing={2} mt={1}>
+      <Alert severity="info"><strong>Status atual: {statusPresentation[status].label}</strong><br />Esta mensagem será enviada ao morador sem alterar o status do atendimento.</Alert>
+      {error && <Alert severity="error">{error}</Alert>}
+      <TextField multiline minRows={4} label="Mensagem ao morador" value={updateText} onChange={event => setUpdateText(event.target.value)} inputProps={{ maxLength: 1001 }} error={updateText.length > 1000} helperText={`${updateText.length} / 1000`} />
+      <Box><Button size="small" startIcon={isSuggesting ? <CircularProgress size={16} /> : <AutoAwesomeRoundedIcon />} disabled={!updateText.trim() || isSuggesting || isSaving || updateText.length > 1000} onClick={() => void suggestUpdate()}>Gerar sugestão com IA</Button></Box>
+      {suggestionError && <Alert severity="warning">{suggestionError}</Alert>}
+      {updateSuggestion && <Box><Typography variant="subtitle2">Sugestão da IA</Typography><TextField sx={{ mt: .5 }} fullWidth multiline minRows={3} value={updateSuggestion} onChange={event => setUpdateSuggestion(event.target.value)} inputProps={{ maxLength: 1000 }} helperText={`${updateSuggestion.length} / 1000`} />{updateSuggestionStale && <Alert severity="warning" sx={{ mt: 1 }}>A sugestão foi gerada a partir de uma versão anterior do seu texto.</Alert>}</Box>}
+    </Stack></DialogContent><DialogActions sx={{ flexWrap: 'wrap' }}><Button onClick={() => setUpdateOpen(false)} disabled={isSaving || isSuggesting}>Cancelar</Button>{updateSuggestion && <Button variant="outlined" disabled={isSaving || !updateSuggestion.trim() || updateSuggestionStale} onClick={() => void sendUpdate(updateSuggestion)}>Enviar sugestão da IA</Button>}<Button variant="contained" disabled={isSaving || !updateText.trim() || updateText.length > 1000} onClick={() => void sendUpdate(updateText)}>{isSaving ? <CircularProgress size={20} color="inherit" /> : 'Enviar meu texto'}</Button></DialogActions></Dialog>
 
     <Dialog open={priorityOpen} onClose={() => !isSaving && setPriorityOpen(false)} fullWidth maxWidth="xs"><DialogTitle>Alterar prioridade</DialogTitle><DialogContent><Box mt={1}>{error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}<FormControl fullWidth><InputLabel>Nova prioridade</InputLabel><Select label="Nova prioridade" value={nextPriority} onChange={event => setNextPriority(event.target.value as RequestPriority)}>{(['Normal', 'High', 'Urgent'] as RequestPriority[]).filter(item => item !== priority).map(item => <MenuItem key={item} value={item}>{priorityPresentation[item].label}</MenuItem>)}</Select></FormControl></Box></DialogContent><DialogActions><Button onClick={() => setPriorityOpen(false)} disabled={isSaving}>Voltar</Button><Button variant="contained" color="secondary" disabled={!nextPriority || isSaving} onClick={() => void savePriority()}>{isSaving ? <CircularProgress size={20} color="inherit" /> : 'Salvar'}</Button></DialogActions></Dialog>
   </Paper>
