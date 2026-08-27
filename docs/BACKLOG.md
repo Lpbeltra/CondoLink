@@ -6,9 +6,8 @@
 
 Implementada a base por condomínio: CRUD, unidade/terceiro opcionais, vínculo
 único de Request, desvínculo terminal, recorrência semanal/mensal, ocorrências
-persistentes, e-mail e SessionText dentro da janela WhatsApp. Pendente externa:
-aprovação e confirmação do contrato Meta de `manager_agenda_reminder` para o
-canal fora da janela de 24 horas.
+persistentes, e-mail, SessionText dentro da janela WhatsApp e o template aprovado
+`manager_agenda_reminder` fora da janela de 24 horas.
 
 Concluídos no ajuste de uso real: carregamento confiável de unidades/Requests,
 checklist pesquisável, criação contextual a partir da Request, conclusão e

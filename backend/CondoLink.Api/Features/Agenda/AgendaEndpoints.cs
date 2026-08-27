@@ -161,6 +161,9 @@ public static class AgendaEndpoints
             reminder = await db.AgendaReminders.SingleOrDefaultAsync(x =>
                 x.Id == reminderId && x.CondominiumId == condominiumId, ct)
                 ?? throw new KeyNotFoundException("Lembrete não encontrado.");
+            if (!reminder.IsActive)
+                return Results.Conflict(new
+                { error = "Reative o lembrete antes de editá-lo." });
             reminder.Update(input.Title, input.Description, input.UnitId,
                 input.RelatedThirdParty, starts, timezone, recurrence,
                 input.NotifyByWhatsApp, input.NotifyByEmail, now);

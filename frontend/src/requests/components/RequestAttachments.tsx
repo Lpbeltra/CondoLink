@@ -52,6 +52,8 @@ export function RequestAttachments({
   const [previews, setPreviews] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<File[]>([])
   const [dialogUrl, setDialogUrl] = useState<string | null>(null)
+  const [dialogItem, setDialogItem] = useState<RequestAttachment | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<RequestAttachment | null>(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -61,8 +63,7 @@ export function RequestAttachments({
   const imageItems = items.filter(item =>
     item.contentType.toLowerCase().startsWith('image/'))
   const otherItems = items.filter(item =>
-    !item.contentType.toLowerCase().startsWith('audio/')
-    && !item.contentType.toLowerCase().startsWith('image/'))
+    !item.contentType.toLowerCase().startsWith('image/'))
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -156,6 +157,34 @@ export function RequestAttachments({
       setError(getAttachmentErrorMessage(requestError))
     }
   }
+
+  const openPreview = async (item: RequestAttachment) => {
+    setPreviewLoading(true)
+    setError('')
+    try {
+      const url = URL.createObjectURL(await getRequestAttachmentBlob(item.contentUrl))
+      setDialogItem(item)
+      setDialogUrl(url)
+    } catch (requestError) {
+      setError(getAttachmentErrorMessage(requestError))
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  const closePreview = () => {
+    setDialogUrl(null)
+    setDialogItem(null)
+  }
+
+  useEffect(() => {
+    if (!dialogUrl || !dialogItem
+      || dialogItem.contentType.startsWith('image/')) return
+    return () => {
+      if (typeof URL.revokeObjectURL === 'function')
+        URL.revokeObjectURL(dialogUrl)
+    }
+  }, [dialogUrl, dialogItem])
 
   const confirmDelete = async () => {
     if (!deleteTarget || deleting) return
@@ -300,7 +329,7 @@ export function RequestAttachments({
           <Typography variant="h3" mb={1.5}>Galeria de imagens</Typography>
           <Box display="grid" gridTemplateColumns={{ xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }} gap={1.5}>
             {imageItems.map(item => <Box key={item.id} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden', minWidth: 0 }}>
-              <Box component="button" type="button" aria-label={`Ampliar ${item.originalFileName}`} onClick={() => previews[item.id] && setDialogUrl(previews[item.id])} sx={{ p: 0, border: 0, background: 'action.hover', cursor: previews[item.id] ? 'pointer' : 'default', width: '100%', height: { xs: 132, sm: 168 }, display: 'block' }}>
+              <Box component="button" type="button" aria-label={`Ampliar ${item.originalFileName}`} onClick={() => { if (previews[item.id]) { setDialogItem(item); setDialogUrl(previews[item.id]) } }} sx={{ p: 0, border: 0, background: 'action.hover', cursor: previews[item.id] ? 'pointer' : 'default', width: '100%', height: { xs: 132, sm: 168 }, display: 'block' }}>
                 {previews[item.id] && <Box component="img" src={previews[item.id]} alt={`Miniatura de ${item.originalFileName}`} sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
               </Box>
               <Box p={1.25}>
@@ -348,7 +377,7 @@ export function RequestAttachments({
                         component="button"
                         type="button"
                         aria-label={`Ampliar ${item.originalFileName}`}
-                        onClick={() => setDialogUrl(previews[item.id])}
+                        onClick={() => { setDialogItem(item); setDialogUrl(previews[item.id]) }}
                         sx={{
                           p: 0,
                           border: 0,
@@ -402,6 +431,12 @@ export function RequestAttachments({
                     </Typography>
                   </Box>
                   <Stack direction="row">
+                    {(item.contentType.startsWith('audio/')
+                      || item.contentType.startsWith('video/')
+                      || item.contentType === 'application/pdf') && (
+                      <Button size="small" disabled={previewLoading}
+                        onClick={() => void openPreview(item)}>Visualizar</Button>
+                    )}
                     <IconButton
                       aria-label={`Baixar ${item.originalFileName}`}
                       onClick={() => void download(item)}
@@ -426,13 +461,13 @@ export function RequestAttachments({
 
       <Dialog
         open={Boolean(dialogUrl)}
-        onClose={() => setDialogUrl(null)}
+        onClose={closePreview}
         maxWidth="lg"
         fullWidth
       >
         <DialogTitle>Visualização do anexo</DialogTitle>
         <DialogContent sx={{ textAlign: 'center', overflow: 'auto' }}>
-          {dialogUrl && (
+          {dialogUrl && dialogItem?.contentType.startsWith('image/') && (
             <Box
               component="img"
               src={dialogUrl}
@@ -444,7 +479,21 @@ export function RequestAttachments({
               }}
             />
           )}
+          {dialogUrl && dialogItem?.contentType.startsWith('audio/') && (
+            <Box component="audio" src={dialogUrl} controls autoPlay={false}
+              sx={{ width: '100%' }} />
+          )}
+          {dialogUrl && dialogItem?.contentType.startsWith('video/') && (
+            <Box component="video" src={dialogUrl} controls autoPlay={false}
+              sx={{ width: '100%', maxHeight: '75vh' }} />
+          )}
+          {dialogUrl && dialogItem?.contentType === 'application/pdf' && (
+            <Box component="iframe" src={dialogUrl}
+              title={`Visualização de ${dialogItem.originalFileName}`}
+              sx={{ border: 0, width: '100%', height: '75vh' }} />
+          )}
         </DialogContent>
+        <DialogActions><Button onClick={closePreview}>Fechar</Button></DialogActions>
       </Dialog>
 
       <Dialog

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using CondoLink.Api.Features.Auth;
 using CondoLink.Api.Features.Observability;
 using CondoLink.Api.Features.WhatsApp;
@@ -159,18 +160,32 @@ public sealed class AgendaReminderWorker(IServiceScopeFactory scopes,
                 if (!wa.Enabled)
                     data.Occurrence.WhatsAppResult(AgendaDeliveryStatus.Skipped,
                         "whatsapp_disabled", null, now);
-                else if (!sessionOpen)
+                else if (!sessionOpen && (string.IsNullOrWhiteSpace(
+                    wa.Templates.ManagerAgendaReminder.Name) || string.IsNullOrWhiteSpace(
+                    wa.Templates.ManagerAgendaReminder.Language)))
                     data.Occurrence.WhatsAppResult(AgendaDeliveryStatus.Skipped,
-                        string.IsNullOrWhiteSpace(wa.Templates.ManagerAgendaReminder.Name)
-                            ? "template_not_configured" : "template_contract_pending",
-                        null, now);
+                        "template_not_configured", null, now);
                 else
                 {
+                    var sendMode = sessionOpen ? WhatsAppSendMode.SessionText
+                        : WhatsAppSendMode.Template;
+                    var template = wa.Templates.ManagerAgendaReminder;
+                    var parameters = sessionOpen ? null : JsonSerializer.Serialize(new[]
+                    {
+                        WhatsAppOutboundWorker.SafeFirstName(manager.FullName),
+                        data.Reminder.Title,
+                        data.Reminder.Description ?? "-",
+                        data.CondominiumName,
+                        local.ToString("dd/MM/yyyy"),
+                        local.ToString("HH:mm")
+                    });
                     var outbound = new WhatsAppOutboundMessage(null, null, manager.Id,
                         data.Reminder.CondominiumId, manager.NormalizedPhoneNumber,
                         WhatsAppNotificationType.ManagerAgendaReminder,
-                        WhatsAppSendMode.SessionText, $"agenda:{occurrenceId}:whatsapp",
-                        text, null, null, now);
+                        sendMode, $"agenda:{occurrenceId}:whatsapp", text,
+                        sessionOpen ? null : template.Name,
+                        sessionOpen ? null : template.Language, now,
+                        templateParameterContent: parameters);
                     db.Add(outbound);
                     data.Occurrence.WhatsAppResult(AgendaDeliveryStatus.Queued,
                         "outbound_enqueued", outbound.Id, now);

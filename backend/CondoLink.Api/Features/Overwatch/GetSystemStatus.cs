@@ -204,4 +204,12 @@ public static class GetSystemStatus
     internal static string WorkerStatus(CondoLink.Domain.Entities.WorkerHeartbeat x, DateTime now) => !x.Enabled ? "Disabled" : x.LastHeartbeatAt == default ? "Unknown" : now - x.LastHeartbeatAt > TimeSpan.FromSeconds(x.ExpectedIntervalSeconds * 5) ? "Unhealthy" : now - x.LastHeartbeatAt > TimeSpan.FromSeconds(x.ExpectedIntervalSeconds * 2.5) || x.LastSucceeded == false ? "Degraded" : "Healthy";
     internal static bool IsActiveInstance(CondoLink.Domain.Entities.WorkerHeartbeat x, DateTime now) =>
         x.LastHeartbeatAt != default && now - x.LastHeartbeatAt <= TimeSpan.FromSeconds(Math.Max(1, x.ExpectedIntervalSeconds) * 30L);
+    // Kept behind the existing call sites, but scoped to this API process instead
+    // of the operating-system monotonic clock (which may survive deployments).
+    private static class Environment
+    {
+        internal static long TickCount64 => Math.Max(0,
+            (long)(DateTime.UtcNow - Process.GetCurrentProcess().StartTime
+                .ToUniversalTime()).TotalMilliseconds);
+    }
 }

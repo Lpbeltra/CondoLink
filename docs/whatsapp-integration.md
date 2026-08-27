@@ -5,10 +5,9 @@
 ## Agenda do Manager
 
 Lembretes resolvem o Manager contextual ativo no disparo. Dentro da janela de 24
-horas o worker enfileira `SessionText` próprio. Fora da janela nenhum template de
-morador ou `manager_new_request` é reutilizado: o canal fica `Skipped` até o
-contrato posicional real de `manager_agenda_reminder · pt_BR` ser aprovado e
-alinhado. O e-mail da ocorrência continua independente.
+horas o worker enfileira `SessionText` próprio. Fora da janela enfileira o template
+aprovado `manager_agenda_reminder · pt_BR`. O e-mail da ocorrência continua
+independente e falhas de um canal não concluem o lembrete nem desfazem o outro.
 
 ```text
 WhatsApp__Templates__ManagerAgendaReminder__Name=manager_agenda_reminder
@@ -18,8 +17,10 @@ Agenda__WorkerIntervalSeconds=60
 Agenda__WorkerBatchSize=20
 ```
 
-Nome e idioma são configuráveis, mas a configuração isolada não habilita envio
-antes da confirmação dos parâmetros no Meta Manager.
+Nome e idioma são obrigatórios fora da janela; quando ausentes, a ocorrência
+registra `template_not_configured` e não cria outbound. O body possui exatamente:
+`{{1}}` primeiro nome do Manager, `{{2}}` título, `{{3}}` descrição,
+`{{4}}` condomínio, `{{5}}` data local e `{{6}}` horário local.
 
 Esta integração usa a WhatsApp Cloud API oficial da Meta como uma porta de
 entrada controlada para moradores. Ela não usa WhatsApp Web, QR Code, número

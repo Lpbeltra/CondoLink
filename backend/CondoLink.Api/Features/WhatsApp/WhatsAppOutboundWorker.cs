@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using CondoLink.Api.Features.Observability;
 using CondoLink.Api.Features.Auth;
+using System.Text.Json;
 
 namespace CondoLink.Api.Features.WhatsApp;
 
@@ -156,6 +157,14 @@ public sealed class WhatsAppOutboundWorker(
                 {
                     parameters = ManagerNewRequestTemplateParameters(
                         item.TemplateParameterContent);
+                }
+                else if (item.NotificationType == WhatsAppNotificationType.ManagerAgendaReminder)
+                {
+                    parameters = JsonSerializer.Deserialize<string[]>(
+                        item.TemplateParameterContent ?? "[]") ?? [];
+                    if (parameters.Count != 6)
+                        throw new InvalidOperationException(
+                            "Manager agenda reminder template requires exactly six body parameters.");
                 }
                 else if (item.NotificationType == WhatsAppNotificationType.ResidentFirstAccess)
                 {

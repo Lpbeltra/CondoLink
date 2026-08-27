@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace CondoLink.Tests;
 
@@ -65,7 +66,15 @@ public sealed class WhatsAppOutboundWorkerIntegrationTests
                     WhatsAppNotificationType.RequestResolved, WhatsAppSendMode.Template,
                     "worker-resolved", "Finalização completa",
                     "task_finalization_notification", "pt_BR", now,
-                    templateParameterContent: "Lâmpadas substituídas; serviço concluído."));
+                    templateParameterContent: "Lâmpadas substituídas; serviço concluído."),
+                new WhatsAppOutboundMessage(null, null, user.Id,
+                    condominium.Id, user.NormalizedPhoneNumber!,
+                    WhatsAppNotificationType.ManagerAgendaReminder,
+                    WhatsAppSendMode.Template, "worker-agenda", "Lembrete",
+                    "manager_agenda_reminder", "pt_BR", now,
+                    templateParameterContent: JsonSerializer.Serialize(new[]
+                    { "Érica", "Vistoria", "Conferir extintores", "Residencial",
+                        "27/08/2026", "09:30" })));
             await db.SaveChangesAsync();
         });
 
@@ -81,7 +90,7 @@ public sealed class WhatsAppOutboundWorkerIntegrationTests
                 Options.Create(options),
                 services.GetRequiredService<OperationalTelemetry>(),
                 NullLogger<WhatsAppOutboundWorker>.Instance);
-            Assert.Equal(3, await worker.ProcessBatch(options, default));
+            Assert.Equal(4, await worker.ProcessBatch(options, default));
         });
 
         var status = Assert.Single(fake.Templates,
@@ -100,7 +109,12 @@ public sealed class WhatsAppOutboundWorkerIntegrationTests
             "Lâmpadas substituídas; serviço concluído."], resolved.Body);
         Assert.Empty(resolved.QuickReplies);
         Assert.Empty(resolved.UrlButtons);
-        Assert.Equal(3, await host.WithDbAsync(db =>
+        var agenda = Assert.Single(fake.Templates,
+            x => x.Name == "manager_agenda_reminder");
+        Assert.Equal(["Érica", "Vistoria", "Conferir extintores", "Residencial",
+            "27/08/2026", "09:30"], agenda.Body);
+        Assert.Empty(agenda.QuickReplies);
+        Assert.Equal(4, await host.WithDbAsync(db =>
             db.WhatsAppOutboundMessages.CountAsync()));
     }
 

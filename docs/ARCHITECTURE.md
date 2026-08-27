@@ -17,6 +17,11 @@ registra e-mail e WhatsApp separadamente. O destinatário precisa ser o único
 Manager contextual ativo do condomínio no disparo; criador e PlatformAdmin não
 são fallback.
 
+O horário é o momento de avisar, nunca um prazo de conclusão. Depois de uma
+ocorrência avulsa, o lembrete continua ativo, sem próxima ocorrência, e seu estado
+“avisado, pendente de conclusão” é derivado da ocorrência e de `CompletedAt`.
+Somente a ação explícita de conclusão define `IsActive=false` e `CompletedAt`.
+
 Datas são UTC e cada lembrete preserva o fuso IANA operacional. O padrão
 configurável é `America/Sao_Paulo`. A recorrência semanal preserva a referência
 local; a mensal preserva o dia original, usa o último dia válido em meses curtos
@@ -754,6 +759,11 @@ Essa abstração deve ser introduzida principalmente para facilitar testes.
 ---
 
 # 15. Anexos
+
+O detalhe do atendimento busca o conteúdo pelo endpoint autenticado e cria URLs
+Blob locais. Imagens usam miniaturas; áudio, vídeo e PDF são carregados sob
+demanda em players/modal. As URLs Blob são revogadas no fechamento ou desmontagem
+e nenhum caminho público de armazenamento é exposto.
 
 Os arquivos não serão armazenados diretamente no PostgreSQL.
 
@@ -1562,3 +1572,12 @@ ou navegadores diferentes.
   `Unsupported` no condomínio, a resposta ganha uma frase determinística
   apontando isso (`AppendUnprocessedDocumentsHintAsync`), em vez de depender do
   modelo notar e mencionar sozinho.
+
+## Observabilidade operacional
+
+O Overwatch considera operacional apenas instâncias de worker com heartbeat
+dentro de 30 vezes seu intervalo esperado. Registros de containers antigos são
+históricos: não degradam a saúde atual e são removidos pelo retention worker após
+sete dias. A ausência ou atraso real de uma instância esperada continua
+degradando a saúde. `UptimeSeconds` mede o tempo desde o início do processo atual
+da API, reiniciando a cada deploy que recria o processo.

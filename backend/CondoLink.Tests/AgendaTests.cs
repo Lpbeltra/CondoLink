@@ -36,7 +36,12 @@ public sealed class AgendaTests : IAsyncLifetime
             .AddSingleton(TimeProvider.System)
             .AddSingleton<OperationalTelemetry>()
             .Configure<AgendaOptions>(x => x.OperationalTimeZone = "America/Sao_Paulo")
-            .Configure<WhatsAppOptions>(x => x.Enabled = true));
+            .Configure<WhatsAppOptions>(x =>
+            {
+                x.Enabled = true;
+                x.Templates.ManagerAgendaReminder.Name = "manager_agenda_reminder";
+                x.Templates.ManagerAgendaReminder.Language = "pt_BR";
+            }));
         await _host.WithDbAsync(async db =>
         {
             var condominium = new Condominium("Residencial Agenda", null, null);
@@ -223,6 +228,41 @@ public sealed class AgendaTests : IAsyncLifetime
             var outbound = await db.WhatsAppOutboundMessages.SingleAsync();
             Assert.Equal(WhatsAppSendMode.SessionText, outbound.SendMode);
             Assert.Equal($"agenda:{occurrence.Id}:whatsapp", outbound.IdempotencyKey);
+        });
+    }
+
+    [Fact]
+    public async Task One_time_occurrence_notifies_once_and_remains_active_pending_completion()
+    {
+        var reminderId = await _host.WithDbAsync(async db =>
+        {
+            var due = DateTime.UtcNow.AddMinutes(-1);
+            var reminder = new AgendaReminder(_condominiumId, _managerId,
+                "Vistoria", "Conferir extintores", null, null, due,
+                "America/Sao_Paulo", AgendaRecurrenceType.None, true, false, due);
+            db.Add(reminder); await db.SaveChangesAsync(); return reminder.Id;
+        });
+        await _host.WithServicesAsync(async services =>
+        {
+            var worker = new AgendaReminderWorker(
+                services.GetRequiredService<IServiceScopeFactory>(),
+                Options.Create(new AgendaOptions { WorkerBatchSize = 10 }),
+                services.GetRequiredService<OperationalTelemetry>(),
+                NullLogger<AgendaReminderWorker>.Instance);
+            Assert.Equal(1, await worker.ProcessBatchAsync(DateTime.UtcNow, default));
+            Assert.Equal(0, await worker.ProcessBatchAsync(DateTime.UtcNow, default));
+        });
+        await _host.WithDbAsync(async db =>
+        {
+            var reminder = await db.AgendaReminders.SingleAsync(x => x.Id == reminderId);
+            Assert.True(reminder.IsActive);
+            Assert.Null(reminder.CompletedAt);
+            Assert.Null(reminder.NextOccurrenceAtUtc);
+            Assert.Single(await db.AgendaReminderOccurrences.Where(x =>
+                x.ReminderId == reminderId).ToArrayAsync());
+            var outbound = await db.WhatsAppOutboundMessages.SingleAsync();
+            Assert.Equal(WhatsAppSendMode.Template, outbound.SendMode);
+            Assert.Equal("manager_agenda_reminder", outbound.TemplateName);
         });
     }
 

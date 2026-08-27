@@ -79,8 +79,9 @@ public sealed class AgendaReminder
     public void Advance(DateTime scheduledForUtc, DateTime? nextUtc, DateTime now)
     {
         if (NextOccurrenceAtUtc != scheduledForUtc) return;
-        NextOccurrenceAtUtc = nextUtc; IsActive = nextUtc.HasValue;
-        CompletedAt = nextUtc.HasValue ? null : now; UpdatedAt = now;
+        NextOccurrenceAtUtc = nextUtc;
+        // Consuming an occurrence never completes the reminder.
+        IsActive = true; CompletedAt = null; UpdatedAt = now;
     }
 
     private static string? Clean(string? value, int max, string name)

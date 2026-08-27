@@ -146,7 +146,7 @@ describe('RequestAttachments', () => {
     })).not.toBeInTheDocument()
   })
 
-  it('separates audio and keeps other attachments newest first', async () => {
+  it('shows audio with an on-demand preview and keeps attachments newest first', async () => {
     attachmentApi.listRequestAttachments.mockResolvedValue([
       { ...attachment('new'), originalFileName: 'novo.pdf', createdAt: '2026-08-03T10:00:00Z' },
       { ...attachment('audio'), originalFileName: 'audio.ogg', contentType: 'audio/ogg', createdAt: '2026-08-02T10:00:00Z' },
@@ -156,10 +156,31 @@ describe('RequestAttachments', () => {
 
     const newest = await screen.findByText('novo.pdf')
     const oldest = screen.getByText('antigo.pdf')
-    expect(screen.queryByText('audio.ogg')).not.toBeInTheDocument()
+    expect(screen.getByText('audio.ogg')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Visualizar' })).not.toHaveLength(0)
     expect(newest.compareDocumentPosition(oldest) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy()
   })
+
+  it.each([
+    ['audio.ogg', 'audio/ogg', 'audio'],
+    ['video.mp4', 'video/mp4', 'video'],
+    ['documento.pdf', 'application/pdf', 'iframe'],
+  ])('loads %s only after preview is requested and cleans its Blob URL',
+    async (name, contentType, element) => {
+      attachmentApi.listRequestAttachments.mockResolvedValue([
+        { ...attachment('preview'), originalFileName: name, contentType },
+      ])
+      const user = userEvent.setup()
+      render(<RequestAttachments requestId="request-id" readOnly />)
+      expect(attachmentApi.getRequestAttachmentBlob).not.toHaveBeenCalled()
+      await user.click(await screen.findByRole('button', { name: 'Visualizar' }))
+      await waitFor(() => expect(document.querySelector(element)).toBeInTheDocument())
+      expect(attachmentApi.getRequestAttachmentBlob).toHaveBeenCalledWith(
+        '/request-attachments/preview/content')
+      await user.click(screen.getByRole('button', { name: 'Fechar' }))
+      await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:image'))
+    })
 
   it('presents images as a responsive clickable gallery', async () => {
     attachmentApi.listRequestAttachments.mockResolvedValue([
