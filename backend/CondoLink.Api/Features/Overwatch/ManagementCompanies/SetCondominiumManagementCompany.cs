@@ -18,7 +18,8 @@ public static class SetCondominiumManagementCompany
         return endpoints;
     }
 
-    private static async Task<IResult> HandleAsync(
+    /// <summary>Internal (not private) so Postgres-backed concurrency tests can call the real handler directly.</summary>
+    internal static async Task<IResult> HandleAsync(
         Guid condominiumId,
         Request request,
         AppDbContext dbContext,

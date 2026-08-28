@@ -35,6 +35,7 @@ function notification(overrides: Partial<AppNotification> = {}): AppNotification
     title: 'Nova solicitação',
     body: 'Manutenção: Vazamento',
     requestId: 'r1',
+    managementCompanyRequestId: null,
     createdAt: new Date().toISOString(),
     readAt: null,
     ...overrides,

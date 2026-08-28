@@ -21,7 +21,9 @@ public sealed class Notification
         NotificationType type,
         string title,
         string body,
-        Guid? requestId = null)
+        Guid? requestId = null,
+        Guid? managementCompanyRequestId = null,
+        string? idempotencyKey = null)
     {
         if (recipientUserId == Guid.Empty)
         {
@@ -55,6 +57,12 @@ public sealed class Notification
             throw new ArgumentException("RequestId is invalid.", nameof(requestId));
         }
 
+        if (managementCompanyRequestId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "ManagementCompanyRequestId is invalid.", nameof(managementCompanyRequestId));
+        }
+
         Id = Guid.NewGuid();
         RecipientUserId = recipientUserId;
         CondominiumId = condominiumId;
@@ -62,6 +70,8 @@ public sealed class Notification
         Title = title.Trim();
         Body = body.Trim();
         RequestId = requestId;
+        ManagementCompanyRequestId = managementCompanyRequestId;
+        IdempotencyKey = string.IsNullOrWhiteSpace(idempotencyKey) ? null : idempotencyKey.Trim();
         CreatedAt = DateTime.UtcNow;
         ReadAt = null;
     }
@@ -78,6 +88,15 @@ public sealed class Notification
 
     /// <summary>Deep-link target, when the notification refers to a request.</summary>
     public Guid? RequestId { get; private set; }
+
+    /// <summary>Deep-link target, when the notification refers to a management company request.</summary>
+    public Guid? ManagementCompanyRequestId { get; private set; }
+
+    /// <summary>
+    /// Deterministic dedup key (event + recipient + source entity). Null for
+    /// notifications that predate this field or that do not need dedup.
+    /// </summary>
+    public string? IdempotencyKey { get; private set; }
 
     public DateTime CreatedAt { get; private set; }
     public DateTime? ReadAt { get; private set; }

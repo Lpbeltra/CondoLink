@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using CondoLink.Api.Features.Auth;
 using CondoLink.Api.Features.ManagementCompanyRequests;
 using CondoLink.Api.Features.RequestAttachments;
 using CondoLink.Domain.Entities;
@@ -17,7 +18,7 @@ public sealed class ManagementCompanyRequestEndpointTests : IAsyncLifetime
     private CoreEndpointTestHost host=null!; private Guid manager,submanager,outsider,companyUser,wrongUser,inactiveUser,requestId,otherId,condoId,categoryId;
     public async Task InitializeAsync()
     {
-        host=await CoreEndpointTestHost.StartAsync(a=>{a.MapManagementCompanyRequests();a.MapAdministratorRequests();},b=>{b.Configuration["FileStorage:RootPath"]=root;b.Services.AddSingleton<LocalFileStorage>();b.Services.AddScoped<ManagementCompanyRequestAccessService>();b.Services.AddScoped<ManagementCompanyRequestService>();});
+        host=await CoreEndpointTestHost.StartAsync(a=>{a.MapManagementCompanyRequests();a.MapAdministratorRequests();},b=>{b.Configuration["FileStorage:RootPath"]=root;b.Services.AddSingleton<LocalFileStorage>();b.Services.AddScoped<ManagementCompanyRequestAccessService>();b.Services.AddScoped<ManagementCompanyRequestService>();b.Services.AddScoped<ManagementCompanyRequestNotificationService>();b.Services.AddSingleton<IEmailSender>(new NoOpEmailSender());b.Services.Configure<FirstAccessOptions>(x=>x.FrontendBaseUrl="https://app.comvy.test");});
         await host.WithDbAsync(async db=>
         {
             var ca=new Condominium("A",null,null);var cb=new Condominium("B",null,null);var coa=new ManagementCompany("A",null,null,null,null);var cob=new ManagementCompany("B",null,null,null,null);
@@ -154,5 +155,93 @@ public sealed class ManagementCompanyRequestEndpointTests : IAsyncLifetime
             Assert.Equal(ManagementCompanyRequestStatus.Acknowledged,updated.Status);
         });
     }
+    // Lote 6 — item 3/25: papéis ainda não cobertos — SubManager de outro condomínio,
+    // Resident do mesmo condomínio da request, e um usuário ativo cujo papel de Manager foi
+    // revogado (distinto de "usuário inativo", já coberto por inactiveUser acima).
+    [Fact] public async Task Wrong_role_and_revoked_role_combinations_are_denied()
+    {
+        Guid subManagerOtherCondo=default,residentSameCondo=default,revokedManager=default;
+        await host.WithDbAsync(async db=>
+        {
+            var otherCondoId=(await db.ManagementCompanyRequests.SingleAsync(x=>x.Id==otherId)).CondominiumId;
+            var smOther=CoreTestSeed.User("SubOutroCondo",$"sub-outro-{Guid.NewGuid():N}@test.local");
+            var residentSame=CoreTestSeed.User("MoradorMesmoCondo",$"morador-mesmo-{Guid.NewGuid():N}@test.local");
+            var revoked=CoreTestSeed.User("GestorRevogado",$"gestor-revogado-{Guid.NewGuid():N}@test.local");
+            db.AddRange(smOther,residentSame,revoked);
+            CoreTestSeed.AddMember(db,smOther.Id,otherCondoId,CondominiumRole.SubManager);
+            CoreTestSeed.AddMember(db,residentSame.Id,condoId,CondominiumRole.Resident);
+            var revokedMembership=CoreTestSeed.AddMember(db,revoked.Id,condoId,CondominiumRole.Manager);
+            await db.SaveChangesAsync();
+            (await db.CondominiumMembershipRoles.SingleAsync(x=>x.CondominiumMembershipId==revokedMembership.Id)).Deactivate();
+            await db.SaveChangesAsync();
+            subManagerOtherCondo=smOther.Id;residentSameCondo=residentSame.Id;revokedManager=revoked.Id;
+        });
+        foreach(var user in new[]{subManagerOtherCondo,residentSameCondo,revokedManager})
+        {
+            var client=host.ClientFor(user);
+            Assert.Equal(HttpStatusCode.Forbidden,(await client.GetAsync($"/management-company-requests/{requestId}")).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden,(await client.PostAsJsonAsync($"/management-company-requests/{requestId}/messages",new{content="tentativa"})).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden,(await client.PostAsJsonAsync($"/management-company-requests/{requestId}/status",new{status="InProgress"})).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden,(await client.PostAsJsonAsync($"/management-company-requests/{requestId}/cancel",new{reason="tentativa"})).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden,(await client.GetAsync($"/management-company-requests/{requestId}/attachments")).StatusCode);
+        }
+    }
+
+    // Lote 6 — item 19: usuário Manager de um condomínio e, ao mesmo tempo, acesso da
+    // administradora de outra empresa. Cada escopo deve ser resolvido de forma
+    // independente, sem que um conceda o outro.
+    [Fact] public async Task Multi_role_user_gets_independent_scopes_without_cross_grant()
+    {
+        await host.WithDbAsync(async db=>
+        {
+            var otherRequest=await db.ManagementCompanyRequests.SingleAsync(x=>x.Id==otherId);
+            var employee=new ManagementCompanyEmployee(otherRequest.ManagementCompanyId,manager,"Atendimento Extra");
+            db.Add(employee);
+            db.Add(new ManagementCompanyRequestCategoryResponsible(otherRequest.CategoryId,employee.Id));
+            await db.SaveChangesAsync();
+        });
+        // Continua acessando a própria request como Gestão (Management).
+        Assert.Equal(HttpStatusCode.OK,(await host.ClientFor(manager).GetAsync($"/management-company-requests/{requestId}")).StatusCode);
+        // Agora também acessa a request da outra empresa, como administradora (ManagementCompany) — escopo independente.
+        Assert.Equal(HttpStatusCode.OK,(await host.ClientFor(manager).GetAsync($"/management-company-requests/{otherId}")).StatusCode);
+    }
+
+    // Lote 6 — item 13: snapshot histórico de PIX não deve refletir mudança posterior do beneficiário.
+    [Fact] public async Task Reimbursement_snapshot_survives_beneficiary_pix_change()
+    {
+        Guid paymentCategoryId=default;
+        await host.WithDbAsync(async db=>
+        {
+            (await db.Users.SingleAsync(x=>x.Id==manager)).SetPix(PixKeyType.Email,"gestor-original@test.local");
+            var companyId=(await db.ManagementCompanyRequests.SingleAsync(x=>x.Id==requestId)).ManagementCompanyId;
+            var paymentCat=new ManagementCompanyRequestCategory(companyId,"Pagamentos",null,ManagementCompanyRequestFormType.SupplierPayment);
+            var employeeId=await db.ManagementCompanyEmployees.Where(x=>x.UserId==companyUser).Select(x=>x.Id).SingleAsync();
+            db.Add(paymentCat);
+            db.Add(new ManagementCompanyRequestCategoryResponsible(paymentCat.Id,employeeId));
+            await db.SaveChangesAsync();
+            paymentCategoryId=paymentCat.Id;
+        });
+        var create=await host.ClientFor(manager).PostAsJsonAsync("/management-company-requests/payments",new
+        {
+            condominiumId=condoId,categoryId=paymentCategoryId,nature="Reembolso de material",
+            value=150.00m,eventDate=DateOnly.FromDateTime(DateTime.UtcNow),isReimbursement=true,
+            beneficiaryUserId=manager,notes=(string?)null,
+        });
+        Assert.Equal(HttpStatusCode.Created,create.StatusCode);
+        var paymentRequestId=Guid.Parse(create.Headers.Location!.ToString().Split('/')[^1]);
+
+        await host.WithDbAsync(async db=>
+        {
+            (await db.Users.SingleAsync(x=>x.Id==manager)).SetPix(PixKeyType.Cpf,"999.999.999-99");
+            await db.SaveChangesAsync();
+        });
+
+        var detail=await host.ClientFor(manager).GetAsync($"/management-company-requests/{paymentRequestId}");
+        Assert.Equal(HttpStatusCode.OK,detail.StatusCode);
+        var json=await detail.Content.ReadAsStringAsync();
+        Assert.Contains("gestor-original@test.local",json);
+        Assert.DoesNotContain("999.999.999-99",json);
+    }
+
     private static MultipartFormDataContent Form(object payload,params(string Name,string Mime,byte[] Data)[] files){var f=new MultipartFormDataContent();f.Add(new StringContent(JsonSerializer.Serialize(payload),Encoding.UTF8,"application/json"),"payload");foreach(var x in files){var c=new ByteArrayContent(x.Data);c.Headers.ContentType=new(x.Mime);f.Add(c,"files",x.Name);}return f;}
 }

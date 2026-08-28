@@ -183,6 +183,9 @@ public sealed class EndpointAuthorizationCoverageTests
         builder.Services.AddScoped<ResidentReplyService>();
         builder.Services.AddScoped<ManagementCompanyRequestAccessService>();
         builder.Services.AddScoped<ManagementCompanyRequestService>();
+        builder.Services.AddScoped<ManagementCompanyRequestNotificationService>();
+        builder.Services.AddSingleton<IEmailSender>(new NoOpEmailSender());
+        builder.Services.Configure<FirstAccessOptions>(x => x.FrontendBaseUrl = "https://app.comvy.test");
         builder.Services.AddScoped<FirstAccessService>();
         builder.Services.AddScoped<FirstAccessWhatsAppInvitationService>();
         builder.Services.AddScoped<CondominiumAssistantService>();

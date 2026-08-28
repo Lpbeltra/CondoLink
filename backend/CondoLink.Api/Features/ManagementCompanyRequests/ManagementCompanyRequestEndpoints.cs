@@ -53,15 +53,15 @@ public static class ManagementCompanyRequestEndpoints
         var company=await db.ManagementCompanies.AsNoTracking().Where(x=>x.Id==link.ManagementCompanyId).Select(x=>new{x.Id,x.Name}).SingleAsync(ct);return Results.Ok(new{condominiumId,managementCompany=company,categories,units,beneficiaries});
     }
 
-    private static async Task<IResult> CreateFine(CreateFineCommand body,ClaimsPrincipal user,ManagementCompanyRequestService service,CancellationToken ct)
-        =>Results.Created($"/management-company-requests/{(await service.CreateFineAsync(user,body,ct)).Id}",null);
-    private static async Task<IResult> CreatePayment(CreatePaymentCommand body,ClaimsPrincipal user,ManagementCompanyRequestService service,CancellationToken ct)
-        =>Results.Created($"/management-company-requests/{(await service.CreatePaymentAsync(user,body,ct)).Id}",null);
-    private static async Task<IResult> CreateQuestion(CreateQuestionCommand body,ClaimsPrincipal user,ManagementCompanyRequestService service,CancellationToken ct)
-        =>Results.Created($"/management-company-requests/{(await service.CreateQuestionAsync(user,body,ct)).Id}",null);
-    private static async Task<IResult> CreateFineMultipart(HttpRequest h,ClaimsPrincipal u,ManagementCompanyRequestService s,CancellationToken ct){var(b,f)=await Multipart<CreateFineCommand>(h,ct);var r=await s.CreateFineAsync(u,b,ct,f);return Results.Created($"/management-company-requests/{r.Id}",new{r.Id,r.FriendlyIdentifier});}
-    private static async Task<IResult> CreatePaymentMultipart(HttpRequest h,ClaimsPrincipal u,ManagementCompanyRequestService s,CancellationToken ct){var(b,f)=await Multipart<CreatePaymentCommand>(h,ct);var r=await s.CreatePaymentAsync(u,b,ct,f);return Results.Created($"/management-company-requests/{r.Id}",new{r.Id,r.FriendlyIdentifier});}
-    private static async Task<IResult> CreateQuestionMultipart(HttpRequest h,ClaimsPrincipal u,ManagementCompanyRequestService s,CancellationToken ct){var(b,f)=await Multipart<CreateQuestionCommand>(h,ct);var r=await s.CreateQuestionAsync(u,b,ct,f);return Results.Created($"/management-company-requests/{r.Id}",new{r.Id,r.FriendlyIdentifier});}
+    private static async Task<IResult> CreateFine(CreateFineCommand body,ClaimsPrincipal user,ManagementCompanyRequestService service,ManagementCompanyRequestNotificationService notifications,ILogger<ManagementCompanyRequestNotificationService> logger,CancellationToken ct)
+    {var request=await service.CreateFineAsync(user,body,ct);await NotifySafeAsync(()=>notifications.NotifyCreatedAsync(request,ct),logger,request.Id,"Created");return Results.Created($"/management-company-requests/{request.Id}",null);}
+    private static async Task<IResult> CreatePayment(CreatePaymentCommand body,ClaimsPrincipal user,ManagementCompanyRequestService service,ManagementCompanyRequestNotificationService notifications,ILogger<ManagementCompanyRequestNotificationService> logger,CancellationToken ct)
+    {var request=await service.CreatePaymentAsync(user,body,ct);await NotifySafeAsync(()=>notifications.NotifyCreatedAsync(request,ct),logger,request.Id,"Created");return Results.Created($"/management-company-requests/{request.Id}",null);}
+    private static async Task<IResult> CreateQuestion(CreateQuestionCommand body,ClaimsPrincipal user,ManagementCompanyRequestService service,ManagementCompanyRequestNotificationService notifications,ILogger<ManagementCompanyRequestNotificationService> logger,CancellationToken ct)
+    {var request=await service.CreateQuestionAsync(user,body,ct);await NotifySafeAsync(()=>notifications.NotifyCreatedAsync(request,ct),logger,request.Id,"Created");return Results.Created($"/management-company-requests/{request.Id}",null);}
+    private static async Task<IResult> CreateFineMultipart(HttpRequest h,ClaimsPrincipal u,ManagementCompanyRequestService s,ManagementCompanyRequestNotificationService notifications,ILogger<ManagementCompanyRequestNotificationService> logger,CancellationToken ct){var(b,f)=await Multipart<CreateFineCommand>(h,ct);var r=await s.CreateFineAsync(u,b,ct,f);await NotifySafeAsync(()=>notifications.NotifyCreatedAsync(r,ct),logger,r.Id,"Created");return Results.Created($"/management-company-requests/{r.Id}",new{r.Id,r.FriendlyIdentifier});}
+    private static async Task<IResult> CreatePaymentMultipart(HttpRequest h,ClaimsPrincipal u,ManagementCompanyRequestService s,ManagementCompanyRequestNotificationService notifications,ILogger<ManagementCompanyRequestNotificationService> logger,CancellationToken ct){var(b,f)=await Multipart<CreatePaymentCommand>(h,ct);var r=await s.CreatePaymentAsync(u,b,ct,f);await NotifySafeAsync(()=>notifications.NotifyCreatedAsync(r,ct),logger,r.Id,"Created");return Results.Created($"/management-company-requests/{r.Id}",new{r.Id,r.FriendlyIdentifier});}
+    private static async Task<IResult> CreateQuestionMultipart(HttpRequest h,ClaimsPrincipal u,ManagementCompanyRequestService s,ManagementCompanyRequestNotificationService notifications,ILogger<ManagementCompanyRequestNotificationService> logger,CancellationToken ct){var(b,f)=await Multipart<CreateQuestionCommand>(h,ct);var r=await s.CreateQuestionAsync(u,b,ct,f);await NotifySafeAsync(()=>notifications.NotifyCreatedAsync(r,ct),logger,r.Id,"Created");return Results.Created($"/management-company-requests/{r.Id}",new{r.Id,r.FriendlyIdentifier});}
 
     private static async Task<IResult> GetDetail(Guid id,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,ManagementCompanyRequestService service,CancellationToken ct)
     {
@@ -70,16 +70,47 @@ public static class ManagementCompanyRequestEndpoints
         await service.AcknowledgeAsync(request,actor,ct);
         return Results.Ok(await ToDetail(id,db,ct));
     }
-    private static async Task<IResult> AddMessage(Guid id,MessageBody body,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,ManagementCompanyRequestService service,CancellationToken ct)
+    private static async Task<IResult> AddMessage(Guid id,MessageBody body,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,ManagementCompanyRequestService service,ManagementCompanyRequestNotificationService notifications,ILogger<ManagementCompanyRequestNotificationService> logger,CancellationToken ct)
     {
         var actor=await access.RequireForRequestAsync(user,id,ct);var request=await Tracked(id,db,ct);
-        var message=await service.AddMessageAsync(request,actor,body.Content,ct);return Results.Ok(new{message.Id,message.AuthorUserId,message.Content,message.CreatedAt});
+        var result=await service.AddMessageAsync(request,actor,body.Content,ct);
+        await NotifyInteractionAsync(request,result,notifications,logger,ct);
+        var message=result.Message;return Results.Ok(new{message.Id,message.AuthorUserId,message.Content,message.CreatedAt});
     }
-    private static async Task<IResult> Interact(Guid id,HttpRequest http,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,ManagementCompanyRequestService service,CancellationToken ct){var actor=await access.RequireForRequestAsync(user,id,ct);var request=await Tracked(id,db,ct);var(body,files)=await Multipart<InteractionBody>(http,ct);var message=await service.InteractAsync(request,actor,body.Content,files,body.TargetStatus,ct);return Results.Ok(new{message.Id,message.AuthorUserId,message.Content,message.CreatedAt});}
-    private static async Task<IResult> ChangeStatus(Guid id,StatusBody body,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,ManagementCompanyRequestService service,CancellationToken ct)
-    {var actor=await access.RequireForRequestAsync(user,id,ct);var request=await Tracked(id,db,ct);await service.TransitionAsync(request,actor,body.Status,body.Reason,ct);return Results.NoContent();}
-    private static async Task<IResult> Cancel(Guid id,CancelBody body,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,ManagementCompanyRequestService service,CancellationToken ct)
-    {var actor=await access.RequireForRequestAsync(user,id,ct);var request=await Tracked(id,db,ct);await service.CancelAsync(request,actor,body.Reason,ct);return Results.NoContent();}
+    private static async Task<IResult> Interact(Guid id,HttpRequest http,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,ManagementCompanyRequestService service,ManagementCompanyRequestNotificationService notifications,ILogger<ManagementCompanyRequestNotificationService> logger,CancellationToken ct){var actor=await access.RequireForRequestAsync(user,id,ct);var request=await Tracked(id,db,ct);var(body,files)=await Multipart<InteractionBody>(http,ct);var result=await service.InteractAsync(request,actor,body.Content,files,body.TargetStatus,ct);await NotifyInteractionAsync(request,result,notifications,logger,ct);var message=result.Message;return Results.Ok(new{message.Id,message.AuthorUserId,message.Content,message.CreatedAt});}
+    private static async Task<IResult> ChangeStatus(Guid id,StatusBody body,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,ManagementCompanyRequestService service,ManagementCompanyRequestNotificationService notifications,ILogger<ManagementCompanyRequestNotificationService> logger,CancellationToken ct)
+    {
+        var actor=await access.RequireForRequestAsync(user,id,ct);var request=await Tracked(id,db,ct);
+        var history=await service.TransitionAsync(request,actor,body.Status,body.Reason,ct);
+        if(history.EventType==ManagementCompanyRequestEventType.Completed)await NotifySafeAsync(()=>notifications.NotifyCompletedAsync(request,ct),logger,request.Id,"Completed");
+        else if(history.NewStatus==ManagementCompanyRequestStatus.WaitingManager)await NotifySafeAsync(()=>notifications.NotifyInformationRequestedAsync(request,history,ct),logger,request.Id,"InfoRequested");
+        return Results.NoContent();
+    }
+    private static async Task<IResult> Cancel(Guid id,CancelBody body,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,ManagementCompanyRequestService service,ManagementCompanyRequestNotificationService notifications,ILogger<ManagementCompanyRequestNotificationService> logger,CancellationToken ct)
+    {
+        var actor=await access.RequireForRequestAsync(user,id,ct);var request=await Tracked(id,db,ct);
+        await service.CancelAsync(request,actor,body.Reason,ct);
+        await NotifySafeAsync(()=>notifications.NotifyCancelledAsync(request,body.Reason,ct),logger,request.Id,"Cancelled");
+        return Results.NoContent();
+    }
+    /// <summary>Runs an event-notification call without ever surfacing its failure to the HTTP caller: the request mutation already committed.</summary>
+    private static async Task NotifySafeAsync(Func<Task> action,ILogger logger,Guid requestId,string eventName)
+    {
+        try{await action();}
+        catch(Exception exception){logger.LogError(exception,"ManagementCompanyRequest notification dispatch failed. RequestId: {RequestId}; Event: {Event}.",requestId,eventName);}
+    }
+    /// <summary>An interaction only produces a notifiable event when it also moved the request to WaitingManager (info requested) or back from it (manager replied).</summary>
+    private static Task NotifyInteractionAsync(ManagementCompanyRequest request,ManagementCompanyRequestInteractionResult result,ManagementCompanyRequestNotificationService notifications,ILogger logger,CancellationToken ct)
+    {
+        if(result.History is null)return Task.CompletedTask;
+        return result.History.EventType switch
+        {
+            ManagementCompanyRequestEventType.ManagerResponded=>NotifySafeAsync(()=>notifications.NotifyManagerRepliedAsync(request,result.Message,ct),logger,request.Id,"ManagerReplied"),
+            ManagementCompanyRequestEventType.StatusChanged when result.History.NewStatus==ManagementCompanyRequestStatus.WaitingManager
+                =>NotifySafeAsync(()=>notifications.NotifyInformationRequestedAsync(request,result.History,ct),logger,request.Id,"InfoRequested"),
+            _=>Task.CompletedTask
+        };
+    }
 
     private static async Task<IResult> UploadAttachments(Guid id,HttpRequest http,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,LocalFileStorage storage,CancellationToken ct)
     {

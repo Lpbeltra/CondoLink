@@ -4,6 +4,11 @@ export type NotificationType =
   | 'RequestPriorityChanged'
   | 'RequestMessageReceived'
   | 'ResidentRequestUpdated'
+  | 'ManagementCompanyRequestCreated'
+  | 'ManagementCompanyRequestInfoRequested'
+  | 'ManagementCompanyRequestManagerReplied'
+  | 'ManagementCompanyRequestCompleted'
+  | 'ManagementCompanyRequestCancelled'
 
 export interface AppNotification {
   id: string
@@ -12,6 +17,7 @@ export interface AppNotification {
   title: string
   body: string
   requestId: string | null
+  managementCompanyRequestId: string | null
   createdAt: string
   /** Null while unread. */
   readAt: string | null

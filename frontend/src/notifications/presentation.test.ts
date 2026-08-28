@@ -19,6 +19,7 @@ function notification(overrides: Partial<AppNotification> = {}): AppNotification
     title: 'Nova solicitação',
     body: 'Manutenção: Vazamento',
     requestId: 'r1',
+    managementCompanyRequestId: null,
     createdAt: '2026-05-01T12:00:00.000Z',
     readAt: null,
     ...overrides,
@@ -99,6 +100,29 @@ describe('notificationLink', () => {
 
   it('returns null when there is nothing to open', () => {
     expect(notificationLink(notification({ requestId: null }), false)).toBeNull()
+  })
+
+  it('points administradora-facing types at the administrator portal regardless of viewer role', () => {
+    for (const type of [
+      'ManagementCompanyRequestCreated',
+      'ManagementCompanyRequestManagerReplied',
+      'ManagementCompanyRequestCancelled',
+    ] as const) {
+      const target = notification({ type, requestId: null, managementCompanyRequestId: 'mcr1' })
+      expect(notificationLink(target, true)).toBe('/administrator/requests/mcr1')
+      expect(notificationLink(target, false)).toBe('/administrator/requests/mcr1')
+    }
+  })
+
+  it('points gestão-facing types at the management portal regardless of viewer role', () => {
+    for (const type of [
+      'ManagementCompanyRequestInfoRequested',
+      'ManagementCompanyRequestCompleted',
+    ] as const) {
+      const target = notification({ type, requestId: null, managementCompanyRequestId: 'mcr1' })
+      expect(notificationLink(target, true)).toBe('/management/administrator/mcr1')
+      expect(notificationLink(target, false)).toBe('/management/administrator/mcr1')
+    }
   })
 })
 

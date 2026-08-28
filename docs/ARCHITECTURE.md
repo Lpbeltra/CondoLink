@@ -1683,3 +1683,110 @@ Multas validam unidade do condomínio e representam valor indefinido explicitame
 Criações e interações que possuem arquivos usam contratos `multipart/form-data`. Metadados, mensagem, histórico e transição pertencem à mesma transação PostgreSQL. Como o filesystem não é transacional, os arquivos são gravados antes do commit e registrados para compensação: qualquer falha posterior remove todos os arquivos recém-gravados; falha de gravação impede o commit. Respostas da gestão em `WaitingManager` e solicitações de informação da administradora são operações únicas contendo mensagem, anexos e mudança de estado.
 
 O portal da gestão expõe `/management/administrator`, criação e detalhe em rotas lazy-loaded. A listagem é paginada no backend e aplica primeiro `WaitingManager`, depois `UpdatedAt DESC`, com busca e filtros de condomínio, tipo e status dentro do escopo contextual combinado de `Manager`/`SubManager`. O endpoint de opções resolve a administradora ativa, categorias tipadas disponíveis, unidades e beneficiários elegíveis com PIX; o navegador não infere categoria por nome nem envia uma administradora como autoridade. Criação e resposta usam os contratos multipart atômicos, e cancelamento permanece uma operação explícita do domínio.
+
+## Notificações Gestão ↔ Administradora (Lote 5)
+
+Camada de notificações operacionais (interna + e-mail) para os cinco eventos relevantes do fluxo `ManagementCompanyRequest`. Reutiliza integralmente a infraestrutura existente do Comvy — nenhuma entidade paralela foi criada. Sem WhatsApp: fora de escopo neste lote.
+
+**Eventos e destinatários** (`ManagementCompanyRequestNotificationService`, em `Features/ManagementCompanyRequests/`):
+
+- **Criada** (`Create` → `Submitted`) — acessos ativos da administradora responsáveis pela categoria.
+- **Solicitar informação** (transição para `WaitingManager`, via `/status` ou `/interactions`) — `Manager` + `SubManager` ativos do condomínio. Resolução própria, deliberadamente diferente da regra de Manager único da Agenda.
+- **Resposta da gestão** (`ManagerResponded`: `WaitingManager → InProgress`) — acessos ativos da administradora responsáveis pela categoria.
+- **Concluída** (transição para `Completed`) — `Manager` + `SubManager`, com título contextual por tipo (`Multa processada` / `Pagamento efetuado` / `Dúvida respondida`).
+- **Cancelada** (`Cancel`) — acessos ativos da administradora responsáveis pela categoria.
+
+Eventos puramente internos (`Submitted → Acknowledged`, `Acknowledged → InProgress`) não geram notificação nem e-mail — comportamento inalterado.
+
+**Resolução histórica e dinâmica**: destinatários da administradora são sempre resolvidos a partir de `Request.ManagementCompanyId`/`Request.CategoryId` (imutáveis desde a criação), nunca do vínculo atual do condomínio — preserva integralmente a regra do Lote 4 (nova administradora nunca recebe eventos de solicitações antigas). A lista de responsáveis pela categoria é recalculada no momento do evento, não persistida na criação: se o responsável mudar entre a criação e uma resposta, o responsável atual recebe, não o antigo. `Manager`/`SubManager` são resolvidos da mesma forma a cada evento, deduplicados por `UserId`; `PlatformAdmin` nunca é destinatário.
+
+**Modelo de dados**: `Notification` ganhou dois campos opcionais — `ManagementCompanyRequestId` (FK `Restrict` para `ManagementCompanyRequest`, já que `RequestId` tem FK obrigatória para `Request` do morador e não podia ser reaproveitado) e `IdempotencyKey` (string, índice único filtrado `WHERE idempotency_key IS NOT NULL`, mesmo padrão já validado em `WhatsAppOutboundMessage.IdempotencyKey`). Cinco novos valores de `NotificationType` (`ManagementCompanyRequestCreated/InfoRequested/ManagerReplied/Completed/Cancelled`); cada tipo tem destinatário fixo por natureza do evento, o que permite ao frontend decidir o link só pelo `type`. Migration única: `AddNotificationManagementCompanyRequestSupport`.
+
+**Idempotência**: chave determinística `management-company-request:{requestId}:{evento}[:{historyId|messageId}]:{recipientId}` — sem timestamp. Antes de inserir, verifica se a chave já existe; uma violação do índice único no `SaveChanges` (corrida) é tratada como duplicata já registrada, nunca como erro. Eventos terminais (`Completed`/`Cancelled`) dispensam sufixo de correlação, pois só podem ocorrer uma vez por solicitação; `WaitingManager` usa o `HistoryId` da transição e a resposta da gestão usa o `MessageId`.
+
+**Canais e atomicidade**: notificação interna é sempre persistida antes de qualquer tentativa de e-mail. E-mail reaproveita `IEmailSender`/`SmtpEmailSender`/`EmailOptions` (síncronos, já existentes para o primeiro acesso) e o flag `ApplicationUser.EmailDeliveryEnabled` para pular endereços mock/dev — sem outbox/worker novo, seguindo o padrão já usado pelo restante do projeto para e-mail. O endpoint chama o serviço de notificação **depois** do commit da mutação principal, em try/catch que só loga — falha de e-mail ou do dispatcher de notificação nunca reverte ou bloqueia a operação de negócio (mesmo padrão de `UpdateRequestStatus.cs`). Links de e-mail reaproveitam `FirstAccessOptions.FrontendBaseUrl` (nenhuma env var nova) apontando para `/administrator/requests/{id}` (administradora) ou `/management/administrator/{id}` (gestão) — mesmas rotas do portal existente.
+
+**Frontend**: `notifications/presentation.ts::notificationLink()` passa a rotear pelo `type` quando `managementCompanyRequestId` está presente, sem alterar o comportamento existente de Resident Request nem criar uma central de notificações nova; o sino/badge existentes absorvem as novas notificações naturalmente.
+
+**Segurança**: receber uma notificação não concede autorização — o clique ainda passa pelas checagens normais de `ManagementCompanyRequestAccessService` (ex.: um acesso que perde a categoria depois de notificado recebe 403 ao abrir o link). Coberto por `ManagementCompanyRequestNotificationTests`.
+
+## Lote 6 — concorrência, segurança e estabilização final
+
+Auditoria e endurecimento do módulo Gestão ↔ Administradora (Lotes 1–5), sem novas
+funcionalidades. Objetivo: comprovar sob concorrência real (PostgreSQL, não
+SQLite/in-memory) as invariantes que os Lotes 4/5 já implementavam mas nunca haviam sido
+exercitadas por um teste verdadeiramente concorrente, fechar combinações de papel ausentes
+na matriz de autorização, e registrar decisões conscientes sobre riscos que não foram
+corrigidos.
+
+**Concorrência comprovada em Postgres real** (`ManagementCompanyRequestPostgresConcurrencyTests`,
+`SubManagerPostgresConcurrencyTests`, `CondominiumManagementCompanyLinkPostgresConcurrencyTests`,
+gated por `COMVY_TEST_POSTGRES`):
+- Duas respostas concorrentes da gestão em `WaitingManager` (via `InteractAsync` real, não
+  domínio cru): só uma transição vence, uma mensagem sobrevive, um evento `ManagerResponded`.
+- `WaitingManager` vs `Completed` a partir de `InProgress` (via `TransitionAsync` real): um
+  vencedor consistente, um evento de histórico novo, nenhuma corrupção.
+- Primeira ciência concorrente via `AcknowledgeAsync` do serviço (não só o domínio):
+  encontrado e corrigido um bug real — o método só capturava `DbUpdateConcurrencyException`,
+  mas a corrida real no Postgres pode se manifestar como um `DbUpdateException` genérico
+  (violação do índice único `ux_mc_request_history_first_acknowledged`), que vazava sem
+  tratamento para o chamador. Corrigido para capturar `DbUpdateException` (superclasse, já
+  cobre o caso de concorrência otimista também).
+- Idempotência de notificação sob concorrência real (duas chamadas simultâneas de
+  `NotifyCreatedAsync` para o mesmo destinatário): exatamente 1 `Notification`, com o branch
+  `catch(DbUpdateException)` do `DispatchAsync` de fato exercitado pela primeira vez.
+- SubManager único: mesmo usuário não vence em dois condomínios simultaneamente; dois
+  usuários não vencem no mesmo condomínio simultaneamente — este segundo caso só é protegido
+  pelo trigger de banco `enforce_single_active_submanager_role` (o lock de aplicação em
+  `SubManagerEndpoints.AssignAsync` é só por usuário), agora comprovado por teste real.
+- Administradora ativa única por condomínio: duas trocas concorrentes de vínculo para o
+  mesmo condomínio terminam com exatamente um link ativo e nunca alteram o
+  `ManagementCompanyId` histórico de uma `ManagementCompanyRequest` já existente.
+
+`SubManagerEndpoints.AssignAsync` e `SetCondominiumManagementCompany.HandleAsync` foram
+tornados `internal` (de `private`) só para permitir que os testes chamem o caminho real de
+produção — sem nenhuma mudança de comportamento.
+
+**Autorização — combinações adicionadas**: SubManager de outro condomínio, Resident do
+mesmo condomínio da request, e um usuário ativo cujo papel de Manager foi desativado
+(distinto de "usuário inativo", já coberto) — todos 403 em list/detail/mensagem/status/
+cancelamento/anexos. Usuário multi-role (Manager de um condomínio + acesso ativo da
+administradora de outra empresa) comprovado com escopos totalmente independentes, sem
+concessão cruzada. Snapshot histórico de PIX comprovado por teste ponta-a-ponta: mudar o PIX
+do beneficiário depois da criação não altera o valor exibido na request histórica.
+
+**Logging**: `ManagementCompanyRequestNotificationService.DispatchAsync` agora inclui
+`FriendlyIdentifier` em todas as linhas de log, para correlação por identificador amigável
+além do `RequestId`.
+
+**Decisão documentada — janela pós-commit de notificação: ACEITÁVEL PARA V1.** O dispatch de
+notificação roda no mesmo processo, logo após o commit da mutação principal, sem
+outbox/fila. Se o processo morrer entre os dois `await`, a `ManagementCompanyRequest` fica
+correta para sempre, mas a notificação/e-mail daquele evento específico se perde, sem retry
+automático. Optou-se por **não** implementar um outbox transacional porque: (a) o registro
+de negócio nunca fica inconsistente — o evento perdido é recuperável manualmente (a outra
+parte só precisa abrir o portal); (b) o padrão atual (e-mail síncrono, best-effort) já é o
+padrão usado no resto do Comvy (ex.: primeiro acesso); (c) um outbox real exigiria nova
+entidade, nova migration e um worker — infraestrutura nova que o próprio lote pede para
+evitar. Reavaliar apenas se o volume de eventos ou a criticidade do canal mudarem.
+
+**Riscos aceitos, não corrigidos neste lote** (documentados para revisão futura, não
+regressões):
+- PIX/beneficiário: qualquer Manager/SubManager do condomínio pode ver o PIX de qualquer
+  outro Manager/SubManager via `/management-company-requests/options` (necessário para
+  escolher beneficiário de reembolso). Comportamento do Lote 3/4, não introduzido agora;
+  restringir isso seria uma mudança de produto, não um hardening.
+- Attachments: validação continua por extensão + `Content-Type` declarado, sem
+  magic-byte/content-sniffing. Um arquivo renomeado com MIME forjado passaria. Implementar
+  sniffing é uma camada de validação nova (feature), não um bug — fica para revisão futura.
+- Filtros da tela Administradora seguem pouco responsivos (já documentado no Lote 4) —
+  usáveis, sem regressão funcional, refinamento visual fica para depois.
+- `/administrator/context` retorna 403 para Manager/SubManager puro (sem acesso de
+  administradora) a cada carregamento — já não bloqueia nada (`AppShell` trata isso
+  explicitamente) e não há métricas de observabilidade genéricas por status HTTP para
+  poluir. Aceitável para V1; corrigir exigiria redesenhar o provider global de contexto.
+
+**Frontend**: `CreateManagementCompanyRequestPage` agora mostra um aviso explícito quando a
+administradora está vinculada mas nenhuma categoria tem responsável ativo, em vez de uma
+área em branco sob o título — a regra de negócio (bloquear a criação nesse caso) não mudou,
+só deixou de parecer uma tela quebrada.

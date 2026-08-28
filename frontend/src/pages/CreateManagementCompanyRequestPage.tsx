@@ -117,7 +117,13 @@ export function CreateManagementCompanyRequestPage() {
             Este condomínio não possui uma administradora vinculada no momento.
           </Alert>
         )}
-        {options?.managementCompany && !type && (
+        {options?.managementCompany && options.categories.length === 0 && !type && (
+          <Alert severity="info">
+            Nenhuma categoria disponível para nova solicitação no momento. Fale com sua
+            administradora.
+          </Alert>
+        )}
+        {options?.managementCompany && options.categories.length > 0 && !type && (
           <Stack spacing={1}>
             {options.categories.map((c) => (
               <Card key={c.id} variant="outlined">

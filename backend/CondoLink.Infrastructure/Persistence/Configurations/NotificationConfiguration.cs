@@ -43,6 +43,13 @@ public sealed class NotificationConfiguration
         builder.Property(notification => notification.RequestId)
             .HasColumnName("request_id");
 
+        builder.Property(notification => notification.ManagementCompanyRequestId)
+            .HasColumnName("management_company_request_id");
+
+        builder.Property(notification => notification.IdempotencyKey)
+            .HasColumnName("idempotency_key")
+            .HasMaxLength(250);
+
         builder.Property(notification => notification.CreatedAt)
             .HasColumnName("created_at")
             .IsRequired();
@@ -66,6 +73,18 @@ public sealed class NotificationConfiguration
             .WithMany()
             .HasForeignKey(notification => notification.RequestId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne<ManagementCompanyRequest>()
+            .WithMany()
+            .HasForeignKey(notification => notification.ManagementCompanyRequestId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Dedup key for retries/double-clicks/reprocessing: enforced at the
+        // database level too, since a pre-check alone cannot close a race.
+        builder.HasIndex(notification => notification.IdempotencyKey)
+            .IsUnique()
+            .HasFilter("\"idempotency_key\" IS NOT NULL")
+            .HasDatabaseName("ux_notifications_idempotency_key");
 
         // Drives the inbox query: newest first for one recipient in one condominium.
         builder.HasIndex(notification => new

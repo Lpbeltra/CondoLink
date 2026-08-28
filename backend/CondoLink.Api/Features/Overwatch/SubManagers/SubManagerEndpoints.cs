@@ -118,7 +118,8 @@ public static class SubManagerEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<string?> AssignAsync(ApplicationUser user, Guid condominiumId, AppDbContext db, CancellationToken ct)
+    /// <summary>Internal (not private) so Postgres-backed concurrency tests can call the real assignment path directly.</summary>
+    internal static async Task<string?> AssignAsync(ApplicationUser user, Guid condominiumId, AppDbContext db, CancellationToken ct)
     {
         if (db.Database.IsNpgsql())
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({user.Id.ToString()}, 9182));", ct);

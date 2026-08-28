@@ -159,6 +159,13 @@ internal sealed class CoreEndpointTestHost : IAsyncDisposable
     }
 }
 
+/// <summary>Discards every email: for hosts that need <see cref="IEmailSender"/> wired but never assert on delivery.</summary>
+internal sealed class NoOpEmailSender : IEmailSender
+{
+    public Task SendAsync(string recipient, string subject, string html, CancellationToken cancellationToken)
+        => Task.CompletedTask;
+}
+
 /// <summary>
 /// Seeding helpers shared by the core-area test classes.
 /// </summary>

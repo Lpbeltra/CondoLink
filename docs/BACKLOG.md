@@ -1206,5 +1206,18 @@ A prioridade real deverá ser revisada após validação do MVP com usuários.
 - [x] Lote 4 — portal operacional da administradora com fila por categoria, ciência,
   iniciar processamento, mensagens multipart atômicas, solicitar informação/WaitingManager
   e conclusão contextual por tipo.
-- [ ] Lote 5 — comunicação, notificações, e-mails e badges.
-- [ ] Lote 6 — auditoria de segurança e estabilização integral.
+- [x] Lote 5 — notificações internas + e-mail para os cinco eventos relevantes
+  (nova solicitação, solicitar informação, resposta da gestão, conclusão contextual por
+  tipo, cancelamento); resolução histórica/dinâmica de destinatários (administradora por
+  categoria histórica, Manager+SubManager por evento); idempotência determinística
+  reutilizando o padrão de `WhatsAppOutboundMessage`; e-mail best-effort sem outbox novo;
+  sem WhatsApp.
+- [x] Lote 6 — auditoria e endurecimento sem novas features: concorrência real em
+  PostgreSQL para WaitingManager concorrente, WaitingManager vs Completed, primeira ciência
+  (bug real encontrado e corrigido: `AcknowledgeAsync` só capturava
+  `DbUpdateConcurrencyException`, não o `DbUpdateException` genérico da corrida real),
+  idempotência de notificação, SubManager único e administradora ativa única; matriz de
+  autorização ampliada (SubManager de outro condomínio, Resident do mesmo condomínio, papel
+  revogado com usuário ativo, multi-role sem concessão cruzada); snapshot histórico de PIX
+  comprovado por teste; janela pós-commit de notificação documentada como aceitável para
+  V1; estado vazio de categoria sem responsável corrigido no frontend.

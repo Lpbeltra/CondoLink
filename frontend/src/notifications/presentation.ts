@@ -47,14 +47,28 @@ export function countUnread(notifications: AppNotification[]): number {
   return notifications.filter(isUnread).length
 }
 
+/** Management-company-request types whose recipient is always the administradora side. */
+const administratorPortalTypes = new Set([
+  'ManagementCompanyRequestCreated',
+  'ManagementCompanyRequestManagerReplied',
+  'ManagementCompanyRequestCancelled',
+])
+
 /**
  * Deep-link target for a notification, or null when it does not point anywhere.
  * Managers land on the management view of a request; residents on their own.
+ * ManagementCompanyRequest events route by type, since each type is only ever
+ * sent to one fixed side (administradora or gestão) regardless of who is viewing.
  */
 export function notificationLink(
   notification: AppNotification,
   isManager: boolean,
 ): string | null {
+  if (notification.managementCompanyRequestId) {
+    return administratorPortalTypes.has(notification.type)
+      ? `/administrator/requests/${notification.managementCompanyRequestId}`
+      : `/management/administrator/${notification.managementCompanyRequestId}`
+  }
   if (!notification.requestId) return null
   return isManager
     ? `/management/requests/${notification.requestId}`

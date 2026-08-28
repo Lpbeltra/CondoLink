@@ -46,6 +46,7 @@ builder.Services.AddScoped<ResidentReplyService>();
 builder.Services.AddScoped<RequestClosureService>();
 builder.Services.AddScoped<ManagementCompanyRequestAccessService>();
 builder.Services.AddScoped<ManagementCompanyRequestService>();
+builder.Services.AddScoped<ManagementCompanyRequestNotificationService>();
 builder.Services.AddSingleton<OperationalTelemetry>();
 builder.Services.AddSingleton<ApiRequestMetrics>();
 builder.Services.Configure<CondominiumAssistantOptions>(

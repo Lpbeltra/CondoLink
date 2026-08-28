@@ -76,6 +76,7 @@ public static class NotificationEndpoints
                 notification.Title,
                 notification.Body,
                 notification.RequestId,
+                notification.ManagementCompanyRequestId,
                 notification.CreatedAt,
                 notification.ReadAt))
             .ToListAsync(cancellationToken);
@@ -211,6 +212,7 @@ public static class NotificationEndpoints
         string Title,
         string Body,
         Guid? RequestId,
+        Guid? ManagementCompanyRequestId,
         DateTime CreatedAt,
         DateTime? ReadAt);
 
