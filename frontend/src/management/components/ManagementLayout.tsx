@@ -16,13 +16,16 @@ export function ManagementLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   // These pages render their own heading and switcher, so they opt out of the
-  // shared tab chrome instead of showing it twice.
+  // shared tab chrome instead of showing it twice. The administrator portal is
+  // its own module (it has its own sidebar entry) and must never show the
+  // Gestão title/tabs, even though it stays under the /management URL prefix.
   const isStandalonePage = location.pathname.startsWith('/management/requests')
     || location.pathname.startsWith('/management/dashboard')
     || location.pathname.startsWith('/management/reports')
     || location.pathname.startsWith('/management/assistant')
     || location.pathname.startsWith('/management/documents')
     || location.pathname.startsWith('/management/agenda')
+    || location.pathname.startsWith('/management/administrator')
 
   if (isLoading) {
     return <PageContainer><Skeleton variant="rounded" height={160} /></PageContainer>
