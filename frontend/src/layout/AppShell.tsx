@@ -28,8 +28,15 @@ export function AppShell() {
     Boolean(administrator);
   const showNavigation = hasContext || hasPlatformAdminAccess(user);
 
+  // The administrator portal context (/administrator/context) is irrelevant
+  // to residents, managers and submanagers — most of them will get an
+  // expected 403 from it. Routes must never wait on it to render: a condominium or
+  // management scope is already enough context to show the page. We only
+  // fall back to waiting on it when every other signal is empty, so we don't
+  // flash "no condominium available" for a pure administrator-portal user
+  // whose administrator context just hasn't resolved yet.
   const content =
-    isLoading || isManagementLoading || administratorLoading ? (
+    isLoading || isManagementLoading ? (
       <PageContainer>
         <Stack spacing={2}>
           <Skeleton variant="rounded" height={180} />
@@ -53,12 +60,22 @@ export function AppShell() {
         />
       </PageContainer>
     ) : !hasContext && !hasPlatformAdminAccess(user) ? (
-      <PageContainer>
-        <EmptyState
-          title="Nenhum condomínio disponível"
-          description="Sua conta ainda não possui acesso a um condomínio. Entre em contato com o responsável pela administração."
-        />
-      </PageContainer>
+      administratorLoading ? (
+        <PageContainer>
+          <Stack spacing={2}>
+            <Skeleton variant="rounded" height={180} />
+            <Skeleton width="55%" />
+            <Skeleton width="35%" />
+          </Stack>
+        </PageContainer>
+      ) : (
+        <PageContainer>
+          <EmptyState
+            title="Nenhum condomínio disponível"
+            description="Sua conta ainda não possui acesso a um condomínio. Entre em contato com o responsável pela administração."
+          />
+        </PageContainer>
+      )
     ) : (
       <Suspense
         fallback={
