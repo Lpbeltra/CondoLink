@@ -52,7 +52,7 @@ public static class UpdateCondominiumMember
                     && item.EndedAt == null)
                 .Join(
                     db.CondominiumMembershipRoles.AsNoTracking().Where(role =>
-                        role.Role == CondominiumRole.Manager
+                        (role.Role == CondominiumRole.Manager || role.Role == CondominiumRole.SubManager)
                         && role.IsActive
                         && role.RevokedAt == null),
                     membership => membership.Id,

@@ -71,6 +71,8 @@ public static class ListOverwatchManagers
                 user.Address,
                 user.City,
                 user.State,
+                user.PixKeyType,
+                user.PixKey,
                 user.IsActive,
                 dbContext.CondominiumMemberships.Count(membership =>
                     membership.UserId == user.Id &&

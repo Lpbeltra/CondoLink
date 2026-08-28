@@ -164,7 +164,7 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Delete_removes_only_employee_link()
+    public async Task Delete_preserves_and_deactivates_access_history()
     {
         var employee = await CreatePersistedEmployeeAsync();
 
@@ -173,8 +173,8 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         await using var scope = _application!.Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        Assert.False(await dbContext.ManagementCompanyEmployees
-            .AnyAsync(current => current.Id == employee.Id));
+        Assert.False((await dbContext.ManagementCompanyEmployees
+            .SingleAsync(current => current.Id == employee.Id)).IsActive);
         Assert.True(await dbContext.Users
             .AnyAsync(user => user.Id == employee.UserId));
     }
@@ -260,7 +260,7 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Employee_count_tracks_all_existing_links_per_company()
+    public async Task Employee_count_tracks_active_accesses_per_company()
     {
         var firstCompanyId = await CreateCompanyAsync("Alpha");
         var secondCompanyId = await CreateCompanyAsync("Beta");
@@ -288,7 +288,7 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
             (await SetStatusAsync(inactiveEmployee.Id, false)).StatusCode);
         firstCompany = await _admin.GetFromJsonAsync<CompanyCountResponse>(
             $"/overwatch/management-companies/{firstCompanyId}");
-        Assert.Equal(2, firstCompany!.EmployeeCount);
+        Assert.Equal(1, firstCompany!.EmployeeCount);
 
         Assert.Equal(
             HttpStatusCode.NoContent,
@@ -296,7 +296,7 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
         companies = await _admin.GetFromJsonAsync<List<CompanyCountResponse>>(
             "/overwatch/management-companies") ?? [];
 
-        Assert.Equal(1, companies!.Single(
+        Assert.Equal(0, companies!.Single(
             item => item.Id == firstCompanyId).EmployeeCount);
         Assert.Equal(1, companies.Single(
             item => item.Id == secondCompanyId).EmployeeCount);

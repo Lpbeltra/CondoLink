@@ -64,7 +64,7 @@ public static class CondominiumBlockEndpoints
     {
         var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         return Guid.TryParse(value, out var userId) && await db.CondominiumMemberships.AsNoTracking().Where(x => x.UserId == userId && x.CondominiumId == condominiumId && x.IsActive && x.EndedAt == null)
-            .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x => x.Role == CondominiumRole.Manager && x.IsActive && x.RevokedAt == null), x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(ct);
+            .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x => (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive && x.RevokedAt == null), x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(ct);
     }
 
     private static IResult Duplicate() => Results.Conflict(new { error = "Já existe um bloco com esta identificação no condomínio." });

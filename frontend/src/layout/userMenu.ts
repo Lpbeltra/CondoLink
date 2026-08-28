@@ -1,11 +1,11 @@
-import { hasPlatformAdminAccess } from '../auth/permissions'
-import type { User } from '../auth/types'
-import { managementEntryPath } from './navigation'
+import { hasPlatformAdminAccess } from "../auth/permissions";
+import type { User } from "../auth/types";
+import { managementEntryPath } from "./navigation";
 
 export interface UserMenuAreaAction {
-  label: 'Ir para Overwatch' | 'Voltar ao acesso de síndico'
-  path: string
-  kind: 'overwatch' | 'management'
+  label: "Ir para Overwatch" | "Voltar ao acesso de síndico";
+  path: string;
+  kind: "overwatch" | "management";
 }
 
 export function getUserMenuAreaAction(
@@ -13,23 +13,23 @@ export function getUserMenuAreaAction(
   pathname: string,
   hasManagerAccess: boolean,
 ): UserMenuAreaAction | null {
-  if (!hasPlatformAdminAccess(user)) return null
+  if (!hasPlatformAdminAccess(user)) return null;
 
-  if (pathname.startsWith('/overwatch')) {
+  if (pathname.startsWith("/overwatch")) {
     return hasManagerAccess
       ? {
-          label: 'Voltar ao acesso de síndico',
+          label: "Voltar ao acesso de síndico",
           path: managementEntryPath,
-          kind: 'management',
+          kind: "management",
         }
-      : null
+      : null;
   }
 
   return {
-    label: 'Ir para Overwatch',
-    path: '/overwatch',
-    kind: 'overwatch',
-  }
+    label: "Ir para Overwatch",
+    path: "/overwatch",
+    kind: "overwatch",
+  };
 }
 
 export function runUserMenuAreaAction(
@@ -37,6 +37,6 @@ export function runUserMenuAreaAction(
   closeMenu: () => void,
   navigate: (path: string) => void,
 ) {
-  closeMenu()
-  navigate(action.path)
+  closeMenu();
+  navigate(action.path);
 }

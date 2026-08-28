@@ -1191,3 +1191,20 @@ API pública
 ```
 
 A prioridade real deverá ser revisada após validação do MVP com usuários.
+# Gestão ↔ Administradora
+
+- [x] Lote 1 — papel contextual Subsíndico, unicidade concorrente, escopo de gestão,
+  Overwatch, PIX, acessos Pessoa/Setor, primeiro acesso/reset, categorias/responsáveis e
+  histórico Administradora ↔ Condomínio.
+- [x] Lote 2 — agregado backend independente de solicitações da administradora: templates
+  Fine/Payment/GeneralQuestion, estados, histórico, mensagens, anexos autenticados, snapshot
+  PIX, ownership histórico e endpoints operacionais mínimos; atomicidade multipart,
+  compensação de filesystem, matriz HTTP de IDOR e concorrência validada em PostgreSQL.
+- [x] Lote 3 — portal da gestão com navegação elegível, listagem paginada/consolidada,
+  filtros de condomínio e período, criação tipada multipart, detalhe, timeline contextual,
+  previews autenticados, resposta e cancelamento.
+- [x] Lote 4 — portal operacional da administradora com fila por categoria, ciência,
+  iniciar processamento, mensagens multipart atômicas, solicitar informação/WaitingManager
+  e conclusão contextual por tipo.
+- [ ] Lote 5 — comunicação, notificações, e-mails e badges.
+- [ ] Lote 6 — auditoria de segurança e estabilização integral.

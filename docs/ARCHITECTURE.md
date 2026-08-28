@@ -1581,3 +1581,105 @@ históricos: não degradam a saúde atual e são removidos pelo retention worker
 sete dias. A ausência ou atraso real de uma instância esperada continua
 degradando a saúde. `UptimeSeconds` mede o tempo desde o início do processo atual
 da API, reiniciando a cada deploy que recria o processo.
+# Gestão condominial e administradora — Fundação (Lote 1)
+
+O escopo administrativo de um condomínio é contextual e deriva de um vínculo ativo em
+`CondominiumMembership` com papel ativo `Manager` ou `SubManager`. `Manager` continua
+podendo gerir vários condomínios; `SubManager` representa **Subsíndico** na interface e
+pode ter somente um vínculo ativo globalmente e somente um ocupante ativo por condomínio.
+A API valida esse escopo no banco; papéis globais, inclusive `PlatformAdmin`, não concedem
+automaticamente o papel contextual. A migration do lote instala uma restrição PostgreSQL
+com advisory locks para serializar atribuições concorrentes de subsíndico.
+
+PIX (`PixKeyType`/`PixKey`) pertence ao `ApplicationUser`, pois identifica o beneficiário,
+e não ao condomínio. Os tipos aceitos são CPF, CNPJ, e-mail, telefone e chave aleatória.
+
+`ManagementCompanyEmployee` é mantido como nome técnico/tabela por compatibilidade com
+produção, mas sua abstração pública é **Acesso da administradora**. Um acesso autenticável
+é `Person` ou `Department`, pertence a uma administradora e possui N categorias através de
+`ManagementCompanyRequestCategoryResponsible`. A categoria fica operacionalmente
+indisponível quando não há responsável ativo. Exclusão física de acessos foi substituída
+por inativação para preservar histórico.
+
+Na V1, Pessoa e Setor (`Person`/`Department`) são igualmente **acessos autenticáveis
+individuais**: cada um tem seu próprio login, senha e conjunto de categorias, e a única
+diferença entre eles é como o autor aparece na timeline (nome da pessoa e função vs. nome
+do setor, sem se passar por uma pessoa). Setor não representa um grupo com múltiplos
+usuários, não tem membership própria e não introduz RBAC adicional — isso está fora de
+escopo até uma revisão explícita de produto.
+
+Novas administradoras recebem as categorias estruturais Multa (`UnitFine`), Solicitação de
+pagamento (`SupplierPayment`) e Dúvidas gerais (`Generic`). A migration cria essas mesmas
+categorias para administradoras existentes sem sobrescrever categorias homônimas.
+
+O vínculo atual `Condominium.ManagementCompanyId` permanece como projeção compatível. O
+histórico autoritativo é `CondominiumManagementCompanyLink` (`LinkedAt`, `UnlinkedAt`,
+`IsActive`), com índice parcial garantindo no máximo um vínculo ativo. Trocar ou desvincular
+encerra o registro atual e nunca apaga o histórico.
+
+Primeiro acesso reutiliza Identity, `MustChangePassword`, token de redefinição,
+`SecurityStamp` e SMTP existentes. Acessos recebem senha temporária exibível, podem ter
+instruções reenviadas e senha redefinida; redefinição invalida credenciais/sessões anteriores.
+Endereços reservados de teste (`example.com`, `example.test`, `test.com`, `localhost`) não
+recebem tentativa de e-mail.
+# Solicitações Gestão ↔ Administradora (Lote 2)
+
+`ManagementCompanyRequest` é um agregado separado de `Request` (Morador ↔ Gestão). A tabela principal guarda condomínio, administradora e categoria históricas, criador, tipo, estado e o identificador estável `ADM-` derivado de entropia do UUID e protegido por índice único. Os templates fixos usam tabelas 1:1 tipadas (`Fine`, `Payment` e `GeneralQuestion`), evitando colunas específicas anuláveis na raiz. A mensagem inicial de dúvida é a primeira `ManagementCompanyRequestMessage`, fonte única do texto da conversa.
+
+## Portal da gestão (Lote 3)
+
+As rotas `/management/administrator`, `/management/administrator/new` e
+`/management/administrator/:id` atendem Manager e SubManager pelo mesmo escopo
+contextual. O contexto de gestão informa, em uma consulta consolidada, se existe
+administradora ativa no condomínio selecionado ou em ao menos um condomínio da
+visão consolidada; esse indicador controla somente a navegação, permanecendo a
+API como autoridade de acesso.
+
+A listagem é paginada no backend, permite condomínio, tipo, status, busca e
+período de criação (`CreatedAt`, datas inicial e final inclusivas) e prioriza
+`WaitingManager`. Criação e respostas usam os contratos multipart atômicos do
+domínio. A timeline resolve nome e função contextual do autor, reservando
+"Sistema" para eventos automáticos. Anexos continuam privados: o frontend faz
+download autenticado, cria Blob URLs sob demanda para imagem, áudio, vídeo e
+PDF e os revoga ao desmontar; arquivos genéricos mantêm download autenticado.
+
+## Portal da administradora (Lote 4)
+
+O portal usa `/administrator/requests` e um contexto autenticado derivado do
+`ManagementCompanyEmployee`, sem promover Pessoa ou Setor a papel global. A
+fila possui consulta própria: deriva a administradora do acesso ativo e limita
+categorias pela relação N:N, com paginação, busca e filtros no servidor.
+`Submitted` é priorizado antes de `UpdatedAt DESC`; listar nunca registra
+ciência, enquanto abrir o detalhe reutiliza a operação idempotente do domínio.
+
+Detalhe e mutações continuam autorizados pela administradora histórica gravada
+na solicitação e pela categoria atual do acesso. Assim, uma administradora nova
+não recebe solicitações antigas; o acesso ativo da administradora histórica
+mantém operação conforme categoria atribuída, independentemente do vínculo
+atual do condomínio. O portal reutiliza multipart atômico e previews Blob
+autenticados. `WaitingManager`, `Completed` e `Cancelled` são somente leitura
+para a administradora; não existe cancelamento ou reabertura por esse portal.
+
+**Regra histórica (confirmada como comportamento definitivo do produto):** uma
+`ManagementCompanyRequest` pertence, para sempre, à administradora que a
+recebeu — `Request.ManagementCompanyId` é gravado na criação e nunca migra. Se
+um condomínio troca de administradora (`CondominiumManagementCompanyLink` da
+antiga é desativado e um novo vínculo é criado para a nova empresa), a nova
+administradora nunca herda acesso às solicitações antigas: ela não as lista,
+não as abre, não baixa os attachments e não atua nelas. A administradora
+anterior continua podendo operar suas próprias solicitações históricas
+enquanto (a) o usuário estiver ativo, (b) o acesso da administradora estiver
+ativo e (c) esse acesso continuar responsável pela categoria histórica da
+solicitação — o vínculo atual do condomínio com outra empresa não revoga esse
+acesso histórico. Coberto por
+`ManagementCompanyRequestEndpointTests.Historical_access_survives_administrator_company_swap_and_new_company_never_inherits`.
+
+O fluxo interno é `Submitted → Acknowledged → InProgress ↔ WaitingManager → Completed`; também são aceitos `Acknowledged → WaitingManager` e cancelamento pela gestão a partir de qualquer estado não terminal. `Completed` e `Cancelled` são terminais. Toda mutação registra `ManagementCompanyRequestHistory`; resposta da gestão em `WaitingManager` salva mensagem e retorno a `InProgress` na mesma transação. A primeira ciência é idempotente, usa token de concorrência otimista e índice filtrado único do evento `Acknowledged`.
+
+Autorização operacional não concede bypass a `PlatformAdmin`. Gestão exige membership ativo com papel contextual `Manager` ou `SubManager`. Um acesso da administradora exige usuário e acesso ativos, igualdade com `ManagementCompanyId` histórico e responsabilidade pela `CategoryId` histórica. Após troca de administradora, a nova empresa nunca herda solicitações anteriores; a anterior mantém acesso apenas pelos seus acessos ativos e ainda responsáveis pela categoria histórica.
+
+Multas validam unidade do condomínio e representam valor indefinido explicitamente. Pagamentos de reembolso guardam snapshot de beneficiário, nome, tipo e chave PIX. Anexos reutilizam política e armazenamento físico existentes, mas possuem metadados e endpoints autenticados próprios; todas as FKs históricas usam `Restrict`. A criação resolve a administradora ativa no servidor, valida categoria/template e ao menos um responsável ativo, e persiste agregado, detalhe, mensagem inicial e histórico em transação serializável.
+
+Criações e interações que possuem arquivos usam contratos `multipart/form-data`. Metadados, mensagem, histórico e transição pertencem à mesma transação PostgreSQL. Como o filesystem não é transacional, os arquivos são gravados antes do commit e registrados para compensação: qualquer falha posterior remove todos os arquivos recém-gravados; falha de gravação impede o commit. Respostas da gestão em `WaitingManager` e solicitações de informação da administradora são operações únicas contendo mensagem, anexos e mudança de estado.
+
+O portal da gestão expõe `/management/administrator`, criação e detalhe em rotas lazy-loaded. A listagem é paginada no backend e aplica primeiro `WaitingManager`, depois `UpdatedAt DESC`, com busca e filtros de condomínio, tipo e status dentro do escopo contextual combinado de `Manager`/`SubManager`. O endpoint de opções resolve a administradora ativa, categorias tipadas disponíveis, unidades e beneficiários elegíveis com PIX; o navegador não infere categoria por nome nem envia uma administradora como autoridade. Criação e resposta usam os contratos multipart atômicos, e cancelamento permanece uma operação explícita do domínio.

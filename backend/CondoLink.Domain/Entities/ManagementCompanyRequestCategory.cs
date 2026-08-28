@@ -40,6 +40,7 @@ public sealed class ManagementCompanyRequestCategory
     public bool IsActive { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
+    public ICollection<ManagementCompanyRequestCategoryResponsible> Responsibles { get; private set; } = [];
 
     public void Update(
         string name,

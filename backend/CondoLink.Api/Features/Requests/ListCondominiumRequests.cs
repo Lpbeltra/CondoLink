@@ -117,7 +117,7 @@ public static class ListCondominiumRequests
                             && membership.CondominiumId == condominiumId.Value
                             && membership.IsActive
                             && membership.EndedAt == null
-                            && role.Role == CondominiumRole.Manager
+                            && (role.Role == CondominiumRole.Manager || role.Role == CondominiumRole.SubManager)
                             && role.IsActive
                             && role.RevokedAt == null
                             && condominium.IsActive
@@ -269,7 +269,7 @@ public static class ListCondominiumRequests
             .AsNoTracking()
             .Where(membership => membership.UserId == managerUserId && membership.IsActive && membership.EndedAt == null)
             .Join(dbContext.CondominiumMembershipRoles.AsNoTracking().Where(role =>
-                    role.Role == CondominiumRole.Manager && role.IsActive && role.RevokedAt == null),
+                    (role.Role == CondominiumRole.Manager || role.Role == CondominiumRole.SubManager) && role.IsActive && role.RevokedAt == null),
                 membership => membership.Id, role => role.CondominiumMembershipId,
                 (membership, _) => membership.CondominiumId)
             .Join(

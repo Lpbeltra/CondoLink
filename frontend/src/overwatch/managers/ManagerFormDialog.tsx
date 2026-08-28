@@ -6,6 +6,7 @@ import {
 import { brazilianStates, formatCnpj, formatCpf } from '../registration'
 import type { ManagerInput, OverwatchManager } from './types'
 import { validateManager } from './validation'
+import { PixFields, type PixKeyType } from '../components/PixFields'
 
 interface Props {
   open: boolean
@@ -21,7 +22,7 @@ export function ManagerFormDialog({
 }: Props) {
   const [values, setValues] = useState({
     fullName: '', email: '', phoneNumber: '', cpf: '', cnpj: '',
-    address: '', city: '', state: '',
+    address: '', city: '', state: '', pixKeyType: '' as PixKeyType | '', pixKey: '',
   })
   const [validationError, setValidationError] = useState('')
   const set = (field: keyof typeof values, value: string) =>
@@ -35,7 +36,8 @@ export function ManagerFormDialog({
       cpf: manager?.cpf ? formatCpf(manager.cpf) : '',
       cnpj: manager?.cnpj ? formatCnpj(manager.cnpj) : '',
       address: manager?.address ?? '', city: manager?.city ?? '',
-      state: manager?.state ?? '',
+      state: manager?.state ?? '', pixKeyType: manager?.pixKeyType ?? '',
+      pixKey: manager?.pixKey ?? '',
     })
     setValidationError('')
   }, [manager, open])
@@ -47,7 +49,8 @@ export function ManagerFormDialog({
       phoneNumber: values.phoneNumber.trim() || null,
       cpf: values.cpf.trim() || null, cnpj: values.cnpj.trim() || null,
       address: values.address.trim() || null, city: values.city.trim() || null,
-      state: values.state || null,
+      state: values.state || null, pixKeyType: values.pixKeyType || null,
+      pixKey: values.pixKey.trim() || null,
     }
     const message = validateManager(input)
     if (message) { setValidationError(message); return }
@@ -78,6 +81,8 @@ export function ManagerFormDialog({
           <MenuItem value="">Não informado</MenuItem>
           {brazilianStates.map(state => <MenuItem key={state} value={state}>{state}</MenuItem>)}
         </TextField>
+        <PixFields type={values.pixKeyType} pixKey={values.pixKey}
+          onTypeChange={value => set('pixKeyType', value)} onKeyChange={value => set('pixKey', value)} />
       </Stack></DialogContent>
       <DialogActions><Button onClick={onClose} disabled={isSaving}>Cancelar</Button>
         <Button type="submit" variant="contained" disabled={isSaving}>

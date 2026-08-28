@@ -27,6 +27,10 @@ public static class CreateManagementCompany
         var company = new ManagementCompany(request.Name!, cnpj, request.Address,
             request.City, request.State, email, request.PhoneNumber);
         db.ManagementCompanies.Add(company);
+        db.ManagementCompanyRequestCategories.AddRange(
+            new ManagementCompanyRequestCategory(company.Id, "Multa", null, Domain.Enums.ManagementCompanyRequestFormType.UnitFine),
+            new ManagementCompanyRequestCategory(company.Id, "Solicitação de pagamento", null, Domain.Enums.ManagementCompanyRequestFormType.SupplierPayment),
+            new ManagementCompanyRequestCategory(company.Id, "Dúvidas gerais", null, Domain.Enums.ManagementCompanyRequestFormType.Generic));
         await db.SaveChangesAsync(cancellationToken);
         return Results.Created($"/overwatch/management-companies/{company.Id}",
             ManagementCompanyResponse.From(company));

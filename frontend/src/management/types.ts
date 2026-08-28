@@ -129,6 +129,7 @@ export interface ManagementCondominium {
 }
 
 export interface ManagementContextResponse {
+  hasEligibleManagementCompany?: boolean;
   activeManagementCondominiumId: string | null;
   usesConsolidatedManagementScope: boolean;
   condominiumCount: number;

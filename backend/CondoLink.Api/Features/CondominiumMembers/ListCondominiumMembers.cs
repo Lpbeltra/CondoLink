@@ -84,7 +84,7 @@ public static class ListCondominiumMembers
                 dbContext.CondominiumMembershipRoles
                     .AsNoTracking()
                     .Where(role =>
-                        role.Role == CondominiumRole.Manager
+                        (role.Role == CondominiumRole.Manager || role.Role == CondominiumRole.SubManager)
                         && role.IsActive
                         && role.RevokedAt == null),
                 membership => membership.Id,
@@ -330,7 +330,7 @@ public static class ListCondominiumMembers
         Add(await db.CondominiumMemberships.Where(x => userIds.Contains(x.UserId)).GroupBy(x => x.UserId).Where(x => x.Count() > 1).Select(x => x.Key).ToListAsync(ct));
         Add(await (from membership in db.CondominiumMemberships
                    join role in db.CondominiumMembershipRoles on membership.Id equals role.CondominiumMembershipId
-                   where userIds.Contains(membership.UserId) && role.Role == CondominiumRole.Manager
+                   where userIds.Contains(membership.UserId) && (role.Role == CondominiumRole.Manager || role.Role == CondominiumRole.SubManager)
                    select membership.UserId).Distinct().ToListAsync(ct));
         Add(await db.ManagementCompanyEmployees.Where(x => userIds.Contains(x.UserId)).Select(x => x.UserId).Distinct().ToListAsync(ct));
         Add(await db.WhatsAppOutboundMessages.Where(x => userIds.Contains(x.UserId)).Select(x => x.UserId).Distinct().ToListAsync(ct));

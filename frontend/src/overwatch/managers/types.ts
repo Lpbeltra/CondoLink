@@ -1,3 +1,5 @@
+import type { PixKeyType } from '../components/PixFields'
+
 export interface OverwatchManager {
   id: string
   fullName: string
@@ -8,6 +10,8 @@ export interface OverwatchManager {
   address: string | null
   city: string | null
   state: string | null
+  pixKeyType?: PixKeyType | null
+  pixKey?: string | null
   isActive: boolean
   condominiumCount: number
   createdAt: string
@@ -27,6 +31,8 @@ export interface ManagerInput {
   address: string | null
   city: string | null
   state: string | null
+  pixKeyType?: PixKeyType | null
+  pixKey?: string | null
 }
 
 export interface ManagerCondominium {

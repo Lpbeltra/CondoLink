@@ -139,7 +139,8 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
                 fullName = "Profile Manager", email = "profile@example.com",
                 phoneNumber = "  (11) 99999-0001  ", cpf = "529.982.247-25",
                 cnpj = "04.252.011/0001-10", address = "  Rua A  ",
-                city = "  São Paulo  ", state = "sp"
+                city = "  São Paulo  ", state = "sp",
+                pixKeyType = "Email", pixKey = "financeiro@example.com"
             });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var created = await response.Content.ReadFromJsonAsync<CreatedManagerResponse>();
@@ -148,6 +149,8 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
         Assert.Equal("52998224725", details!.Cpf);
         Assert.Equal("04252011000110", details.Cnpj);
         Assert.Equal("SP", details.State);
+        Assert.Equal(PixKeyType.Email, details.PixKeyType);
+        Assert.Equal("financeiro@example.com", details.PixKey);
 
         var update = await _admin.PutAsJsonAsync(
             $"/overwatch/managers/{created.Id}",
@@ -155,9 +158,15 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
                 fullName = "Updated Manager", email = created.Email,
                 phoneNumber = (string?)null, cpf = (string?)null,
                 cnpj = (string?)null, address = (string?)null,
-                city = (string?)null, state = (string?)null
+                city = (string?)null, state = (string?)null,
+                pixKeyType = (string?)null, pixKey = (string?)null
             });
         Assert.Equal(HttpStatusCode.NoContent, update.StatusCode);
+        await using var pixVerifyScope = _application!.Services.CreateAsyncScope();
+        var pixVerifyDb = pixVerifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var updated = await pixVerifyDb.Users.SingleAsync(user => user.Id == created.Id);
+        Assert.Null(updated.PixKeyType);
+        Assert.Null(updated.PixKey);
     }
 
     [Fact]
@@ -249,7 +258,6 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
                 phoneNumber = "+1 212 555 1234"
             });
         Assert.Equal(HttpStatusCode.NoContent, update.StatusCode);
-
         await using var verifyScope = _application.Services.CreateAsyncScope();
         var verify = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
         var user = await verify.Users.SingleAsync();
@@ -575,5 +583,6 @@ public sealed class OverwatchManagerEndpointsTests : IAsyncLifetime
     private sealed record StatusResponse(bool IsActive);
     private sealed record CondominiumResponse(Guid CondominiumId);
     private sealed record CondominiumManagerResponse(Guid UserId);
-    private sealed record ProfileResponse(string? Cpf, string? Cnpj, string? State);
+    private sealed record ProfileResponse(string? Cpf, string? Cnpj, string? State,
+        PixKeyType? PixKeyType, string? PixKey);
 }

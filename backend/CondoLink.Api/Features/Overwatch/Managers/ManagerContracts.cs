@@ -1,3 +1,5 @@
+using CondoLink.Domain.Enums;
+
 namespace CondoLink.Api.Features.Overwatch.Managers;
 
 public sealed record OverwatchManagerResponse(
@@ -10,6 +12,8 @@ public sealed record OverwatchManagerResponse(
     string? Address,
     string? City,
     string? State,
+    PixKeyType? PixKeyType,
+    string? PixKey,
     bool IsActive,
     int CondominiumCount,
     DateTime CreatedAt,

@@ -201,6 +201,52 @@ public sealed class ManagementContextEndpointsTests : IAsyncLifetime
             .StatusCode);
     }
 
+    [Fact]
+    public async Task Administrator_eligibility_follows_specific_and_consolidated_context()
+    {
+        var eligible = await AddManagedCondominiumAsync("Com administradora");
+        var ineligible = await AddManagedCondominiumAsync("Sem administradora");
+        await using (var scope = _application!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var company = new ManagementCompany("Administradora", null, null, null, null);
+            db.AddRange(company, new CondominiumManagementCompanyLink(eligible.Id, company.Id));
+            await db.SaveChangesAsync();
+        }
+
+        Assert.True((await GetContextAsync()).HasEligibleManagementCompany);
+        var selected = await (await _client.PutAsJsonAsync(
+            "/management/context", new { condominiumId = ineligible.Id }))
+            .Content.ReadFromJsonAsync<ContextResponse>();
+        Assert.False(selected!.HasEligibleManagementCompany);
+        var eligibleSelected = await (await _client.PutAsJsonAsync(
+            "/management/context", new { condominiumId = eligible.Id }))
+            .Content.ReadFromJsonAsync<ContextResponse>();
+        Assert.True(eligibleSelected!.HasEligibleManagementCompany);
+    }
+
+    [Fact]
+    public async Task Submanager_receives_management_scope_only_in_its_condominium()
+    {
+        await using (var scope = _application!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var allowed = new Condominium("Permitido", null, null);
+            var denied = new Condominium("Negado", null, null);
+            var allowedMembership = new CondominiumMembership(_userId, allowed.Id);
+            var deniedMembership = new CondominiumMembership(_userId, denied.Id);
+            db.AddRange(allowed, denied, allowedMembership, deniedMembership,
+                new CondominiumMembershipRole(allowedMembership.Id, CondominiumRole.SubManager),
+                new CondominiumMembershipRole(deniedMembership.Id, CondominiumRole.Resident));
+            await db.SaveChangesAsync();
+        }
+
+        var context = await GetContextAsync();
+
+        var condominium = Assert.Single(context.AvailableCondominiums);
+        Assert.Equal("Permitido", condominium.Name);
+    }
+
     private async Task<ContextResponse> GetContextAsync()
         => (await _client.GetFromJsonAsync<ContextResponse>(
             "/management/context"))!;
@@ -236,7 +282,8 @@ public sealed class ManagementContextEndpointsTests : IAsyncLifetime
         bool UsesConsolidatedManagementScope,
         int CondominiumCount,
         CondominiumResponse? ActiveCondominium,
-        IReadOnlyList<CondominiumResponse> AvailableCondominiums);
+        IReadOnlyList<CondominiumResponse> AvailableCondominiums,
+        bool HasEligibleManagementCompany);
     private sealed record RequestItemResponse(
         Guid Id,
         Guid CondominiumId,

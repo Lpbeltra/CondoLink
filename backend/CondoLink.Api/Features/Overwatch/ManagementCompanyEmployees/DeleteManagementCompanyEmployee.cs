@@ -33,7 +33,7 @@ public static class DeleteManagementCompanyEmployee
             });
         }
 
-        dbContext.ManagementCompanyEmployees.Remove(employee);
+        employee.Deactivate();
         await dbContext.SaveChangesAsync(cancellationToken);
         return Results.NoContent();
     }

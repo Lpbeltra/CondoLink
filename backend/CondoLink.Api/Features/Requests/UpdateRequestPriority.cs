@@ -76,7 +76,7 @@ public static class UpdateRequestPriority
                 dbContext.CondominiumMembershipRoles
                     .AsNoTracking()
                     .Where(role =>
-                        role.Role == CondominiumRole.Manager
+                        (role.Role == CondominiumRole.Manager || role.Role == CondominiumRole.SubManager)
                         && role.IsActive
                         && role.RevokedAt == null),
                 membership => membership.Id,

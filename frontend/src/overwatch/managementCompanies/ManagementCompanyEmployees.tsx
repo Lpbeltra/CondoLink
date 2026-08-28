@@ -16,6 +16,7 @@ import {
   DialogTitle,
   IconButton,
   Paper,
+  MenuItem,
   Skeleton,
   Stack,
   Table,
@@ -35,6 +36,8 @@ import {
   listManagementCompanyEmployees,
   removeManagementCompanyEmployee,
   updateManagementCompanyEmployeeStatus,
+  resendManagementCompanyAccess,
+  resetManagementCompanyAccessPassword,
 } from './api'
 import { employeeCredentialsText } from './credentials'
 import { employeeError } from './errors'
@@ -62,6 +65,7 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
   const [email, setEmail] = useState('')
   const [contact, setContact] = useState('')
   const [jobTitle, setJobTitle] = useState('')
+  const [accessType, setAccessType] = useState<'Person' | 'Department'>('Person')
   const [formError, setFormError] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [credentials, setCredentials] =
@@ -90,6 +94,7 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
     setEmail('')
     setContact('')
     setJobTitle('')
+    setAccessType('Person')
     setFormError('')
     setFormOpen(true)
   }
@@ -100,7 +105,7 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
 
     const input = {
       fullName: fullName.trim(), email: email.trim(),
-      contact: contact.trim() || null, jobTitle: jobTitle.trim(),
+      contact: contact.trim() || null, jobTitle: jobTitle.trim(), accessType,
     }
     const validationError = validateEmployee(input)
     if (validationError) {
@@ -223,7 +228,7 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
           <Table sx={{ minWidth: 620 }}>
             <TableHead>
               <TableRow>
-                {['Nome', 'Contato', 'Função', 'Ações'].map((column) => (
+                {['Nome', 'Tipo', 'Contato', 'Função', 'Ações'].map((column) => (
                   <TableCell key={column} sx={{ fontWeight: 750 }}>{column}</TableCell>
                 ))}
               </TableRow>
@@ -232,6 +237,7 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
               {employees.map((employee) => (
                 <TableRow key={employee.id} hover>
                   <TableCell sx={{ fontWeight: 700 }}>{employee.fullName}</TableCell>
+                  <TableCell>{employee.accessType === 'Department' ? 'Setor' : 'Pessoa'}</TableCell>
                   <TableCell>{employee.contact || 'Não informado'}</TableCell>
                   <TableCell sx={{ overflowWrap: 'anywhere' }}>{employee.jobTitle}</TableCell>
                   <TableCell>
@@ -244,6 +250,18 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
                       >
                         {employee.isActive ? 'Inativar' : 'Ativar'}
                       </Button>
+                    <Button size="small" onClick={async () => {
+                      const result = await resendManagementCompanyAccess(employee.id)
+                      setFeedback(result.sent ? 'Instruções reenviadas.' : 'E-mail não enviado.')
+                    }}>
+                      Reenviar instruções
+                    </Button>
+                    <Button size="small" onClick={async () => {
+                      const result = await resetManagementCompanyAccessPassword(employee.id)
+                      setCredentials({ ...employee, temporaryPassword: result.temporaryPassword, invitationSent: result.invitationSent })
+                    }}>
+                      Redefinir senha
+                    </Button>
                     <Tooltip title="Remover vínculo">
                       <IconButton
                         color="error"
@@ -281,6 +299,16 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
                 onChange={(event) => setFullName(event.target.value)}
                 slotProps={{ htmlInput: { maxLength: 200 } }}
               />
+              <TextField
+                select
+                required
+                label="Tipo do acesso"
+                value={accessType}
+                onChange={(event) => setAccessType(event.target.value as 'Person' | 'Department')}
+              >
+                <MenuItem value="Person">Pessoa</MenuItem>
+                <MenuItem value="Department">Setor</MenuItem>
+              </TextField>
               <TextField
                 label="Contato"
                 value={contact}

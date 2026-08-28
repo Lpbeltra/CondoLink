@@ -15,9 +15,20 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         Set<ManagementCompany>();
     public DbSet<ManagementCompanyEmployee> ManagementCompanyEmployees =>
         Set<ManagementCompanyEmployee>();
+    public DbSet<ManagementCompanyRequestCategoryResponsible> ManagementCompanyRequestCategoryResponsibles =>
+        Set<ManagementCompanyRequestCategoryResponsible>();
+    public DbSet<CondominiumManagementCompanyLink> CondominiumManagementCompanyLinks =>
+        Set<CondominiumManagementCompanyLink>();
     public DbSet<ManagementCompanyRequestCategory>
         ManagementCompanyRequestCategories =>
         Set<ManagementCompanyRequestCategory>();
+    public DbSet<ManagementCompanyRequest> ManagementCompanyRequests => Set<ManagementCompanyRequest>();
+    public DbSet<ManagementCompanyFineRequest> ManagementCompanyFineRequests => Set<ManagementCompanyFineRequest>();
+    public DbSet<ManagementCompanyPaymentRequest> ManagementCompanyPaymentRequests => Set<ManagementCompanyPaymentRequest>();
+    public DbSet<ManagementCompanyGeneralQuestionRequest> ManagementCompanyGeneralQuestionRequests => Set<ManagementCompanyGeneralQuestionRequest>();
+    public DbSet<ManagementCompanyRequestMessage> ManagementCompanyRequestMessages => Set<ManagementCompanyRequestMessage>();
+    public DbSet<ManagementCompanyRequestHistory> ManagementCompanyRequestHistories => Set<ManagementCompanyRequestHistory>();
+    public DbSet<ManagementCompanyRequestAttachment> ManagementCompanyRequestAttachments => Set<ManagementCompanyRequestAttachment>();
     public DbSet<Unit> Units => Set<Unit>();
     public DbSet<CondominiumBlock> CondominiumBlocks => Set<CondominiumBlock>();
     public DbSet<CondominiumMembership> CondominiumMemberships =>

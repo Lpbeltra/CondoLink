@@ -41,7 +41,7 @@ public static class SetCondominiumManagementCompany
         {
             var companyExists = await dbContext.ManagementCompanies
                 .AnyAsync(
-                    company => company.Id == request.ManagementCompanyId.Value,
+                    company => company.Id == request.ManagementCompanyId.Value && company.IsActive,
                     cancellationToken);
 
             if (!companyExists)
@@ -53,8 +53,22 @@ public static class SetCondominiumManagementCompany
             }
         }
 
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        if (dbContext.Database.IsNpgsql())
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock(hashtextextended({condominiumId.ToString()}, 7311));", cancellationToken);
+        var activeLink = await dbContext.CondominiumManagementCompanyLinks
+            .SingleOrDefaultAsync(x => x.CondominiumId == condominiumId && x.IsActive, cancellationToken);
+        if (activeLink?.ManagementCompanyId != request.ManagementCompanyId)
+        {
+            activeLink?.Unlink(DateTime.UtcNow);
+            if (request.ManagementCompanyId is Guid companyId)
+                dbContext.CondominiumManagementCompanyLinks.Add(
+                    new Domain.Entities.CondominiumManagementCompanyLink(condominiumId, companyId));
+        }
         condominium.SetManagementCompany(request.ManagementCompanyId);
         await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         return Results.Ok(new Response(
             condominium.Id,

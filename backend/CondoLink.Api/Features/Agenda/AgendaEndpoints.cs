@@ -252,7 +252,7 @@ public static class AgendaEndpoints
         var manager = await (from m in db.CondominiumMemberships
             join r in db.CondominiumMembershipRoles on m.Id equals r.CondominiumMembershipId
             where m.UserId == userId && m.CondominiumId == condominiumId
-                && m.IsActive && m.EndedAt == null && r.Role == CondominiumRole.Manager
+                && m.IsActive && m.EndedAt == null && (r.Role == CondominiumRole.Manager || r.Role == CondominiumRole.SubManager)
                 && r.IsActive && r.RevokedAt == null select m.Id).AnyAsync(ct);
         return manager || platformAdmin ? new(true, userId, null)
             : new(false, userId, Results.Forbid());

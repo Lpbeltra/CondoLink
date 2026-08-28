@@ -44,7 +44,10 @@ public static class GetManagementCompanyRequestCategory
                     category.FormType,
                     category.IsActive,
                     category.CreatedAt,
-                    category.UpdatedAt))
+                    category.UpdatedAt,
+                    dbContext.ManagementCompanyRequestCategoryResponsibles
+                        .Where(x => x.ManagementCompanyRequestCategoryId == category.Id)
+                        .Select(x => x.ManagementCompanyEmployeeId).ToList()))
             .FirstOrDefaultAsync(cancellationToken);
 
         return category is null

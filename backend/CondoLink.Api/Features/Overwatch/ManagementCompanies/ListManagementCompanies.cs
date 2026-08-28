@@ -26,6 +26,6 @@ public static class ListManagementCompanies
                 company.City, company.State, company.Email, company.PhoneNumber, company.IsActive,
                 company.CreatedAt, company.UpdatedAt,
                 company.Condominiums.Count,
-                company.Employees.Count))
+                company.Employees.Count(employee => employee.IsActive)))
             .ToListAsync(cancellationToken));
 }

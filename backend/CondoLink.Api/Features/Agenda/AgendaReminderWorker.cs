@@ -103,7 +103,7 @@ public sealed class AgendaReminderWorker(IServiceScopeFactory scopes,
                 on membership.UserId equals user.Id
             where membership.CondominiumId == data.Reminder.CondominiumId
                 && membership.IsActive && membership.EndedAt == null
-                && role.Role == CondominiumRole.Manager && role.IsActive
+                && (role.Role == CondominiumRole.Manager || role.Role == CondominiumRole.SubManager) && role.IsActive
                 && role.RevokedAt == null && user.IsActive
             select new { User = user }).ToArrayAsync(ct);
         if (managers.Length != 1)

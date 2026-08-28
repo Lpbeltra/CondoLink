@@ -32,7 +32,10 @@ export interface ManagementCompanyEmployee {
   email: string
   contact: string | null
   jobTitle: string
+  accessType?: 'Person' | 'Department'
   isActive: boolean
+  lastAccessAt: string | null
+  categoryIds: string[]
   createdAt: string
   updatedAt: string
 }
@@ -45,8 +48,10 @@ export interface CreatedManagementCompanyEmployee {
   email: string
   contact: string | null
   jobTitle: string
+  accessType?: 'Person' | 'Department'
   isActive: boolean
   temporaryPassword: string
+  invitationSent?: boolean
 }
 
 export interface EmployeeInput {
@@ -54,4 +59,17 @@ export interface EmployeeInput {
   email: string
   contact: string | null
   jobTitle: string
+  accessType?: 'Person' | 'Department'
+}
+
+export interface ManagementCompanyCategory {
+  id: string
+  managementCompanyId: string
+  name: string
+  description: string | null
+  formType: 'Generic' | 'SupplierPayment' | 'UnitFine' | 'Reimbursement'
+  isActive: boolean
+  responsibleAccessIds: string[]
+  createdAt: string
+  updatedAt: string
 }

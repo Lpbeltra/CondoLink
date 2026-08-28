@@ -3,6 +3,7 @@ using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using CondoLink.Domain.Enums;
 
 namespace CondoLink.Api.Features.Overwatch.Managers;
 
@@ -84,6 +85,7 @@ public static class CreateOverwatchManager
         var user = new ApplicationUser(fullName, email, request.PhoneNumber);
         user.UpdateManagerProfile(fullName, request.PhoneNumber, cpf, cnpj,
             request.Address, request.City, request.State);
+        user.SetPix(request.PixKeyType, request.PixKey);
         user.RequirePasswordChange();
 
         var createResult = await userManager.CreateAsync(
@@ -126,6 +128,8 @@ public static class CreateOverwatchManager
                 user.Address,
                 user.City,
                 user.State,
+                user.PixKeyType,
+                user.PixKey,
                 user.IsActive,
                 0,
                 user.CreatedAt,
@@ -146,7 +150,8 @@ public static class CreateOverwatchManager
 
     public sealed record Request(
         string? FullName, string? Email, string? PhoneNumber, string? Cpf,
-        string? Cnpj, string? Address, string? City, string? State);
+        string? Cnpj, string? Address, string? City, string? State,
+        PixKeyType? PixKeyType = null, string? PixKey = null);
 
     public sealed record ManagerCreatedResponse(
         Guid Id,
@@ -158,6 +163,8 @@ public static class CreateOverwatchManager
         string? Address,
         string? City,
         string? State,
+        PixKeyType? PixKeyType,
+        string? PixKey,
         bool IsActive,
         int CondominiumCount,
         DateTime CreatedAt,
@@ -180,6 +187,12 @@ internal static class ManagerValidation
         if (request.City?.Trim().Length > 100) return "City must not exceed 100 characters.";
         var state = Domain.RegistrationData.State(request.State);
         if (state is not null && !Domain.RegistrationData.IsValidState(state)) return "State is invalid.";
+        try
+        {
+            var probe = new ApplicationUser("PIX validation", "pix-validation@example.test", null);
+            probe.SetPix(request.PixKeyType, request.PixKey);
+        }
+        catch (ArgumentException exception) { return exception.Message; }
         return null;
     }
 

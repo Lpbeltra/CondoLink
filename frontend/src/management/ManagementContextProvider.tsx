@@ -32,6 +32,7 @@ export function ManagementContextProvider({
   >(null)
   const [usesConsolidatedManagementScope, setUsesConsolidatedManagementScope] =
     useState(false)
+  const [hasEligibleManagementCompany,setHasEligibleManagementCompany]=useState(false)
 
   // Apenas para o carregamento inicial do contexto
   const [isLoading, setIsLoading] = useState(false)
@@ -49,6 +50,7 @@ export function ManagementContextProvider({
     setCondominiums([])
     setActiveCondominiumId(null)
     setUsesConsolidatedManagementScope(false)
+    setHasEligibleManagementCompany(false)
 
     setIsLoading(false)
     setIsSwitching(false)
@@ -80,6 +82,7 @@ export function ManagementContextProvider({
       setUsesConsolidatedManagementScope(
         context.usesConsolidatedManagementScope,
       )
+      setHasEligibleManagementCompany(Boolean(context.hasEligibleManagementCompany))
     } catch (requestError) {
       if (!isCurrentManagementRequest(version, requestVersion.current)) return
 
@@ -122,6 +125,7 @@ export function ManagementContextProvider({
         setUsesConsolidatedManagementScope(
           context.usesConsolidatedManagementScope,
         )
+        setHasEligibleManagementCompany(Boolean(context.hasEligibleManagementCompany))
       } catch (requestError) {
         if (!isCurrentManagementRequest(version, requestVersion.current)) return
         setActiveCondominiumId(previousCondominiumId)
@@ -147,6 +151,7 @@ export function ManagementContextProvider({
         activeCondominium,
         condominiumCount: condominiums.length,
         usesConsolidatedManagementScope,
+        hasEligibleManagementCompany,
         isLoading,
         isSwitching,
         error,
@@ -163,6 +168,7 @@ export function ManagementContextProvider({
       refresh,
       selectCondominium,
       usesConsolidatedManagementScope,
+      hasEligibleManagementCompany,
     ]
   )
 

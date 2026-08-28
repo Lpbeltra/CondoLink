@@ -1,0 +1,23 @@
+import { useEffect, useState, type FormEvent } from 'react'
+import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import { PageContainer } from '../../components/PageContainer'
+import { listOverwatchCondominiums } from '../condominiums/api'
+import type { OverwatchCondominium } from '../condominiums/types'
+import { createSubManager, listSubManagers, setSubManagerStatus, type PixKeyType, type SubManager } from '../submanagers/api'
+import { PixFields } from '../components/PixFields'
+
+export function OverwatchSubManagersPage() {
+  const [items, setItems] = useState<SubManager[]>([]); const [condominiums, setCondominiums] = useState<OverwatchCondominium[]>([])
+  const [open, setOpen] = useState(false); const [error, setError] = useState(''); const [credentials, setCredentials] = useState<{ email: string; temporaryPassword: string } | null>(null)
+  const [form, setForm] = useState({ fullName: '', email: '', phoneNumber: '', condominiumId: '', pixKeyType: '' as PixKeyType | '', pixKey: '' })
+  const load = async () => { const [people, condos] = await Promise.all([listSubManagers(), listOverwatchCondominiums()]); setItems(people); setCondominiums(condos) }
+  useEffect(() => { void load() }, [])
+  const submit = async (event: FormEvent) => { event.preventDefault(); setError(''); try { const created = await createSubManager({ ...form, phoneNumber: form.phoneNumber || null, pixKeyType: form.pixKeyType || null, pixKey: form.pixKey || null }); setCredentials(created); setOpen(false); await load() } catch { setError('Não foi possível cadastrar o subsíndico. Verifique vínculos e dados informados.') } }
+  return <PageContainer>
+    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2}><Box><Typography variant="h1">Subsíndicos</Typography><Typography color="text.secondary">Cada subsíndico pode possuir um único vínculo ativo.</Typography></Box><Button variant="contained" onClick={() => setOpen(true)}>Novo subsíndico</Button></Stack>
+    {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+    <Paper variant="outlined" sx={{ mt: 3, overflowX: 'auto' }}><Table><TableHead><TableRow><TableCell>Nome</TableCell><TableCell>Condomínio</TableCell><TableCell>E-mail</TableCell><TableCell>PIX</TableCell><TableCell>Status</TableCell><TableCell>Ação</TableCell></TableRow></TableHead><TableBody>{items.map(item => <TableRow key={`${item.id}-${item.condominiumId}`}><TableCell>{item.fullName}</TableCell><TableCell>{item.condominiumName}</TableCell><TableCell>{item.email}</TableCell><TableCell>{item.pixKey ? `${item.pixKeyType}: ${item.pixKey}` : 'Não informado'}</TableCell><TableCell>{item.isActive && item.hasActiveLink ? 'Ativo' : 'Inativo'}</TableCell><TableCell><Button size="small" onClick={async () => { await setSubManagerStatus(item.id, !item.isActive); await load() }}>{item.isActive ? 'Inativar' : 'Ativar'}</Button></TableCell></TableRow>)}</TableBody></Table></Paper>
+    <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm"><Box component="form" onSubmit={event => void submit(event)}><DialogTitle>Novo subsíndico</DialogTitle><DialogContent><Stack gap={2} pt={1}><TextField required label="Nome" value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })}/><TextField required type="email" label="E-mail" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })}/><TextField label="Telefone" value={form.phoneNumber} onChange={e => setForm({ ...form, phoneNumber: e.target.value })}/><TextField select required label="Condomínio" value={form.condominiumId} onChange={e => setForm({ ...form, condominiumId: e.target.value })}>{condominiums.map(item => <MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}</TextField><PixFields type={form.pixKeyType} pixKey={form.pixKey} onTypeChange={value => setForm({ ...form, pixKeyType: value })} onKeyChange={value => setForm({ ...form, pixKey: value })} /></Stack></DialogContent><DialogActions><Button onClick={() => setOpen(false)}>Cancelar</Button><Button type="submit" variant="contained">Cadastrar</Button></DialogActions></Box></Dialog>
+    <Dialog open={Boolean(credentials)} onClose={() => setCredentials(null)}><DialogTitle>Credenciais temporárias</DialogTitle><DialogContent>{credentials && <Alert severity="warning">E-mail: {credentials.email}<br/>Senha: {credentials.temporaryPassword}</Alert>}</DialogContent><DialogActions><Button onClick={() => setCredentials(null)}>Concluir</Button></DialogActions></Dialog>
+  </PageContainer>
+}

@@ -38,6 +38,20 @@ public sealed class LocalFileStorage : ICondominiumDocumentStorage
         return storageKey;
     }
 
+    public async Task<string> SaveManagementCompanyRequestAsync(Guid requestId, IFormFile file,
+        string extension, CancellationToken cancellationToken)
+    {
+        var storageKey = Path.Combine("management-company-requests", requestId.ToString(),
+            $"{Guid.NewGuid():N}{extension}").Replace('\\', '/');
+        var fullPath = Resolve(storageKey);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        await using var input = file.OpenReadStream();
+        await using var output = new FileStream(fullPath, FileMode.CreateNew, FileAccess.Write,
+            FileShare.None, 81920, FileOptions.Asynchronous);
+        await input.CopyToAsync(output, cancellationToken);
+        return storageKey;
+    }
+
     public async Task<string> SaveWhatsAppDraftAsync(
         Guid sessionId,
         ReadOnlyMemory<byte> content,

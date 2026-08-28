@@ -30,7 +30,7 @@ public static class GetUnitById
         if (unit is null) return Results.NotFound(new { error = "Unit not found." });
         var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var manager = Guid.TryParse(value, out var userId) && await dbContext.CondominiumMemberships.AsNoTracking().Where(x => x.UserId == userId && x.CondominiumId == unit.CondominiumId && x.IsActive && x.EndedAt == null)
-            .Join(dbContext.CondominiumMembershipRoles.AsNoTracking().Where(x => x.Role == CondominiumRole.Manager && x.IsActive && x.RevokedAt == null), x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(cancellationToken);
+            .Join(dbContext.CondominiumMembershipRoles.AsNoTracking().Where(x => (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive && x.RevokedAt == null), x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(cancellationToken);
         return manager ? Results.Ok(unit) : Results.Forbid();
     }
 

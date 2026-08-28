@@ -36,7 +36,7 @@ public static class CreateAdministrativeRequestUpdate
             .Where(x => x.UserId == userId && x.CondominiumId == request.CondominiumId
                 && x.IsActive && x.EndedAt == null)
             .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x =>
-                    x.Role == CondominiumRole.Manager && x.IsActive
+                    (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive
                     && x.RevokedAt == null), x => x.Id,
                 x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(ct);
         if (!manager) return Results.Forbid();

@@ -1,4 +1,4 @@
-export type CondominiumRole = 'Manager' | 'Resident'
+export type CondominiumRole = 'Manager' | 'SubManager' | 'Resident'
 
 export interface CondominiumContext {
   membershipId: string

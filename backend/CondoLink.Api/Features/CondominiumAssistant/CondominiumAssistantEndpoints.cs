@@ -408,7 +408,7 @@ public static class CondominiumAssistantEndpoints
         if (!Guid.TryParse(claim, out var userId)) return (Guid.Empty, Results.Unauthorized());
         if (principal.IsInRole(DependencyInjection.PlatformAdminRole)) return (userId, null);
         var manager = await db.CondominiumMemberships.AsNoTracking().Where(x => x.UserId == userId && x.CondominiumId == condominiumId && x.IsActive && x.EndedAt == null)
-            .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x => x.Role == CondominiumRole.Manager && x.IsActive && x.RevokedAt == null), x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(ct);
+            .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x => (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive && x.RevokedAt == null), x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(ct);
         return manager ? (userId, null) : (userId, Results.Forbid());
     }
 

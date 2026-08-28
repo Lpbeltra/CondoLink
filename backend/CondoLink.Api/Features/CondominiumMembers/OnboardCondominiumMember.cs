@@ -46,7 +46,7 @@ public static class OnboardCondominiumMember
 
         var manager = await dbContext.CondominiumMemberships.AsNoTracking()
             .Where(x => x.UserId == authenticatedUserId && x.CondominiumId == condominiumId && x.IsActive && x.EndedAt == null)
-            .Join(dbContext.CondominiumMembershipRoles.AsNoTracking().Where(x => x.Role == CondominiumRole.Manager && x.IsActive && x.RevokedAt == null),
+            .Join(dbContext.CondominiumMembershipRoles.AsNoTracking().Where(x => (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive && x.RevokedAt == null),
                 x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(cancellationToken);
         if (!manager)
             return Results.Json(new { error = "Only condominium managers can onboard members." }, statusCode: 403);

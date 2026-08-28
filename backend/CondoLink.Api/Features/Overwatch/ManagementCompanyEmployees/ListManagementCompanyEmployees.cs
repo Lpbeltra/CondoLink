@@ -49,9 +49,14 @@ public static class ListManagementCompanyEmployees
                 user.Email!,
                 user.PhoneNumber,
                 employee.JobTitle,
+                employee.AccessType,
                 employee.IsActive,
+                user.LastLoginAt,
                 employee.CreatedAt,
-                employee.UpdatedAt))
+                employee.UpdatedAt,
+                dbContext.ManagementCompanyRequestCategoryResponsibles
+                    .Where(x => x.ManagementCompanyEmployeeId == employee.Id)
+                    .Select(x => x.ManagementCompanyRequestCategoryId).ToList()))
             .ToListAsync(cancellationToken);
 
         return Results.Ok(employees);

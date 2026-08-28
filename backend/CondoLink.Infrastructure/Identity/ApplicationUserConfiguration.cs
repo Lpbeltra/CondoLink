@@ -41,6 +41,9 @@ public sealed class ApplicationUserConfiguration : IEntityTypeConfiguration<Appl
         builder.Property(user => user.Address).HasColumnName("address").HasMaxLength(200);
         builder.Property(user => user.City).HasColumnName("city").HasMaxLength(100);
         builder.Property(user => user.State).HasColumnName("state").HasMaxLength(2);
+        builder.Property(user => user.PixKeyType).HasColumnName("pix_key_type")
+            .HasConversion<string>().HasMaxLength(20);
+        builder.Property(user => user.PixKey).HasColumnName("pix_key").HasMaxLength(200);
 
         builder.Property(user => user.IsActive)
             .HasColumnName("is_active")

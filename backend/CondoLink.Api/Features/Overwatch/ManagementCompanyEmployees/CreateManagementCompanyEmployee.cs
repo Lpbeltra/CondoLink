@@ -2,6 +2,8 @@ using System.Security.Cryptography;
 using CondoLink.Domain.Entities;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
+using CondoLink.Domain.Enums;
+using CondoLink.Api.Features.Auth;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -27,13 +29,14 @@ public static class CreateManagementCompanyEmployee
         Request request,
         UserManager<ApplicationUser> userManager,
         AppDbContext dbContext,
+        IServiceProvider services,
         CancellationToken cancellationToken)
     {
-        var companyExists = await dbContext.ManagementCompanies
-            .AnyAsync(
-                company => company.Id == managementCompanyId,
-                cancellationToken);
-        if (!companyExists)
+        var company = await dbContext.ManagementCompanies
+            .Where(item => item.Id == managementCompanyId)
+            .Select(item => new { item.Name })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (company is null)
         {
             return Results.NotFound(new
             {
@@ -43,7 +46,8 @@ public static class CreateManagementCompanyEmployee
 
         if (string.IsNullOrWhiteSpace(request.FullName) ||
             string.IsNullOrWhiteSpace(request.Email) ||
-            string.IsNullOrWhiteSpace(request.JobTitle))
+            string.IsNullOrWhiteSpace(request.JobTitle) ||
+            !Enum.IsDefined(request.AccessType))
         {
             return Results.BadRequest(new
             {
@@ -104,6 +108,7 @@ public static class CreateManagementCompanyEmployee
 
         var user = new ApplicationUser(fullName, email, contact);
         user.RequirePasswordChange();
+        user.SetEmailDeliveryEnabled(FirstAccessEmailPolicy.IsDeliverable(email));
         var createResult = await userManager.CreateAsync(
             user,
             temporaryPassword);
@@ -119,10 +124,14 @@ public static class CreateManagementCompanyEmployee
         var employee = new ManagementCompanyEmployee(
             managementCompanyId,
             user.Id,
-            jobTitle);
+            jobTitle,
+            request.AccessType);
         dbContext.ManagementCompanyEmployees.Add(employee);
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        var firstAccess = services.GetService<FirstAccessService>();
+        var invitationSent = firstAccess is not null
+            && await firstAccess.SendAsync(user, company.Name, cancellationToken);
 
         return Results.Created(
             $"/employees/{employee.Id}",
@@ -134,8 +143,10 @@ public static class CreateManagementCompanyEmployee
                 user.Email!,
                 user.PhoneNumber,
                 employee.JobTitle,
+                employee.AccessType,
                 employee.IsActive,
-                temporaryPassword));
+                temporaryPassword,
+                invitationSent));
     }
 
     private static string GenerateTemporaryPassword()
@@ -150,7 +161,8 @@ public static class CreateManagementCompanyEmployee
     }
 
     public sealed record Request(
-        string? FullName, string? Email, string? Contact, string? JobTitle);
+        string? FullName, string? Email, string? Contact, string? JobTitle,
+        ManagementCompanyAccessType AccessType = ManagementCompanyAccessType.Person);
 
     public sealed record CreatedResponse(
         Guid Id,
@@ -160,6 +172,8 @@ public static class CreateManagementCompanyEmployee
         string Email,
         string? Contact,
         string JobTitle,
+        ManagementCompanyAccessType AccessType,
         bool IsActive,
-        string TemporaryPassword);
+        string TemporaryPassword,
+        bool InvitationSent);
 }

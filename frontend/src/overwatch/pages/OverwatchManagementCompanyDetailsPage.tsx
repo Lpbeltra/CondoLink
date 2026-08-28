@@ -35,6 +35,7 @@ import {
 } from '../managementCompanies/api'
 import { managementCompanyError } from '../managementCompanies/errors'
 import { ManagementCompanyEmployees } from '../managementCompanies/ManagementCompanyEmployees'
+import { ManagementCompanyCategories } from '../managementCompanies/ManagementCompanyCategories'
 import { ManagementCompanyFormDialog } from '../managementCompanies/ManagementCompanyFormDialog'
 import { managementCompanyDetailTabs } from '../managementCompanies/presentation'
 import type {
@@ -234,10 +235,7 @@ export function OverwatchManagementCompanyDetailsPage() {
             <ManagementCompanyEmployees managementCompanyId={company.id} />
           )}
           {tab === 'categories' && (
-            <EmptyState
-              title="Categorias em breve"
-              description="O gerenciamento visual das categorias da administradora será implementado no próximo lote."
-            />
+            <ManagementCompanyCategories managementCompanyId={company.id} />
           )}
         </CardContent>
       </Card>

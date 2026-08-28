@@ -39,7 +39,7 @@ public static class ExportCondominiumMembersPdf
             .Where(x => x.UserId == currentUserId && x.CondominiumId == condominiumId
                 && x.IsActive && x.EndedAt == null)
             .Join(db.CondominiumMembershipRoles.AsNoTracking()
-                    .Where(x => x.Role == CondominiumRole.Manager && x.IsActive && x.RevokedAt == null),
+                    .Where(x => (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive && x.RevokedAt == null),
                 x => x.Id, x => x.CondominiumMembershipId, (_, _) => true)
             .AnyAsync(ct);
         if (!manager && !principal.IsInRole(DependencyInjection.PlatformAdminRole))

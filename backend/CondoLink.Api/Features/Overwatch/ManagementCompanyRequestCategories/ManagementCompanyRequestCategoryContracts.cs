@@ -16,7 +16,8 @@ public sealed record ManagementCompanyRequestCategoryResponse(
     ManagementCompanyRequestFormType FormType,
     bool IsActive,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt)
+    DateTimeOffset UpdatedAt,
+    IReadOnlyList<Guid>? ResponsibleAccessIds = null)
 {
     public static ManagementCompanyRequestCategoryResponse From(
         ManagementCompanyRequestCategory category) =>

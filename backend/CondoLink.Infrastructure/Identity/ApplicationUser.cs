@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using CondoLink.Domain;
+using CondoLink.Domain.Enums;
 
 namespace CondoLink.Infrastructure.Identity;
 
@@ -43,6 +44,8 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     public string? Address { get; private set; }
     public string? City { get; private set; }
     public string? State { get; private set; }
+    public PixKeyType? PixKeyType { get; private set; }
+    public string? PixKey { get; private set; }
     public bool IsActive { get; private set; }
     public bool MustChangePassword { get; private set; }
     public bool EmailDeliveryEnabled { get; private set; }
@@ -97,6 +100,25 @@ public sealed class ApplicationUser : IdentityUser<Guid>
     public void RequirePasswordChange()
     {
         MustChangePassword = true;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetPix(PixKeyType? type, string? key)
+    {
+        if (type is null && string.IsNullOrWhiteSpace(key))
+        {
+            PixKeyType = null;
+            PixKey = null;
+            UpdatedAt = DateTime.UtcNow;
+            return;
+        }
+        if (type is null || string.IsNullOrWhiteSpace(key) || !Enum.IsDefined(type.Value))
+            throw new ArgumentException("PIX type and key must be provided together.");
+        var normalized = key.Trim();
+        if (normalized.Length > 200)
+            throw new ArgumentException("PIX key must not exceed 200 characters.", nameof(key));
+        PixKeyType = type;
+        PixKey = normalized;
         UpdatedAt = DateTime.UtcNow;
     }
 

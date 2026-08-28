@@ -1,3 +1,5 @@
+using CondoLink.Domain.Enums;
+
 namespace CondoLink.Domain.Entities;
 
 public sealed class ManagementCompanyEmployee
@@ -12,7 +14,8 @@ public sealed class ManagementCompanyEmployee
     public ManagementCompanyEmployee(
         Guid managementCompanyId,
         Guid userId,
-        string jobTitle)
+        string jobTitle,
+        ManagementCompanyAccessType accessType = ManagementCompanyAccessType.Person)
     {
         if (managementCompanyId == Guid.Empty)
         {
@@ -35,6 +38,7 @@ public sealed class ManagementCompanyEmployee
         ManagementCompanyId = managementCompanyId;
         UserId = userId;
         JobTitle = jobTitle.Trim();
+        AccessType = accessType;
         IsActive = true;
         CreatedAt = now;
         UpdatedAt = now;
@@ -45,9 +49,20 @@ public sealed class ManagementCompanyEmployee
     public ManagementCompany ManagementCompany { get; private set; } = null!;
     public Guid UserId { get; private set; }
     public string JobTitle { get; private set; } = null!;
+    public ManagementCompanyAccessType AccessType { get; private set; }
     public bool IsActive { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
+    public ICollection<ManagementCompanyRequestCategoryResponsible> CategoryResponsibilities { get; private set; } = [];
+
+    public void Update(string jobTitle, ManagementCompanyAccessType accessType)
+    {
+        if (string.IsNullOrWhiteSpace(jobTitle))
+            throw new ArgumentException("Job title is required.", nameof(jobTitle));
+        JobTitle = jobTitle.Trim();
+        AccessType = accessType;
+        UpdatedAt = DateTime.UtcNow;
+    }
 
     public void Activate()
     {

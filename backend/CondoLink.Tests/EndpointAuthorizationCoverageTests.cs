@@ -22,6 +22,7 @@ using CondoLink.Api.Features.Users;
 using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Api.Features.Observability;
 using CondoLink.Api.Features.Agenda;
+using CondoLink.Api.Features.ManagementCompanyRequests;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -180,6 +181,8 @@ public sealed class EndpointAuthorizationCoverageTests
         builder.Services.AddScoped<NotificationService>();
         builder.Services.AddScoped<RequestClosureService>();
         builder.Services.AddScoped<ResidentReplyService>();
+        builder.Services.AddScoped<ManagementCompanyRequestAccessService>();
+        builder.Services.AddScoped<ManagementCompanyRequestService>();
         builder.Services.AddScoped<FirstAccessService>();
         builder.Services.AddScoped<FirstAccessWhatsAppInvitationService>();
         builder.Services.AddScoped<CondominiumAssistantService>();
@@ -289,6 +292,8 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapCreateRequestMessage();
         app.MapListRequestMessages();
         app.MapRequestAttachments();
+        app.MapManagementCompanyRequests();
+        app.MapAdministratorRequests();
         app.MapWhatsAppWebhook();
         app.MapWhatsAppAdministration();
 

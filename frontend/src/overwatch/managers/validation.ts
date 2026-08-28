@@ -1,5 +1,6 @@
 import { brazilianStates, isValidCnpj, isValidCpf } from '../registration'
 import type { ManagerInput } from './types'
+import { validatePix } from '../components/PixFields'
 
 export function validateManager(input: ManagerInput) {
   if (!input.fullName.trim()) return 'Informe o nome completo.'
@@ -16,5 +17,7 @@ export function validateManager(input: ManagerInput) {
     return 'A cidade deve possuir no máximo 100 caracteres.'
   if (input.state && !brazilianStates.includes(input.state as typeof brazilianStates[number]))
     return 'Selecione um estado válido.'
+  const pixError = validatePix(input.pixKeyType ?? null, input.pixKey ?? null)
+  if (pixError) return pixError
   return null
 }

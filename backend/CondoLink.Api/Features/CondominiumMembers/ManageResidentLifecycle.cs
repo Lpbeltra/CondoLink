@@ -106,7 +106,7 @@ public static class ManageResidentLifecycle
         if (await db.UnitMemberships.CountAsync(x => x.UserId == userId, ct) > 1) return true;
         if (await (from membership in db.CondominiumMemberships
                    join role in db.CondominiumMembershipRoles on membership.Id equals role.CondominiumMembershipId
-                   where membership.UserId == userId && role.Role == CondominiumRole.Manager
+                   where membership.UserId == userId && (role.Role == CondominiumRole.Manager || role.Role == CondominiumRole.SubManager)
                    select role).AnyAsync(ct)) return true;
         return await db.Requests.AnyAsync(x => x.AuthorUserId == userId, ct)
             || await db.RequestMessages.AnyAsync(x => x.AuthorUserId == userId, ct)
@@ -132,7 +132,7 @@ public static class ManageResidentLifecycle
         if (principal.IsInRole(DependencyInjection.PlatformAdminRole)) return administratorId;
         var canManage = await db.CondominiumMemberships.AsNoTracking()
             .Where(x => x.UserId == administratorId && x.CondominiumId == condominiumId && x.IsActive && x.EndedAt == null)
-            .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x => x.Role == CondominiumRole.Manager && x.IsActive && x.RevokedAt == null),
+            .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x => (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive && x.RevokedAt == null),
                 x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(ct);
         return canManage ? administratorId : null;
     }

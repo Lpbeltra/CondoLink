@@ -43,6 +43,7 @@ public static class UpdateOverwatchManager
         if (conflict is not null) return Results.Conflict(new { message = conflict });
         user.UpdateManagerProfile(request.FullName, request.PhoneNumber, cpf, cnpj,
             request.Address, request.City, request.State);
+        user.SetPix(request.PixKeyType, request.PixKey);
         await db.SaveChangesAsync(cancellationToken);
         return Results.NoContent();
     }

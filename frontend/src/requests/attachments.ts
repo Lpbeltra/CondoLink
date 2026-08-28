@@ -1,7 +1,7 @@
 import axios from 'axios'
 import type { RequestAttachment } from './types'
 
-export const maximumAttachmentCount = 6
+export const maximumAttachmentCount = 10
 export const maximumAttachmentSize = 15 * 1024 * 1024
 
 const allowedAttachmentTypes: Record<string, readonly string[]> = {
@@ -10,6 +10,13 @@ const allowedAttachmentTypes: Record<string, readonly string[]> = {
   '.png': ['image/png'],
   '.webp': ['image/webp'],
   '.pdf': ['application/pdf'],
+  '.mp4': ['video/mp4'],
+  '.ogg': ['audio/ogg'],
+  '.opus': ['audio/ogg', 'audio/opus'],
+  '.mp3': ['audio/mpeg'],
+  '.m4a': ['audio/mp4', 'audio/x-m4a'],
+  '.aac': ['audio/aac'],
+  '.amr': ['audio/amr'],
 }
 
 export interface AttachmentSelectionResult {
@@ -26,7 +33,7 @@ export function selectAttachmentFiles(
   if (files.length > maximumAttachmentCount) {
     return {
       files: current,
-      error: 'É permitido enviar no máximo 6 arquivos.',
+      error: 'É permitido enviar no máximo 10 arquivos.',
     }
   }
 

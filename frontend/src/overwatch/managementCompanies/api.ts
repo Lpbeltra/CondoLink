@@ -5,6 +5,7 @@ import type {
   ManagementCompany,
   ManagementCompanyEmployee,
   ManagementCompanyInput,
+  ManagementCompanyCategory,
 } from './types'
 
 export async function listManagementCompanies() {
@@ -58,4 +59,33 @@ export async function updateManagementCompanyEmployeeStatus(
 
 export async function removeManagementCompanyEmployee(employeeId: string) {
   await api.delete(`/employees/${employeeId}`)
+}
+
+export async function resendManagementCompanyAccess(accessId: string) {
+  return (await api.post<{ sent: boolean }>(`/overwatch/management-company-accesses/${accessId}/resend-first-access`)).data
+}
+
+export async function resetManagementCompanyAccessPassword(accessId: string) {
+  return (await api.post<{ email: string; temporaryPassword: string; invitationSent: boolean }>(
+    `/overwatch/management-company-accesses/${accessId}/reset-password`,
+  )).data
+}
+
+export async function setManagementCompanyAccessCategories(accessId: string, categoryIds: string[]) {
+  await api.put(`/overwatch/management-company-accesses/${accessId}/categories`, { categoryIds })
+}
+
+export async function listManagementCompanyCategories(managementCompanyId: string) {
+  return (await api.get<ManagementCompanyCategory[]>(
+    `/overwatch/management-companies/${managementCompanyId}/request-categories`,
+  )).data
+}
+
+export async function setManagementCompanyCategoryStatus(
+  managementCompanyId: string, categoryId: string, isActive: boolean,
+) {
+  return (await api.patch<ManagementCompanyCategory>(
+    `/overwatch/management-companies/${managementCompanyId}/request-categories/${categoryId}/status`,
+    { isActive },
+  )).data
 }

@@ -52,7 +52,7 @@ public static class SuggestRequestStatusMessage
                 && membership.CondominiumId == target.CondominiumId
                 && membership.IsActive && membership.EndedAt == null)
             .Join(dbContext.CondominiumMembershipRoles.AsNoTracking()
-                    .Where(role => role.Role == CondominiumRole.Manager
+                    .Where(role => (role.Role == CondominiumRole.Manager || role.Role == CondominiumRole.SubManager)
                         && role.IsActive && role.RevokedAt == null),
                 membership => membership.Id,
                 role => role.CondominiumMembershipId,

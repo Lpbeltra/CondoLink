@@ -9,6 +9,7 @@ export const overwatchNavigationItems = [
   { label: 'Dashboard', path: '/overwatch', icon: DashboardRoundedIcon },
   { label: 'Condomínios', path: '/overwatch/condominiums', icon: ApartmentRoundedIcon },
   { label: 'Administradoras', path: '/overwatch/management-companies', icon: BusinessRoundedIcon },
+  { label: 'Subsíndicos', path: '/overwatch/submanagers', icon: SupervisorAccountRoundedIcon },
   { label: 'Sistema', path: '/overwatch/system', icon: MonitorHeartRoundedIcon },
   { label: 'Síndicos', path: '/overwatch/managers', icon: SupervisorAccountRoundedIcon },
   { label: 'Mensagens', path: '/overwatch/messages', icon: MessageRoundedIcon },

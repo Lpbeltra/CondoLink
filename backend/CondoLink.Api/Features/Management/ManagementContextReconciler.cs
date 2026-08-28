@@ -75,7 +75,8 @@ public static class ManagementContextReconciler
                     && membership.EndedAt == null
                     && role.IsActive
                     && role.RevokedAt == null
-                    && role.Role == CondominiumRole.Manager
+                    && (role.Role == CondominiumRole.Manager
+                        || role.Role == CondominiumRole.SubManager)
                     && condominium.IsActive
                 select new
                 {

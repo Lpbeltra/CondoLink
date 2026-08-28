@@ -24,6 +24,9 @@ public sealed class ManagementCompanyEmployeeConfiguration
             .HasColumnName("user_id").IsRequired();
         builder.Property(employee => employee.JobTitle)
             .HasColumnName("job_title").HasMaxLength(100).IsRequired();
+        builder.Property(employee => employee.AccessType)
+            .HasColumnName("access_type").HasConversion<string>()
+            .HasMaxLength(20).HasDefaultValue(Domain.Enums.ManagementCompanyAccessType.Person).IsRequired();
         builder.Property(employee => employee.IsActive)
             .HasColumnName("is_active").IsRequired();
         builder.Property(employee => employee.CreatedAt)

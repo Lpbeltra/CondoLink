@@ -129,3 +129,12 @@ public sealed class FirstAccessService(
         return false;
     }
 }
+
+public static class FirstAccessEmailPolicy
+{
+    public static bool IsDeliverable(string email) =>
+        !email.EndsWith("@example.com", StringComparison.OrdinalIgnoreCase)
+        && !email.EndsWith("@example.test", StringComparison.OrdinalIgnoreCase)
+        && !email.EndsWith("@test.com", StringComparison.OrdinalIgnoreCase)
+        && !email.EndsWith("@localhost", StringComparison.OrdinalIgnoreCase);
+}
