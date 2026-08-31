@@ -6,7 +6,7 @@ export const administratorStatusLabel: Record<Status, string> = {
   Submitted: "Nova",
   Acknowledged: "Ciente",
   InProgress: "Em processamento",
-  WaitingManager: "Aguardando gestão",
+  WaitingManager: "Em processamento",
   Completed: "Concluída",
   Cancelled: "Cancelada",
 };
@@ -22,7 +22,7 @@ export function administratorRequestStatusLabel(status: Status, type: Type) {
 export function administratorActions(status: Status) {
   return {
     canStart: false,
-    canInteract: status === "Acknowledged" || status === "InProgress" || status === "WaitingManager",
+    canInteract: status === "Acknowledged" || status === "InProgress",
     canRequestInformation: false,
     canComplete: status === "InProgress",
     readOnly:

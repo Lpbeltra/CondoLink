@@ -18,7 +18,7 @@ export function statusLabel(status: Status, type: Type) {
     Submitted: "Enviada à administradora",
     Acknowledged: "Administradora ciente",
     InProgress: "Em processamento",
-    WaitingManager: "Aguardando você",
+    WaitingManager: "Em processamento",
     Cancelled: "Cancelada",
   }[status];
 }

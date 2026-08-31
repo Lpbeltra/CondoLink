@@ -29,6 +29,7 @@ import type {
   ManagementCompanyRequestType as Type,
   PageResult,
 } from "../managementCompanyRequests/types";
+import { useManagementCompanyRequestRealtime } from "../managementCompanyRequests/realtime";
 export function ManagementCompanyRequestsPage() {
   const nav = useNavigate(),
     { activeCondominiumId, activeCondominium, condominiums } =
@@ -85,6 +86,7 @@ export function ManagementCompanyRequestsPage() {
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
   }, [load]);
+  useManagementCompanyRequestRealtime({ enabled: true, onMessage: () => void load(), onUpdated: () => void load() });
   useEffect(
     () => setPage(1),
     [activeCondominiumId, condo, from, search, status, to, type],
@@ -190,7 +192,6 @@ export function ManagementCompanyRequestsPage() {
                 "Submitted",
                 "Acknowledged",
                 "InProgress",
-                "WaitingManager",
                 "Completed",
                 "Cancelled",
               ] as Status[]
@@ -267,14 +268,7 @@ export function ManagementCompanyRequestsPage() {
                           </Typography>
                         )}
                       </Box>
-                      <Chip
-                        color={
-                          item.status === "WaitingManager"
-                            ? "warning"
-                            : "default"
-                        }
-                        label={statusLabel(item.status, item.type)}
-                      />
+                      <Chip color={item.status === "Submitted" ? "primary" : item.status === "Completed" ? "success" : item.status === "Cancelled" ? "error" : "default"} label={statusLabel(item.status, item.type)} />
                     </Box>
                     <Typography mt={1} variant="caption">
                       Atualizada em{" "}

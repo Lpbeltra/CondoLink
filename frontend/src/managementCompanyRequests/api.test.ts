@@ -3,9 +3,9 @@ import { api } from "../services/api";
 import {
   changeRequestStatus,
   createRequest,
+  completePayment,
   listAdministratorRequests,
   listRequests,
-  requestManagerInformation,
   startRequestProcessing,
 } from "./api";
 vi.mock("../services/api", () => ({ api: { get: vi.fn(), post: vi.fn() } }));
@@ -78,14 +78,10 @@ describe("management company requests api", () => {
       "/management-company-requests/r/status",
       { status: "InProgress", reason: null },
     );
-    await requestManagerInformation("r", "Envie a ata", [
-      new File(["pdf"], "ata.pdf", { type: "application/pdf" }),
-    ]);
+    await completePayment("r", [new File(["pdf"], "ata.pdf", { type: "application/pdf" })]);
     const [, body] = vi.mocked(api.post).mock.calls[1];
     expect(body).toBeInstanceOf(FormData);
-    expect(JSON.parse(String((body as FormData).get("payload")))).toMatchObject(
-      { targetStatus: "WaitingManager" },
-    );
+    expect(JSON.parse(String((body as FormData).get("payload")))).toMatchObject({});
   });
   it("starts processing through the confirmed atomic endpoint", async () => {
     vi.mocked(api.post).mockResolvedValue({ data: {} });

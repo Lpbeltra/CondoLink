@@ -7,7 +7,7 @@ import {
 } from "./presentation";
 describe("administrator request presentation", () => {
   it("uses administrator contextual labels", () =>
-    expect(administratorStatusLabel.WaitingManager).toBe("Aguardando gestão"));
+    expect(administratorStatusLabel.WaitingManager).toBe("Em processamento"));
   it("uses contextual completed labels", () =>
     expect(administratorRequestStatusLabel("Completed", "Payment")).toBe(
       "Pagamento efetuado",
@@ -22,7 +22,7 @@ describe("administrator request presentation", () => {
       canComplete: true,
     });
     expect(administratorActions("Completed").readOnly).toBe(true);
-    expect(administratorActions("WaitingManager").canInteract).toBe(true);
+    expect(administratorActions("WaitingManager").canInteract).toBe(false);
   });
   it("uses contextual completion actions", () => {
     expect(completionAction("Fine")).toBe("Marcar como processada");

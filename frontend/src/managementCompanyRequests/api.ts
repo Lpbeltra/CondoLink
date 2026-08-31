@@ -60,6 +60,15 @@ export async function interact(id: string, content: string, files: File[]) {
     form({ content, targetStatus: null }, files),
   );
 }
+export async function completePayment(
+  id: string,
+  files: File[],
+) {
+  await api.post(
+    `/management-company-requests/${id}/complete-payment`,
+    form({}, files),
+  );
+}
 export async function cancelRequest(id: string, reason: string) {
   await api.post(`/management-company-requests/${id}/cancel`, { reason });
 }
@@ -99,10 +108,11 @@ export async function listAdministratorRequests(p: {
 export async function changeRequestStatus(
   id: string,
   status: ManagementCompanyRequestStatus,
+  reason: string | null = null,
 ) {
   await api.post(`/management-company-requests/${id}/status`, {
     status,
-    reason: null,
+    reason,
   });
 }
 export async function startRequestProcessing(id: string) {
@@ -113,8 +123,5 @@ export async function requestManagerInformation(
   content: string,
   files: File[],
 ) {
-  await api.post(
-    `/management-company-requests/${id}/interactions`,
-    form({ content, targetStatus: "WaitingManager" }, files),
-  );
+  await api.post(`/management-company-requests/${id}/interactions`, form({ content, targetStatus: null }, files));
 }

@@ -10,6 +10,7 @@ function item(id: string, name: string, contentType: string): Attachment {
   return {
     id,
     messageId: null,
+    purpose: "Request",
     originalFileName: name,
     contentType,
     fileSize: 1024,

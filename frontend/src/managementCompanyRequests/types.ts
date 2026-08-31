@@ -24,6 +24,9 @@ export interface RequestItem {
   block?: string | null;
   value?: number | null;
   beneficiaryName?: string | null;
+  dueDate?: string | null;
+  thirdPartyIdentification?: string | null;
+  thirdPartyForm?: "Pix" | "Boleto" | "DepositAccount" | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -62,6 +65,7 @@ export interface CreationOptions {
 export interface Attachment {
   id: string;
   messageId: string | null;
+  purpose: "Request" | "Message" | "PaymentBoleto" | "PaymentReceipt";
   originalFileName: string;
   contentType: string;
   fileSize: number;
@@ -89,11 +93,18 @@ export interface RequestDetail extends RequestItem {
     nature: string;
     value: number;
     eventDate: string;
+    dueDate: string | null;
     isReimbursement: boolean;
     notes: string | null;
     beneficiaryName: string | null;
     pixKeyType: string | null;
     pixKey: string | null;
+    thirdPartyIdentification: string | null;
+    thirdPartyForm: "Pix" | "Boleto" | "DepositAccount" | null;
+    thirdPartyPixKey: string | null;
+    thirdPartyBank: string | null;
+    thirdPartyAgency: string | null;
+    thirdPartyAccount: string | null;
   };
   question?: { theme: string };
   messages: {

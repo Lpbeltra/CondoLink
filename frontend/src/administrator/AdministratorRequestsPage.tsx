@@ -37,6 +37,7 @@ import {
   administratorRequestStatusLabel,
   administratorStatusLabel as labels,
 } from "./presentation";
+import { useManagementCompanyRequestRealtime } from "../managementCompanyRequests/realtime";
 
 export function AdministratorRequestsPage() {
   const nav = useNavigate(),
@@ -102,6 +103,7 @@ export function AdministratorRequestsPage() {
     window.addEventListener("focus", refresh);
     return () => { window.clearInterval(interval); window.removeEventListener("focus", refresh); };
   }, [load]);
+  useManagementCompanyRequestRealtime({ enabled: true, onMessage: () => void load(), onUpdated: () => void load() });
   const filter =
     (setter: (v: string) => void) =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -244,7 +246,7 @@ export function AdministratorRequestsPage() {
                       </Typography>}
                     </div>
                     <Chip
-                      color={item.status === "Submitted" ? "primary" : item.status === "WaitingManager" ? "warning" : item.status === "Completed" ? "success" : item.status === "Cancelled" ? "error" : "default"}
+                      color={item.status === "Submitted" ? "primary" : item.status === "Completed" ? "success" : item.status === "Cancelled" ? "error" : "default"}
                       label={administratorRequestStatusLabel(
                         item.status,
                         item.type,

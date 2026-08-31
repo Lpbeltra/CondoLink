@@ -22,22 +22,48 @@ public sealed class ManagementCompanyPaymentRequest
 {
     private ManagementCompanyPaymentRequest() { }
     public ManagementCompanyPaymentRequest(Guid requestId, string nature, decimal value, DateOnly eventDate,
-        bool isReimbursement, string? notes, Guid? beneficiaryUserId, string? beneficiaryName, PixKeyType? pixKeyType, string? pixKey)
+        DateOnly? dueDate, bool isReimbursement, string? notes, Guid? beneficiaryUserId, string? beneficiaryName, PixKeyType? pixKeyType, string? pixKey,
+        string? thirdPartyIdentification, ManagementCompanyPaymentThirdPartyForm? thirdPartyForm, string? thirdPartyPixKey,
+        string? thirdPartyBank, string? thirdPartyAgency, string? thirdPartyAccount)
     {
         if (requestId==Guid.Empty) throw new ArgumentException("Request is required.");
         if (string.IsNullOrWhiteSpace(nature) || nature.Trim().Length>500) throw new ArgumentException("Payment nature is required and must not exceed 500 characters.");
         if (value < 0) throw new ArgumentException("Payment value cannot be negative.");
+        if (dueDate is null) throw new ArgumentException("Due date is required.");
         if (notes?.Trim().Length>4000) throw new ArgumentException("Notes must not exceed 4000 characters.");
         if (isReimbursement && (beneficiaryUserId is null || string.IsNullOrWhiteSpace(beneficiaryName) || pixKeyType is null || string.IsNullOrWhiteSpace(pixKey)))
             throw new ArgumentException("A reimbursement requires beneficiary and PIX snapshot.");
         if (!isReimbursement && (beneficiaryUserId is not null || beneficiaryName is not null || pixKeyType is not null || pixKey is not null))
             throw new ArgumentException("Non-reimbursement payments cannot contain beneficiary data.");
-        RequestId=requestId; Nature=nature.Trim(); Value=value; EventDate=eventDate; IsReimbursement=isReimbursement;
+        if (isReimbursement && (!string.IsNullOrWhiteSpace(thirdPartyIdentification) || thirdPartyForm is not null || !string.IsNullOrWhiteSpace(thirdPartyPixKey) || !string.IsNullOrWhiteSpace(thirdPartyBank) || !string.IsNullOrWhiteSpace(thirdPartyAgency) || !string.IsNullOrWhiteSpace(thirdPartyAccount)))
+            throw new ArgumentException("Reimbursement cannot contain third-party data.");
+        if (!isReimbursement)
+        {
+            if (string.IsNullOrWhiteSpace(thirdPartyIdentification)) throw new ArgumentException("Third-party identification is required.");
+            if (thirdPartyForm is null) throw new ArgumentException("Third-party payment form is required.");
+            if (thirdPartyForm == ManagementCompanyPaymentThirdPartyForm.Pix)
+            {
+                if (string.IsNullOrWhiteSpace(thirdPartyPixKey)) throw new ArgumentException("PIX key is required for third-party PIX payments.");
+                if (!string.IsNullOrWhiteSpace(thirdPartyBank) || !string.IsNullOrWhiteSpace(thirdPartyAgency) || !string.IsNullOrWhiteSpace(thirdPartyAccount))
+                    throw new ArgumentException("PIX payments cannot include bank account data.");
+            }
+            if (thirdPartyForm == ManagementCompanyPaymentThirdPartyForm.Boleto)
+            {
+                if (!string.IsNullOrWhiteSpace(thirdPartyPixKey)) throw new ArgumentException("Boleto payments cannot include PIX data.");
+                if (!string.IsNullOrWhiteSpace(thirdPartyBank) || !string.IsNullOrWhiteSpace(thirdPartyAgency) || !string.IsNullOrWhiteSpace(thirdPartyAccount))
+                    throw new ArgumentException("Boleto payments cannot include bank account data.");
+            }
+            if (thirdPartyForm == ManagementCompanyPaymentThirdPartyForm.DepositAccount && (string.IsNullOrWhiteSpace(thirdPartyBank) || string.IsNullOrWhiteSpace(thirdPartyAgency) || string.IsNullOrWhiteSpace(thirdPartyAccount)))
+                throw new ArgumentException("Bank, branch and account are required for deposit account payments.");
+        }
+        RequestId=requestId; Nature=nature.Trim(); Value=value; EventDate=eventDate; DueDate=dueDate; IsReimbursement=isReimbursement;
         Notes=Normalize(notes); BeneficiaryUserId=beneficiaryUserId; BeneficiaryName=Normalize(beneficiaryName); PixKeyType=pixKeyType; PixKey=Normalize(pixKey);
+        ThirdPartyIdentification=Normalize(thirdPartyIdentification); ThirdPartyForm=thirdPartyForm; ThirdPartyPixKey=Normalize(thirdPartyPixKey); ThirdPartyBank=Normalize(thirdPartyBank); ThirdPartyAgency=Normalize(thirdPartyAgency); ThirdPartyAccount=Normalize(thirdPartyAccount);
     }
     public Guid RequestId { get;private set;} public string Nature {get;private set;}=null!; public decimal Value {get;private set;}
-    public DateOnly EventDate {get;private set;} public bool IsReimbursement {get;private set;} public string? Notes {get;private set;}
+    public DateOnly EventDate {get;private set;} public DateOnly? DueDate {get;private set;} public bool IsReimbursement {get;private set;} public string? Notes {get;private set;}
     public Guid? BeneficiaryUserId {get;private set;} public string? BeneficiaryName {get;private set;} public PixKeyType? PixKeyType {get;private set;} public string? PixKey {get;private set;}
+    public string? ThirdPartyIdentification {get;private set;} public ManagementCompanyPaymentThirdPartyForm? ThirdPartyForm {get;private set;} public string? ThirdPartyPixKey {get;private set;} public string? ThirdPartyBank {get;private set;} public string? ThirdPartyAgency {get;private set;} public string? ThirdPartyAccount {get;private set;}
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value)?null:value.Trim();
 }
 

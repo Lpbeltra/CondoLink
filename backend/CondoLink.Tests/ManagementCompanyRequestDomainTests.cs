@@ -50,9 +50,18 @@ public sealed class ManagementCompanyRequestDomainTests
         var fine=new ManagementCompanyFineRequest(id,Guid.NewGuid(),"Ruído","Ocorrência",new DateOnly(2026,8,28),850.37m,false);
         Assert.Equal(850.37m,fine.Value);
         Assert.Throws<ArgumentException>(()=>new ManagementCompanyFineRequest(id,Guid.NewGuid(),"Ruído","Ocorrência",DateOnly.FromDateTime(DateTime.UtcNow),null,false));
-        var beneficiary=Guid.NewGuid();var payment=new ManagementCompanyPaymentRequest(id,"Reembolso",123.45m,new DateOnly(2026,8,28),true,null,beneficiary,"Maria",PixKeyType.Email,"maria@example.com");
+        var beneficiary=Guid.NewGuid();var payment=new ManagementCompanyPaymentRequest(id,"Reembolso",123.45m,new DateOnly(2026,8,28),new DateOnly(2026,9,1),true,null,beneficiary,"Maria",PixKeyType.Email,"maria@example.com",null,null,null,null,null,null);
         Assert.Equal("maria@example.com",payment.PixKey);Assert.Equal(beneficiary,payment.BeneficiaryUserId);
-        Assert.Throws<ArgumentException>(()=>new ManagementCompanyPaymentRequest(id,"Reembolso",10m,DateOnly.FromDateTime(DateTime.UtcNow),true,null,null,null,null,null));
+        Assert.Throws<ArgumentException>(()=>new ManagementCompanyPaymentRequest(id,"Reembolso",10m,DateOnly.FromDateTime(DateTime.UtcNow),new DateOnly(2026,9,1),true,null,null,null,null,null,null,null,null,null,null,null));
+    }
+
+    [Fact]
+    public void Third_party_payment_requires_structured_fields()
+    {
+        var id=Guid.NewGuid();
+        Assert.Throws<ArgumentException>(()=>new ManagementCompanyPaymentRequest(id,"Terceiro",10m,new DateOnly(2026,8,28),new DateOnly(2026,9,1),false,null,null,null,null,null,null,ManagementCompanyPaymentThirdPartyForm.Pix,null,null,null,null));
+        var payment=new ManagementCompanyPaymentRequest(id,"Terceiro",10m,new DateOnly(2026,8,28),new DateOnly(2026,9,1),false,null,null,null,null,null,"Fornecedor XPTO",ManagementCompanyPaymentThirdPartyForm.DepositAccount,null,"Banco X","0001","12345-6");
+        Assert.Equal("Fornecedor XPTO",payment.ThirdPartyIdentification);
     }
 
     [Fact]

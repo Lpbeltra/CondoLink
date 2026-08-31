@@ -7,5 +7,5 @@ describe("management company request presentation", () => {
     expect(statusLabel("Completed", "GeneralQuestion")).toBe("Respondida");
   });
   it("marks management responsibility", () =>
-    expect(statusLabel("WaitingManager", "Fine")).toBe("Aguardando você"));
+    expect(statusLabel("WaitingManager", "Fine")).toBe("Em processamento"));
 });

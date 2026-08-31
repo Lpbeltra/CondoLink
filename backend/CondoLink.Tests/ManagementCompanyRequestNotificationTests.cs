@@ -123,20 +123,19 @@ public sealed class ManagementCompanyRequestNotificationTests : IAsyncLifetime
         await host.ClientFor(accessA).PostAsync($"/management-company-requests/{requestId}/start-processing", null);
         var status = await host.ClientFor(accessA)
             .PostAsJsonAsync($"/management-company-requests/{requestId}/status", new { status = "WaitingManager" });
-        Assert.Equal(HttpStatusCode.NoContent, status.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, status.StatusCode);
 
         await host.WithDbAsync(async db =>
         {
+            var request = await db.ManagementCompanyRequests.SingleAsync(x => x.Id == requestId);
+            Assert.Equal(ManagementCompanyRequestStatus.InProgress, request.Status);
             var recipients = await db.Notifications
                 .Where(n => n.ManagementCompanyRequestId == requestId
                     && n.Type == NotificationType.ManagementCompanyRequestInfoRequested)
                 .Select(n => n.RecipientUserId).ToListAsync();
-            Assert.Equal(2, recipients.Count);
-            Assert.Contains(manager, recipients);
-            Assert.Contains(submanager, recipients);
-            Assert.DoesNotContain(platformAdmin, recipients);
+            Assert.Empty(recipients);
         });
-        Assert.Equal(2, email.Messages.Count(m => m.Subject.Contains("informação")));
+        Assert.Empty(email.Messages.Where(m => m.Subject.Contains("informa")));
     }
 
     [Fact]

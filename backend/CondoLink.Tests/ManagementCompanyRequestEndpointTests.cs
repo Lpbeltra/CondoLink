@@ -97,7 +97,7 @@ public sealed class ManagementCompanyRequestEndpointTests : IAsyncLifetime
     [Fact] public async Task Multipart_interaction_is_atomic_and_attachment_download_is_scoped()
     {
         await host.ClientFor(companyUser).PostAsync($"/management-company-requests/{requestId}/start-processing",null);
-        using(var ask=Form(new{content="Envie a ata",targetStatus="WaitingManager"}))Assert.Equal(HttpStatusCode.OK,(await host.ClientFor(companyUser).PostAsync($"/management-company-requests/{requestId}/interactions",ask)).StatusCode);
+        using(var ask=Form(new{content="Envie a ata",targetStatus=(string?)null}))Assert.Equal(HttpStatusCode.OK,(await host.ClientFor(companyUser).PostAsync($"/management-company-requests/{requestId}/interactions",ask)).StatusCode);
         using(var reply=Form(new{content="Segue a ata",targetStatus=(string?)null},("ata.pdf","application/pdf",Encoding.UTF8.GetBytes("secret"))))Assert.Equal(HttpStatusCode.OK,(await host.ClientFor(manager).PostAsync($"/management-company-requests/{requestId}/interactions",reply)).StatusCode);
         var attachment=await host.WithDbAsync(async db=>{Assert.Equal(ManagementCompanyRequestStatus.InProgress,(await db.ManagementCompanyRequests.SingleAsync(x=>x.Id==requestId)).Status);var message=await db.ManagementCompanyRequestMessages.SingleAsync(x=>x.Content=="Segue a ata");return await db.ManagementCompanyRequestAttachments.SingleAsync(x=>x.MessageId==message.Id);});
         var denied=await host.ClientFor(outsider).GetAsync($"/management-company-request-attachments/{attachment.Id}/content");Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);Assert.DoesNotContain("ata.pdf",await denied.Content.ReadAsStringAsync());
@@ -276,7 +276,7 @@ public sealed class ManagementCompanyRequestEndpointTests : IAsyncLifetime
         var create=await host.ClientFor(manager).PostAsJsonAsync("/management-company-requests/payments",new
         {
             condominiumId=condoId,categoryId=paymentCategoryId,nature="Reembolso de material",
-            value=150.00m,eventDate=DateOnly.FromDateTime(DateTime.UtcNow),isReimbursement=true,
+            value=150.00m,eventDate=DateOnly.FromDateTime(DateTime.UtcNow),dueDate=DateOnly.FromDateTime(DateTime.UtcNow.AddDays(15)),isReimbursement=true,
             beneficiaryUserId=manager,notes=(string?)null,
         });
         Assert.Equal(HttpStatusCode.Created,create.StatusCode);

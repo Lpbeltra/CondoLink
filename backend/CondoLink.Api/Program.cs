@@ -28,6 +28,7 @@ using CondoLink.Api.Features.Observability;
 using CondoLink.Api.Features.OperationalMessages;
 using CondoLink.Api.Features.Agenda;
 using CondoLink.Api.Features.ManagementCompanyRequests;
+using Microsoft.AspNetCore.SignalR;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -48,6 +49,8 @@ builder.Services.AddScoped<ManagementCompanyRequestAccessService>();
 builder.Services.AddScoped<ManagementCompanyRequestService>();
 builder.Services.AddScoped<ManagementCompanyRequestIdentifierService>();
 builder.Services.AddScoped<ManagementCompanyRequestNotificationService>();
+builder.Services.AddScoped<ManagementCompanyRequestRealtimeService>();
+builder.Services.AddSignalR();
 builder.Services.AddSingleton<OperationalTelemetry>();
 builder.Services.AddSingleton<ApiRequestMetrics>();
 builder.Services.Configure<CondominiumAssistantOptions>(
@@ -388,6 +391,7 @@ app.MapCreateAdministrativeRequestUpdate();
 app.MapRequestAttachments();
 app.MapManagementCompanyRequests();
 app.MapAdministratorRequests();
+app.MapHub<ManagementCompanyRequestRealtimeHub>("/management-company-requests/realtime").RequireAuthorization();
 
 // External integrations
 app.MapWhatsAppWebhook();
