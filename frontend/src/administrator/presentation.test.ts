@@ -14,7 +14,7 @@ describe("administrator request presentation", () => {
     ));
   it("derives actions from the state machine", () => {
     expect(administratorActions("Acknowledged")).toMatchObject({
-      canStart: true,
+      canStart: false,
       canComplete: false,
     });
     expect(administratorActions("InProgress")).toMatchObject({
@@ -22,7 +22,7 @@ describe("administrator request presentation", () => {
       canComplete: true,
     });
     expect(administratorActions("Completed").readOnly).toBe(true);
-    expect(administratorActions("WaitingManager").canInteract).toBe(false);
+    expect(administratorActions("WaitingManager").canInteract).toBe(true);
   });
   it("uses contextual completion actions", () => {
     expect(completionAction("Fine")).toBe("Marcar como processada");

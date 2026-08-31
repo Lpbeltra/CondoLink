@@ -55,10 +55,8 @@ describe("Sidebar multi-role navigation", () => {
   it("shows only the administrator queue for a pure administrator access", () => {
     mockContexts({ administrator: { managementCompanyId: "mc1" } });
     renderSidebar();
-    expect(
-      screen.getByText("Solicitações da administradora"),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("Solicitações")).not.toBeInTheDocument();
+    expect(document.querySelector('a[href="/administrator/requests"]')).toBeInTheDocument();
+    expect(document.querySelector('a[href="/management/administrator"]')).not.toBeInTheDocument();
     expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
   });
 
@@ -71,10 +69,8 @@ describe("Sidebar multi-role navigation", () => {
     });
     renderSidebar();
     expect(screen.getByText("Dashboard")).toBeInTheDocument();
-    expect(screen.getByText("Solicitações")).toBeInTheDocument();
-    expect(
-      screen.getByText("Solicitações da administradora"),
-    ).toBeInTheDocument();
+    expect(document.querySelector('a[href="/administrator/requests"]')).toBeInTheDocument();
+    expect(document.querySelector('a[href="/management/administrator"]')).toBeInTheDocument();
   });
 
   it("hides the administrator item for a pure management user", () => {
@@ -86,8 +82,6 @@ describe("Sidebar multi-role navigation", () => {
     });
     renderSidebar();
     expect(screen.getByText("Dashboard")).toBeInTheDocument();
-    expect(
-      screen.queryByText("Solicitações da administradora"),
-    ).not.toBeInTheDocument();
+    expect(document.querySelector('a[href="/administrator/requests"]')).not.toBeInTheDocument();
   });
 });

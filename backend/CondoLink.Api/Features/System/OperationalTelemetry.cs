@@ -44,12 +44,21 @@ public sealed class OperationalTelemetry(IServiceScopeFactory scopes, TimeProvid
 
 public sealed class OpenAiTelemetryHandler(IServiceScopeFactory scopes, TimeProvider clock, string operation) : DelegatingHandler
 {
+    public static readonly HttpRequestOptionsKey<CancellationToken> CallerCancellationToken =
+        new("CondoLink.OpenAI.CallerCancellationToken");
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         var started = Stopwatch.GetTimestamp(); HttpResponseMessage? response = null; string? error = null;
         try { response = await base.SendAsync(request, ct); if (!response.IsSuccessStatusCode) error = $"http_{(int)response.StatusCode}"; return response; }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { error = "timeout"; throw; }
+        catch (OperationCanceledException)
+        {
+            error = request.Options.TryGetValue(CallerCancellationToken, out var callerToken)
+                && callerToken.IsCancellationRequested ? "cancelled" : "timeout";
+            throw;
+        }
         catch (HttpRequestException) { error = "network"; throw; }
+        catch (Exception) { error = "provider_error"; throw; }
         finally
         {
             try

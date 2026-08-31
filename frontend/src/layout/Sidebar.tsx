@@ -38,7 +38,7 @@ export function Sidebar() {
     navigationItems = [];
   if (administrator)
     navigationItems.push({
-      label: "Solicitações da administradora",
+      label: "Solicitações",
       path: "/administrator/requests",
       icon: BusinessRoundedIcon,
     });

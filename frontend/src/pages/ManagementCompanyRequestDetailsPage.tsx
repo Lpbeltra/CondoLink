@@ -33,7 +33,10 @@ import type { RequestDetail } from "../managementCompanyRequests/types";
 import { AttachmentsPreview } from "../managementCompanyRequests/AttachmentsPreview";
 import { TransientFeedback } from "../components/TransientFeedback";
 import { selectAttachmentFiles } from "../requests/attachments";
+import { useAuth } from "../auth/AuthContext";
+import { LocalAttachmentsPreview } from "../managementCompanyRequests/LocalAttachmentsPreview";
 export function ManagementCompanyRequestDetailsPage() {
+  const { user } = useAuth();
   const { id } = useParams();
   const nav = useNavigate();
   const location = useLocation();
@@ -86,7 +89,7 @@ export function ManagementCompanyRequestDetailsPage() {
     try {
       await cancelRequest(id, reason);
       setCancelOpen(false);
-      await load();
+      nav("/management/administrator");
     } catch {
       setError("Não foi possível cancelar a solicitação.");
       await load();
@@ -201,8 +204,7 @@ export function ManagementCompanyRequestDetailsPage() {
               Timeline
             </Typography>
             <Stack spacing={2}>
-              {[
-                ...data.history.map((h) => ({
+              {data.history.map((h) => ({
                   id: h.id,
                   at: h.createdAt,
                   kind: "system",
@@ -210,16 +212,7 @@ export function ManagementCompanyRequestDetailsPage() {
                   text:
                     h.reason ||
                     `Status alterado para ${statusLabel(h.newStatus, data.type)}`,
-                })),
-                ...data.messages.map((m) => ({
-                  id: m.id,
-                  at: m.createdAt,
-                  kind: "message",
-                  text: m.content,
-                  author: `${m.authorName} · ${m.authorRole}`,
-                })),
-              ]
-                .sort((a, b) => a.at.localeCompare(b.at))
+                }))
                 .map((item) => (
                   <Box key={item.id}>
                     <Typography variant="caption" color="text.secondary">
@@ -235,6 +228,22 @@ export function ManagementCompanyRequestDetailsPage() {
         </Card>
         <Card variant="outlined">
           <CardContent>
+            <Typography variant="h2" mb={2}>Conversa</Typography>
+            <Stack spacing={1.5} sx={{ maxHeight: 440, overflowY: "auto", p: 1.5, border: 1, borderColor: "divider", borderRadius: 2 }}>
+              {[...data.messages].sort((a,b) => a.createdAt.localeCompare(b.createdAt)).map(m => {
+                const mine = m.authorUserId === user?.id;
+                return <Box key={m.id} alignSelf={mine ? "flex-end" : "flex-start"} maxWidth="80%"
+                  sx={{ bgcolor: mine ? "primary.main" : "action.hover", color: mine ? "primary.contrastText" : "text.primary", px: 2, py: 1, borderRadius: 2 }}>
+                  <Typography variant="caption">{m.authorName} · {m.authorRole} · {new Date(m.createdAt).toLocaleString("pt-BR")}</Typography>
+                  <Typography>{m.content}</Typography>
+                  <AttachmentsPreview items={data.attachments.filter(a => a.messageId === m.id)} />
+                </Box>;
+              })}
+            </Stack>
+          </CardContent>
+        </Card>
+        <Card variant="outlined">
+          <CardContent>
             <Typography variant="h2" mb={2}>
               Anexos
             </Typography>
@@ -245,7 +254,7 @@ export function ManagementCompanyRequestDetailsPage() {
           <Card variant="outlined">
             <CardContent>
               <Stack spacing={1.5}>
-                <Typography variant="h2">Responder à administradora</Typography>
+                <Typography variant="h2">Conversa com a administradora</Typography>
                 <TextField
                   multiline
                   minRows={3}
@@ -269,6 +278,7 @@ export function ManagementCompanyRequestDetailsPage() {
                     }}
                   />
                 </Button>
+                <LocalAttachmentsPreview files={files} onRemove={index => setFiles(current => current.filter((_, i) => i !== index))} />
                 <Box display="flex" justifyContent="space-between">
                   <Button color="error" onClick={() => setCancelOpen(true)}>
                     Cancelar solicitação
@@ -278,7 +288,7 @@ export function ManagementCompanyRequestDetailsPage() {
                     disabled={sending || !text.trim()}
                     onClick={() => void reply()}
                   >
-                    {sending ? "Enviando…" : "Enviar resposta"}
+                    {sending ? "Enviando…" : "Enviar"}
                   </Button>
                 </Box>
               </Stack>

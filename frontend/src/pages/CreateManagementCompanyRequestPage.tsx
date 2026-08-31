@@ -25,6 +25,8 @@ import type {
   ManagementCompanyRequestType as Type,
 } from "../managementCompanyRequests/types";
 import { selectAttachmentFiles } from "../requests/attachments";
+import { applyCurrencyShortcut, CurrencyField } from "../components/CurrencyField";
+import { LocalAttachmentsPreview } from "../managementCompanyRequests/LocalAttachmentsPreview";
 export function CreateManagementCompanyRequestPage() {
   const nav = useNavigate();
   const { activeCondominiumId, condominiums } = useManagementContext();
@@ -33,6 +35,7 @@ export function CreateManagementCompanyRequestPage() {
   const [type, setType] = useState<Type>();
   const [fields, setFields] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<File[]>([]);
+  const [moneyValue, setMoneyValue] = useState<number | null>(null);
   const [undefinedValue, setUndefinedValue] = useState(false);
   const [reimbursement, setReimbursement] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -51,7 +54,7 @@ export function CreateManagementCompanyRequestPage() {
   const set = (k: string, v: string) => setFields((x) => ({ ...x, [k]: v }));
   async function submit() {
     if (!type || !condo) return;
-    const required=type==="Fine"?!fields.unitId?"Selecione uma unidade.":!fields.nature?.trim()?"Informe a natureza da infração.":!fields.description?.trim()?"Informe a descrição.":!fields.date?"Informe a data da ocorrência.":!undefinedValue&&(!fields.value||Number(fields.value)<0)?"Informe o valor ou marque “Valor ainda não definido”.":"":type==="Payment"?!fields.nature?.trim()?"Informe a natureza da despesa.":!fields.date?"Informe a data da despesa.":!fields.value||Number(fields.value)<0?"Informe um valor válido.":reimbursement&&!fields.beneficiaryId?"Selecione um beneficiário para o reembolso.":"":!fields.theme?.trim()?"Informe o tema.":!fields.message?.trim()?"Informe a mensagem.":fields.message.length>2000?"A mensagem pode ter no máximo 2000 caracteres.":"";
+    const required=type==="Fine"?!fields.unitId?"Selecione uma unidade.":!fields.nature?.trim()?"Informe a natureza da infração.":!fields.description?.trim()?"Informe a descrição.":!fields.date?"Informe a data da ocorrência.":!undefinedValue&&moneyValue===null?"Informe o valor ou marque “Valor ainda não definido”.":"":type==="Payment"?!fields.nature?.trim()?"Informe a natureza da despesa.":!fields.date?"Informe a data da despesa.":moneyValue===null?"Informe um valor válido.":reimbursement&&!fields.beneficiaryId?"Selecione um beneficiário para o reembolso.":"":!fields.theme?.trim()?"Informe o tema.":!fields.message?.trim()?"Informe a mensagem.":fields.message.length>2000?"A mensagem pode ter no máximo 2000 caracteres.":"";
     if(required){setError(required);return}
     setSaving(true);
     setError("");
@@ -65,14 +68,14 @@ export function CreateManagementCompanyRequestPage() {
           nature: fields.nature,
           description: fields.description,
           occurrenceDate: fields.date,
-          value: undefinedValue ? null : Number(fields.value),
+          value: undefinedValue ? null : moneyValue,
           valueNotDefined: undefinedValue,
         };
       if (type === "Payment")
         payload = {
           ...payload,
           nature: fields.nature,
-          value: Number(fields.value),
+          value: moneyValue,
           eventDate: fields.date,
           isReimbursement: reimbursement,
           beneficiaryUserId: reimbursement ? fields.beneficiaryId : null,
@@ -205,14 +208,17 @@ export function CreateManagementCompanyRequestPage() {
                   />
                 </RadioGroup>
                 {!undefinedValue && (
-                  <TextField
-                    required
-                    type="number"
-                    inputProps={{ step: ".01", min: 0 }}
-                    label="Valor da multa"
-                    value={fields.value ?? ""}
-                    onChange={(e) => set("value", e.target.value)}
-                  />
+                  <>
+                    <CurrencyField required label="Valor da multa" value={moneyValue} onValueChange={setMoneyValue} />
+                    <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                      {[100, 50, 25, -25, -50, -100].map(amount => (
+                        <Button type="button" size="small" variant="outlined" key={amount}
+                          onClick={() => setMoneyValue(applyCurrencyShortcut(moneyValue, amount))}>
+                          {amount > 0 ? "+" : ""}{amount}
+                        </Button>
+                      ))}
+                    </Stack>
+                  </>
                 )}
               </>
             )}
@@ -224,14 +230,7 @@ export function CreateManagementCompanyRequestPage() {
                   value={fields.nature ?? ""}
                   onChange={(e) => set("nature", e.target.value)}
                 />
-                <TextField
-                  required
-                  type="number"
-                  inputProps={{ step: ".01", min: 0 }}
-                  label="Valor"
-                  value={fields.value ?? ""}
-                  onChange={(e) => set("value", e.target.value)}
-                />
+                <CurrencyField required label="Valor" value={moneyValue} onValueChange={setMoneyValue} />
                 <TextField
                   required
                   type="date"
@@ -317,11 +316,7 @@ export function CreateManagementCompanyRequestPage() {
                 onChange={(e) => {const result=selectAttachmentFiles(files,Array.from(e.target.files??[]));setFiles(result.files);setError(result.error??"")}}
               />
             </Button>
-            {files.length > 0 && (
-              <Typography variant="body2">
-                {files.length} arquivo(s) selecionado(s)
-              </Typography>
-            )}
+            <LocalAttachmentsPreview files={files} onRemove={index => setFiles(current => current.filter((_, i) => i !== index))} />
             <Stack direction="row" justifyContent="space-between">
               <Button onClick={() => (type ? setType(undefined) : nav(-1))}>
                 Voltar

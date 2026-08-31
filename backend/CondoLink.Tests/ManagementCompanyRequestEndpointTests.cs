@@ -39,6 +39,13 @@ public sealed class ManagementCompanyRequestEndpointTests : IAsyncLifetime
         foreach(var user in new[]{outsider,wrongUser,inactiveUser})Assert.Equal(HttpStatusCode.Forbidden,(await host.ClientFor(user).GetAsync($"/management-company-requests/{requestId}")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,(await host.ClientFor(companyUser).GetAsync($"/management-company-requests/{otherId}")).StatusCode);
     }
+    [Fact] public async Task Detail_projects_manager_and_submanager_with_their_actual_roles()
+    {
+        using var json=JsonDocument.Parse(await host.ClientFor(companyUser).GetStringAsync($"/management-company-requests/{requestId}"));
+        var managers=json.RootElement.GetProperty("condominium").GetProperty("managers").EnumerateArray().ToArray();
+        Assert.Contains(managers,x=>x.GetProperty("id").GetGuid()==manager&&x.GetProperty("role").GetInt32()==(int)CondominiumRole.Manager);
+        Assert.Contains(managers,x=>x.GetProperty("id").GetGuid()==submanager&&x.GetProperty("role").GetInt32()==(int)CondominiumRole.SubManager);
+    }
     [Fact] public async Task IDOR_is_enforced_before_mutating_or_returning_metadata()
     {
         foreach(var user in new[]{outsider,wrongUser,inactiveUser})
@@ -54,7 +61,7 @@ public sealed class ManagementCompanyRequestEndpointTests : IAsyncLifetime
     }
     [Fact] public async Task Multipart_interaction_is_atomic_and_attachment_download_is_scoped()
     {
-        await host.ClientFor(companyUser).GetAsync($"/management-company-requests/{requestId}");
+        await host.ClientFor(companyUser).PostAsync($"/management-company-requests/{requestId}/start-processing",null);
         using(var ask=Form(new{content="Envie a ata",targetStatus="WaitingManager"}))Assert.Equal(HttpStatusCode.OK,(await host.ClientFor(companyUser).PostAsync($"/management-company-requests/{requestId}/interactions",ask)).StatusCode);
         using(var reply=Form(new{content="Segue a ata",targetStatus=(string?)null},("ata.pdf","application/pdf",Encoding.UTF8.GetBytes("secret"))))Assert.Equal(HttpStatusCode.OK,(await host.ClientFor(manager).PostAsync($"/management-company-requests/{requestId}/interactions",reply)).StatusCode);
         var attachment=await host.WithDbAsync(async db=>{Assert.Equal(ManagementCompanyRequestStatus.InProgress,(await db.ManagementCompanyRequests.SingleAsync(x=>x.Id==requestId)).Status);var message=await db.ManagementCompanyRequestMessages.SingleAsync(x=>x.Content=="Segue a ata");return await db.ManagementCompanyRequestAttachments.SingleAsync(x=>x.MessageId==message.Id);});
@@ -99,13 +106,23 @@ public sealed class ManagementCompanyRequestEndpointTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK,(await client.GetAsync("/administrator/context")).StatusCode);
         var list=await client.GetAsync("/administrator/requests");Assert.Equal(HttpStatusCode.OK,list.StatusCode);var json=await list.Content.ReadAsStringAsync();Assert.Contains(requestId.ToString(),json,StringComparison.OrdinalIgnoreCase);Assert.DoesNotContain(otherId.ToString(),json,StringComparison.OrdinalIgnoreCase);
         await host.WithDbAsync(async db=>Assert.Equal(ManagementCompanyRequestStatus.Submitted,(await db.ManagementCompanyRequests.SingleAsync(x=>x.Id==requestId)).Status));
-        Assert.Equal(HttpStatusCode.OK,(await client.GetAsync($"/management-company-requests/{requestId}")).StatusCode);
-        await host.WithDbAsync(async db=>{Assert.Equal(ManagementCompanyRequestStatus.Acknowledged,(await db.ManagementCompanyRequests.SingleAsync(x=>x.Id==requestId)).Status);Assert.Single(await db.ManagementCompanyRequestHistories.Where(x=>x.RequestId==requestId&&x.EventType==ManagementCompanyRequestEventType.Acknowledged).ToListAsync());});
+        Assert.Equal(HttpStatusCode.NoContent,(await client.PostAsync($"/management-company-requests/{requestId}/start-processing",null)).StatusCode);
+        await host.WithDbAsync(async db=>{Assert.Equal(ManagementCompanyRequestStatus.InProgress,(await db.ManagementCompanyRequests.SingleAsync(x=>x.Id==requestId)).Status);Assert.Single(await db.ManagementCompanyRequestHistories.Where(x=>x.RequestId==requestId&&x.EventType==ManagementCompanyRequestEventType.Acknowledged).ToListAsync());});
         Assert.Equal(HttpStatusCode.OK,(await client.GetAsync($"/management-company-requests/{requestId}")).StatusCode);
         await host.WithDbAsync(async db=>Assert.Single(await db.ManagementCompanyRequestHistories.Where(x=>x.RequestId==requestId&&x.EventType==ManagementCompanyRequestEventType.Acknowledged).ToListAsync()));
         var wrongCategoryList=await host.ClientFor(wrongUser).GetAsync("/administrator/requests");Assert.Equal(HttpStatusCode.OK,wrongCategoryList.StatusCode);Assert.DoesNotContain(requestId.ToString(),await wrongCategoryList.Content.ReadAsStringAsync(),StringComparison.OrdinalIgnoreCase);
         Assert.Equal(HttpStatusCode.Forbidden,(await host.ClientFor(inactiveUser).GetAsync("/administrator/requests")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden,(await client.GetAsync($"/administrator/requests?categoryId={Guid.NewGuid()}")).StatusCode);
+    }
+    [Fact] public async Task Historical_administrator_can_cancel_eligible_request_but_wrong_category_cannot()
+    {
+        var create=await host.ClientFor(manager).PostAsJsonAsync("/management-company-requests/questions",new{condominiumId=condoId,categoryId,theme="Cancelamento",message="Cancelar com segurança"});
+        Assert.Equal(HttpStatusCode.Created,create.StatusCode);
+        var id=Guid.Parse(create.Headers.Location!.ToString().Split('/')[^1]);
+        Assert.Equal(HttpStatusCode.Forbidden,(await host.ClientFor(wrongUser).PostAsJsonAsync($"/management-company-requests/{id}/cancel",new{reason="sem categoria"})).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent,(await host.ClientFor(companyUser).PostAsJsonAsync($"/management-company-requests/{id}/cancel",new{reason="solicitação duplicada"})).StatusCode);
+        await host.WithDbAsync(async db=>Assert.Equal(ManagementCompanyRequestStatus.Cancelled,(await db.ManagementCompanyRequests.SingleAsync(x=>x.Id==id)).Status));
+        Assert.Equal(HttpStatusCode.Conflict,(await host.ClientFor(companyUser).PostAsJsonAsync($"/management-company-requests/{id}/cancel",new{reason="retry"})).StatusCode);
     }
     [Fact] public async Task Historical_access_survives_administrator_company_swap_and_new_company_never_inherits()
     {
@@ -152,7 +169,7 @@ public sealed class ManagementCompanyRequestEndpointTests : IAsyncLifetime
             var updated=await db.ManagementCompanyRequests.SingleAsync(r=>r.Id==requestSwapId);
             Assert.Equal(companyX,updated.ManagementCompanyId);
             Assert.Equal(categoryXId,updated.CategoryId);
-            Assert.Equal(ManagementCompanyRequestStatus.Acknowledged,updated.Status);
+            Assert.Equal(ManagementCompanyRequestStatus.Submitted,updated.Status);
         });
     }
     // Lote 6 — item 3/25: papéis ainda não cobertos — SubManager de outro condomínio,

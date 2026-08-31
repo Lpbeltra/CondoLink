@@ -120,7 +120,7 @@ public sealed class ManagementCompanyRequestNotificationTests : IAsyncLifetime
     public async Task Information_requested_notifies_manager_and_submanager_but_not_platform_admin()
     {
         var requestId = await CreateFineAsync(manager, fineCategoryId);
-        await host.ClientFor(accessA).GetAsync($"/management-company-requests/{requestId}"); // acknowledges
+        await host.ClientFor(accessA).PostAsync($"/management-company-requests/{requestId}/start-processing", null);
         var status = await host.ClientFor(accessA)
             .PostAsJsonAsync($"/management-company-requests/{requestId}/status", new { status = "WaitingManager" });
         Assert.Equal(HttpStatusCode.NoContent, status.StatusCode);
@@ -143,7 +143,7 @@ public sealed class ManagementCompanyRequestNotificationTests : IAsyncLifetime
     public async Task Manager_reply_notifies_the_currently_responsible_access_not_the_previous_one()
     {
         var requestId = await CreateQuestionAsync(manager, reassignCategoryId);
-        await host.ClientFor(accessJoao).GetAsync($"/management-company-requests/{requestId}");
+        await host.ClientFor(accessJoao).PostAsync($"/management-company-requests/{requestId}/start-processing", null);
         await host.ClientFor(accessJoao)
             .PostAsJsonAsync($"/management-company-requests/{requestId}/status", new { status = "WaitingManager" });
 
@@ -181,9 +181,7 @@ public sealed class ManagementCompanyRequestNotificationTests : IAsyncLifetime
     public async Task Completed_notifies_manager_and_submanager_with_contextual_label()
     {
         var requestId = await CreateFineAsync(manager, fineCategoryId);
-        await host.ClientFor(accessA).GetAsync($"/management-company-requests/{requestId}");
-        await host.ClientFor(accessA)
-            .PostAsJsonAsync($"/management-company-requests/{requestId}/status", new { status = "InProgress" });
+        await host.ClientFor(accessA).PostAsync($"/management-company-requests/{requestId}/start-processing", null);
         email.Messages.Clear();
 
         var completed = await host.ClientFor(accessA)

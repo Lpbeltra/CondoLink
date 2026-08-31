@@ -1790,3 +1790,17 @@ regressões):
 administradora está vinculada mas nenhuma categoria tem responsável ativo, em vez de uma
 área em branco sob o título — a regra de negócio (bloquear a criação nesse caso) não mudou,
 só deixou de parecer uma tela quebrada.
+
+## Refinamento pós-Lote 6 — fluxo Gestão ↔ Administradora
+
+O detalhe deixou de produzir ciência por navegação. A fila da Administradora confirma a intenção e o endpoint `start-processing` executa `Submitted → Acknowledged → InProgress` com o token de concorrência existente. Mensagens e anexos usam `ManagementCompanyRequestMessage` como chat bilateral, em ordem cronológica, e ficam fora da projeção visual da timeline de eventos de negócio.
+
+`WaitingManager` passou a ser uma ação explícita, independente de mensagem. Mensagem comum da Administradora não muda estado; mensagem da Gestão durante `WaitingManager` persiste mensagem e retorno a `InProgress` na mesma transação. A Administradora também pode cancelar estados não terminais, usando exatamente a autorização histórica de empresa e categoria aplicada ao detalhe.
+
+Cada mensagem notifica somente a outra ponta por Notification interna e e-mail, com chave idempotente baseada em `message.Id` e destinatário. Gestão → Administradora resolve acessos ativos pela empresa/categoria históricas; Administradora → Gestão resolve Manager e SubManager ativos do condomínio, sem fallback para PlatformAdmin. As filas refazem a consulta no foco; a fila da Administradora também usa polling conservador de 30 segundos.
+
+### Refinamento 2 de apresentação
+
+Os formulários do módulo usam `CurrencyField` para exibir BRL enquanto mantêm decimal numérico no contrato, com atalhos locais e não negativos para multas. Arquivos selecionados recebem previews locais com `object URL` revogada; anexos persistidos preservam o fluxo autenticado `fetch → Blob → object URL` nos dois portais.
+
+A fila operacional da Administradora oculta concluídas e canceladas por padrão por filtros server-side, pode incluí-las separadamente e recebe projeção compacta de unidade/valor/beneficiário apenas depois de `Submitted`. O detalhe apresenta os papéis Manager/SubManager efetivos como Síndico/Subsíndico, informações do solicitante e dados da solicitação em grade responsiva.

@@ -21,14 +21,13 @@ export function administratorRequestStatusLabel(status: Status, type: Type) {
 }
 export function administratorActions(status: Status) {
   return {
-    canStart: status === "Acknowledged",
-    canInteract: status === "Acknowledged" || status === "InProgress",
-    canRequestInformation: status === "Acknowledged" || status === "InProgress",
+    canStart: false,
+    canInteract: status === "Acknowledged" || status === "InProgress" || status === "WaitingManager",
+    canRequestInformation: false,
     canComplete: status === "InProgress",
     readOnly:
       status === "Completed" ||
-      status === "Cancelled" ||
-      status === "WaitingManager",
+      status === "Cancelled",
   };
 }
 export const completionAction = (type: Type) =>

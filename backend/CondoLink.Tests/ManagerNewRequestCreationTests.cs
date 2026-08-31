@@ -63,7 +63,12 @@ public sealed class ManagerNewRequestCreationTests
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         await host.WithDbAsync(async db =>
         {
-            Assert.Single(await db.Requests.ToArrayAsync());
+            var request = Assert.Single(await db.Requests.ToArrayAsync());
+            Assert.Equal(RequestSource.Portal, request.Source);
+            Assert.Equal("TAG da garagem", request.Title);
+            Assert.Equal("Preciso de uma nova TAG.", request.Description);
+            Assert.Empty(await db.RequestAiAnalyses.Where(x => x.RequestId == request.Id)
+                .ToArrayAsync());
             var outbound = Assert.Single(await db.WhatsAppOutboundMessages
                 .AsNoTracking().ToArrayAsync());
             Assert.Equal(WhatsAppNotificationType.ManagerNewRequest,

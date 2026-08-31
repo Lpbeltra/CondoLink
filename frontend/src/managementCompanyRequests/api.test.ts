@@ -6,6 +6,7 @@ import {
   listAdministratorRequests,
   listRequests,
   requestManagerInformation,
+  startRequestProcessing,
 } from "./api";
 vi.mock("../services/api", () => ({ api: { get: vi.fn(), post: vi.fn() } }));
 describe("management company requests api", () => {
@@ -84,6 +85,13 @@ describe("management company requests api", () => {
     expect(body).toBeInstanceOf(FormData);
     expect(JSON.parse(String((body as FormData).get("payload")))).toMatchObject(
       { targetStatus: "WaitingManager" },
+    );
+  });
+  it("starts processing through the confirmed atomic endpoint", async () => {
+    vi.mocked(api.post).mockResolvedValue({ data: {} });
+    await startRequestProcessing("r");
+    expect(api.post).toHaveBeenCalledWith(
+      "/management-company-requests/r/start-processing",
     );
   });
 });

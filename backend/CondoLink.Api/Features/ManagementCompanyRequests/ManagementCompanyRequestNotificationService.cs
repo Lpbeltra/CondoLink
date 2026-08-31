@@ -94,6 +94,28 @@ public sealed class ManagementCompanyRequestNotificationService(
     }
 
     /// <summary>Evento D: administradora concluiu — avisa Manager + SubManager do condomínio histórico.</summary>
+    public async Task NotifyMessageAsync(ManagementCompanyRequest request, ManagementCompanyRequestMessage message,
+        ManagementCompanyRequestActorKind senderKind, Guid senderUserId, CancellationToken ct)
+    {
+        var toManagement = senderKind == ManagementCompanyRequestActorKind.ManagementCompany;
+        var recipients = (toManagement
+                ? await GestaoRecipientsAsync(request.CondominiumId, ct)
+                : await AdministradoraRecipientsAsync(request.ManagementCompanyId, request.CategoryId, ct))
+            .Where(x => x.UserId != senderUserId).ToArray();
+        var condominiumName = await CondominiumNameAsync(request.CondominiumId, ct);
+        var subject = await RequestSubjectAsync(request, ct);
+        var typeLabel = TypeLabel(request.Type);
+        var link = BuildLink(toManagement ? $"/management/administrator/{request.Id}" : $"/administrator/requests/{request.Id}");
+        var summary = NotificationService.Shorten(message.Content, 200);
+        var title = toManagement ? "Nova mensagem da administradora" : "Nova mensagem da gestão";
+        var html = BuildEmailHtml(title + ".", condominiumName, request.FriendlyIdentifier, typeLabel,
+            subject, summary, link, "Abrir conversa no Comvy");
+        await DispatchAsync(recipients, request.CondominiumId, request.Id, request.FriendlyIdentifier,
+            toManagement ? NotificationType.ManagementCompanyRequestInfoRequested : NotificationType.ManagementCompanyRequestManagerReplied,
+            title, NotificationService.Shorten($"{request.FriendlyIdentifier}: {summary}"),
+            $"{KeyPrefix}:{request.Id}:message:{message.Id}", $"{title} - {request.FriendlyIdentifier}", html, "Message", ct);
+    }
+
     public async Task NotifyCompletedAsync(ManagementCompanyRequest request, CancellationToken ct)
     {
         var recipients = await GestaoRecipientsAsync(request.CondominiumId, ct);
@@ -112,21 +134,24 @@ public sealed class ManagementCompanyRequestNotificationService(
             $"{label} — {request.FriendlyIdentifier}", html, "Completed", ct);
     }
 
-    /// <summary>Evento E: gestão cancelou — avisa a administradora responsável pela categoria histórica.</summary>
-    public async Task NotifyCancelledAsync(ManagementCompanyRequest request, string? reason, CancellationToken ct)
+    /// <summary>Cancelamento avisa a ponta oposta ao autor.</summary>
+    public async Task NotifyCancelledAsync(ManagementCompanyRequest request, string? reason, CancellationToken ct,
+        ManagementCompanyRequestActorKind actorKind = ManagementCompanyRequestActorKind.Management)
     {
-        var recipients = await AdministradoraRecipientsAsync(request.ManagementCompanyId, request.CategoryId, ct);
+        var byCompany = actorKind == ManagementCompanyRequestActorKind.ManagementCompany;
+        var recipients = byCompany ? await GestaoRecipientsAsync(request.CondominiumId, ct) : await AdministradoraRecipientsAsync(request.ManagementCompanyId, request.CategoryId, ct);
         var condominiumName = await CondominiumNameAsync(request.CondominiumId, ct);
         var subject = await RequestSubjectAsync(request, ct);
         var typeLabel = TypeLabel(request.Type);
-        var link = BuildLink($"/administrator/requests/{request.Id}");
+        var link = BuildLink(byCompany ? $"/management/administrator/{request.Id}" : $"/administrator/requests/{request.Id}");
         var summary = string.IsNullOrWhiteSpace(reason) ? null : NotificationService.Shorten(reason, 200);
 
+        var actorLabel = byCompany ? "administradora" : "gestão";
         var body = NotificationService.Shorten(summary is null
-            ? $"{request.FriendlyIdentifier} foi cancelada pela gestão."
-            : $"{request.FriendlyIdentifier} foi cancelada pela gestão: {summary}");
+            ? $"{request.FriendlyIdentifier} foi cancelada pela {actorLabel}."
+            : $"{request.FriendlyIdentifier} foi cancelada pela {actorLabel}: {summary}");
         var html = BuildEmailHtml(
-            "A gestão cancelou esta solicitação.",
+            $"A {actorLabel} cancelou esta solicitação.",
             condominiumName, request.FriendlyIdentifier, typeLabel, subject, summary, link, "Abrir no Comvy");
 
         await DispatchAsync(recipients, request.CondominiumId, request.Id, request.FriendlyIdentifier,

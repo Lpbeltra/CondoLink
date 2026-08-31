@@ -80,6 +80,11 @@ export function ManagementCompanyRequestsPage() {
     const timer = setTimeout(() => void load(), 300);
     return () => clearTimeout(timer);
   }, [load]);
+  useEffect(() => {
+    const refresh = () => void load();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [load]);
   useEffect(
     () => setPage(1),
     [activeCondominiumId, condo, from, search, status, to, type],

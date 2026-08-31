@@ -237,6 +237,10 @@ public static class CreateRequest
         dbContext.RequestStatusHistories.Add(initialHistory);
         await dbContext.SaveChangesAsync(cancellationToken);
 
+        loggerFactory.CreateLogger(typeof(CreateRequest)).LogInformation(
+            "Request draft AI deliberately bypassed. RequestId: {RequestId}; Source: {Source}; Decision: {Decision}; Reason: {Reason}.",
+            domainRequest.Id, domainRequest.Source, "not_called", "portal_structured_input");
+
         // Notifying is a side effect: the request is already persisted, so a
         // notification failure must not fail the creation the user just made.
         try

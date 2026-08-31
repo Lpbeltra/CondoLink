@@ -1221,3 +1221,10 @@ A prioridade real deverá ser revisada após validação do MVP com usuários.
   revogado com usuário ativo, multi-role sem concessão cruzada); snapshot histórico de PIX
   comprovado por teste; janela pós-commit de notificação documentada como aceitável para
   V1; estado vazio de categoria sem responsável corrigido no frontend.
+- [x] Refinamento pós-Lote 6 — início confirmado e atômico pela Administradora; chat bilateral
+  com anexos separado da timeline; `WaitingManager` explícito e retomada atômica pela resposta
+  da Gestão; cancelamento autorizado para a empresa/categoria histórica; notificações de cada
+  mensagem para a outra ponta; atualização das filas no foco e polling conservador.
+- [x] Refinamento 2 pós-Lote 6 — moeda BRL e atalhos de multa; previews locais e
+  autenticados; fila operacional enriquecida com filtros rápidos server-side; layout,
+  ações e informações do solicitante responsivos.

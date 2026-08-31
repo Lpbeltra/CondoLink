@@ -24,6 +24,7 @@ public static class ManagementCompanyRequestEndpoints
         group.MapPost("/payments/multipart",CreatePaymentMultipart).DisableAntiforgery().WithMetadata(new RequestSizeLimitAttribute(AttachmentPolicy.MaximumRequestSize));
         group.MapPost("/questions/multipart",CreateQuestionMultipart).DisableAntiforgery().WithMetadata(new RequestSizeLimitAttribute(AttachmentPolicy.MaximumRequestSize));
         group.MapGet("/{id:guid}",GetDetail);
+        group.MapPost("/{id:guid}/start-processing",StartProcessing);
         group.MapPost("/{id:guid}/messages",AddMessage);
         group.MapPost("/{id:guid}/interactions",Interact).DisableAntiforgery().WithMetadata(new RequestSizeLimitAttribute(AttachmentPolicy.MaximumRequestSize));
         group.MapPost("/{id:guid}/status",ChangeStatus);
@@ -67,17 +68,18 @@ public static class ManagementCompanyRequestEndpoints
     {
         var actor=await access.RequireForRequestAsync(user,id,ct);
         var request=await db.ManagementCompanyRequests.SingleOrDefaultAsync(x=>x.Id==id,ct)??throw new NotFoundAppException("Solicitação não encontrada.");
-        await service.AcknowledgeAsync(request,actor,ct);
         return Results.Ok(await ToDetail(id,db,ct));
     }
+    private static async Task<IResult> StartProcessing(Guid id,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,ManagementCompanyRequestService service,CancellationToken ct)
+    {var actor=await access.RequireForRequestAsync(user,id,ct);var request=await Tracked(id,db,ct);await service.StartProcessingAsync(request,actor,ct);return Results.NoContent();}
     private static async Task<IResult> AddMessage(Guid id,MessageBody body,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,ManagementCompanyRequestService service,ManagementCompanyRequestNotificationService notifications,ILogger<ManagementCompanyRequestNotificationService> logger,CancellationToken ct)
     {
         var actor=await access.RequireForRequestAsync(user,id,ct);var request=await Tracked(id,db,ct);
         var result=await service.AddMessageAsync(request,actor,body.Content,ct);
-        await NotifyInteractionAsync(request,result,notifications,logger,ct);
+        await NotifyInteractionAsync(request,actor,result,notifications,logger,ct);
         var message=result.Message;return Results.Ok(new{message.Id,message.AuthorUserId,message.Content,message.CreatedAt});
     }
-    private static async Task<IResult> Interact(Guid id,HttpRequest http,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,ManagementCompanyRequestService service,ManagementCompanyRequestNotificationService notifications,ILogger<ManagementCompanyRequestNotificationService> logger,CancellationToken ct){var actor=await access.RequireForRequestAsync(user,id,ct);var request=await Tracked(id,db,ct);var(body,files)=await Multipart<InteractionBody>(http,ct);var result=await service.InteractAsync(request,actor,body.Content,files,body.TargetStatus,ct);await NotifyInteractionAsync(request,result,notifications,logger,ct);var message=result.Message;return Results.Ok(new{message.Id,message.AuthorUserId,message.Content,message.CreatedAt});}
+    private static async Task<IResult> Interact(Guid id,HttpRequest http,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,ManagementCompanyRequestService service,ManagementCompanyRequestNotificationService notifications,ILogger<ManagementCompanyRequestNotificationService> logger,CancellationToken ct){var actor=await access.RequireForRequestAsync(user,id,ct);var request=await Tracked(id,db,ct);var(body,files)=await Multipart<InteractionBody>(http,ct);var result=await service.InteractAsync(request,actor,body.Content,files,body.TargetStatus,ct);await NotifyInteractionAsync(request,actor,result,notifications,logger,ct);var message=result.Message;return Results.Ok(new{message.Id,message.AuthorUserId,message.Content,message.CreatedAt});}
     private static async Task<IResult> ChangeStatus(Guid id,StatusBody body,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,ManagementCompanyRequestService service,ManagementCompanyRequestNotificationService notifications,ILogger<ManagementCompanyRequestNotificationService> logger,CancellationToken ct)
     {
         var actor=await access.RequireForRequestAsync(user,id,ct);var request=await Tracked(id,db,ct);
@@ -90,7 +92,7 @@ public static class ManagementCompanyRequestEndpoints
     {
         var actor=await access.RequireForRequestAsync(user,id,ct);var request=await Tracked(id,db,ct);
         await service.CancelAsync(request,actor,body.Reason,ct);
-        await NotifySafeAsync(()=>notifications.NotifyCancelledAsync(request,body.Reason,ct),logger,request.Id,"Cancelled");
+        await NotifySafeAsync(()=>notifications.NotifyCancelledAsync(request,body.Reason,ct,actor.Kind),logger,request.Id,"Cancelled");
         return Results.NoContent();
     }
     /// <summary>Runs an event-notification call without ever surfacing its failure to the HTTP caller: the request mutation already committed.</summary>
@@ -100,16 +102,9 @@ public static class ManagementCompanyRequestEndpoints
         catch(Exception exception){logger.LogError(exception,"ManagementCompanyRequest notification dispatch failed. RequestId: {RequestId}; Event: {Event}.",requestId,eventName);}
     }
     /// <summary>An interaction only produces a notifiable event when it also moved the request to WaitingManager (info requested) or back from it (manager replied).</summary>
-    private static Task NotifyInteractionAsync(ManagementCompanyRequest request,ManagementCompanyRequestInteractionResult result,ManagementCompanyRequestNotificationService notifications,ILogger logger,CancellationToken ct)
+    private static Task NotifyInteractionAsync(ManagementCompanyRequest request,ManagementCompanyRequestActor actor,ManagementCompanyRequestInteractionResult result,ManagementCompanyRequestNotificationService notifications,ILogger logger,CancellationToken ct)
     {
-        if(result.History is null)return Task.CompletedTask;
-        return result.History.EventType switch
-        {
-            ManagementCompanyRequestEventType.ManagerResponded=>NotifySafeAsync(()=>notifications.NotifyManagerRepliedAsync(request,result.Message,ct),logger,request.Id,"ManagerReplied"),
-            ManagementCompanyRequestEventType.StatusChanged when result.History.NewStatus==ManagementCompanyRequestStatus.WaitingManager
-                =>NotifySafeAsync(()=>notifications.NotifyInformationRequestedAsync(request,result.History,ct),logger,request.Id,"InfoRequested"),
-            _=>Task.CompletedTask
-        };
+        return NotifySafeAsync(()=>notifications.NotifyMessageAsync(request,result.Message,actor.Kind,actor.UserId,ct),logger,request.Id,"Message");
     }
 
     private static async Task<IResult> UploadAttachments(Guid id,HttpRequest http,ClaimsPrincipal user,AppDbContext db,ManagementCompanyRequestAccessService access,LocalFileStorage storage,CancellationToken ct)
@@ -142,7 +137,8 @@ public static class ManagementCompanyRequestEndpoints
         var r=await db.ManagementCompanyRequests.AsNoTracking().SingleAsync(x=>x.Id==id,ct);
         var condominiumName=await db.Condominiums.Where(x=>x.Id==r.CondominiumId).Select(x=>x.Name).SingleAsync(ct);var managementCompanyName=await db.ManagementCompanies.Where(x=>x.Id==r.ManagementCompanyId).Select(x=>x.Name).SingleAsync(ct);
         var condominium=await db.Condominiums.AsNoTracking().Where(x=>x.Id==r.CondominiumId).Select(x=>new{x.Name,x.Address,x.City,x.State}).SingleAsync(ct);
-        var managers=await db.CondominiumMemberships.AsNoTracking().Where(m=>m.CondominiumId==r.CondominiumId&&m.IsActive&&m.EndedAt==null).Join(db.CondominiumMembershipRoles.AsNoTracking().Where(role=>role.IsActive&&role.RevokedAt==null&&(role.Role==CondominiumRole.Manager||role.Role==CondominiumRole.SubManager)),m=>m.Id,role=>role.CondominiumMembershipId,(m,role)=>new{m.UserId,role.Role}).Join(db.Users.AsNoTracking().Where(u=>u.IsActive),x=>x.UserId,u=>u.Id,(x,u)=>new{Id=u.Id,u.FullName,x.Role}).ToListAsync(ct);
+        var managerRoles=await db.CondominiumMemberships.AsNoTracking().Where(m=>m.CondominiumId==r.CondominiumId&&m.IsActive&&m.EndedAt==null).Join(db.CondominiumMembershipRoles.AsNoTracking().Where(role=>role.IsActive&&role.RevokedAt==null&&(role.Role==CondominiumRole.Manager||role.Role==CondominiumRole.SubManager)),m=>m.Id,role=>role.CondominiumMembershipId,(m,role)=>new{m.UserId,role.Role}).Join(db.Users.AsNoTracking().Where(u=>u.IsActive),x=>x.UserId,u=>u.Id,(x,u)=>new{Id=u.Id,u.FullName,x.Role}).ToListAsync(ct);
+        var managers=managerRoles.GroupBy(x=>x.Id).Select(group=>group.OrderBy(x=>x.Role==CondominiumRole.Manager?0:1).First()).OrderBy(x=>x.Role==CondominiumRole.Manager?0:1).ToArray();
         var fine=await db.ManagementCompanyFineRequests.AsNoTracking().Where(x=>x.RequestId==id).Select(x=>new{x.UnitId,Unit=db.Units.Where(u=>u.Id==x.UnitId).Select(u=>u.Identifier).FirstOrDefault(),Block=db.Units.Where(u=>u.Id==x.UnitId).Select(u=>u.BlockId==null?null:db.CondominiumBlocks.Where(b=>b.Id==u.BlockId).Select(b=>b.Identifier).FirstOrDefault()).FirstOrDefault(),x.Nature,x.Description,x.OccurrenceDate,x.Value,x.ValueNotDefined}).SingleOrDefaultAsync(ct);
         var payment=await db.ManagementCompanyPaymentRequests.AsNoTracking().Where(x=>x.RequestId==id).Select(x=>new{x.Nature,x.Value,x.EventDate,x.IsReimbursement,x.Notes,x.BeneficiaryUserId,x.BeneficiaryName,x.PixKeyType,x.PixKey}).SingleOrDefaultAsync(ct);
         var question=await db.ManagementCompanyGeneralQuestionRequests.AsNoTracking().Where(x=>x.RequestId==id).Select(x=>new{x.Theme}).SingleOrDefaultAsync(ct);

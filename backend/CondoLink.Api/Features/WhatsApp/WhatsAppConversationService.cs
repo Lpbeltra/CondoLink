@@ -1933,6 +1933,9 @@ public sealed class WhatsAppConversationService(
     private async Task<(string, string)> GenerateAiProposal(
         WhatsAppSession session, DateTime now, DateTime expires, CancellationToken ct)
     {
+        logger.LogInformation(
+            "Request draft AI decision. SessionId: {SessionId}; Operation: {Operation}; Decision: {Decision}; Reason: {Reason}.",
+            session.Id, "RequestDraft", "call", "whatsapp_request_review");
         await requestCategories.GetOrCreateOtherAsync(
             session.CondominiumId!.Value, ct);
         var categories = await ActiveCategories(session.CondominiumId!.Value, ct);
@@ -1948,9 +1951,10 @@ public sealed class WhatsAppConversationService(
             : new RequestDraftReview(FallbackReviewSource, null, null,
                 OriginalAudioDraftId(session));
         session.SetAiProposal(JsonSerializer.Serialize(review), now, expires);
-        logger.LogInformation(result.Succeeded
-            ? "Request draft AI proposal generated."
-            : "Request draft AI unavailable; safe fallback proposal generated.");
+        logger.LogInformation(
+            "Request draft AI decision completed. SessionId: {SessionId}; Operation: {Operation}; Decision: {Decision}; Outcome: {Outcome}; Model: {Model}; FallbackUsed: {FallbackUsed}.",
+            session.Id, "RequestDraft", result.Succeeded ? "called_succeeded" : "called_failed",
+            result.Outcome, result.Model, !result.Succeeded);
         return (review.Source == AiReviewSource
                 ? ReviewPrompt(review.Proposal!)
                 : FallbackReviewPrompt(session.DraftDescription!), result.Succeeded

@@ -86,6 +86,8 @@ export async function listAdministratorRequests(p: {
   search?: string;
   from?: string;
   to?: string;
+  includeCompleted?: boolean;
+  includeCancelled?: boolean;
   page: number;
 }) {
   return (
@@ -102,6 +104,9 @@ export async function changeRequestStatus(
     status,
     reason: null,
   });
+}
+export async function startRequestProcessing(id: string) {
+  await api.post(`/management-company-requests/${id}/start-processing`);
 }
 export async function requestManagerInformation(
   id: string,

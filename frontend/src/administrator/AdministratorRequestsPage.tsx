@@ -6,6 +6,12 @@ import {
   CardActionArea,
   CardContent,
   Chip,
+  Checkbox,
+  FormControlLabel,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   MenuItem,
   Pagination,
   Skeleton,
@@ -18,8 +24,9 @@ import { PageContainer } from "../components/PageContainer";
 import {
   getAdministratorOptions,
   listAdministratorRequests,
+  startRequestProcessing,
 } from "../managementCompanyRequests/api";
-import { date, typeLabel } from "../managementCompanyRequests/presentation";
+import { date, money, typeLabel } from "../managementCompanyRequests/presentation";
 import type {
   AdministratorOptions,
   ManagementCompanyRequestStatus,
@@ -41,6 +48,7 @@ export function AdministratorRequestsPage() {
   const [data, setData] = useState<PageResult>(),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
+  const [pendingStart, setPendingStart] = useState<string>();
   const [page, setPage] = useState(1),
     [search, setSearch] = useState(""),
     [condominiumId, setCondominiumId] = useState(""),
@@ -48,6 +56,8 @@ export function AdministratorRequestsPage() {
     [status, setStatus] = useState(""),
     [from, setFrom] = useState(""),
     [to, setTo] = useState("");
+  const [includeCompleted, setIncludeCompleted] = useState(false),
+    [includeCancelled, setIncludeCancelled] = useState(false);
   useEffect(() => {
     getAdministratorOptions()
       .then(setOptions)
@@ -71,6 +81,8 @@ export function AdministratorRequestsPage() {
             | undefined,
           from: from || undefined,
           to: to || undefined,
+          includeCompleted,
+          includeCancelled,
         }),
       );
       setError("");
@@ -79,10 +91,16 @@ export function AdministratorRequestsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, condominiumId, categoryId, status, from, to]);
+  }, [page, search, condominiumId, categoryId, status, from, to, includeCompleted, includeCancelled]);
   useEffect(() => {
     const timer = setTimeout(() => void load(), 300);
     return () => clearTimeout(timer);
+  }, [load]);
+  useEffect(() => {
+    const refresh = () => void load();
+    const interval = window.setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    return () => { window.clearInterval(interval); window.removeEventListener("focus", refresh); };
   }, [load]);
   const filter =
     (setter: (v: string) => void) =>
@@ -103,10 +121,6 @@ export function AdministratorRequestsPage() {
       <Stack spacing={2}>
         <div>
           <Typography variant="h1">Solicitações</Typography>
-          <Typography color="text.secondary">
-            Acompanhe as solicitações dos condomínios atendidos por{" "}
-            {context?.managementCompanyName}.
-          </Typography>
         </div>
         {error && <Alert severity="error">{error}</Alert>}
         <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
@@ -188,6 +202,10 @@ export function AdministratorRequestsPage() {
             Limpar filtros
           </Button>
         </Stack>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+          <FormControlLabel control={<Checkbox checked={includeCompleted} onChange={e => { setIncludeCompleted(e.target.checked); setPage(1); }} />} label="Exibir solicitações processadas" />
+          <FormControlLabel control={<Checkbox checked={includeCancelled} onChange={e => { setIncludeCancelled(e.target.checked); setPage(1); }} />} label="Exibir solicitações canceladas" />
+        </Stack>
         {loading ? (
           <Skeleton variant="rounded" height={240} />
         ) : !data?.items.length ? (
@@ -200,7 +218,9 @@ export function AdministratorRequestsPage() {
           data.items.map((item) => (
             <Card key={item.id} variant="outlined">
               <CardActionArea
-                onClick={() => nav(`/administrator/requests/${item.id}`)}
+                onClick={() => item.status === "Submitted"
+                  ? setPendingStart(item.id)
+                  : nav(`/administrator/requests/${item.id}`)}
               >
                 <CardContent>
                   <Stack direction="row" justifyContent="space-between" gap={1}>
@@ -208,20 +228,23 @@ export function AdministratorRequestsPage() {
                       <Typography fontWeight={800}>
                         {item.friendlyIdentifier}
                       </Typography>
-                      <Typography>
-                        {typeLabel[item.type]} · {item.condominiumName}
-                      </Typography>
+                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                        <Chip size="small" variant="outlined" label={typeLabel[item.type]} />
+                        <Typography>{item.condominiumName}</Typography>
+                      </Stack>
                       <Typography color="text.secondary">
                         {item.subject}
                       </Typography>
                       <Typography variant="caption">
                         Aberta em {date(item.createdAt)}
                       </Typography>
+                      {item.status !== "Submitted" && <Typography variant="body2" color="text.secondary">
+                        {item.type === "Fine" && item.unit ? `${item.block ? `${item.block} / ` : ""}${item.unit}${item.value != null ? ` · ${money(item.value)}` : ""}` : null}
+                        {item.type === "Payment" ? `${item.value != null ? money(item.value) : ""}${item.beneficiaryName ? ` · ${item.beneficiaryName}` : ""}` : null}
+                      </Typography>}
                     </div>
                     <Chip
-                      color={
-                        item.status === "Submitted" ? "primary" : "default"
-                      }
+                      color={item.status === "Submitted" ? "primary" : item.status === "WaitingManager" ? "warning" : item.status === "Completed" ? "success" : item.status === "Cancelled" ? "error" : "default"}
                       label={administratorRequestStatusLabel(
                         item.status,
                         item.type,
@@ -240,6 +263,18 @@ export function AdministratorRequestsPage() {
             onChange={(_, value) => setPage(value)}
           />
         )}
+        <Dialog open={Boolean(pendingStart)} onClose={() => setPendingStart(undefined)}>
+          <DialogTitle>Iniciar processamento</DialogTitle>
+          <DialogContent>Deseja iniciar o processamento desta solicitação?</DialogContent>
+          <DialogActions>
+            <Button onClick={() => setPendingStart(undefined)}>Cancelar</Button>
+            <Button variant="contained" onClick={async () => {
+              const requestId = pendingStart!;
+              try { await startRequestProcessing(requestId); nav(`/administrator/requests/${requestId}`); }
+              catch { setPendingStart(undefined); await load(); setError("A solicitação foi atualizada. Verifique o status e tente novamente."); }
+            }}>Confirmar</Button>
+          </DialogActions>
+        </Dialog>
       </Stack>
     </PageContainer>
   );

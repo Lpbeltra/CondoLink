@@ -20,6 +20,10 @@ export interface RequestItem {
   type: ManagementCompanyRequestType;
   status: ManagementCompanyRequestStatus;
   subject: string;
+  unit?: string | null;
+  block?: string | null;
+  value?: number | null;
+  beneficiaryName?: string | null;
   createdAt: string;
   updatedAt: string;
 }

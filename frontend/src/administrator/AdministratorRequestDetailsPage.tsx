@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
+  Box,
   Button,
   Card,
   CardContent,
@@ -18,11 +19,13 @@ import { useNavigate, useParams } from "react-router-dom";
 import { PageContainer } from "../components/PageContainer";
 import { AttachmentsPreview } from "../managementCompanyRequests/AttachmentsPreview";
 import {
+  cancelRequest,
   changeRequestStatus,
   getRequest,
   interact,
-  requestManagerInformation,
 } from "../managementCompanyRequests/api";
+import { useAuth } from "../auth/AuthContext";
+import { LocalAttachmentsPreview } from "../managementCompanyRequests/LocalAttachmentsPreview";
 import {
   date,
   money,
@@ -37,6 +40,7 @@ import {
 } from "./presentation";
 
 export function AdministratorRequestDetailsPage() {
+  const { user } = useAuth();
   const { id } = useParams(),
     nav = useNavigate();
   const [data, setData] = useState<RequestDetail>(),
@@ -45,8 +49,9 @@ export function AdministratorRequestDetailsPage() {
     [text, setText] = useState(""),
     [files, setFiles] = useState<File[]>([]),
     [sending, setSending] = useState(false),
-    [ask, setAsk] = useState(false),
-    [complete, setComplete] = useState(false);
+    [complete, setComplete] = useState(false),
+    [cancelOpen, setCancelOpen] = useState(false),
+    [reason, setReason] = useState("");
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
@@ -68,7 +73,6 @@ export function AdministratorRequestDetailsPage() {
       await action();
       setText("");
       setFiles([]);
-      setAsk(false);
       setComplete(false);
       await load();
       setError(success);
@@ -126,9 +130,10 @@ export function AdministratorRequestDetailsPage() {
             label={administratorRequestStatusLabel(data.status, data.type)}
           />
         </Stack>
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1fr) minmax(0, 1.35fr)" }, gap: 2, alignItems: "stretch" }}>
         <Card variant="outlined">
           <CardContent>
-            <Typography variant="h2">Condomínio</Typography>
+            <Typography variant="h2">Informações do solicitante</Typography>
             <Typography>
               {data.condominium?.name ?? data.condominiumName}
             </Typography>
@@ -185,26 +190,18 @@ export function AdministratorRequestDetailsPage() {
             )}
           </CardContent>
         </Card>
+        </Box>
         <Card variant="outlined">
           <CardContent>
             <Typography variant="h2">Timeline</Typography>
-            {[
-              ...data.history.map((h) => ({
+            {data.history.map((h) => ({
                 id: h.id,
                 at: h.createdAt,
                 author: "Sistema",
                 text:
                   h.reason ||
                   administratorRequestStatusLabel(h.newStatus, data.type),
-              })),
-              ...data.messages.map((m) => ({
-                id: m.id,
-                at: m.createdAt,
-                author: `${m.authorName} · ${m.authorRole}`,
-                text: m.content,
-              })),
-            ]
-              .sort((a, b) => a.at.localeCompare(b.at))
+              }))
               .map((x) => (
                 <Stack key={x.id} py={1}>
                   <Typography variant="caption">
@@ -217,6 +214,22 @@ export function AdministratorRequestDetailsPage() {
         </Card>
         <Card variant="outlined">
           <CardContent>
+            <Typography variant="h2">Conversa</Typography>
+            <Stack spacing={1.5} mt={2} sx={{ maxHeight: 440, overflowY: "auto", p: 1.5, border: 1, borderColor: "divider", borderRadius: 2 }}>
+              {[...data.messages].sort((a,b) => a.createdAt.localeCompare(b.createdAt)).map((m) => {
+                const mine = m.authorUserId === user?.id;
+                return <Box key={m.id} alignSelf={mine ? "flex-end" : "flex-start"} maxWidth="80%"
+                  sx={{ bgcolor: mine ? "primary.main" : "action.hover", color: mine ? "primary.contrastText" : "text.primary", px: 2, py: 1, borderRadius: 2 }}>
+                  <Typography variant="caption">{m.authorName} · {m.authorRole} · {new Date(m.createdAt).toLocaleString("pt-BR")}</Typography>
+                  <Typography>{m.content}</Typography>
+                  <AttachmentsPreview items={data.attachments.filter(a => a.messageId === m.id)} />
+                </Box>;
+              })}
+            </Stack>
+          </CardContent>
+        </Card>
+        <Card variant="outlined">
+          <CardContent>
             <Typography variant="h2">Anexos</Typography>
             <AttachmentsPreview items={data.attachments} />
           </CardContent>
@@ -224,7 +237,7 @@ export function AdministratorRequestDetailsPage() {
         {!terminal && (
           <Card variant="outlined">
             <CardContent>
-              <Stack spacing={1}>
+              <Stack spacing={1.25}>
                 <Typography variant="h2">Atendimento</Typography>
                 {canOperate && (
                   <>
@@ -251,6 +264,7 @@ export function AdministratorRequestDetailsPage() {
                         }}
                       />
                     </Button>
+                    <LocalAttachmentsPreview files={files} onRemove={index => setFiles(current => current.filter((_, i) => i !== index))} />
                     <Button
                       disabled={sending || !text.trim()}
                       onClick={() =>
@@ -260,34 +274,16 @@ export function AdministratorRequestDetailsPage() {
                         )
                       }
                     >
-                      Enviar mensagem
+                      Enviar
                     </Button>
-                    <Button onClick={() => setAsk(true)}>
-                      Solicitar informação
-                    </Button>
-                    {actions.canComplete && (
-                      <Button
-                        variant="contained"
-                        onClick={() => setComplete(true)}
-                      >
-                        {completion}
-                      </Button>
-                    )}
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      {data.status === "InProgress" && <Button type="button" size="small" variant="outlined" onClick={() => void run(
+                        () => changeRequestStatus(id!, "WaitingManager"),
+                        "Solicitação marcada como aguardando.")}>Marcar como aguardando</Button>}
+                      {actions.canComplete && <Button type="button" size="small" variant="contained" color="success" onClick={() => setComplete(true)}>{completion}</Button>}
+                      <Button type="button" size="small" variant="outlined" color="error" onClick={() => setCancelOpen(true)}>Cancelar solicitação</Button>
+                    </Stack>
                   </>
-                )}
-                {actions.canStart && (
-                  <Button
-                    variant="contained"
-                    disabled={sending}
-                    onClick={() =>
-                      void run(
-                        () => changeRequestStatus(id!, "InProgress"),
-                        "Processamento iniciado.",
-                      )
-                    }
-                  >
-                    Iniciar processamento
-                  </Button>
                 )}
               </Stack>
             </CardContent>
@@ -296,34 +292,6 @@ export function AdministratorRequestDetailsPage() {
         {data.status === "WaitingManager" && (
           <Alert severity="info">Aguardando resposta da gestão.</Alert>
         )}
-        <Dialog open={ask} onClose={() => setAsk(false)} fullWidth>
-          <DialogTitle>Solicitar informação à gestão</DialogTitle>
-          <DialogContent>
-            <TextField
-              autoFocus
-              fullWidth
-              multiline
-              minRows={4}
-              label="Explique o que é necessário"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-            />
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setAsk(false)}>Cancelar</Button>
-            <Button
-              disabled={!text.trim() || sending}
-              onClick={() =>
-                void run(
-                  () => requestManagerInformation(id!, text, files),
-                  "Informação solicitada.",
-                )
-              }
-            >
-              Solicitar informação
-            </Button>
-          </DialogActions>
-        </Dialog>
         <Dialog open={complete} onClose={() => setComplete(false)}>
           <DialogTitle>{completion}?</DialogTitle>
           <DialogContent>
@@ -333,16 +301,21 @@ export function AdministratorRequestDetailsPage() {
             <Button onClick={() => setComplete(false)}>Voltar</Button>
             <Button
               disabled={sending}
-              onClick={() =>
-                void run(
-                  () => changeRequestStatus(id!, "Completed"),
-                  "Solicitação concluída.",
-                )
-              }
+              onClick={() => void (async () => { await changeRequestStatus(id!, "Completed"); nav("/administrator/requests"); })()}
             >
               {completion}
             </Button>
           </DialogActions>
+        </Dialog>
+        <Dialog open={cancelOpen} onClose={() => setCancelOpen(false)}>
+          <DialogTitle>Cancelar solicitação?</DialogTitle>
+          <DialogContent><TextField autoFocus fullWidth multiline minRows={3} label="Motivo do cancelamento"
+            value={reason} inputProps={{ maxLength: 500 }} onChange={e => setReason(e.target.value)} /></DialogContent>
+          <DialogActions><Button onClick={() => setCancelOpen(false)}>Voltar</Button>
+            <Button color="error" disabled={!reason.trim() || sending} onClick={() => void (async () => {
+              setSending(true); try { await cancelRequest(id!, reason); nav("/administrator/requests"); }
+              catch { setError("Não foi possível cancelar a solicitação."); await load(); } finally { setSending(false); }
+            })()}>Cancelar solicitação</Button></DialogActions>
         </Dialog>
       </Stack>
     </PageContainer>

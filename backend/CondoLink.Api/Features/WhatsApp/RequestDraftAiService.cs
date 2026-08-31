@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using CondoLink.Api.Features.Observability;
 using Microsoft.Extensions.Options;
 
 namespace CondoLink.Api.Features.WhatsApp;
@@ -111,6 +112,7 @@ public sealed class RequestDraftAiService(HttpClient httpClient,
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(settings.TimeoutSeconds, 1, 60)));
         using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions");
+        request.Options.Set(OpenAiTelemetryHandler.CallerCancellationToken, cancellationToken);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
         request.Content = JsonContent.Create(new
         {
@@ -194,6 +196,7 @@ public sealed class RequestDraftAiService(HttpClient httpClient,
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(settings.TimeoutSeconds, 1, 60)));
         using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions");
+        request.Options.Set(OpenAiTelemetryHandler.CallerCancellationToken, cancellationToken);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
         request.Content = JsonContent.Create(new
         {

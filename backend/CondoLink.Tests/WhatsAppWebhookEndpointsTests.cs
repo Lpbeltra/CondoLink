@@ -2039,6 +2039,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload("wamid.ai-finished", "2"));
 
+        Assert.Equal(1, _ai.Calls);
+
         var review = _fake.Messages.Last().Text;
         Assert.StartsWith("Revise sua solicitação antes de enviá-la.", review);
         Assert.Contains("*Título:*\n", review);
