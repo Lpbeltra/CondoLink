@@ -59,7 +59,7 @@ test.describe('Dashboard, listagem, filtros e estados dos atendimentos', () => {
     await expect(page.getByRole('button', { name: 'Voltar' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Descrição' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Ações de atendimento' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Histórico de status' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Timeline' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Alterar status' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Alterar prioridade' })).toBeVisible()
 

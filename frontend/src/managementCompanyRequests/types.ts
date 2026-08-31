@@ -70,6 +70,11 @@ export interface Attachment {
 export interface RequestDetail extends RequestItem {
   categoryId: string;
   cancellationReason: string | null;
+  requester: {
+    id: string;
+    fullName: string;
+    role: "Manager" | "SubManager" | null;
+  };
   fine?: {
     unitId: string;
     unit?: string | null;
@@ -105,6 +110,7 @@ export interface RequestDetail extends RequestItem {
     previousStatus: ManagementCompanyRequestStatus | null;
     newStatus: ManagementCompanyRequestStatus;
     changedByUserId: string;
+    changedByName?: string | null;
     reason: string | null;
     createdAt: string;
   }[];

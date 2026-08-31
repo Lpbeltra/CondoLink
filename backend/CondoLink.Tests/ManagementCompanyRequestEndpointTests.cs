@@ -46,6 +46,41 @@ public sealed class ManagementCompanyRequestEndpointTests : IAsyncLifetime
         Assert.Contains(managers,x=>x.GetProperty("id").GetGuid()==manager&&x.GetProperty("role").GetInt32()==(int)CondominiumRole.Manager);
         Assert.Contains(managers,x=>x.GetProperty("id").GetGuid()==submanager&&x.GetProperty("role").GetInt32()==(int)CondominiumRole.SubManager);
     }
+    [Theory]
+    [InlineData(CondominiumRole.Manager,"Manager","SÃ­ndico")]
+    [InlineData(CondominiumRole.SubManager,"SubManager","SubsÃ­ndico")]
+    public async Task Detail_projects_the_creator_historical_role(CondominiumRole role,string expectedRole,string expectedLabel)
+    {
+        var creator=role==CondominiumRole.Manager?manager:submanager;
+        var id=await host.WithDbAsync(async db=>
+        {
+            var seeded=await db.ManagementCompanyRequests.SingleAsync(x=>x.Id==requestId);
+            var created=new ManagementCompanyRequest(seeded.CondominiumId,seeded.ManagementCompanyId,seeded.CategoryId,creator,ManagementCompanyRequestType.GeneralQuestion,createdAt:DateTime.UtcNow.AddSeconds(1));
+            db.Add(created);await db.SaveChangesAsync();return created.Id;
+        });
+        using var json=JsonDocument.Parse(await host.ClientFor(companyUser).GetStringAsync($"/management-company-requests/{id}"));
+        var requester=json.RootElement.GetProperty("requester");
+        Assert.Equal(creator,requester.GetProperty("id").GetGuid());
+        Assert.Equal(expectedRole,requester.GetProperty("role").GetString());
+        Assert.Equal(role==CondominiumRole.Manager?"Manager":"Sub",requester.GetProperty("fullName").GetString());
+        Assert.NotEmpty(expectedLabel);
+    }
+    [Fact] public async Task Creator_role_is_isolated_by_condominium_when_roles_differ()
+    {
+        Guid secondRequest=default;
+        await host.WithDbAsync(async db=>
+        {
+            var seeded=await db.ManagementCompanyRequests.SingleAsync(x=>x.Id==requestId);
+            var other=new Condominium("Isolado",null,null);db.Add(other);await db.SaveChangesAsync();
+            CoreTestSeed.AddMember(db,manager,other.Id,CondominiumRole.SubManager);
+            db.Add(new CondominiumManagementCompanyLink(other.Id,seeded.ManagementCompanyId));
+            var created=new ManagementCompanyRequest(other.Id,seeded.ManagementCompanyId,seeded.CategoryId,manager,ManagementCompanyRequestType.GeneralQuestion,createdAt:DateTime.UtcNow.AddSeconds(1));db.Add(created);await db.SaveChangesAsync();secondRequest=created.Id;
+        });
+        using var first=JsonDocument.Parse(await host.ClientFor(companyUser).GetStringAsync($"/management-company-requests/{requestId}"));
+        using var second=JsonDocument.Parse(await host.ClientFor(companyUser).GetStringAsync($"/management-company-requests/{secondRequest}"));
+        Assert.Equal("SubManager",second.RootElement.GetProperty("requester").GetProperty("role").GetString());
+        Assert.NotEqual("SubManager",first.RootElement.GetProperty("requester").GetProperty("role").GetString());
+    }
     [Fact] public async Task IDOR_is_enforced_before_mutating_or_returning_metadata()
     {
         foreach(var user in new[]{outsider,wrongUser,inactiveUser})

@@ -52,17 +52,14 @@ describe("management company request attachment previews", () => {
     const view = render(
       <AttachmentsPreview items={[item("g", "dados.csv", "text/csv")]} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /dados.csv/i }));
-    expect(
-      await screen.findByRole("link", { name: /baixar arquivo/i }),
-    ).toHaveAttribute("href", "blob:authenticated");
+    expect(await screen.findByRole("link", { name: /baixar dados.csv/i })).toHaveAttribute("href", "blob:authenticated");
     view.unmount();
 
     vi.mocked(attachmentBlob).mockRejectedValueOnce(new Error("network"));
     render(
       <AttachmentsPreview items={[item("e", "erro.pdf", "application/pdf")]} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /erro.pdf/i }));
+    await waitFor(() => expect(attachmentBlob).toHaveBeenCalledWith("e"));
     expect(
       await screen.findByText(/não foi possível carregar o anexo/i),
     ).toBeInTheDocument();

@@ -98,7 +98,7 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
           {!managementMode && details.residentReplyRequirement && <ResidentReplyPanel requestId={details.id} requirement={details.residentReplyRequirement} onSent={load} />}
           <RequestAttachments requestId={details.id} readOnly={residentReadOnly || residentClosurePending || Boolean(!managementMode && details.residentReplyRequirement)} />
         </Grid>
-        <Grid size={{ xs: 12, lg: 4 }}><Card elevation={0}><CardContent sx={{ p: { xs: 2.5, sm: 3 } }}><Typography variant="h2" mb={3}>Histórico de status</Typography><RequestTimeline history={details.statusHistory} messages={messages} /></CardContent></Card></Grid>
+        <Grid size={{ xs: 12, lg: 4 }}><Card elevation={0}><CardContent sx={{ p: { xs: 2.5, sm: 3 } }}><Typography variant="h2" mb={3}>Timeline</Typography><RequestTimeline history={details.statusHistory} messages={messages} /></CardContent></Card></Grid>
       </Grid>
     </PageContainer>
   )
