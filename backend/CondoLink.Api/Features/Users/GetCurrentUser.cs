@@ -58,7 +58,10 @@ public static class GetCurrentUser
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
-        return Results.Ok(user);
+        var hasAdministratorAccess = await dbContext.ManagementCompanyEmployees.AsNoTracking()
+            .AnyAsync(x => x.UserId == userId && x.IsActive && x.ManagementCompany.IsActive, cancellationToken);
+        return Results.Ok(new { user.Id, user.FullName, user.Email, user.PhoneNumber, user.IsActive,
+            user.CreatedAt, user.UpdatedAt, HasAdministratorAccess = hasAdministratorAccess });
     }
 
     public sealed record Response(

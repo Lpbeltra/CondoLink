@@ -21,6 +21,7 @@ public static class Login
         Request request,
         UserManager<ApplicationUser> userManager,
         [FromServices] AuthenticationSessionService sessions,
+        HttpResponse httpResponse,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Email))
@@ -69,7 +70,7 @@ public static class Login
                 user.Email!));
         }
 
-        var response = await sessions.IssueAsync(user, cancellationToken);
+        var response = await sessions.IssueAsync(user, httpResponse, cancellationToken);
         return response is null
             ? Results.Problem(
                 statusCode: StatusCodes.Status500InternalServerError)

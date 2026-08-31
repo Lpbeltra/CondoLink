@@ -6,6 +6,12 @@ using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using CondoLink.Infrastructure.Identity;
+using Microsoft.AspNetCore.Identity;
 
 namespace CondoLink.Tests;
 
@@ -17,6 +23,27 @@ public sealed class ManagementCompanyRequestPostgresConcurrencyTests
         if(Connection is null)return;var id=await Seed(ManagementCompanyRequestStatus.Submitted);
         var outcomes=await Task.WhenAll(Acknowledge(id),Acknowledge(id));Assert.Equal(1,outcomes.Count(x=>x));
         await using var db=Db();Assert.Equal(ManagementCompanyRequestStatus.Acknowledged,(await db.ManagementCompanyRequests.SingleAsync(x=>x.Id==id)).Status);Assert.Equal(1,await db.ManagementCompanyRequestHistories.CountAsync(x=>x.RequestId==id&&x.EventType==ManagementCompanyRequestEventType.Acknowledged));
+    }
+    [Fact] public async Task Concurrent_friendly_identifiers_are_unique_and_all_requests_are_persisted()
+    {
+        if(Connection is null)return;
+        var seed=await SeedIdentifierDependencies();
+        var ids=await Task.WhenAll(Enumerable.Range(0,20).Select(_=>CreateWithAnnualIdentifier(seed)));
+        await using var db=Db();
+        var rows=await db.ManagementCompanyRequests.AsNoTracking().Where(x=>ids.Contains(x.Id)).Select(x=>x.FriendlyIdentifier).ToListAsync();
+        Assert.Equal(20,rows.Count);Assert.Equal(20,rows.Distinct().Count());
+        Assert.All(rows,x=>Assert.Matches($"^ADM-{DateTime.UtcNow.Year}-[0-9]{{4,}}$",x));
+    }
+    [Fact] public async Task Concurrent_refresh_attempts_allow_only_one_rotation()
+    {
+        if(Connection is null)return;
+        var services=new ServiceCollection();services.AddLogging();services.AddDbContext<AppDbContext>(o=>o.UseNpgsql(Connection));services.AddIdentityCore<ApplicationUser>().AddRoles<IdentityRole<Guid>>().AddEntityFrameworkStores<AppDbContext>();
+        services.Configure<IdentityOptions>(o=>o.Password.RequireNonAlphanumeric=false);
+        await using var provider=services.BuildServiceProvider();Guid userId;string raw;
+        await using(var scope=provider.CreateAsyncScope()){var users=scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();var user=CoreTestSeed.User("Refresh concorrente",$"refresh-{Guid.NewGuid():N}@test.local");var create=await users.CreateAsync(user,"Passw0rd1");Assert.True(create.Succeeded,string.Join(";",create.Errors.Select(x=>x.Description)));userId=user.Id;var session=new AuthenticationSessionService(users,scope.ServiceProvider.GetRequiredService<AppDbContext>(),new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{{"Jwt:Issuer","tests"},{"Jwt:Audience","tests"},{"Jwt:Key","refresh-test-key-with-at-least-32-bytes"},{"Jwt:ExpirationMinutes","60"}}).Build(),Options.Create(new AuthenticationSessionOptions{RefreshTokenDays=30}),TimeProvider.System,scope.ServiceProvider.GetRequiredService<ILogger<AuthenticationSessionService>>() );var response=new DefaultHttpContext().Response;Assert.NotNull(await session.IssueAsync(user,response,default));raw=Uri.UnescapeDataString(response.Headers.SetCookie.Single().Split(';')[0].Split('=',2)[1]);}
+        async Task<Login.Response?> Refresh(){await using var scope=provider.CreateAsyncScope();var users=scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();var session=new AuthenticationSessionService(users,scope.ServiceProvider.GetRequiredService<AppDbContext>(),new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?>{{"Jwt:Issuer","tests"},{"Jwt:Audience","tests"},{"Jwt:Key","refresh-test-key-with-at-least-32-bytes"},{"Jwt:ExpirationMinutes","60"}}).Build(),Options.Create(new AuthenticationSessionOptions{RefreshTokenDays=30}),TimeProvider.System,scope.ServiceProvider.GetRequiredService<ILogger<AuthenticationSessionService>>() );return await session.RefreshAsync(raw,new DefaultHttpContext().Response,default);}
+        var results=await Task.WhenAll(Refresh(),Refresh());Assert.Equal(1,results.Count(x=>x is not null));
+        await using(var scope=provider.CreateAsyncScope()){var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();var rows=await db.RefreshSessions.Where(x=>x.UserId==userId).ToListAsync();Assert.Equal(2,rows.Count);Assert.Single(rows,x=>x.RevokedAt is null);Assert.Single(rows,x=>x.RevokedAt is not null);}
     }
     [Fact] public async Task Cancel_and_complete_race_has_one_terminal_winner()
     {
@@ -115,6 +142,10 @@ public sealed class ManagementCompanyRequestPostgresConcurrencyTests
         await db.SaveChangesAsync();
         return(r.Id,manager.Id,companyUser.Id);
     }
+    private static async Task<(Guid Condo,Guid Company,Guid Category,Guid User)> SeedIdentifierDependencies()
+    {await using var db=Db();var condo=new Condominium("Sequência",null,null);var company=new ManagementCompany("Sequência Empresa",null,null,null,null);var user=CoreTestSeed.User("Sequência",$"seq-{Guid.NewGuid():N}@test.local");var category=new ManagementCompanyRequestCategory(company.Id,"Sequência",null,ManagementCompanyRequestFormType.Generic);db.AddRange(condo,company,user,category);await db.SaveChangesAsync();return(condo.Id,company.Id,category.Id,user.Id);}
+    private static async Task<Guid> CreateWithAnnualIdentifier((Guid Condo,Guid Company,Guid Category,Guid User) seed)
+    {await using var db=Db();await using var tx=await db.Database.BeginTransactionAsync();var generator=new ManagementCompanyRequestIdentifierService(db,TimeProvider.System);var(fid,created)=await generator.NextAsync(default);var request=new ManagementCompanyRequest(seed.Condo,seed.Company,seed.Category,seed.User,ManagementCompanyRequestType.GeneralQuestion,fid,created);db.ManagementCompanyRequests.Add(request);await db.SaveChangesAsync();await tx.CommitAsync();return request.Id;}
     private static async Task<bool> InteractSafe(Guid id,ManagementCompanyRequestActor actor,string content)
     {
         await using var db=Db();var access=new ManagementCompanyRequestAccessService(db);var service=new ManagementCompanyRequestService(db,access,null!);

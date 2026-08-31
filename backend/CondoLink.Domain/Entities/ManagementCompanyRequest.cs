@@ -6,15 +6,16 @@ public sealed class ManagementCompanyRequest
 {
     private ManagementCompanyRequest() { }
     public ManagementCompanyRequest(Guid condominiumId, Guid managementCompanyId,
-        Guid categoryId, Guid createdByUserId, ManagementCompanyRequestType type)
+        Guid categoryId, Guid createdByUserId, ManagementCompanyRequestType type,
+        string? friendlyIdentifier = null, DateTime? createdAt = null)
     {
         if (condominiumId == Guid.Empty || managementCompanyId == Guid.Empty
             || categoryId == Guid.Empty || createdByUserId == Guid.Empty)
             throw new ArgumentException("Request ownership fields are required.");
         if (!Enum.IsDefined(type)) throw new ArgumentOutOfRangeException(nameof(type));
-        var now = DateTime.UtcNow;
+        var now = createdAt ?? DateTime.UtcNow;
         Id = Guid.NewGuid();
-        FriendlyIdentifier = $"ADM-{Id:N}"[..16].ToUpperInvariant();
+        FriendlyIdentifier = friendlyIdentifier ?? $"ADM-{Id:N}"[..16].ToUpperInvariant();
         CondominiumId = condominiumId; ManagementCompanyId = managementCompanyId;
         CategoryId = categoryId; CreatedByUserId = createdByUserId; Type = type;
         Status = ManagementCompanyRequestStatus.Submitted;

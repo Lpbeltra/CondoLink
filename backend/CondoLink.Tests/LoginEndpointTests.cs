@@ -38,6 +38,7 @@ public sealed class LoginEndpointTests : IAsyncLifetime
             {
                 application.MapLogin();
                 application.MapChangeTemporaryPassword();
+                application.MapRefreshEndpoints();
             },
             builder => builder.Configuration.AddInMemoryCollection(
                 new Dictionary<string, string?>
@@ -156,6 +157,39 @@ public sealed class LoginEndpointTests : IAsyncLifetime
         Assert.Equal("ativo@example.com", body.User.Email);
         Assert.True(body.User.IsActive);
         Assert.Equal([DependencyInjection.PlatformAdminRole], body.User.Roles);
+    }
+
+    [Fact]
+    public async Task Refresh_rotates_cookie_and_rejects_reuse_then_logout_revokes_current_session()
+    {
+        var login = await LoginAsync("ativo@example.com", "Passw0rd1");
+        var first = Cookie(login);
+        Assert.Contains("httponly", string.Join(";", login.Headers.GetValues("Set-Cookie")).ToLowerInvariant());
+        Assert.DoesNotContain(first, await login.Content.ReadAsStringAsync());
+
+        var refreshed = await PostWithCookieAsync("/auth/refresh", first);
+        Assert.Equal(HttpStatusCode.OK, refreshed.StatusCode);
+        var second = Cookie(refreshed);
+        Assert.NotEqual(first, second);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await PostWithCookieAsync("/auth/refresh", first)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await PostWithCookieAsync("/auth/logout", second)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await PostWithCookieAsync("/auth/refresh", second)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Refresh_rejects_random_token_inactive_user_and_changed_security_stamp()
+    {
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await PostWithCookieAsync("/auth/refresh", "random-or-tampered")).StatusCode);
+        var inactiveLogin = await LoginAsync("ativo@example.com", "Passw0rd1");
+        var inactiveCookie = Cookie(inactiveLogin);
+        await _host.WithDbAsync(async db => { var user=await db.Users.SingleAsync(x=>x.Id==_activeUserId);user.SetActiveStatus(false);await db.SaveChangesAsync(); });
+        Assert.Equal(HttpStatusCode.Unauthorized,(await PostWithCookieAsync("/auth/refresh",inactiveCookie)).StatusCode);
+        await _host.WithServicesAsync(async services => { var manager=services.GetRequiredService<UserManager<ApplicationUser>>();var user=await manager.FindByIdAsync(_activeUserId.ToString());user!.SetActiveStatus(true);await manager.UpdateAsync(user); });
+        var stampLogin=await LoginAsync("ativo@example.com","Passw0rd1");var stampCookie=Cookie(stampLogin);
+        await _host.WithServicesAsync(async services => { var manager=services.GetRequiredService<UserManager<ApplicationUser>>();var user=await manager.FindByIdAsync(_activeUserId.ToString());await manager.UpdateSecurityStampAsync(user!); });
+        Assert.Equal(HttpStatusCode.Unauthorized,(await PostWithCookieAsync("/auth/refresh",stampCookie)).StatusCode);
     }
 
     [Fact]
@@ -305,6 +339,11 @@ public sealed class LoginEndpointTests : IAsyncLifetime
         string? email,
         string? password) =>
         _client.PostAsJsonAsync("/auth/login", new { email, password });
+
+    private async Task<HttpResponseMessage> PostWithCookieAsync(string path,string cookie)
+    { using var request=new HttpRequestMessage(HttpMethod.Post,path);request.Headers.Add("Cookie",$"{AuthenticationSessionService.CookieName}={cookie}");return await _client.SendAsync(request); }
+    private static string Cookie(HttpResponseMessage response)
+    { var header=response.Headers.GetValues("Set-Cookie").Single();return header.Split(';')[0].Split('=',2)[1]; }
 
     private async Task<Guid> CreateTemporaryUserAsync(
         string email,

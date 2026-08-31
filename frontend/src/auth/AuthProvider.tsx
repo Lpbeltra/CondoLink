@@ -6,24 +6,27 @@ import type {
   PasswordChangeRequiredResponse,
   User,
 } from './types'
-import { clearStoredToken, getStoredToken, storeToken } from './authStorage'
+import { getStoredToken } from './authStorage'
 import { hydrateSessionUser } from './session'
-import { getMillisecondsUntilExpiry, isTokenExpired } from './tokenExpiry'
+import { isTokenExpired } from './tokenExpiry'
+import { refreshAccessToken, setAccessToken } from '../services/api'
 
 function setAuthorization(token: string | null) {
-  if (token) api.defaults.headers.common.Authorization = `Bearer ${token}`
-  else delete api.defaults.headers.common.Authorization
+  setAccessToken(token)
 }
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<User | null>(null)
   const [isInitializing, setIsInitializing] = useState(true)
 
-  const logout = useCallback(() => {
-    clearStoredToken()
+  const clearSession = useCallback(() => {
     setAuthorization(null)
     setUser(null)
   }, [])
+  const logout = useCallback(() => {
+    void api.post('/auth/logout', undefined, { _refreshRetried: true } as never).catch(() => undefined)
+    clearSession()
+  }, [clearSession])
 
   useEffect(() => {
     const handleUnauthorized = () => logout()
@@ -34,24 +37,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     const restoreSession = async () => {
       const token = getStoredToken()
-      if (!token) {
-        setIsInitializing(false)
-        return
-      }
-
-      // Don't render an authenticated shell around an already-dead token.
-      if (isTokenExpired(token)) {
-        logout()
-        setIsInitializing(false)
-        return
-      }
-
-      setAuthorization(token)
       try {
+        const activeToken = !token || isTokenExpired(token) ? await refreshAccessToken() : token
+        setAuthorization(activeToken)
         const { data } = await api.get<User>('/users/me')
-        setUser(hydrateSessionUser(data, token))
+        setUser(hydrateSessionUser(data, activeToken))
       } catch {
-        logout()
+        setAuthorization(null); setUser(null)
       } finally {
         setIsInitializing(false)
       }
@@ -59,24 +51,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     void restoreSession()
   }, [logout])
 
-  // Expire the session in place, so a tab left open doesn't keep showing a
-  // logged-in UI backed by a token the API will now reject.
-  useEffect(() => {
-    if (!user) return
-    const token = getStoredToken()
-    if (!token) return
-    const remaining = getMillisecondsUntilExpiry(token)
-    if (remaining === null) return
-    if (remaining === 0) {
-      logout()
-      return
-    }
-    const timer = window.setTimeout(logout, remaining)
-    return () => window.clearTimeout(timer)
-  }, [logout, user])
-
   const completeLogin = useCallback(async (data: LoginResponse) => {
-      storeToken(data.accessToken)
       setAuthorization(data.accessToken)
       const currentUser = await api.get<User>('/users/me')
       setUser(hydrateSessionUser(
@@ -87,7 +62,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [])
 
   const login = useCallback(async (email: string, password: string) => {
-    logout()
+    clearSession()
     try {
       const { data } = await api.post<
         LoginResponse | PasswordChangeRequiredResponse
@@ -102,10 +77,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       await completeLogin(data)
       return { requiresPasswordChange: false as const }
     } catch (error) {
-      logout()
+      clearSession()
       throw error
     }
-  }, [completeLogin, logout])
+  }, [clearSession, completeLogin])
 
   const value = useMemo(() => ({
     user,

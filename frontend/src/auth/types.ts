@@ -7,6 +7,7 @@ export interface User {
   createdAt?: string
   updatedAt?: string
   roles?: string[]
+  hasAdministratorAccess?: boolean
 }
 
 export interface LoginResponse {

@@ -23,6 +23,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         ManagementCompanyRequestCategories =>
         Set<ManagementCompanyRequestCategory>();
     public DbSet<ManagementCompanyRequest> ManagementCompanyRequests => Set<ManagementCompanyRequest>();
+    public DbSet<ManagementCompanyRequestAnnualSequence> ManagementCompanyRequestAnnualSequences => Set<ManagementCompanyRequestAnnualSequence>();
+    public DbSet<RefreshSession> RefreshSessions => Set<RefreshSession>();
     public DbSet<ManagementCompanyFineRequest> ManagementCompanyFineRequests => Set<ManagementCompanyFineRequest>();
     public DbSet<ManagementCompanyPaymentRequest> ManagementCompanyPaymentRequests => Set<ManagementCompanyPaymentRequest>();
     public DbSet<ManagementCompanyGeneralQuestionRequest> ManagementCompanyGeneralQuestionRequests => Set<ManagementCompanyGeneralQuestionRequest>();
@@ -78,6 +80,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         base.OnModelCreating(modelBuilder);
 
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+        modelBuilder.Entity<ManagementCompanyRequest>().Property(x => x.FriendlyIdentifier).HasMaxLength(32);
     }
 
 }

@@ -56,6 +56,9 @@ public sealed class EndpointAuthorizationCoverageTests
     {
         // Callers have no token yet by definition.
         "/auth/login",
+        // The HttpOnly refresh cookie is the credential for these endpoints.
+        "/auth/refresh",
+        "/auth/logout",
         // The temporary credential itself authenticates this one-time flow.
         "/auth/change-temporary-password",
         "/auth/first-access/validate",
@@ -238,6 +241,7 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapGet("/health", () => Results.Ok());
 
         app.MapLogin();
+        app.MapRefreshEndpoints();
         app.MapChangeTemporaryPassword();
         app.MapFirstAccess();
 

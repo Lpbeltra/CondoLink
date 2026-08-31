@@ -1228,3 +1228,8 @@ A prioridade real deverá ser revisada após validação do MVP com usuários.
 - [x] Refinamento 2 pós-Lote 6 — moeda BRL e atalhos de multa; previews locais e
   autenticados; fila operacional enriquecida com filtros rápidos server-side; layout,
   ações e informações do solicitante responsivos.
+# Refinamento 3 pós-Lote 6
+
+- Concluído: FriendlyIdentifier anual `ADM-{ANO}-{SEQUENCIAL}`, sem renumeração histórica.
+- Concluído: sessão persistente com refresh token HttpOnly rotativo, revogação e bootstrap silencioso.
+- Concluído: contexto da Administradora condicionado à elegibilidade retornada pela sessão autenticada.

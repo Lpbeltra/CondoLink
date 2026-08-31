@@ -46,6 +46,7 @@ builder.Services.AddScoped<ResidentReplyService>();
 builder.Services.AddScoped<RequestClosureService>();
 builder.Services.AddScoped<ManagementCompanyRequestAccessService>();
 builder.Services.AddScoped<ManagementCompanyRequestService>();
+builder.Services.AddScoped<ManagementCompanyRequestIdentifierService>();
 builder.Services.AddScoped<ManagementCompanyRequestNotificationService>();
 builder.Services.AddSingleton<OperationalTelemetry>();
 builder.Services.AddSingleton<ApiRequestMetrics>();
@@ -132,6 +133,7 @@ builder.Services.AddHttpClient<IWhatsAppAudioTranscriptionService,
 }).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "AudioTranscription"))
 .AddOpenAiResilience("openai-audio-transcription");
 builder.Services.AddScoped<AuthenticationSessionService>();
+builder.Services.Configure<AuthenticationSessionOptions>(builder.Configuration.GetSection(AuthenticationSessionOptions.SectionName));
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
 builder.Services.Configure<FirstAccessOptions>(builder.Configuration.GetSection(FirstAccessOptions.SectionName));
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
@@ -194,7 +196,8 @@ builder.Services.AddCors(options =>
             policy
                 .WithOrigins(allowedOrigins)
                 .AllowAnyHeader()
-                .AllowAnyMethod();
+                .AllowAnyMethod()
+                .AllowCredentials();
         }
     });
 });
@@ -311,6 +314,7 @@ app.MapGet(
 
 // Authentication
 app.MapLogin();
+app.MapRefreshEndpoints();
 app.MapChangeTemporaryPassword();
 app.MapFirstAccess();
 
