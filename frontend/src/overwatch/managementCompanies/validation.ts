@@ -23,6 +23,7 @@ export function validateEmployee(input: EmployeeInput) {
   if (!input.fullName.trim()) return 'Informe o nome completo.'
   if (input.fullName.trim().length > 200) return 'O nome completo deve possuir no máximo 200 caracteres.'
   if (!input.email.trim()) return 'Informe o e-mail.'
+  if (input.contact?.trim() && !/^[0-9+ ()\-./]+$/.test(input.contact.trim())) return 'Contato deve ser telefone valido.'
   if (input.email.trim().length > 254 || !emailPattern.test(input.email.trim()))
     return 'Informe um e-mail válido.'
   if ((input.contact?.trim().length ?? 0) > 30) return 'O contato deve possuir no máximo 30 caracteres.'

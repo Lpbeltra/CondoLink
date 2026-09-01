@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.Json.Serialization;
 using CondoLink.Domain.Entities;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
@@ -78,47 +79,58 @@ public static class CreateManagementCompanyEmployee
         var existingUser = await userManager.FindByEmailAsync(email);
         if (existingUser is not null)
         {
-            var alreadyLinked = await dbContext.ManagementCompanyEmployees
-                .AnyAsync(
-                    employee => employee.UserId == existingUser.Id,
+            var existingAccess = await dbContext.ManagementCompanyEmployees
+                .SingleOrDefaultAsync(employee => employee.UserId == existingUser.Id
+                    && employee.ManagementCompanyId == managementCompanyId,
                     cancellationToken);
-            return alreadyLinked
-                ? Results.Conflict(new
+            if (existingAccess is not null)
+            {
+                return Results.Conflict(new
                 {
-                    message =
-                        "This user already belongs to a management company."
-                })
-                : Results.Conflict(new
-                {
-                    message = "A user with this email already exists."
+                    message = existingAccess.IsActive
+                        ? "Já existe um acesso ativo com este e-mail nesta administradora."
+                        : "Já existe um acesso inativo com este e-mail. Reative o acesso existente em vez de criar um novo."
                 });
+            }
+
+            if (await dbContext.ManagementCompanyEmployees.AnyAsync(
+                    employee => employee.UserId == existingUser.Id,
+                    cancellationToken))
+            {
+                return Results.Conflict(new
+                {
+                    message = "This user already belongs to another management company."
+                });
+            }
         }
         if (normalizedContact is not null
             && await dbContext.Users.AsNoTracking().AnyAsync(
-                user => user.NormalizedPhoneNumber == normalizedContact,
+                user => user.NormalizedPhoneNumber == normalizedContact
+                    && (existingUser == null || user.Id != existingUser.Id),
                 cancellationToken))
         {
             return Results.Conflict(new
                 { message = "A user with this phone number already exists." });
         }
 
-        var temporaryPassword = GenerateTemporaryPassword();
+        var temporaryPassword = existingUser is null ? GenerateTemporaryPassword() : null;
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        var user = new ApplicationUser(fullName, email, contact);
-        user.RequirePasswordChange();
-        user.SetEmailDeliveryEnabled(FirstAccessEmailPolicy.IsDeliverable(email));
-        var createResult = await userManager.CreateAsync(
-            user,
-            temporaryPassword);
-        if (!createResult.Succeeded)
+        var user = existingUser;
+        if (user is null)
         {
-            return Results.BadRequest(new
+            user = new ApplicationUser(fullName, email, contact);
+            user.RequirePasswordChange();
+            user.SetEmailDeliveryEnabled(FirstAccessEmailPolicy.IsDeliverable(email));
+            var createResult = await userManager.CreateAsync(user, temporaryPassword!);
+            if (!createResult.Succeeded)
             {
-                errors = createResult.Errors
-                    .Select(error => error.Description)
-            });
+                return Results.BadRequest(new
+                {
+                    errors = createResult.Errors.Select(error => error.Description)
+                });
+            }
         }
 
         var employee = new ManagementCompanyEmployee(
@@ -130,7 +142,8 @@ public static class CreateManagementCompanyEmployee
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         var firstAccess = services.GetService<FirstAccessService>();
-        var invitationSent = firstAccess is not null
+        var invitationSent = temporaryPassword is not null
+            && firstAccess is not null
             && await firstAccess.SendAsync(user, company.Name, cancellationToken);
 
         return Results.Created(
@@ -162,6 +175,7 @@ public static class CreateManagementCompanyEmployee
 
     public sealed record Request(
         string? FullName, string? Email, string? Contact, string? JobTitle,
+        [property: JsonConverter(typeof(JsonStringEnumConverter))]
         ManagementCompanyAccessType AccessType = ManagementCompanyAccessType.Person);
 
     public sealed record CreatedResponse(
@@ -172,8 +186,9 @@ public static class CreateManagementCompanyEmployee
         string Email,
         string? Contact,
         string JobTitle,
+        [property: JsonConverter(typeof(JsonStringEnumConverter))]
         ManagementCompanyAccessType AccessType,
         bool IsActive,
-        string TemporaryPassword,
+        string? TemporaryPassword,
         bool InvitationSent);
 }

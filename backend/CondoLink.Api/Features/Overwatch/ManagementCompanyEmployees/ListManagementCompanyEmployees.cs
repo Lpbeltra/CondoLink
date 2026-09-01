@@ -39,7 +39,7 @@ public static class ListManagementCompanyEmployees
             from employee in dbContext.ManagementCompanyEmployees.AsNoTracking()
             join user in dbContext.Users.AsNoTracking()
                 on employee.UserId equals user.Id
-            where employee.ManagementCompanyId == managementCompanyId && employee.IsActive && user.IsActive
+            where employee.ManagementCompanyId == managementCompanyId
             orderby user.FullName
             select new ManagementCompanyEmployeeResponse(
                 employee.Id,

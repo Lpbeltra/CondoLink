@@ -245,10 +245,10 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
                         size="small"
                         color={employee.isActive ? 'error' : 'primary'}
                         startIcon={<PowerSettingsNewRoundedIcon />}
-                        aria-label={employee.isActive ? 'Inativar funcionário' : 'Ativar funcionário'}
+                        aria-label={employee.isActive ? 'Inativar acesso' : 'Reativar acesso'}
                         onClick={() => setPendingAction({ type: 'status', employee })}
                       >
-                        {employee.isActive ? 'Inativar' : 'Ativar'}
+                        {employee.isActive ? 'Inativar' : 'Reativar'}
                       </Button>
                     <Button size="small" onClick={async () => {
                       const result = await resendManagementCompanyAccess(employee.id)
@@ -310,7 +310,8 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
                 <MenuItem value="Department">Setor</MenuItem>
               </TextField>
               <TextField
-                label="Contato"
+                type="tel"
+                label="Telefone"
                 value={contact}
                 onChange={(event) => setContact(event.target.value)}
                 slotProps={{ htmlInput: { maxLength: 30 } }}
@@ -356,17 +357,19 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
       >
         <DialogTitle>Funcionário criado com sucesso</DialogTitle>
         <DialogContent>
-          <Alert severity="warning">
-            A senha temporária será exibida somente neste momento. Compartilhe-a de forma segura.
+          <Alert severity={credentials?.temporaryPassword ? 'warning' : 'info'}>
+            {credentials?.temporaryPassword
+              ? 'A senha temporária será exibida somente neste momento. Compartilhe-a de forma segura.'
+              : 'O acesso foi criado usando o usuário existente. A senha e as credenciais foram preservadas.'}
           </Alert>
           {credentials && (
             <Card variant="outlined" sx={{ mt: 2 }}>
               <CardContent>
                 <Typography fontWeight={800}>{credentials.fullName}</Typography>
                 <Typography mt={1}>E-mail: {credentials.email}</Typography>
-                <Typography sx={{ fontFamily: 'monospace', mt: 1 }}>
+                {credentials.temporaryPassword && <Typography sx={{ fontFamily: 'monospace', mt: 1 }}>
                   Senha temporária: {credentials.temporaryPassword}
-                </Typography>
+                </Typography>}
                 <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} mt={2}>
                   <Button
                     size="small"
@@ -375,20 +378,20 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
                   >
                     Copiar e-mail
                   </Button>
-                  <Button
+                  {credentials.temporaryPassword && <Button
                     size="small"
                     startIcon={<ContentCopyRoundedIcon />}
-                    onClick={() => void copy(credentials.temporaryPassword, 'Senha copiada.')}
+                    onClick={() => void copy(credentials.temporaryPassword ?? '', 'Senha copiada.')}
                   >
                     Copiar senha
-                  </Button>
+                  </Button>}
                 </Stack>
               </CardContent>
             </Card>
           )}
         </DialogContent>
         <DialogActions>
-          {credentials && (
+          {credentials?.temporaryPassword && (
             <Button
               startIcon={<ContentCopyRoundedIcon />}
               onClick={() => void copy(
@@ -414,7 +417,7 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
             ? 'Remover vínculo'
             : pendingAction?.employee.isActive
               ? 'Inativar funcionário'
-              : 'Ativar funcionário'}
+              : 'Reativar acesso'}
         </DialogTitle>
         <DialogContent>
           {pendingAction?.type === 'remove' ? (

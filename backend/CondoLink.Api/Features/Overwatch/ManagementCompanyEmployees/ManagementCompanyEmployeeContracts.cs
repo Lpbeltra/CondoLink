@@ -1,4 +1,5 @@
 using CondoLink.Domain.Enums;
+using System.Text.Json.Serialization;
 
 namespace CondoLink.Api.Features.Overwatch.ManagementCompanyEmployees;
 
@@ -10,6 +11,7 @@ public sealed record ManagementCompanyEmployeeResponse(
     string Email,
     string? Contact,
     string JobTitle,
+    [property: JsonConverter(typeof(JsonStringEnumConverter))]
     ManagementCompanyAccessType AccessType,
     bool IsActive,
     DateTime? LastAccessAt,

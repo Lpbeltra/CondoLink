@@ -50,7 +50,7 @@ export interface CreatedManagementCompanyEmployee {
   jobTitle: string
   accessType?: 'Person' | 'Department'
   isActive: boolean
-  temporaryPassword: string
+  temporaryPassword: string | null
   invitationSent?: boolean
 }
 

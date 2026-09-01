@@ -58,7 +58,7 @@ export function employeeError(error: unknown) {
 
   switch (error.response?.status) {
     case 400:
-      return getResponseMessage(error)
+      return employeeValidationMessage(getResponseMessage(error))
         ?? 'Os dados do funcionário são inválidos. Revise os campos e tente novamente.'
     case 401:
       return 'Sua sessão expirou. Entre novamente.'
@@ -68,6 +68,8 @@ export function employeeError(error: unknown) {
       return 'A administradora ou o funcionário não foi encontrado.'
     case 409: {
       const message = getResponseMessage(error)
+      if (message?.includes('acesso ativo')) return 'Ja existe um acesso ativo com este e-mail nesta administradora.'
+      if (message?.includes('acesso inativo')) return 'Ja existe um acesso inativo com este e-mail. Reative o acesso existente em vez de criar um novo.'
       return message?.includes('already belongs')
         ? 'Este usuário já pertence a uma administradora.'
         : 'Já existe um usuário cadastrado com este e-mail.'
@@ -75,4 +77,12 @@ export function employeeError(error: unknown) {
     default:
       return 'Não foi possível concluir a operação. Tente novamente.'
   }
+}
+
+function employeeValidationMessage(message: string | null) {
+  if (!message) return null
+  if (message.includes('Contact must be a valid phone')) return 'Contato deve ser telefone valido.'
+  if (message.includes('required')) return 'Preencha nome completo, e-mail e funcao.'
+  if (message.includes('invalid')) return 'Informe um e-mail valido.'
+  return null
 }

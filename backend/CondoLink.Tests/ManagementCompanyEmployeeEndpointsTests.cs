@@ -180,7 +180,7 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Existing_email_returns_409()
+    public async Task Existing_user_without_access_is_reused()
     {
         var companyId = await CreateCompanyAsync();
         await CreateUserAsync("Existing", "existing@example.com");
@@ -190,7 +190,43 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
             "Another",
             "existing@example.com");
 
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = await response.Content.ReadFromJsonAsync<CreatedEmployeeResponse>();
+        Assert.Null(created!.TemporaryPassword);
+        await using var scope = _application!.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Equal(1, await db.Users.CountAsync(user => user.Email == "existing@example.com"));
+    }
+
+    [Fact]
+    public async Task Existing_active_or_inactive_access_returns_specific_conflict()
+    {
+        var companyId = await CreateCompanyAsync();
+        var response = await CreateEmployeeAsync(companyId, "Employee", "same@example.com");
+        var created = await response.Content.ReadFromJsonAsync<CreatedEmployeeResponse>();
+
+        var active = await CreateEmployeeAsync(companyId, "Another", "same@example.com");
+        Assert.Equal(HttpStatusCode.Conflict, active.StatusCode);
+        Assert.Contains("acesso ativo", await active.Content.ReadAsStringAsync());
+
+        await SetStatusAsync(created!.Id, false);
+        var inactive = await CreateEmployeeAsync(companyId, "Another", "same@example.com");
+        Assert.Equal(HttpStatusCode.Conflict, inactive.StatusCode);
+        Assert.Contains("acesso inativo", await inactive.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Can_create_person_and_department_access_types()
+    {
+        var companyId = await CreateCompanyAsync();
+        var person = await _admin.PostAsJsonAsync($"/overwatch/management-companies/{companyId}/employees",
+            new { fullName = "Person", email = "person-type@example.com", contact = (string?)null,
+                jobTitle = "Atendimento", accessType = "Person" });
+        var department = await _admin.PostAsJsonAsync($"/overwatch/management-companies/{companyId}/employees",
+            new { fullName = "Department", email = "department-type@example.com", contact = (string?)null,
+                jobTitle = "Financeiro", accessType = "Department" });
+        Assert.Equal(HttpStatusCode.Created, person.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, department.StatusCode);
     }
 
     [Fact]
@@ -374,7 +410,7 @@ public sealed class ManagementCompanyEmployeeEndpointsTests : IAsyncLifetime
         string? Contact,
         string JobTitle,
         bool IsActive,
-        string TemporaryPassword);
+        string? TemporaryPassword);
 
     private sealed record EmployeeResponse(
         Guid Id,

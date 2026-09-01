@@ -17,4 +17,14 @@ describe('management company employee validation', () => {
       jobTitle: 'Financeiro',
     })).toBeNull()
   })
+
+  it('rejects a contact that is not a phone number', () => {
+    expect(validateEmployee({ fullName: 'Thiago Soto', email: 'thiago@dimarp.com', contact: 'Thiago', jobTitle: 'Administrativo' }))
+      .toBe('Contato deve ser telefone valido.')
+  })
+
+  it('accepts both access types with an optional phone', () => {
+    expect(validateEmployee({ fullName: 'Pessoa', email: 'pessoa@example.com', contact: '+55 11 99000-0000', jobTitle: 'Operacao', accessType: 'Person' })).toBeNull()
+    expect(validateEmployee({ fullName: 'Setor', email: 'setor@example.com', contact: null, jobTitle: 'Financeiro', accessType: 'Department' })).toBeNull()
+  })
 })

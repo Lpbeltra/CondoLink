@@ -50,6 +50,7 @@ describe('management company API', () => {
       email: 'employee@example.com',
       contact: null,
       jobTitle: 'Atendimento',
+      accessType: 'Person',
     })
 
     expect(http.get).toHaveBeenCalledWith(
@@ -59,7 +60,7 @@ describe('management company API', () => {
       '/overwatch/management-companies/company-id/employees',
       {
         fullName: 'Employee', email: 'employee@example.com',
-        contact: null, jobTitle: 'Atendimento',
+        contact: null, jobTitle: 'Atendimento', accessType: 'Person',
       },
     )
   })

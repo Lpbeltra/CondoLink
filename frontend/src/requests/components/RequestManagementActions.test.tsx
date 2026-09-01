@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RequestManagementActions } from './RequestManagementActions'
@@ -48,7 +48,7 @@ describe('RequestManagementActions AI preview', () => {
     await user.click(generate)
     expect(generate).toBeDisabled()
     expect(suggestRequestStatusMessage).toHaveBeenCalledTimes(1)
-    resolveSuggestion({ suggestion: 'Texto claro.' })
+    await act(async () => { resolveSuggestion({ suggestion: 'Texto claro.' }) })
     expect(await screen.findByDisplayValue('Texto claro.')).toBeVisible()
     await user.type(input, ' Alterado')
     expect(screen.getByText(/versão anterior/)).toBeVisible()

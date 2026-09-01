@@ -19,14 +19,6 @@ if (!globalThis.localStorage?.clear) {
   })
 }
 
-afterEach(() => {
-  cleanup()
-  // Some suites swap in their own minimal localStorage stub, so `clear` is not
-  // guaranteed to exist here.
-  globalThis.localStorage?.clear?.()
-  vi.clearAllMocks()
-})
-
 // jsdom implements neither matchMedia nor the ResizeObserver MUI's transitions
 // rely on. Default to "light" so themed component tests are deterministic.
 if (!window.matchMedia) {
@@ -44,6 +36,29 @@ if (!window.matchMedia) {
     }),
   })
 }
+
+const baselineMatchMedia = window.matchMedia
+const baselineUserAgent = navigator.userAgent
+
+afterEach(() => {
+  cleanup()
+  // Some suites swap in their own minimal localStorage stub, so `clear` is not
+  // guaranteed to exist here.
+  globalThis.localStorage?.clear?.()
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: baselineMatchMedia,
+  })
+  Object.defineProperty(navigator, 'userAgent', {
+    configurable: true,
+    value: baselineUserAgent,
+  })
+  vi.clearAllMocks()
+})
 
 if (!globalThis.ResizeObserver) {
   globalThis.ResizeObserver = class {
