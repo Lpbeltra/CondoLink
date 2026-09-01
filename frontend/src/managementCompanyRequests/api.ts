@@ -34,23 +34,28 @@ export async function getRequest(id: string) {
   return (await api.get<RequestDetail>(`/management-company-requests/${id}`))
     .data;
 }
-function form(payload: unknown, files: File[]) {
+export async function updateRequest(id: string, payload: unknown, files: File[] = [], boleto: File[] = []) {
+  await api.put(`/management-company-requests/${id}/multipart`, form(payload, files, boleto));
+}
+function form(payload: unknown, files: File[], boleto: File[] = []) {
   const f = new FormData();
   f.append("payload", JSON.stringify(payload));
   files.forEach((x) => f.append("files", x));
+  boleto.forEach((x) => f.append("boleto", x));
   return f;
 }
 export async function createRequest(
   type: ManagementCompanyRequestType,
   payload: unknown,
   files: File[],
+  boleto: File[] = [],
 ) {
   const route =
     type === "Fine" ? "fines" : type === "Payment" ? "payments" : "questions";
   return (
     await api.post<{ id: string; friendlyIdentifier: string }>(
       `/management-company-requests/${route}/multipart`,
-      form(payload, files),
+      form(payload, files, boleto),
     )
   ).data;
 }

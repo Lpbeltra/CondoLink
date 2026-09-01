@@ -25,5 +25,6 @@ public enum NotificationType
     ManagementCompanyRequestCompleted = 9,
 
     /// <summary>Gestão cancelou a solicitação — destinatário é sempre a administradora.</summary>
-    ManagementCompanyRequestCancelled = 10
+    ManagementCompanyRequestCancelled = 10,
+    ManagementCompanyRequestEdited = 11
 }

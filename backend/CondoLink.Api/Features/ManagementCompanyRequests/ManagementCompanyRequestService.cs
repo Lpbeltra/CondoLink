@@ -25,7 +25,7 @@ public sealed class ManagementCompanyRequestService(AppDbContext db, ManagementC
         }, null, files, ManagementCompanyRequestAttachmentPurpose.Request, ct);
     }
 
-    public async Task<ManagementCompanyRequest> CreatePaymentAsync(ClaimsPrincipal p, CreatePaymentCommand c, CancellationToken ct, IReadOnlyList<IFormFile>? files = null)
+    public async Task<ManagementCompanyRequest> CreatePaymentAsync(ClaimsPrincipal p, CreatePaymentCommand c, CancellationToken ct, IReadOnlyList<IFormFile>? files = null, IReadOnlyList<IFormFile>? boletoFiles = null)
     {
         var a = await access.RequireManagementAsync(p, c.CondominiumId, ct);
         Guid? id = null; string? name = null; PixKeyType? pt = null; string? pk = null;
@@ -55,12 +55,12 @@ public sealed class ManagementCompanyRequestService(AppDbContext db, ManagementC
                     throw new ValidationAppException("A chave PIX é obrigatória.");
                 if (!string.IsNullOrWhiteSpace(c.ThirdPartyBank) || !string.IsNullOrWhiteSpace(c.ThirdPartyAgency) || !string.IsNullOrWhiteSpace(c.ThirdPartyAccount))
                     throw new ValidationAppException("PIX não pode conter dados bancários.");
-                if (files is { Count: > 0 })
+                if (boletoFiles is { Count: > 0 })
                     throw new ValidationAppException("Arquivos não são permitidos para PIX.");
             }
             else if (c.ThirdPartyForm == ManagementCompanyPaymentThirdPartyForm.Boleto)
             {
-                if (files is null || files.Count == 0)
+                if (boletoFiles is null || boletoFiles.Count != 1)
                     throw new ValidationAppException("Anexe o boleto.");
                 if (!string.IsNullOrWhiteSpace(c.ThirdPartyPixKey))
                     throw new ValidationAppException("Boleto não pode conter chave PIX.");
@@ -71,7 +71,7 @@ public sealed class ManagementCompanyRequestService(AppDbContext db, ManagementC
             {
                 if (string.IsNullOrWhiteSpace(c.ThirdPartyBank) || string.IsNullOrWhiteSpace(c.ThirdPartyAgency) || string.IsNullOrWhiteSpace(c.ThirdPartyAccount))
                     throw new ValidationAppException("Banco, agência e conta são obrigatórios.");
-                if (!string.IsNullOrWhiteSpace(c.ThirdPartyPixKey) || files is { Count: > 0 })
+                if (!string.IsNullOrWhiteSpace(c.ThirdPartyPixKey) || boletoFiles is { Count: > 0 })
                     throw new ValidationAppException("Conta para depósito não aceita PIX nem boleto.");
             }
             else throw new ValidationAppException("A forma de pagamento é inválida.");
@@ -81,7 +81,7 @@ public sealed class ManagementCompanyRequestService(AppDbContext db, ManagementC
         {
             db.ManagementCompanyPaymentRequests.Add(new(r.Id, c.Nature, c.Value, c.EventDate, c.DueDate, c.IsReimbursement, c.Notes, id, name, pt, pk, c.ThirdPartyIdentification, c.ThirdPartyForm, c.ThirdPartyPixKey, c.ThirdPartyBank, c.ThirdPartyAgency, c.ThirdPartyAccount));
             return Task.CompletedTask;
-        }, null, files, c.IsReimbursement ? ManagementCompanyRequestAttachmentPurpose.Request : c.ThirdPartyForm == ManagementCompanyPaymentThirdPartyForm.Boleto ? ManagementCompanyRequestAttachmentPurpose.PaymentBoleto : ManagementCompanyRequestAttachmentPurpose.Request, ct);
+        }, null, files, ManagementCompanyRequestAttachmentPurpose.Request, ct, boletoFiles);
     }
 
     public async Task<ManagementCompanyRequest> CreateQuestionAsync(ClaimsPrincipal p, CreateQuestionCommand c, CancellationToken ct, IReadOnlyList<IFormFile>? files = null)
@@ -96,9 +96,58 @@ public sealed class ManagementCompanyRequestService(AppDbContext db, ManagementC
         }, c.Message, files, ManagementCompanyRequestAttachmentPurpose.Request, ct);
     }
 
-    private async Task<ManagementCompanyRequest> Create(Guid condo, Guid category, ManagementCompanyRequestActor actor, ManagementCompanyRequestType type, Func<ManagementCompanyRequest, Task> add, string? initial, IReadOnlyList<IFormFile>? files, ManagementCompanyRequestAttachmentPurpose filePurpose, CancellationToken ct)
+    public async Task UpdateAsync(ManagementCompanyRequest request, ManagementCompanyRequestActor actor, UpdateRequestCommand command, IReadOnlyList<IFormFile>? files, IReadOnlyList<IFormFile>? boletoFiles, CancellationToken ct)
     {
-        Validate(files, 0);
+        if (actor.Kind != ManagementCompanyRequestActorKind.Management) throw new ForbiddenAppException("Somente a gestão pode editar a solicitação.");
+        if (request.IsTerminal) throw new ConflictAppException("Solicitações concluídas ou canceladas não podem ser editadas.");
+        Validate(files, await db.ManagementCompanyRequestAttachments.CountAsync(x => x.RequestId == request.Id, ct));
+        Validate(boletoFiles, await db.ManagementCompanyRequestAttachments.CountAsync(x => x.RequestId == request.Id, ct));
+        var saved = new List<string>();
+        var obsoleteFiles = new List<string>();
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            switch (request.Type)
+            {
+                case ManagementCompanyRequestType.Fine:
+                    if (command.Fine is null || !await db.Units.AnyAsync(x => x.Id == command.Fine.UnitId && x.CondominiumId == request.CondominiumId, ct)) throw new ValidationAppException("A unidade não pertence ao condomínio selecionado.");
+                    (await db.ManagementCompanyFineRequests.SingleAsync(x => x.RequestId == request.Id, ct)).Update(command.Fine.UnitId, command.Fine.Nature, command.Fine.Description, command.Fine.OccurrenceDate, command.Fine.Value, command.Fine.ValueNotDefined);
+                    break;
+                case ManagementCompanyRequestType.Payment:
+                    if (command.Payment is null) throw new ValidationAppException("Dados de pagamento obrigatórios.");
+                    var p = command.Payment; Guid? beneficiaryId = null; string? beneficiaryName = null; PixKeyType? pixType = null; string? pixKey = null;
+                    if (p.IsReimbursement)
+                    {
+                        if (p.BeneficiaryUserId is not Guid bid || !await access.HasManagementScopeAsync(bid, request.CondominiumId, ct)) throw new ValidationAppException("Beneficiário inválido.");
+                        var b = await db.Users.AsNoTracking().Where(x => x.Id == bid && x.IsActive).Select(x => new { x.Id, x.FullName, x.PixKeyType, x.PixKey }).SingleOrDefaultAsync(ct);
+                        if (b is null || b.PixKeyType is null || string.IsNullOrWhiteSpace(b.PixKey)) throw new ValidationAppException("O beneficiário não possui PIX cadastrado.");
+                        beneficiaryId=b.Id; beneficiaryName=b.FullName; pixType=b.PixKeyType; pixKey=b.PixKey;
+                    }
+                    if (p.ThirdPartyForm == ManagementCompanyPaymentThirdPartyForm.Boleto && (boletoFiles is null || boletoFiles.Count != 1)) throw new ValidationAppException("Anexe o boleto.");
+                    if (p.ThirdPartyForm != ManagementCompanyPaymentThirdPartyForm.Boleto && boletoFiles is { Count: > 0 }) throw new ValidationAppException("Boleto incompatível com a forma de pagamento.");
+                    var payment = await db.ManagementCompanyPaymentRequests.SingleAsync(x => x.RequestId == request.Id, ct);
+                    payment.Update(p.Nature, p.Value, p.EventDate, p.DueDate, p.IsReimbursement, p.Notes, beneficiaryId, beneficiaryName, pixType, pixKey, p.ThirdPartyIdentification, p.ThirdPartyForm, p.ThirdPartyPixKey, p.ThirdPartyBank, p.ThirdPartyAgency, p.ThirdPartyAccount);
+                    var oldBoleto = await db.ManagementCompanyRequestAttachments.Where(x => x.RequestId == request.Id && x.Purpose == ManagementCompanyRequestAttachmentPurpose.PaymentBoleto).ToListAsync(ct);
+                    db.RemoveRange(oldBoleto); obsoleteFiles.AddRange(oldBoleto.Select(x => x.StorageKey));
+                    break;
+                case ManagementCompanyRequestType.GeneralQuestion:
+                    if (command.Question is null || string.IsNullOrWhiteSpace(command.Question.Message) || command.Question.Message.Length > 2000) throw new ValidationAppException("A mensagem é obrigatória e deve possuir no máximo 2000 caracteres.");
+                    (await db.ManagementCompanyGeneralQuestionRequests.SingleAsync(x => x.RequestId == request.Id, ct)).Update(command.Question.Theme);
+                    var initialMessage = await db.ManagementCompanyRequestMessages.Where(x => x.RequestId == request.Id).OrderBy(x => x.CreatedAt).FirstOrDefaultAsync(ct);
+                    if (initialMessage is not null) initialMessage.UpdateContent(command.Question.Message);
+                    break;
+            }
+            await SaveFiles(request.Id, null, actor.UserId, files, saved, ManagementCompanyRequestAttachmentPurpose.Request, ct);
+            await SaveFiles(request.Id, null, actor.UserId, boletoFiles, saved, ManagementCompanyRequestAttachmentPurpose.PaymentBoleto, ct);
+            db.ManagementCompanyRequestHistories.Add(new(request.Id, ManagementCompanyRequestEventType.Edited, request.Status, request.Status, actor.UserId, "Solicitação editada", DateTime.UtcNow));
+            await SaveConcurrency(ct); await tx.CommitAsync(ct); foreach (var key in obsoleteFiles) storage.Delete(key);
+        }
+        catch { foreach (var key in saved) storage.Delete(key); throw; }
+    }
+
+    private async Task<ManagementCompanyRequest> Create(Guid condo, Guid category, ManagementCompanyRequestActor actor, ManagementCompanyRequestType type, Func<ManagementCompanyRequest, Task> add, string? initial, IReadOnlyList<IFormFile>? files, ManagementCompanyRequestAttachmentPurpose filePurpose, CancellationToken ct, IReadOnlyList<IFormFile>? boletoFiles = null)
+    {
+        Validate(files, 0); Validate(boletoFiles, files?.Count ?? 0);
         var saved = new List<string>();
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         try
@@ -136,6 +185,7 @@ public sealed class ManagementCompanyRequestService(AppDbContext db, ManagementC
             }
             db.ManagementCompanyRequestHistories.Add(new(request.Id, ManagementCompanyRequestEventType.Created, null, request.Status, actor.UserId, null, request.CreatedAt));
             await SaveFiles(request.Id, null, actor.UserId, files, saved, filePurpose, ct);
+            await SaveFiles(request.Id, null, actor.UserId, boletoFiles, saved, ManagementCompanyRequestAttachmentPurpose.PaymentBoleto, ct);
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
             return request;
@@ -297,5 +347,9 @@ public sealed class ManagementCompanyRequestService(AppDbContext db, ManagementC
 public sealed record CreateFineCommand(Guid CondominiumId, Guid CategoryId, Guid UnitId, string Nature, string Description, DateOnly OccurrenceDate, decimal? Value, bool ValueNotDefined);
 public sealed record CreatePaymentCommand(Guid CondominiumId, Guid CategoryId, string Nature, decimal Value, DateOnly EventDate, DateOnly? DueDate, bool IsReimbursement, Guid? BeneficiaryUserId, string? Notes, string? ThirdPartyIdentification, ManagementCompanyPaymentThirdPartyForm? ThirdPartyForm, string? ThirdPartyPixKey, string? ThirdPartyBank, string? ThirdPartyAgency, string? ThirdPartyAccount);
 public sealed record CreateQuestionCommand(Guid CondominiumId, Guid CategoryId, string Theme, string Message);
+public sealed record UpdateRequestCommand(UpdateFineCommand? Fine, UpdatePaymentCommand? Payment, UpdateQuestionCommand? Question);
+public sealed record UpdateFineCommand(Guid UnitId, string Nature, string Description, DateOnly OccurrenceDate, decimal? Value, bool ValueNotDefined);
+public sealed record UpdatePaymentCommand(string Nature, decimal Value, DateOnly EventDate, DateOnly? DueDate, bool IsReimbursement, Guid? BeneficiaryUserId, string? Notes, string? ThirdPartyIdentification, ManagementCompanyPaymentThirdPartyForm? ThirdPartyForm, string? ThirdPartyPixKey, string? ThirdPartyBank, string? ThirdPartyAgency, string? ThirdPartyAccount);
+public sealed record UpdateQuestionCommand(string Theme, string Message);
 /// <summary>The message an interaction always creates, and the status-changing history row it created, if any.</summary>
 public sealed record ManagementCompanyRequestInteractionResult(ManagementCompanyRequestMessage Message, ManagementCompanyRequestHistory? History);

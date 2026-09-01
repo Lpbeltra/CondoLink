@@ -101,6 +101,10 @@ const ManagementCompanyRequestDetailsPage = lazyPage(
   () => import("../pages/ManagementCompanyRequestDetailsPage"),
   "ManagementCompanyRequestDetailsPage",
 );
+const EditManagementCompanyRequestPage = lazyPage(
+  () => import("../pages/EditManagementCompanyRequestPage"),
+  "EditManagementCompanyRequestPage",
+);
 const AdministratorRequestsPage = lazyPage(
   () => import("../administrator/AdministratorRequestsPage"),
   "AdministratorRequestsPage",
@@ -144,6 +148,10 @@ const OverwatchManagerDetailsPage = lazyPage(
 const OverwatchSystemPage = lazyPage(
   () => import("../overwatch/pages/OverwatchSystemPage"),
   "OverwatchSystemPage",
+);
+const OverwatchManagementCompanyRequestsPage = lazyPage(
+  () => import("../overwatch/pages/OverwatchManagementCompanyRequestsPage"),
+  "OverwatchManagementCompanyRequestsPage",
 );
 const OverwatchMessagesPage = lazyPage(
   () => import("../overwatch/pages/OverwatchMessagesPage"),
@@ -220,6 +228,7 @@ export function App() {
                       path="administrator/:id"
                       element={<ManagementCompanyRequestDetailsPage />}
                     />
+                    <Route path="administrator/:id/edit" element={<EditManagementCompanyRequestPage />} />
                     <Route path="units" element={<ManagementUnitsPage />} />
                     <Route path="units/new" element={<CreateUnitPage />} />
                     <Route path="units/:unitId" element={<UnitDetailsPage />} />
@@ -284,6 +293,7 @@ export function App() {
                       element={<OverwatchManagerDetailsPage />}
                     />
                     <Route path="system" element={<OverwatchSystemPage />} />
+                    <Route path="management-company-requests" element={<OverwatchManagementCompanyRequestsPage />} />
                     <Route
                       path="messages"
                       element={<OverwatchMessagesPage />}

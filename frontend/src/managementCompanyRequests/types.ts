@@ -74,6 +74,7 @@ export interface Attachment {
 export interface RequestDetail extends RequestItem {
   categoryId: string;
   cancellationReason: string | null;
+  cancellationOrigin?: "ManagementCompany" | "Manager" | "SubManager" | null;
   requester: {
     id: string;
     fullName: string;
@@ -96,6 +97,7 @@ export interface RequestDetail extends RequestItem {
     dueDate: string | null;
     isReimbursement: boolean;
     notes: string | null;
+    beneficiaryUserId: string | null;
     beneficiaryName: string | null;
     pixKeyType: string | null;
     pixKey: string | null;

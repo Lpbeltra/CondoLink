@@ -20,10 +20,10 @@ export function AdministratorRequestDetailsPage() {
   const [data, setData] = useState<RequestDetail>(); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
   const [text, setText] = useState(""); const [files, setFiles] = useState<File[]>([]); const [sending, setSending] = useState(false);
   const [completeOpen, setCompleteOpen] = useState(false); const [cancelOpen, setCancelOpen] = useState(false); const [reason, setReason] = useState(""); const [processComment, setProcessComment] = useState(""); const [paymentFiles, setPaymentFiles] = useState<File[]>([]);
-  const load = useCallback(async () => { if (!id) return; setLoading(true); try { setData(await getRequest(id)); setError(""); } catch { setError("Você não possui acesso a esta categoria de solicitação."); } finally { setLoading(false); } }, [id]);
-  useEffect(() => { void load(); }, [load]);
-  useManagementCompanyRequestRealtime({ enabled: Boolean(id), onMessage: () => void load(), onUpdated: () => void load() });
-  const run = async (action: () => Promise<unknown>) => { if (sending) return; setSending(true); try { await action(); setText(""); setFiles([]); await load(); } catch { setError("Esta solicitação foi atualizada enquanto você estava nesta página. Os dados foram recarregados."); await load(); } finally { setSending(false); } };
+  const load = useCallback(async (showLoading = false) => { if (!id) return; if (showLoading) setLoading(true); try { setData(await getRequest(id)); setError(""); } catch { setError("Você não possui acesso a esta categoria de solicitação."); } finally { if (showLoading) setLoading(false); } }, [id]);
+  useEffect(() => { void load(true); }, [load]);
+  useManagementCompanyRequestRealtime({ enabled: Boolean(id), onMessage: () => {}, onUpdated: () => void load(false) });
+  const run = async (action: () => Promise<unknown>) => { if (sending) return; setSending(true); try { await action(); setText(""); setFiles([]); await load(false); } catch { setError("Esta solicitação foi atualizada enquanto você estava nesta página. Os dados foram recarregados."); await load(false); } finally { setSending(false); } };
   const reply = async () => { if (!id || !text.trim()) return; await run(() => interact(id, text.trim(), files)); };
   if (loading) return <PageContainer><Skeleton variant="rounded" height={300} /></PageContainer>;
   if (!data) return <PageContainer><Alert severity="error">{error}</Alert><Button onClick={() => nav("/administrator/requests")}>Voltar</Button></PageContainer>;

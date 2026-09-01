@@ -34,6 +34,10 @@ public static class DeleteManagementCompanyEmployee
         }
 
         employee.Deactivate();
+        var responsibilities = await dbContext.ManagementCompanyRequestCategoryResponsibles
+            .Where(x => x.ManagementCompanyEmployeeId == employeeId)
+            .ToListAsync(cancellationToken);
+        dbContext.RemoveRange(responsibilities);
         await dbContext.SaveChangesAsync(cancellationToken);
         return Results.NoContent();
     }

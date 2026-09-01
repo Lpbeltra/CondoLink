@@ -5,6 +5,7 @@ using System.Text.Json;
 using CondoLink.Api.Features.Auth;
 using CondoLink.Api.Features.ManagementCompanyRequests;
 using CondoLink.Api.Features.RequestAttachments;
+using CondoLink.Api.Features.Overwatch.ManagementCompanyRequests;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -18,7 +19,7 @@ public sealed class ManagementCompanyRequestEndpointTests : IAsyncLifetime
     private CoreEndpointTestHost host=null!; private Guid manager,submanager,outsider,companyUser,wrongUser,inactiveUser,requestId,otherId,condoId,categoryId;
     public async Task InitializeAsync()
     {
-        host=await CoreEndpointTestHost.StartAsync(a=>{a.MapManagementCompanyRequests();a.MapAdministratorRequests();},b=>{b.Configuration["FileStorage:RootPath"]=root;b.Services.AddSingleton<LocalFileStorage>();b.Services.AddScoped<ManagementCompanyRequestAccessService>();b.Services.AddScoped<ManagementCompanyRequestService>();b.Services.AddScoped<ManagementCompanyRequestNotificationService>();b.Services.AddSingleton<IEmailSender>(new NoOpEmailSender());b.Services.Configure<FirstAccessOptions>(x=>x.FrontendBaseUrl="https://app.comvy.test");});
+        host=await CoreEndpointTestHost.StartAsync(a=>{a.MapManagementCompanyRequests();a.MapAdministratorRequests();a.MapDeleteManagementCompanyRequest();},b=>{b.Configuration["FileStorage:RootPath"]=root;b.Services.AddSingleton<LocalFileStorage>();b.Services.AddScoped<ManagementCompanyRequestAccessService>();b.Services.AddScoped<ManagementCompanyRequestService>();b.Services.AddScoped<ManagementCompanyRequestNotificationService>();b.Services.AddSingleton<IEmailSender>(new NoOpEmailSender());b.Services.Configure<FirstAccessOptions>(x=>x.FrontendBaseUrl="https://app.comvy.test");});
         await host.WithDbAsync(async db=>
         {
             var ca=new Condominium("A",null,null);var cb=new Condominium("B",null,null);var coa=new ManagementCompany("A",null,null,null,null);var cob=new ManagementCompany("B",null,null,null,null);
@@ -293,6 +294,242 @@ public sealed class ManagementCompanyRequestEndpointTests : IAsyncLifetime
         var json=await detail.Content.ReadAsStringAsync();
         Assert.Contains("gestor-original@test.local",json);
         Assert.DoesNotContain("999.999.999-99",json);
+    }
+
+    [Fact]
+    public async Task Multipart_payment_third_party_pix_persists_pix_and_request_attachment()
+    {
+        var paymentCategoryId = await AddPaymentCategory();
+        var dueDate = new DateOnly(2026, 9, 30);
+        using var form = PaymentForm(new
+        {
+            condominiumId = condoId, categoryId = paymentCategoryId, nature = "Fornecedor PIX",
+            value = 250m, eventDate = new DateOnly(2026, 9, 1), dueDate, isReimbursement = false,
+            beneficiaryUserId = (Guid?)null, notes = "Pagar via PIX", thirdPartyIdentification = "Fornecedor PIX",
+            thirdPartyForm = "Pix", thirdPartyPixKey = "fornecedor@test.local", thirdPartyBank = (string?)null,
+            thirdPartyAgency = (string?)null, thirdPartyAccount = (string?)null
+        }, files: [("comprovante.pdf", "application/pdf", Encoding.UTF8.GetBytes("anexo"))]);
+
+        var response = await host.ClientFor(manager).PostAsync("/management-company-requests/payments/multipart", form);
+        Assert.True(response.StatusCode == HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
+        var id = await CreatedId(response);
+        await host.WithDbAsync(async db =>
+        {
+            var payment = await db.ManagementCompanyPaymentRequests.SingleAsync(x => x.RequestId == id);
+            Assert.Equal(ManagementCompanyPaymentThirdPartyForm.Pix, payment.ThirdPartyForm);
+            Assert.Equal("fornecedor@test.local", payment.ThirdPartyPixKey);
+            Assert.Equal(dueDate, payment.DueDate);
+            var attachment = Assert.Single(await db.ManagementCompanyRequestAttachments.Where(x => x.RequestId == id).ToListAsync());
+            Assert.Equal(ManagementCompanyRequestAttachmentPurpose.Request, attachment.Purpose);
+            Assert.Null(await db.ManagementCompanyRequestAttachments.SingleOrDefaultAsync(x => x.RequestId == id && x.Purpose == ManagementCompanyRequestAttachmentPurpose.PaymentBoleto));
+        });
+    }
+
+    [Fact]
+    public async Task Multipart_payment_third_party_boleto_persists_boleto_and_request_attachments_in_detail()
+    {
+        var paymentCategoryId = await AddPaymentCategory();
+        using var form = PaymentForm(new
+        {
+            condominiumId = condoId, categoryId = paymentCategoryId, nature = "Fornecedor boleto",
+            value = 300m, eventDate = new DateOnly(2026, 9, 2), dueDate = new DateOnly(2026, 10, 2), isReimbursement = false,
+            beneficiaryUserId = (Guid?)null, notes = "Boleto", thirdPartyIdentification = "Fornecedor boleto",
+            thirdPartyForm = "Boleto", thirdPartyPixKey = (string?)null, thirdPartyBank = (string?)null,
+            thirdPartyAgency = (string?)null, thirdPartyAccount = (string?)null
+        }, files: [("nota.pdf", "application/pdf", Encoding.UTF8.GetBytes("nota"))], boleto: [("boleto.pdf", "application/pdf", Encoding.UTF8.GetBytes("boleto"))]);
+
+        var response = await host.ClientFor(manager).PostAsync("/management-company-requests/payments/multipart", form);
+        Assert.True(response.StatusCode == HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
+        var id = await CreatedId(response);
+        var managementDetail = await host.ClientFor(manager).GetAsync($"/management-company-requests/{id}");
+        var administratorDetail = await host.ClientFor(companyUser).GetAsync($"/management-company-requests/{id}");
+        Assert.Equal(HttpStatusCode.OK, managementDetail.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, administratorDetail.StatusCode);
+        foreach (var detail in new[] { managementDetail, administratorDetail })
+        {
+            using var json = JsonDocument.Parse(await detail.Content.ReadAsStringAsync());
+            var attachments = json.RootElement.GetProperty("attachments").EnumerateArray().ToArray();
+            Assert.Contains(attachments, x => x.GetProperty("originalFileName").GetString() == "nota.pdf" && x.GetProperty("purpose").GetInt32() == (int)ManagementCompanyRequestAttachmentPurpose.Request);
+            Assert.Contains(attachments, x => x.GetProperty("originalFileName").GetString() == "boleto.pdf" && x.GetProperty("purpose").GetInt32() == (int)ManagementCompanyRequestAttachmentPurpose.PaymentBoleto);
+        }
+        var persistedAttachments = await host.WithDbAsync(async db => await db.ManagementCompanyRequestAttachments.Where(x => x.RequestId == id).ToListAsync());
+        Assert.Equal("nota", await host.ClientFor(manager).GetStringAsync($"/management-company-request-attachments/{persistedAttachments.Single(x => x.Purpose == ManagementCompanyRequestAttachmentPurpose.Request).Id}/content"));
+        Assert.Equal("boleto", await host.ClientFor(manager).GetStringAsync($"/management-company-request-attachments/{persistedAttachments.Single(x => x.Purpose == ManagementCompanyRequestAttachmentPurpose.PaymentBoleto).Id}/content"));
+        Assert.Equal(HttpStatusCode.Forbidden, (await host.ClientFor(outsider).GetAsync($"/management-company-request-attachments/{persistedAttachments[0].Id}/content")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Multipart_payment_third_party_deposit_account_persists_bank_details_and_optional_attachment()
+    {
+        var paymentCategoryId = await AddPaymentCategory();
+        using var form = PaymentForm(new
+        {
+            condominiumId = condoId, categoryId = paymentCategoryId, nature = "Fornecedor conta",
+            value = 400m, eventDate = new DateOnly(2026, 9, 3), dueDate = new DateOnly(2026, 10, 3), isReimbursement = false,
+            beneficiaryUserId = (Guid?)null, notes = "Transferir", thirdPartyIdentification = "Fornecedor conta",
+            thirdPartyForm = "DepositAccount", thirdPartyPixKey = (string?)null, thirdPartyBank = "Banco X",
+            thirdPartyAgency = "0001", thirdPartyAccount = "12345-6"
+        }, files: [("dados.pdf", "application/pdf", Encoding.UTF8.GetBytes("dados"))]);
+
+        var response = await host.ClientFor(manager).PostAsync("/management-company-requests/payments/multipart", form);
+        Assert.True(response.StatusCode == HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
+        var id = await CreatedId(response);
+        await host.WithDbAsync(async db =>
+        {
+            var payment = await db.ManagementCompanyPaymentRequests.SingleAsync(x => x.RequestId == id);
+            Assert.Equal(ManagementCompanyPaymentThirdPartyForm.DepositAccount, payment.ThirdPartyForm);
+            Assert.Equal("Banco X", payment.ThirdPartyBank);
+            Assert.Equal("0001", payment.ThirdPartyAgency);
+            Assert.Equal("12345-6", payment.ThirdPartyAccount);
+            Assert.Equal(ManagementCompanyRequestAttachmentPurpose.Request, (await db.ManagementCompanyRequestAttachments.SingleAsync(x => x.RequestId == id)).Purpose);
+        });
+    }
+
+    [Theory]
+    [InlineData("Pix", null, null, null, null, "boleto.pdf")]
+    [InlineData("Pix", null, "Banco X", "1", "2", null)]
+    [InlineData("Boleto", "chave@test.local", null, null, null, null)]
+    [InlineData("Boleto", null, "Banco X", "1", "2", "boleto.pdf")]
+    [InlineData("Boleto", null, null, null, null, null)]
+    [InlineData("DepositAccount", "chave@test.local", "Banco X", "1", "2", null)]
+    [InlineData(null, null, null, null, null, null)]
+    public async Task Multipart_payment_invalid_third_party_payload_returns_bad_request(string? formType, string? pix, string? bank, string? agency, string? account, string? boletoName)
+    {
+        var paymentCategoryId = await AddPaymentCategory();
+        using var form = PaymentForm(new
+        {
+            condominiumId = condoId, categoryId = paymentCategoryId, nature = "Inválido", value = 1m,
+            eventDate = new DateOnly(2026, 9, 4), dueDate = new DateOnly(2026, 10, 4), isReimbursement = false,
+            beneficiaryUserId = (Guid?)null, notes = (string?)null,
+            thirdPartyIdentification = "Terceiro", thirdPartyForm = formType,
+            thirdPartyPixKey = pix, thirdPartyBank = bank, thirdPartyAgency = agency, thirdPartyAccount = account
+        }, boleto: boletoName is null ? [] : [(boletoName, "application/pdf", Encoding.UTF8.GetBytes("boleto"))]);
+        Assert.Equal(HttpStatusCode.BadRequest, (await host.ClientFor(manager).PostAsync("/management-company-requests/payments/multipart", form)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Multipart_third_party_without_identification_returns_bad_request()
+    {
+        var paymentCategoryId = await AddPaymentCategory();
+        using var form = PaymentForm(new
+        {
+            condominiumId = condoId, categoryId = paymentCategoryId, nature = "Sem identificação", value = 1m,
+            eventDate = new DateOnly(2026, 9, 5), dueDate = new DateOnly(2026, 10, 5), isReimbursement = false,
+            beneficiaryUserId = (Guid?)null, notes = (string?)null, thirdPartyIdentification = "", thirdPartyForm = "Pix",
+            thirdPartyPixKey = "chave@test.local", thirdPartyBank = (string?)null, thirdPartyAgency = (string?)null, thirdPartyAccount = (string?)null
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, (await host.ClientFor(manager).PostAsync("/management-company-requests/payments/multipart", form)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Multipart_edit_is_manager_only_preserves_status_and_creates_only_edited_event()
+    {
+        var create = await host.ClientFor(manager).PostAsJsonAsync("/management-company-requests/questions", new { condominiumId = condoId, categoryId, theme = "Tema antigo", message = "Mensagem antiga" });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var id = Guid.Parse(create.Headers.Location!.ToString().Split('/')[^1]);
+        using var form = Form(new { fine = (object?)null, payment = (object?)null, question = new { theme = "Tema novo", message = "Mensagem nova" } });
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await host.ClientFor(companyUser).PutAsync($"/management-company-requests/{id}/multipart", form)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await host.ClientFor(manager).PutAsync($"/management-company-requests/{id}/multipart", form)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await host.ClientFor(submanager).PutAsync($"/management-company-requests/{id}/multipart", Form(new { fine = (object?)null, payment = (object?)null, question = new { theme = "Tema três", message = "Mensagem três" } }))).StatusCode);
+
+        await host.WithDbAsync(async db =>
+        {
+            var request = await db.ManagementCompanyRequests.SingleAsync(x => x.Id == id);
+            Assert.Equal(ManagementCompanyRequestStatus.Submitted, request.Status);
+            Assert.Equal(2, await db.ManagementCompanyRequestHistories.CountAsync(x => x.RequestId == id && x.EventType == ManagementCompanyRequestEventType.Edited));
+            Assert.Equal(1, await db.ManagementCompanyRequestMessages.CountAsync(x => x.RequestId == id));
+            Assert.Equal("Mensagem três", (await db.ManagementCompanyRequestMessages.SingleAsync(x => x.RequestId == id)).Content);
+        });
+    }
+
+    [Theory]
+    [InlineData(ManagementCompanyRequestStatus.Completed)]
+    [InlineData(ManagementCompanyRequestStatus.Cancelled)]
+    public async Task Multipart_edit_rejects_terminal_request(ManagementCompanyRequestStatus terminalStatus)
+    {
+        var create = await host.ClientFor(manager).PostAsJsonAsync("/management-company-requests/questions", new { condominiumId = condoId, categoryId, theme = "Terminal", message = "Mensagem" });
+        var id = Guid.Parse(create.Headers.Location!.ToString().Split('/')[^1]);
+        Assert.Equal(HttpStatusCode.NoContent, (await host.ClientFor(companyUser).PostAsync($"/management-company-requests/{id}/start-processing", null)).StatusCode);
+        var terminal = terminalStatus == ManagementCompanyRequestStatus.Completed
+            ? await host.ClientFor(companyUser).PostAsJsonAsync($"/management-company-requests/{id}/status", new { status = "Completed" })
+            : await host.ClientFor(companyUser).PostAsJsonAsync($"/management-company-requests/{id}/cancel", new { reason = "Encerrada" });
+        Assert.Equal(HttpStatusCode.NoContent, terminal.StatusCode);
+        using var form = Form(new { fine = (object?)null, payment = (object?)null, question = new { theme = "Alteração", message = "Não deve salvar" } });
+        Assert.Equal(HttpStatusCode.Conflict, (await host.ClientFor(manager).PutAsync($"/management-company-requests/{id}/multipart", form)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Platform_admin_hard_delete_requires_exact_friendly_identifier_and_removes_dependencies_and_files()
+    {
+        var paymentCategoryId = await AddPaymentCategory();
+        using var form = PaymentForm(new
+        {
+            condominiumId = condoId, categoryId = paymentCategoryId, nature = "Excluir",
+            value = 10m, eventDate = new DateOnly(2026, 9, 6), dueDate = new DateOnly(2026, 10, 6), isReimbursement = false,
+            beneficiaryUserId = (Guid?)null, notes = "Remover", thirdPartyIdentification = "Terceiro",
+            thirdPartyForm = "Boleto", thirdPartyPixKey = (string?)null, thirdPartyBank = (string?)null,
+            thirdPartyAgency = (string?)null, thirdPartyAccount = (string?)null
+        }, files: [("anexo.pdf", "application/pdf", Encoding.UTF8.GetBytes("anexo"))], boleto: [("boleto.pdf", "application/pdf", Encoding.UTF8.GetBytes("boleto"))]);
+        var created = await host.ClientFor(manager).PostAsync("/management-company-requests/payments/multipart", form);
+        var id = await CreatedId(created);
+        var friendly = await host.WithDbAsync(async db =>
+        {
+            var request = await db.ManagementCompanyRequests.SingleAsync(x => x.Id == id);
+            var keys = await db.ManagementCompanyRequestAttachments.Where(x => x.RequestId == id).Select(x => x.StorageKey).ToListAsync();
+            var otherFriendly = await db.ManagementCompanyRequests.Where(x => x.Id == otherId).Select(x => x.FriendlyIdentifier).SingleAsync();
+            var annualSequence = await db.ManagementCompanyRequestAnnualSequences.Where(x => x.Year == DateTime.UtcNow.Year).Select(x => (long?)x.LastValue).SingleOrDefaultAsync() ?? 0;
+            return (request.FriendlyIdentifier, keys, otherFriendly, annualSequence);
+        });
+        var admin = host.ClientFor(manager); admin.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
+        foreach (var forbiddenUser in new[] { manager, submanager, companyUser })
+            Assert.Equal(HttpStatusCode.Forbidden, (await host.ClientFor(forbiddenUser).DeleteAsync($"/overwatch/management-company-requests/{id}")).StatusCode);
+        var wrong = await admin.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/overwatch/management-company-requests/{id}") { Content = JsonContent.Create(new { friendlyIdentifier = friendly.FriendlyIdentifier.ToLowerInvariant() }) });
+        Assert.Equal(HttpStatusCode.BadRequest, wrong.StatusCode);
+        var deleted = await admin.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/overwatch/management-company-requests/{id}") { Content = JsonContent.Create(new { friendlyIdentifier = friendly.FriendlyIdentifier }) });
+        Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        await host.WithDbAsync(async db =>
+        {
+            Assert.Null(await db.ManagementCompanyRequests.SingleOrDefaultAsync(x => x.Id == id));
+            Assert.False(await db.ManagementCompanyRequestAttachments.AnyAsync(x => x.RequestId == id));
+            Assert.False(await db.ManagementCompanyPaymentRequests.AnyAsync(x => x.RequestId == id));
+            Assert.True(await db.ManagementCompanyRequests.AnyAsync(x => x.Id == otherId));
+            Assert.Equal(friendly.otherFriendly, (await db.ManagementCompanyRequests.SingleAsync(x => x.Id == otherId)).FriendlyIdentifier);
+            Assert.Equal(friendly.annualSequence, await db.ManagementCompanyRequestAnnualSequences.Where(x => x.Year == DateTime.UtcNow.Year).Select(x => (long?)x.LastValue).SingleOrDefaultAsync() ?? 0);
+        });
+        Assert.All(friendly.keys, key => Assert.False(File.Exists(Path.Combine(root, key))));
+    }
+
+    private async Task<Guid> AddPaymentCategory()
+        => await host.WithDbAsync(async db =>
+        {
+            var companyId = await db.ManagementCompanyRequests.Where(x => x.Id == requestId).Select(x => x.ManagementCompanyId).SingleAsync();
+            var employeeId = await db.ManagementCompanyEmployees.Where(x => x.UserId == companyUser).Select(x => x.Id).SingleAsync();
+            var category = new ManagementCompanyRequestCategory(companyId, $"Pagamentos-{Guid.NewGuid():N}", null, ManagementCompanyRequestFormType.SupplierPayment);
+            db.AddRange(category, new ManagementCompanyRequestCategoryResponsible(category.Id, employeeId));
+            await db.SaveChangesAsync();
+            return category.Id;
+        });
+
+    private static async Task<Guid> CreatedId(HttpResponseMessage response)
+    {
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return json.RootElement.GetProperty("id").GetGuid();
+    }
+
+    private static MultipartFormDataContent PaymentForm(object payload, (string Name, string Mime, byte[] Data)[]? files = null, (string Name, string Mime, byte[] Data)[]? boleto = null)
+    {
+        var form = new MultipartFormDataContent();
+        form.Add(new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"), "payload");
+        foreach (var file in files ?? [])
+        {
+            var content = new ByteArrayContent(file.Data); content.Headers.ContentType = new(file.Mime); form.Add(content, "files", file.Name);
+        }
+        foreach (var file in boleto ?? [])
+        {
+            var content = new ByteArrayContent(file.Data); content.Headers.ContentType = new(file.Mime); form.Add(content, "boleto", file.Name);
+        }
+        return form;
     }
 
     private static MultipartFormDataContent Form(object payload,params(string Name,string Mime,byte[] Data)[] files){var f=new MultipartFormDataContent();f.Add(new StringContent(JsonSerializer.Serialize(payload),Encoding.UTF8,"application/json"),"payload");foreach(var x in files){var c=new ByteArrayContent(x.Data);c.Headers.ContentType=new(x.Mime);f.Add(c,"files",x.Name);}return f;}

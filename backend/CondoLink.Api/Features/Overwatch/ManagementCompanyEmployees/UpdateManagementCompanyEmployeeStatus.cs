@@ -37,7 +37,13 @@ public static class UpdateManagementCompanyEmployeeStatus
         if (request.IsActive)
             employee.Activate();
         else
+        {
             employee.Deactivate();
+            var responsibilities = await dbContext.ManagementCompanyRequestCategoryResponsibles
+                .Where(x => x.ManagementCompanyEmployeeId == employeeId)
+                .ToListAsync(cancellationToken);
+            dbContext.RemoveRange(responsibilities);
+        }
 
         await dbContext.SaveChangesAsync(cancellationToken);
         return Results.Ok(new Response(

@@ -47,6 +47,22 @@ public sealed class ManagementCompanyRequestNotificationService(
     }
 
     /// <summary>Evento B: administradora solicitou informação — avisa Manager + SubManager do condomínio.</summary>
+    public async Task NotifyEditedAsync(ManagementCompanyRequest request, CancellationToken ct)
+    {
+        var recipients = await AdministradoraRecipientsAsync(request.ManagementCompanyId, request.CategoryId, ct);
+        var condominiumName = await CondominiumNameAsync(request.CondominiumId, ct);
+        var subject = await RequestSubjectAsync(request, ct);
+        var typeLabel = TypeLabel(request.Type);
+        var link = BuildLink($"/administrator/requests/{request.Id}");
+        var body = NotificationService.Shorten($"{request.FriendlyIdentifier} foi editada pela gestÃ£o.");
+        var html = BuildEmailHtml("A gestÃ£o editou uma solicitaÃ§Ã£o.", condominiumName,
+            request.FriendlyIdentifier, typeLabel, subject, null, link, "Abrir no Comvy");
+        await DispatchAsync(recipients, request.CondominiumId, request.Id, request.FriendlyIdentifier,
+            NotificationType.ManagementCompanyRequestEdited, "SolicitaÃ§Ã£o editada", body,
+            $"{KeyPrefix}:{request.Id}:edited:{request.UpdatedAt.Ticks}",
+            $"SolicitaÃ§Ã£o editada â€” {request.FriendlyIdentifier}", html, "Edited", ct);
+    }
+
     public async Task NotifyInformationRequestedAsync(
         ManagementCompanyRequest request, ManagementCompanyRequestHistory history, CancellationToken ct)
     {

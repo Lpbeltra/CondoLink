@@ -16,6 +16,11 @@ public sealed class ManagementCompanyFineRequest
     public Guid RequestId { get; private set; } public Guid UnitId { get; private set; }
     public string Nature { get; private set; }=null!; public string Description { get; private set; }=null!;
     public DateOnly OccurrenceDate { get; private set; } public decimal? Value { get; private set; } public bool ValueNotDefined { get; private set; }
+    public void Update(Guid unitId, string nature, string description, DateOnly occurrenceDate, decimal? value, bool valueNotDefined)
+    {
+        var updated = new ManagementCompanyFineRequest(RequestId, unitId, nature, description, occurrenceDate, value, valueNotDefined);
+        UnitId = updated.UnitId; Nature = updated.Nature; Description = updated.Description; OccurrenceDate = updated.OccurrenceDate; Value = updated.Value; ValueNotDefined = updated.ValueNotDefined;
+    }
 }
 
 public sealed class ManagementCompanyPaymentRequest
@@ -65,6 +70,11 @@ public sealed class ManagementCompanyPaymentRequest
     public Guid? BeneficiaryUserId {get;private set;} public string? BeneficiaryName {get;private set;} public PixKeyType? PixKeyType {get;private set;} public string? PixKey {get;private set;}
     public string? ThirdPartyIdentification {get;private set;} public ManagementCompanyPaymentThirdPartyForm? ThirdPartyForm {get;private set;} public string? ThirdPartyPixKey {get;private set;} public string? ThirdPartyBank {get;private set;} public string? ThirdPartyAgency {get;private set;} public string? ThirdPartyAccount {get;private set;}
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value)?null:value.Trim();
+    public void Update(string nature, decimal value, DateOnly eventDate, DateOnly? dueDate, bool isReimbursement, string? notes, Guid? beneficiaryUserId, string? beneficiaryName, PixKeyType? pixKeyType, string? pixKey, string? thirdPartyIdentification, ManagementCompanyPaymentThirdPartyForm? thirdPartyForm, string? thirdPartyPixKey, string? thirdPartyBank, string? thirdPartyAgency, string? thirdPartyAccount)
+    {
+        var updated = new ManagementCompanyPaymentRequest(RequestId, nature, value, eventDate, dueDate, isReimbursement, notes, beneficiaryUserId, beneficiaryName, pixKeyType, pixKey, thirdPartyIdentification, thirdPartyForm, thirdPartyPixKey, thirdPartyBank, thirdPartyAgency, thirdPartyAccount);
+        Nature=updated.Nature; Value=updated.Value; EventDate=updated.EventDate; DueDate=updated.DueDate; IsReimbursement=updated.IsReimbursement; Notes=updated.Notes; BeneficiaryUserId=updated.BeneficiaryUserId; BeneficiaryName=updated.BeneficiaryName; PixKeyType=updated.PixKeyType; PixKey=updated.PixKey; ThirdPartyIdentification=updated.ThirdPartyIdentification; ThirdPartyForm=updated.ThirdPartyForm; ThirdPartyPixKey=updated.ThirdPartyPixKey; ThirdPartyBank=updated.ThirdPartyBank; ThirdPartyAgency=updated.ThirdPartyAgency; ThirdPartyAccount=updated.ThirdPartyAccount;
+    }
 }
 
 public sealed class ManagementCompanyGeneralQuestionRequest
@@ -73,4 +83,6 @@ public sealed class ManagementCompanyGeneralQuestionRequest
     public ManagementCompanyGeneralQuestionRequest(Guid requestId,string theme)
     { if(requestId==Guid.Empty)throw new ArgumentException("Request is required."); if(string.IsNullOrWhiteSpace(theme)||theme.Trim().Length>200)throw new ArgumentException("Theme is required and must not exceed 200 characters."); RequestId=requestId;Theme=theme.Trim(); }
     public Guid RequestId {get;private set;} public string Theme {get;private set;}=null!;
+    public void Update(string theme)
+    { if (string.IsNullOrWhiteSpace(theme)||theme.Trim().Length>200) throw new ArgumentException("Theme is required and must not exceed 200 characters."); Theme=theme.Trim(); }
 }

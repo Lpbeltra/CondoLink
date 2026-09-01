@@ -13,6 +13,7 @@ export const overwatchNavigationItems = [
   { label: 'Sistema', path: '/overwatch/system', icon: MonitorHeartRoundedIcon },
   { label: 'Síndicos', path: '/overwatch/managers', icon: SupervisorAccountRoundedIcon },
   { label: 'Mensagens', path: '/overwatch/messages', icon: MessageRoundedIcon },
+  { label: 'Solicitações ADM', path: '/overwatch/management-company-requests', icon: MessageRoundedIcon },
 ]
 
 export function getOverwatchSelectedPath(pathname: string) {

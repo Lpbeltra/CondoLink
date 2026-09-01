@@ -35,6 +35,7 @@ export function CreateManagementCompanyRequestPage() {
   const [type, setType] = useState<Type>();
   const [fields, setFields] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<File[]>([]);
+  const [boleto, setBoleto] = useState<File[]>([]);
   const [moneyValue, setMoneyValue] = useState<number | null>(null);
   const [undefinedValue, setUndefinedValue] = useState(false);
   const [reimbursement, setReimbursement] = useState(false);
@@ -55,7 +56,7 @@ export function CreateManagementCompanyRequestPage() {
   const set = (k: string, v: string) => setFields((x) => ({ ...x, [k]: v }));
   async function submit() {
     if (!type || !condo) return;
-    const required=type==="Fine"?!fields.unitId?"Selecione uma unidade.":!fields.nature?.trim()?"Informe a natureza da infração.":!fields.description?.trim()?"Informe a descrição.":!fields.date?"Informe a data da ocorrência.":!undefinedValue&&moneyValue===null?"Informe o valor ou marque “Valor ainda não definido”.":"":type==="Payment"?!fields.nature?.trim()?"Informe a natureza da despesa.":!fields.date?"Informe a data da despesa.":!fields.dueDate?"Informe a data de vencimento.":moneyValue===null?"Informe um valor válido.":reimbursement&&!fields.beneficiaryId?"Selecione um beneficiário para o reembolso.":!reimbursement&&!fields.thirdPartyIdentification?.trim()?"Informe a identificação do terceiro.":!reimbursement&&!thirdPartyForm?"Informe a forma de pagamento.":!reimbursement&&thirdPartyForm==="Pix"&&!fields.thirdPartyPixKey?.trim()?"Informe a chave PIX.":!reimbursement&&thirdPartyForm==="Boleto"&&files.length===0?"Anexe o boleto.":!reimbursement&&thirdPartyForm==="DepositAccount"&&(!fields.thirdPartyBank?.trim()||!fields.thirdPartyAgency?.trim()||!fields.thirdPartyAccount?.trim())?"Informe banco, agência e conta.":"":!fields.theme?.trim()?"Informe o tema.":!fields.message?.trim()?"Informe a mensagem.":fields.message.length>2000?"A mensagem pode ter no máximo 2000 caracteres.":"";
+    const required=type==="Fine"?!fields.unitId?"Selecione uma unidade.":!fields.nature?.trim()?"Informe a natureza da infração.":!fields.description?.trim()?"Informe a descrição.":!fields.date?"Informe a data da ocorrência.":!undefinedValue&&moneyValue===null?"Informe o valor ou marque “Valor ainda não definido”.":"":type==="Payment"?!fields.nature?.trim()?"Informe a natureza da despesa.":!fields.date?"Informe a data da despesa.":!fields.dueDate?"Informe a data de vencimento.":moneyValue===null?"Informe um valor válido.":reimbursement&&!fields.beneficiaryId?"Selecione um beneficiário para o reembolso.":!reimbursement&&!fields.thirdPartyIdentification?.trim()?"Informe a identificação do terceiro.":!reimbursement&&!thirdPartyForm?"Informe a forma de pagamento.":!reimbursement&&thirdPartyForm==="Pix"&&!fields.thirdPartyPixKey?.trim()?"Informe a chave PIX.":!reimbursement&&thirdPartyForm==="Boleto"&&boleto.length===0?"Anexe o boleto.":!reimbursement&&thirdPartyForm==="DepositAccount"&&(!fields.thirdPartyBank?.trim()||!fields.thirdPartyAgency?.trim()||!fields.thirdPartyAccount?.trim())?"Informe banco, agência e conta.":"":!fields.theme?.trim()?"Informe o tema.":!fields.message?.trim()?"Informe a mensagem.":fields.message.length>2000?"A mensagem pode ter no máximo 2000 caracteres.":"";
     if(required){setError(required);return}
     setSaving(true);
     setError("");
@@ -91,7 +92,7 @@ export function CreateManagementCompanyRequestPage() {
         };
       if (type === "GeneralQuestion")
         payload = { ...payload, theme: fields.theme, message: fields.message };
-      const created = await createRequest(type, payload, files);
+      const created = await createRequest(type, payload, type === "Payment" && thirdPartyForm === "Boleto" ? files : files, type === "Payment" && thirdPartyForm === "Boleto" ? boleto : []);
       nav(`/management/administrator/${created.id}`, { replace: true,state:{feedback:"Solicitação enviada à administradora."} });
     } catch {
       setError(
@@ -248,16 +249,17 @@ export function CreateManagementCompanyRequestPage() {
                   InputLabelProps={{ shrink: true }}
                 />
                 <TextField required type="date" label="Data de vencimento" value={fields.dueDate ?? ""} onChange={e => set("dueDate", e.target.value)} InputLabelProps={{ shrink: true }} />
-                <FormControlLabel control={<Checkbox checked={reimbursement} onChange={(e) => { setReimbursement(e.target.checked); if (e.target.checked) { setThirdPartyForm(""); setFiles([]); set("thirdPartyIdentification", ""); set("thirdPartyPixKey", ""); set("thirdPartyBank", ""); set("thirdPartyAgency", ""); set("thirdPartyAccount", ""); } else { set("beneficiaryId", ""); } }} />} label="É reembolso" />
+                <FormControlLabel control={<Checkbox checked={reimbursement} onChange={(e) => { setReimbursement(e.target.checked); if (e.target.checked) { setThirdPartyForm(""); setFiles([]); setBoleto([]); set("thirdPartyIdentification", ""); set("thirdPartyPixKey", ""); set("thirdPartyBank", ""); set("thirdPartyAgency", ""); set("thirdPartyAccount", ""); } else { set("beneficiaryId", ""); } }} />} label="É reembolso" />
                 {reimbursement ? <TextField select required label="Beneficiário" value={fields.beneficiaryId ?? ""} onChange={(e) => set("beneficiaryId", e.target.value)}>{options?.beneficiaries.map((b) => (<MenuItem key={b.id} value={b.id} disabled={!b.pixKey}>{b.fullName} — {b.role === "Manager" ? "Síndico" : "Subsíndico"}{!b.pixKey ? " (sem PIX)" : ""}</MenuItem>))}</TextField> : <>
                   <TextField required label="Identificação do terceiro" value={fields.thirdPartyIdentification ?? ""} onChange={e => set("thirdPartyIdentification", e.target.value)} />
-                  <TextField select required label="Forma de pagamento" value={thirdPartyForm} onChange={e => { const next = e.target.value; setThirdPartyForm(next); if (next !== "Boleto") setFiles([]); if (next !== "Pix") set("thirdPartyPixKey", ""); if (next !== "DepositAccount") { set("thirdPartyBank", ""); set("thirdPartyAgency", ""); set("thirdPartyAccount", ""); } }}>
+                  <TextField select required label="Forma de pagamento" value={thirdPartyForm} onChange={e => { const next = e.target.value; setThirdPartyForm(next); if (next !== "Boleto") setBoleto([]); if (next !== "Pix") set("thirdPartyPixKey", ""); if (next !== "DepositAccount") { set("thirdPartyBank", ""); set("thirdPartyAgency", ""); set("thirdPartyAccount", ""); } }}>
                     <MenuItem value="">Selecione</MenuItem>
                     <MenuItem value="Pix">PIX</MenuItem>
                     <MenuItem value="Boleto">Boleto</MenuItem>
                     <MenuItem value="DepositAccount">Conta para depósito</MenuItem>
                   </TextField>
                   {thirdPartyForm === "Pix" && <TextField required label="Chave PIX" value={fields.thirdPartyPixKey ?? ""} onChange={e => set("thirdPartyPixKey", e.target.value)} />}
+                  {thirdPartyForm === "Boleto" && <><Button component="label" variant="outlined">Boleto (obrigatório)<input hidden type="file" onChange={e => { const selected = Array.from(e.target.files ?? []); setBoleto(selected.slice(0, 1)); e.target.value = ""; }} /></Button><LocalAttachmentsPreview files={boleto} onRemove={() => setBoleto([])} /></>}
                   {thirdPartyForm === "DepositAccount" && <Stack direction={{ xs: "column", sm: "row" }} spacing={2}><TextField required fullWidth label="Banco" value={fields.thirdPartyBank ?? ""} onChange={e => set("thirdPartyBank", e.target.value)} /><TextField required fullWidth label="Agência" value={fields.thirdPartyAgency ?? ""} onChange={e => set("thirdPartyAgency", e.target.value)} /><TextField required fullWidth label="Conta" value={fields.thirdPartyAccount ?? ""} onChange={e => set("thirdPartyAccount", e.target.value)} /></Stack>}
                   <TextField multiline minRows={3} label="Observações" value={fields.notes ?? ""} onChange={(e) => set("notes", e.target.value)} />
                 </>}

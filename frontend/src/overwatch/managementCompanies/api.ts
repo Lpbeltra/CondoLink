@@ -61,6 +61,10 @@ export async function removeManagementCompanyEmployee(employeeId: string) {
   await api.delete(`/employees/${employeeId}`)
 }
 
+export async function permanentlyDeleteManagementCompanyRequest(id: string, friendlyIdentifier: string) {
+  await api.delete(`/overwatch/management-company-requests/${id}`, { data: { friendlyIdentifier } })
+}
+
 export async function resendManagementCompanyAccess(accessId: string) {
   return (await api.post<{ sent: boolean }>(`/overwatch/management-company-accesses/${accessId}/resend-first-access`)).data
 }
