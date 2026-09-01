@@ -65,11 +65,15 @@ export interface CreationOptions {
 export interface Attachment {
   id: string;
   messageId: string | null;
-  purpose: "Request" | "Message" | "PaymentBoleto" | "PaymentReceipt";
+  purpose: "Request" | "Message" | "PaymentBoleto" | "PaymentReceipt" | 1 | 2 | 3 | 4;
   originalFileName: string;
   contentType: string;
   fileSize: number;
   createdAt: string;
+}
+const attachmentPurposeValues = { Request: 1, Message: 2, PaymentBoleto: 3, PaymentReceipt: 4 } as const;
+export function hasAttachmentPurpose(attachment: Attachment, purpose: keyof typeof attachmentPurposeValues) {
+  return attachment.purpose === purpose || attachment.purpose === attachmentPurposeValues[purpose];
 }
 export interface RequestDetail extends RequestItem {
   categoryId: string;

@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RequestManagementActions } from './RequestManagementActions'
@@ -25,7 +25,9 @@ describe('RequestManagementActions AI preview', () => {
     const user = userEvent.setup(); renderActions()
 
     await user.click(screen.getByRole('button', { name: 'Resolver' }))
-    await user.type(screen.getByLabelText('Mensagem ao morador (opcional)'), 'Mensagem original.')
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('Mensagem ao morador (opcional)'), { target: { value: 'Mensagem original.' } })
+    })
     await user.click(screen.getByRole('button', { name: 'Gerar sugestão com IA' }))
 
     expect(await screen.findByText('Seu texto')).toBeVisible()

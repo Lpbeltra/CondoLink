@@ -1,9 +1,9 @@
 import { Box, Card, CardContent, Stack, Typography } from "@mui/material";
 import { AttachmentsPreview } from "./AttachmentsPreview";
 import { date, money } from "./presentation";
-import type { RequestDetail } from "./types";
+import { hasAttachmentPurpose, type RequestDetail } from "./types";
 export function RequestInformationCards({ request, showRequester = false }: { request: RequestDetail; showRequester?: boolean }) {
-  const boleto = request.attachments.filter(x => x.purpose === "PaymentBoleto");
+  const boleto = request.attachments.filter(x => hasAttachmentPurpose(x, "PaymentBoleto"));
   return <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: showRequester ? "minmax(0, 1fr) minmax(0, 1.35fr)" : "1fr" }, gap: 2 }}>
     {showRequester && <Card variant="outlined"><CardContent><Typography variant="h2" mb={1}>Informações do solicitante</Typography><Typography fontWeight={700}>{request.requester.role === "Manager" ? "Síndico" : request.requester.role === "SubManager" ? "Subsíndico" : "Solicitante"}: {request.requester.fullName}</Typography><Typography>{request.condominium?.name ?? request.condominiumName}</Typography></CardContent></Card>}
     <Card variant="outlined"><CardContent><Typography variant="h2" mb={1}>Dados da solicitação</Typography>{request.fine && <Stack><Typography><b>Unidade:</b> {request.fine.block ? `${request.fine.block} / ` : ""}{request.fine.unit ?? request.fine.unitId}</Typography><Typography><b>Natureza:</b> {request.fine.nature}</Typography><Typography><b>Descrição:</b> {request.fine.description}</Typography><Typography><b>Data:</b> {date(request.fine.occurrenceDate)}</Typography><Typography><b>Valor:</b> {request.fine.valueNotDefined ? "Valor ainda não definido" : money(request.fine.value!)}</Typography></Stack>}{request.payment && <Stack spacing={1.25}><Typography><b>Natureza:</b> {request.payment.nature}</Typography><Typography><b>Valor:</b> {money(request.payment.value)}</Typography><Typography><b>Data:</b> {date(request.payment.eventDate)}</Typography><Typography><b>Vencimento:</b> {request.payment.dueDate ? date(request.payment.dueDate) : "—"}</Typography>{request.payment.notes && <Typography><b>Observações:</b> {request.payment.notes}</Typography>}</Stack>}{request.question && <Typography><b>Tema:</b> {request.question.theme}</Typography>}</CardContent></Card>

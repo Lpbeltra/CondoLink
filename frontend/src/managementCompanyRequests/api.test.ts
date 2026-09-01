@@ -44,12 +44,22 @@ describe("management company requests api", () => {
     vi.mocked(api.post).mockResolvedValue({
       data: { id: "1", friendlyIdentifier: "ADM-X" },
     });
-    await createRequest("GeneralQuestion", { theme: "Tema" }, [
-      new File(["pdf"], "a.pdf", { type: "application/pdf" }),
-    ]);
+    const first = new File(["a"], "a.pdf", { type: "application/pdf" });
+    const second = new File(["b"], "b.pdf", { type: "application/pdf" });
+    await createRequest("GeneralQuestion", { theme: "Tema" }, [first, second]);
     const [, body] = vi.mocked(api.post).mock.calls[0];
     expect(body).toBeInstanceOf(FormData);
-    expect((body as FormData).getAll("files")).toHaveLength(1);
+    expect((body as FormData).getAll("files")).toEqual([first, second]);
+    expect((body as FormData).getAll("boleto")).toHaveLength(0);
+  });
+  it("keeps boleto separate from generic files", async () => {
+    vi.mocked(api.post).mockResolvedValue({ data: { id: "1", friendlyIdentifier: "ADM-X" } });
+    const generic = new File(["generic"], "documento.pdf", { type: "application/pdf" });
+    const boleto = new File(["boleto"], "boleto.pdf", { type: "application/pdf" });
+    await createRequest("Payment", { thirdPartyForm: "Boleto" }, [generic], [boleto]);
+    const [, body] = vi.mocked(api.post).mock.calls[0];
+    expect((body as FormData).getAll("files")).toEqual([generic]);
+    expect((body as FormData).getAll("boleto")).toEqual([boleto]);
   });
   it("queries the administrator queue with server-side filters", async () => {
     vi.mocked(api.get).mockResolvedValue({

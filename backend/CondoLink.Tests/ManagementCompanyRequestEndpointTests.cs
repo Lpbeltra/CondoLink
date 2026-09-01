@@ -115,6 +115,30 @@ public sealed class ManagementCompanyRequestEndpointTests : IAsyncLifetime
         var response=await host.ClientFor(manager).PostAsync("/management-company-requests/questions/multipart",form);Assert.Equal(HttpStatusCode.Created,response.StatusCode);
         await host.WithDbAsync(async db=>{var created=await db.ManagementCompanyRequests.OrderByDescending(x=>x.CreatedAt).FirstAsync(x=>x.Id!=requestId);Assert.Equal(ManagementCompanyRequestStatus.Submitted,created.Status);Assert.Single(await db.ManagementCompanyGeneralQuestionRequests.Where(x=>x.RequestId==created.Id).ToListAsync());Assert.Single(await db.ManagementCompanyRequestMessages.Where(x=>x.RequestId==created.Id).ToListAsync());Assert.Single(await db.ManagementCompanyRequestHistories.Where(x=>x.RequestId==created.Id).ToListAsync());Assert.Single(await db.ManagementCompanyRequestAttachments.Where(x=>x.RequestId==created.Id).ToListAsync());});
     }
+    [Fact] public async Task Multipart_creation_persists_two_generic_files_visible_to_both_portals()
+    {
+        using var form = Form(new { condominiumId = condoId, categoryId, theme = "Dois anexos", message = "Conferir" },
+            ("a.pdf", "application/pdf", Encoding.UTF8.GetBytes("arquivo-a")),
+            ("b.pdf", "application/pdf", Encoding.UTF8.GetBytes("arquivo-b")));
+        var response = await host.ClientFor(manager).PostAsync("/management-company-requests/questions/multipart", form);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var id = await CreatedId(response);
+        var managerDetail = await host.ClientFor(manager).GetAsync($"/management-company-requests/{id}");
+        var administratorDetail = await host.ClientFor(companyUser).GetAsync($"/management-company-requests/{id}");
+        Assert.Equal(HttpStatusCode.OK, managerDetail.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, administratorDetail.StatusCode);
+        foreach (var detail in new[] { managerDetail, administratorDetail })
+        {
+            var json = await detail.Content.ReadAsStringAsync();
+            Assert.Contains("a.pdf", json);
+            Assert.Contains("b.pdf", json);
+        }
+        var attachments = await host.WithDbAsync(async db => await db.ManagementCompanyRequestAttachments.Where(x => x.RequestId == id).ToListAsync());
+        Assert.Equal(2, attachments.Count);
+        Assert.All(attachments, attachment => Assert.Equal(ManagementCompanyRequestAttachmentPurpose.Request, attachment.Purpose));
+        Assert.Equal("arquivo-a", await host.ClientFor(manager).GetStringAsync($"/management-company-request-attachments/{attachments.Single(x => x.OriginalFileName == "a.pdf").Id}/content"));
+        Assert.Equal("arquivo-b", await host.ClientFor(companyUser).GetStringAsync($"/management-company-request-attachments/{attachments.Single(x => x.OriginalFileName == "b.pdf").Id}/content"));
+    }
     [Fact] public async Task Management_list_is_scoped_paged_filterable_and_waiting_first()
     {
         var allowed=await host.ClientFor(manager).GetAsync("/management-company-requests?page=1&pageSize=1&type=GeneralQuestion&search=ADM-");Assert.Equal(HttpStatusCode.OK,allowed.StatusCode);var json=await allowed.Content.ReadAsStringAsync();Assert.Contains(requestId.ToString(),json,StringComparison.OrdinalIgnoreCase);Assert.DoesNotContain(otherId.ToString(),json,StringComparison.OrdinalIgnoreCase);
