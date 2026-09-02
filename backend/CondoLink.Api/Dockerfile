@@ -10,32 +10,33 @@ COPY CondoLink.DataReset/CondoLink.DataReset.csproj CondoLink.DataReset/
 RUN dotnet restore CondoLink.Api/CondoLink.Api.csproj
 RUN dotnet restore CondoLink.DataReset/CondoLink.DataReset.csproj
 
+RUN dotnet tool install --tool-path /tmp/ef dotnet-ef --version 10.0.4
+
 COPY . .
 
 RUN dotnet publish CondoLink.Api/CondoLink.Api.csproj \
     --configuration Release \
     --output /app/publish \
-    --no-restore
+    --no-restore \
+    -m:1
 
 RUN dotnet publish CondoLink.DataReset/CondoLink.DataReset.csproj \
     --configuration Release \
     --output /app/datareset \
-    --no-restore
+    --no-restore \
+    -m:1
 
 # Instala a ferramenta do Entity Framework no estágio de build
-RUN dotnet tool install --global dotnet-ef --version 10.*
-
-ENV PATH="${PATH}:/root/.dotnet/tools"
-
 # A string é apenas para o EF conseguir criar o DbContext durante o build.
 # Nenhuma conexão com esse banco fictício será realizada.
-RUN ConnectionStrings__DefaultConnection="Host=localhost;Port=5432;Database=condolink;Username=condolink;Password=build-only" \
-    dotnet ef migrations bundle \
+RUN ConnectionStrings__DefaultConnection="Host=localhost;Port=5432;Database=condolink;Username=condolink" \
+    /tmp/ef/dotnet-ef migrations bundle \
     --project CondoLink.Infrastructure/CondoLink.Infrastructure.csproj \
     --startup-project CondoLink.Api/CondoLink.Api.csproj \
     --configuration Release \
     --output /app/publish/efbundle \
-    --force
+    --force \
+    --no-build
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 

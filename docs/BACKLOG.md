@@ -6,6 +6,13 @@ Permitir múltiplos SubManagers ativos por condomínio; manter um único víncul
 
 ## Objetivo
 
+## Build/deploy em hosts pequenos (concluído)
+
+O build de produção mantém secrets somente em runtime, usa restore/tooling em
+camadas cacheáveis, limita o publish do backend a um nó do MSBuild e gera o
+`efbundle` sem recompilação. O bundle continua sendo aplicado pelo entrypoint;
+no Coolify, secrets devem ficar em Environment Variables, não em Build Arguments.
+
 ## Agenda operacional
 
 Implementada a base por condomínio: CRUD, unidade/terceiro opcionais, vínculo

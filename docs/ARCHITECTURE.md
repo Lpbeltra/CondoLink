@@ -421,6 +421,20 @@ Elas somente serão criadas depois que:
 * o ASP.NET Core Identity estiver integrado;
 * o DbContext estiver configurado.
 
+### Build e migrations no container
+
+Configurações de runtime (connection string, JWT, e-mail, OpenAI, WhatsApp e
+credenciais administrativas) são fornecidas somente pelo ambiente de execução;
+não são necessárias como argumentos do Docker build. O Dockerfile mantém o
+restore e a ferramenta `dotnet-ef` em camadas cacheáveis, limita o publish a um
+nó do MSBuild em hosts pequenos e gera o bundle sem recompilar (`--no-build`).
+
+Em produção, o `efbundle` continua sendo executado pelo entrypoint antes da
+API iniciar. A connection string usada na geração é apenas de design-time e não
+é conectada. No Coolify, mantenha secrets em Environment Variables de runtime
+e remova-os de Build Arguments; `VITE_API_URL` permanece a única configuração
+de build do frontend porque é incorporada ao bundle público.
+
 ---
 
 # 8. CondoLink.Api
