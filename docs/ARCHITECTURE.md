@@ -1,5 +1,9 @@
 # CondoLink — Architecture
 
+## Cardinalidade de SubManager (atualização)
+
+Um condomínio pode ter 0..N SubManagers ativos. Cada usuário pode ter no máximo um vínculo SubManager ativo nesta versão. Permissões permanecem vinculadas ao `CondominiumMembershipId`.
+
 ## Objetivo
 
 ## Agenda operacional

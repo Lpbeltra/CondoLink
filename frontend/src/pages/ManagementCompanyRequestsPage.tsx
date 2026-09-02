@@ -99,7 +99,7 @@ export function ManagementCompanyRequestsPage() {
     () => setPage(1),
     [activeCondominiumId, condo, from, search, status, to, type, includeCompleted, includeCancelled],
   );
-  const filtered = Boolean(search || type || status || condo || from || to);
+  const filtered = Boolean(search || type || status || condo || from || to || includeCompleted || includeCancelled);
   const clear = () => {
     setSearch("");
     setType("");
@@ -107,9 +107,11 @@ export function ManagementCompanyRequestsPage() {
     setCondo("");
     setFrom("");
     setTo("");
+    setIncludeCompleted(false);
+    setIncludeCancelled(false);
   };
   return (
-    <PageContainer maxWidth={1200}>
+    <PageContainer maxWidth="none">
       <Stack spacing={2}>
         <Box
           display="flex"
@@ -146,6 +148,7 @@ export function ManagementCompanyRequestsPage() {
           direction={{ xs: "column", md: "row" }}
           spacing={1.5}
           flexWrap="wrap"
+          alignItems={{ xs: "stretch", md: "center" }}
         >
           {!activeCondominiumId && (
             <TextField
@@ -169,7 +172,7 @@ export function ManagementCompanyRequestsPage() {
             size="small"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            sx={{ flex: 1, minWidth: 190 }}
+            sx={{ flex: "1 1 280px", minWidth: { xs: "100%", md: 240 }, order: 1 }}
           />
           <FormControlLabel control={<Checkbox checked={includeCompleted} onChange={e => { setIncludeCompleted(e.target.checked); setPage(1) }} />} label="Exibir solicitações processadas" />
           <FormControlLabel control={<Checkbox checked={includeCancelled} onChange={e => { setIncludeCancelled(e.target.checked); setPage(1) }} />} label="Exibir solicitações canceladas" />
@@ -179,7 +182,7 @@ export function ManagementCompanyRequestsPage() {
             size="small"
             value={type}
             onChange={(e) => setType(e.target.value as Type | "")}
-            sx={{ minWidth: 190 }}
+            sx={{ minWidth: { xs: "100%", md: 190 }, order: 2 }}
           >
             <MenuItem value="">Todos</MenuItem>
             {Object.entries(typeLabel).map(([v, l]) => (
@@ -194,7 +197,7 @@ export function ManagementCompanyRequestsPage() {
             size="small"
             value={status}
             onChange={(e) => setStatus(e.target.value as Status | "")}
-            sx={{ minWidth: 190 }}
+            sx={{ minWidth: { xs: "100%", md: 190 }, order: 3 }}
           >
             <MenuItem value="">Todos</MenuItem>
             {(
@@ -218,6 +221,7 @@ export function ManagementCompanyRequestsPage() {
             value={from}
             onChange={(e) => setFrom(e.target.value)}
             InputLabelProps={{ shrink: true }}
+            sx={{ minWidth: { xs: "100%", md: 160 }, order: 5 }}
           />
           <TextField
             type="date"
@@ -226,6 +230,7 @@ export function ManagementCompanyRequestsPage() {
             value={to}
             onChange={(e) => setTo(e.target.value)}
             InputLabelProps={{ shrink: true }}
+            sx={{ minWidth: { xs: "100%", md: 160 }, order: 5 }}
           />
           {filtered && <Button onClick={clear}>Limpar filtros</Button>}
         </Stack>

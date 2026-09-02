@@ -5,6 +5,7 @@ export interface SubManager { id: string; fullName: string; email: string; phone
 export interface SubManagerInput { fullName: string; email: string; phoneNumber: string | null; condominiumId: string; pixKeyType: PixKeyType | null; pixKey: string | null }
 export async function listSubManagers() { return (await api.get<SubManager[]>('/overwatch/submanagers')).data }
 export async function createSubManager(input: SubManagerInput) { return (await api.post<SubManager & { temporaryPassword: string }>('/overwatch/submanagers', input)).data }
+export async function updateSubManager(id: string, input: SubManagerInput) { await api.put(`/overwatch/submanagers/${id}`, input) }
 export async function setSubManagerStatus(id: string, isActive: boolean) { await api.patch(`/overwatch/submanagers/${id}/status`, { isActive }) }
 export const subManagerModules = ['Requests', 'Attendance', 'ManagementCompany', 'Agenda', 'Assistant', 'Documents', 'Management'] as const
 export type SubManagerModule = typeof subManagerModules[number]

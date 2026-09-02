@@ -138,7 +138,7 @@ const OverwatchManagersPage = lazyPage(
   "OverwatchManagersPage",
 );
 const OverwatchSubManagersPage = lazyPage(
-  () => import("../overwatch/pages/OverwatchSubManagersPage"),
+  () => import("../overwatch/pages/OverwatchSubManagersPageV2"),
   "OverwatchSubManagersPage",
 );
 const OverwatchManagerDetailsPage = lazyPage(

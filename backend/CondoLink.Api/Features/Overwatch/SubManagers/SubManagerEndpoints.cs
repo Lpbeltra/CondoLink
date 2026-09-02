@@ -116,12 +116,23 @@ public static class SubManagerEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> UpdateAsync(Guid userId, Request request, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> UpdateAsync(Guid userId, Request request, UserManager<ApplicationUser> users, AppDbContext db, CancellationToken ct)
     {
         var error = Validate(request);
         if (error is not null) return Results.BadRequest(new { message = error });
         var user = await db.Users.SingleOrDefaultAsync(x => x.Id == userId, ct);
         if (user is null) return Results.NotFound();
+        var email = request.Email!.Trim().ToLowerInvariant();
+        var emailOwner = await users.FindByEmailAsync(email);
+        if (emailOwner is not null && emailOwner.Id != userId)
+            return Results.Conflict(new { message = "Já existe um usuário com este e-mail." });
+        if (!string.Equals(user.Email, email, StringComparison.OrdinalIgnoreCase))
+        {
+            var emailResult = await users.SetEmailAsync(user, email);
+            if (!emailResult.Succeeded) return Results.BadRequest(new { errors = emailResult.Errors.Select(x => x.Description) });
+            var nameResult = await users.SetUserNameAsync(user, email);
+            if (!nameResult.Succeeded) return Results.BadRequest(new { errors = nameResult.Errors.Select(x => x.Description) });
+        }
         user.Update(request.FullName!, request.PhoneNumber);
         user.SetPix(request.PixKeyType, request.PixKey);
         var current = await ActiveRoleAsync(userId, db, ct);
@@ -169,12 +180,6 @@ public static class SubManagerEndpoints
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({user.Id.ToString()}, 9182));", ct);
         if (await ActiveRoleAsync(user.Id, db, ct) is not null)
             return "Este usuário já possui um vínculo ativo como subsíndico.";
-        var occupied = await (from m in db.CondominiumMemberships
-            join r in db.CondominiumMembershipRoles on m.Id equals r.CondominiumMembershipId
-            where m.CondominiumId == condominiumId && m.IsActive && m.EndedAt == null
-                && r.Role == CondominiumRole.SubManager && r.IsActive && r.RevokedAt == null
-            select r.Id).AnyAsync(ct);
-        if (occupied) return "Este condomínio já possui um subsíndico ativo.";
         var membership = await db.CondominiumMemberships.SingleOrDefaultAsync(
             x => x.UserId == user.Id && x.CondominiumId == condominiumId, ct);
         if (membership is null) { membership = new CondominiumMembership(user.Id, condominiumId); db.Add(membership); }

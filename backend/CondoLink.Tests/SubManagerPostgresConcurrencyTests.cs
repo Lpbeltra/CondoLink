@@ -1,5 +1,7 @@
 using CondoLink.Api.Features.Overwatch.SubManagers;
+using CondoLink.Api.Features.Management;
 using CondoLink.Domain.Entities;
+using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -38,12 +40,12 @@ public sealed class SubManagerPostgresConcurrencyTests
     }
 
     [Fact]
-    public async Task Two_users_cannot_become_active_submanager_of_the_same_condominium_concurrently()
+    public async Task Two_users_can_become_active_submanagers_of_the_same_condominium_concurrently()
     {
         if (Connection is null) return;
         var (userAId, userBId, condoId) = await SeedTwoUsers();
         var outcomes = await Task.WhenAll(AssignSafe(userAId, condoId), AssignSafe(userBId, condoId));
-        Assert.Equal(1, outcomes.Count(x => x.Succeeded));
+        Assert.Equal(2, outcomes.Count(x => x.Succeeded));
 
         await using var db = Db();
         var activeCount = await (from m in db.CondominiumMemberships
@@ -51,8 +53,40 @@ public sealed class SubManagerPostgresConcurrencyTests
             where m.CondominiumId == condoId && m.IsActive && m.EndedAt == null
                 && r.Role == CondoLink.Domain.Enums.CondominiumRole.SubManager && r.IsActive && r.RevokedAt == null
             select r.Id).CountAsync();
-        Assert.Equal(1, activeCount);
+        Assert.Equal(2, activeCount);
     }
+
+    [Fact]
+    public async Task Permissions_are_independent_per_submanager_membership()
+    {
+        if (Connection is null) return;
+        var (userAId, userBId, condoId) = await SeedTwoUsers();
+        Assert.True((await AssignSafe(userAId, condoId)).Succeeded);
+        Assert.True((await AssignSafe(userBId, condoId)).Succeeded);
+        await using var db = Db();
+        var membershipA = await ActiveMembership(userAId, condoId, db);
+        var membershipB = await ActiveMembership(userBId, condoId, db);
+        await SubManagerAccess.EnsureDefaultsAsync(db, membershipA, userAId, default);
+        await SubManagerAccess.EnsureDefaultsAsync(db, membershipB, userBId, default);
+        var aAgenda = await db.SubManagerModulePermissions.SingleAsync(x => x.CondominiumMembershipId == membershipA && x.Module == SubManagerModule.Agenda);
+        var aCompany = await db.SubManagerModulePermissions.SingleAsync(x => x.CondominiumMembershipId == membershipA && x.Module == SubManagerModule.ManagementCompany);
+        var bRequests = await db.SubManagerModulePermissions.SingleAsync(x => x.CondominiumMembershipId == membershipB && x.Module == SubManagerModule.Requests);
+        aAgenda.SetAllowed(false, userBId); aCompany.SetAllowed(false, userBId); bRequests.SetAllowed(false, userAId);
+        await db.SaveChangesAsync();
+        Assert.True(await SubManagerAccess.HasAsync(db, userAId, condoId, SubManagerModule.Requests, default));
+        Assert.False(await SubManagerAccess.HasAsync(db, userAId, condoId, SubManagerModule.Agenda, default));
+        Assert.False(await SubManagerAccess.HasAsync(db, userAId, condoId, SubManagerModule.ManagementCompany, default));
+        Assert.False(await SubManagerAccess.HasAsync(db, userBId, condoId, SubManagerModule.Requests, default));
+        Assert.True(await SubManagerAccess.HasAsync(db, userBId, condoId, SubManagerModule.Agenda, default));
+        Assert.True(await SubManagerAccess.HasAsync(db, userBId, condoId, SubManagerModule.ManagementCompany, default));
+        aAgenda.SetAllowed(true, userAId); bRequests.SetAllowed(true, userBId);
+        await db.SaveChangesAsync();
+        Assert.True(await SubManagerAccess.HasAsync(db, userAId, condoId, SubManagerModule.Agenda, default));
+        Assert.True(await SubManagerAccess.HasAsync(db, userBId, condoId, SubManagerModule.Requests, default));
+    }
+
+    private static async Task<Guid> ActiveMembership(Guid userId, Guid condominiumId, AppDbContext db) =>
+        await db.CondominiumMemberships.Where(x => x.UserId == userId && x.CondominiumId == condominiumId && x.IsActive && x.EndedAt == null).Select(x => x.Id).SingleAsync();
 
     private static async Task<(Guid UserId, Guid CondoAId, Guid CondoBId)> Seed()
     {

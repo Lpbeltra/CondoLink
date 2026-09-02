@@ -1,9 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, IconButton, Menu, Tooltip } from '@mui/material'
 import { PageContainer } from '../../components/PageContainer'
 import { listOverwatchCondominiums } from '../condominiums/api'
 import type { OverwatchCondominium } from '../condominiums/types'
-import { createSubManager, listSubManagers, setSubManagerStatus, listSubManagerPermissions, updateSubManagerPermissions, resendSubManagerFirstAccess, resetSubManagerPassword, subManagerModules, type PixKeyType, type SubManager, type SubManagerModule } from '../submanagers/api'
+import { createSubManager, listSubManagers, setSubManagerStatus, listSubManagerPermissions, updateSubManagerPermissions, resendSubManagerFirstAccess, resetSubManagerPassword, updateSubManager, subManagerModules, type PixKeyType, type SubManager, type SubManagerModule } from '../submanagers/api'
 import { PixFields } from '../components/PixFields'
 
 const labels: Record<SubManagerModule, string> = { Requests: 'Solicitações', Attendance: 'Atendimento', ManagementCompany: 'Administradora', Agenda: 'Agenda', Assistant: 'Assistente', Documents: 'Documentos', Management: 'Gestão' }
@@ -12,10 +12,11 @@ const emptyForm = () => ({ fullName: '', email: '', phoneNumber: '', condominium
 export function OverwatchSubManagersPage() {
   const [items, setItems] = useState<SubManager[]>([]); const [condominiums, setCondominiums] = useState<OverwatchCondominium[]>([])
   const [open, setOpen] = useState(false); const [error, setError] = useState(''); const [credentials, setCredentials] = useState<{ email: string; temporaryPassword: string } | null>(null)
-  const [form, setForm] = useState(emptyForm); const [permissionTarget, setPermissionTarget] = useState<SubManager | null>(null); const [permissions, setPermissions] = useState<Record<string, boolean>>({})
+  const [form, setForm] = useState(emptyForm); const [editing, setEditing] = useState<SubManager | null>(null); const [permissionTarget, setPermissionTarget] = useState<SubManager | null>(null); const [permissions, setPermissions] = useState<Record<string, boolean>>({}); const [menuTarget, setMenuTarget] = useState<{ item: SubManager; anchor: HTMLElement } | null>(null)
   const load = async () => { const [people, condos] = await Promise.all([listSubManagers(), listOverwatchCondominiums()]); setItems(people); setCondominiums(condos) }
   useEffect(() => { void load() }, [])
-  const closeCreate = () => { setOpen(false); setForm(emptyForm()) }
+  const closeCreate = () => { setOpen(false); setEditing(null); setForm(emptyForm()) }
+  const openEdit = (item: SubManager) => { setEditing(item); setForm({ fullName: item.fullName, email: item.email, phoneNumber: item.phoneNumber ?? '', condominiumId: item.condominiumId, pixKeyType: item.pixKeyType ?? '', pixKey: item.pixKey ?? '' }); setOpen(true) }
   const submit = async (event: FormEvent) => { event.preventDefault(); setError(''); try { const created = await createSubManager({ ...form, phoneNumber: form.phoneNumber || null, pixKeyType: form.pixKeyType || null, pixKey: form.pixKey || null }); setCredentials(created); closeCreate(); await load() } catch { setError('Não foi possível cadastrar o subsíndico. Verifique vínculos e dados informados.') } }
   const openPermissions = async (item: SubManager) => { setPermissionTarget(item); const rows = await listSubManagerPermissions(item.id); setPermissions(Object.fromEntries(rows.map(x => [x.module, x.allowed]))) }
   const resetPassword = async (item: SubManager) => { const result = await resetSubManagerPassword(item); setCredentials({ email: item.email, temporaryPassword: result.temporaryPassword }) }

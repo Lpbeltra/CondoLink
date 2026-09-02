@@ -1,5 +1,9 @@
 # CondoLink — Backlog
 
+## Cardinalidade de SubManager (atualização)
+
+Permitir múltiplos SubManagers ativos por condomínio; manter um único vínculo SubManager ativo por usuário nesta versão.
+
 ## Objetivo
 
 ## Agenda operacional
