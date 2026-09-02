@@ -20,6 +20,7 @@ public static class SubManagerEndpoints
         var group = endpoints.MapGroup("/overwatch/submanagers")
             .RequireAuthorization("PlatformAdmin").WithTags("Overwatch");
         group.MapGet("/", ListAsync);
+        group.MapGet("/search", SearchAsync);
         group.MapPost("/", CreateAsync);
         group.MapPut("/{userId:guid}", UpdateAsync);
         group.MapPatch("/{userId:guid}/status", SetStatusAsync);
@@ -27,6 +28,49 @@ public static class SubManagerEndpoints
         group.MapPut("/{userId:guid}/permissions", UpdatePermissionsAsync);
         group.MapDelete("/{userId:guid}/condominium", RemoveAsync);
         return endpoints;
+    }
+
+    private static async Task<IResult> SearchAsync(string? query, Guid? condominiumId, AppDbContext db, CancellationToken ct)
+    {
+        var term = query?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(term) || term.Length < 2)
+            return Results.Ok(Array.Empty<ExistingUserResponse>());
+
+        var users = await db.Users.AsNoTracking()
+            .Where(user => user.IsActive
+                && !db.CondominiumMembershipRoles.Any(role => role.Role == CondominiumRole.SubManager
+                    && role.IsActive && role.RevokedAt == null
+                    && db.CondominiumMemberships.Any(membership => membership.Id == role.CondominiumMembershipId
+                        && membership.UserId == user.Id && membership.IsActive && membership.EndedAt == null)))
+            .Where(user => user.FullName.ToLower().Contains(term)
+                || (user.Email != null && user.Email.ToLower().Contains(term))
+                || (user.PhoneNumber != null && user.PhoneNumber.Contains(term)))
+            .OrderBy(user => user.FullName)
+            .Take(25)
+            .Select(user => new { user.Id, user.FullName, user.Email, user.PhoneNumber, user.PixKeyType, user.PixKey })
+            .ToListAsync(ct);
+
+        var ids = users.Select(user => user.Id).ToArray();
+        var units = await (from link in db.UnitMemberships.AsNoTracking()
+            join unit in db.Units.AsNoTracking() on link.UnitId equals unit.Id
+            join condominium in db.Condominiums.AsNoTracking() on unit.CondominiumId equals condominium.Id
+            where ids.Contains(link.UserId) && link.IsActive && link.EndedAt == null
+            select new { link.UserId, unit.CondominiumId, CondominiumName = condominium.Name, Unit = unit.Identifier })
+            .ToListAsync(ct);
+
+        var rows = users.Select(user =>
+        {
+            var links = units.Where(link => link.UserId == user.Id).ToArray();
+            var preferred = condominiumId.HasValue
+                ? links.FirstOrDefault(link => link.CondominiumId == condominiumId.Value) ?? links.FirstOrDefault()
+                : links.FirstOrDefault();
+            return new ExistingUserResponse(user.Id, user.FullName, user.Email!, user.PhoneNumber,
+                user.PixKeyType, user.PixKey, links.Select(link => new ExistingUserLink(
+                    link.CondominiumId, link.CondominiumName, link.Unit)).ToArray(),
+                preferred?.CondominiumId, preferred?.CondominiumName, preferred?.Unit);
+        }).OrderByDescending(row => condominiumId.HasValue && row.CondominiumId == condominiumId)
+            .ThenBy(row => row.FullName);
+        return Results.Ok(rows);
     }
 
     private static async Task<IResult> ListAsync(AppDbContext db, CancellationToken ct)
@@ -48,6 +92,9 @@ public static class SubManagerEndpoints
     private static async Task<IResult> CreateAsync(Request request, UserManager<ApplicationUser> users,
         AppDbContext db, FirstAccessService firstAccess, CancellationToken ct)
     {
+        if (request.ExistingUserId.HasValue)
+            return await PromoteExistingAsync(request, db, ct);
+
         var error = Validate(request);
         if (error is not null) return Results.BadRequest(new { message = error });
         var condominium = await db.Condominiums.Where(x => x.Id == request.CondominiumId && x.IsActive)
@@ -87,6 +134,30 @@ public static class SubManagerEndpoints
         return Results.Created($"/overwatch/submanagers/{user.Id}", new CreatedResponse(
             user.Id, user.FullName, user.Email!, user.PhoneNumber, user.PixKeyType,
             user.PixKey, user.IsActive, request.CondominiumId, password));
+    }
+
+    private static async Task<IResult> PromoteExistingAsync(Request request, AppDbContext db, CancellationToken ct)
+    {
+        if (request.ExistingUserId is not Guid existingUserId)
+            return Results.BadRequest(new { message = "Usuário existente é obrigatório." });
+        if (request.CondominiumId == Guid.Empty)
+            return Results.BadRequest(new { message = "Condomínio é obrigatório." });
+        var condominium = await db.Condominiums.AsNoTracking()
+            .Where(x => x.Id == request.CondominiumId && x.IsActive)
+            .Select(x => x.Name).SingleOrDefaultAsync(ct);
+        if (condominium is null)
+            return Results.NotFound(new { message = "Condomínio não encontrado ou inativo." });
+        var user = await db.Users.SingleOrDefaultAsync(x => x.Id == existingUserId, ct);
+        if (user is null) return Results.NotFound(new { message = "Usuário não encontrado." });
+        if (!user.IsActive) return Results.Conflict(new { message = "Este usuário está inativo." });
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var assignment = await AssignAsync(user, request.CondominiumId, db, ct);
+        if (assignment is not null) return Results.Conflict(new { message = assignment });
+        await transaction.CommitAsync(ct);
+        return Results.Created($"/overwatch/submanagers/{user.Id}", new CreatedResponse(
+            user.Id, user.FullName, user.Email!, user.PhoneNumber, user.PixKeyType,
+            user.PixKey, user.IsActive, request.CondominiumId, null));
     }
 
     private static async Task<IResult> ListPermissionsAsync(Guid userId, AppDbContext db, CancellationToken ct)
@@ -193,14 +264,9 @@ public static class SubManagerEndpoints
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({user.Id.ToString()}, 9182));", ct);
         if (await ActiveRoleAsync(user.Id, db, ct) is not null)
             return "Este usuário já possui um vínculo ativo como subsíndico.";
-        var membership = await db.CondominiumMemberships.SingleOrDefaultAsync(
-            x => x.UserId == user.Id && x.CondominiumId == condominiumId, ct);
-        if (membership is null) { membership = new CondominiumMembership(user.Id, condominiumId); db.Add(membership); }
-        else membership.Activate();
-        var role = await db.CondominiumMembershipRoles.SingleOrDefaultAsync(
-            x => x.CondominiumMembershipId == membership.Id && x.Role == CondominiumRole.SubManager, ct);
-        if (role is null) db.Add(new CondominiumMembershipRole(membership.Id, CondominiumRole.SubManager));
-        else role.Activate();
+        var membership = new CondominiumMembership(user.Id, condominiumId);
+        db.Add(membership);
+        db.Add(new CondominiumMembershipRole(membership.Id, CondominiumRole.SubManager));
         await db.SaveChangesAsync(ct);
         await SubManagerAccess.EnsureDefaultsAsync(db, membership.Id, user.Id, ct);
         await db.SaveChangesAsync(ct);
@@ -238,7 +304,7 @@ public static class SubManagerEndpoints
     }
     private sealed record ActiveRole(Guid CondominiumId, CondominiumMembershipRole Role);
     public sealed record Request(string? FullName, string? Email, string? PhoneNumber,
-        Guid CondominiumId, PixKeyType? PixKeyType, string? PixKey);
+        Guid CondominiumId, PixKeyType? PixKeyType, string? PixKey, Guid? ExistingUserId = null);
     public sealed record StatusRequest(bool IsActive);
     public sealed record PermissionRequest(IReadOnlyList<PermissionItem>? Permissions);
     public sealed record PermissionItem(string Module, bool Allowed);
@@ -246,5 +312,9 @@ public static class SubManagerEndpoints
         PixKeyType? PixKeyType, string? PixKey, bool IsActive, Guid CondominiumId,
         string CondominiumName, bool HasActiveLink, DateTime CreatedAt, DateTime UpdatedAt);
     public sealed record CreatedResponse(Guid Id, string FullName, string Email, string? PhoneNumber,
-        PixKeyType? PixKeyType, string? PixKey, bool IsActive, Guid CondominiumId, string TemporaryPassword);
+        PixKeyType? PixKeyType, string? PixKey, bool IsActive, Guid CondominiumId, string? TemporaryPassword);
+    public sealed record ExistingUserResponse(Guid UserId, string FullName, string Email, string? PhoneNumber,
+        PixKeyType? PixKeyType, string? PixKey, IReadOnlyList<ExistingUserLink> Links,
+        Guid? CondominiumId, string? CondominiumName, string? Unit);
+    public sealed record ExistingUserLink(Guid CondominiumId, string CondominiumName, string Unit);
 }

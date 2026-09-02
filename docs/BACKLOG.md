@@ -2,7 +2,7 @@
 
 ## Cardinalidade de SubManager (atualização)
 
-Permitir múltiplos SubManagers ativos por condomínio; manter um único vínculo SubManager ativo por usuário nesta versão.
+Permitir múltiplos SubManagers ativos por condomínio; manter um único vínculo SubManager ativo por usuário nesta versão. Usuário pode acumular vínculo de morador/unidade e SubManager; promoção preserva vínculo de morador e cria novo `CondominiumMembership`.
 
 ## Objetivo
 

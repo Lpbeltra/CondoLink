@@ -13,7 +13,7 @@ namespace CondoLink.Tests;
 public sealed class SubManagerEditEndpointTests : IAsyncLifetime
 {
     private CoreEndpointTestHost _host = null!;
-    private Guid _platformId, _s1Id, _s2Id, _condominiumId, _s1MembershipId, _s2MembershipId;
+    private Guid _platformId, _s1Id, _s2Id, _residentId, _condominiumId, _s1MembershipId, _s2MembershipId, _unitMembershipId;
 
     public async Task InitializeAsync()
     {
@@ -28,13 +28,18 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
             var platform = CoreTestSeed.User("Platform", "platform-edit@test.local");
             var s1 = CoreTestSeed.User("S1 original", "s1-original@test.local");
             var s2 = CoreTestSeed.User("S2 original", "s2-original@test.local");
-            db.AddRange(condominium, platform, s1, s2);
+            var resident = CoreTestSeed.User("Aline Souza", "aline@test.local");
+            db.AddRange(condominium, platform, s1, s2, resident);
+            var unit = new Unit(condominium.Id, "304", null, null, null);
+            db.Add(unit);
+            var unitMembership = new UnitMembership(resident.Id, unit.Id, UnitRelationshipType.Owner, true, true);
+            db.Add(unitMembership);
             var m1 = CoreTestSeed.AddMember(db, s1.Id, condominium.Id, CondominiumRole.SubManager);
             var m2 = CoreTestSeed.AddMember(db, s2.Id, condominium.Id, CondominiumRole.SubManager);
             db.SubManagerModulePermissions.Add(new(m1.Id, SubManagerModule.Requests, platform.Id));
             db.SubManagerModulePermissions.Add(new(m2.Id, SubManagerModule.Agenda, platform.Id));
             await db.SaveChangesAsync();
-            (_platformId, _s1Id, _s2Id, _condominiumId, _s1MembershipId, _s2MembershipId) = (platform.Id, s1.Id, s2.Id, condominium.Id, m1.Id, m2.Id);
+            (_platformId, _s1Id, _s2Id, _residentId, _condominiumId, _s1MembershipId, _s2MembershipId, _unitMembershipId) = (platform.Id, s1.Id, s2.Id, resident.Id, condominium.Id, m1.Id, m2.Id, unitMembership.Id);
         });
     }
 
@@ -79,6 +84,58 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
         });
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Existing_resident_is_promoted_without_changing_user_or_unit_link()
+    {
+        using var client = _host.ClientFor(_platformId);
+        client.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
+        var response = await client.PostAsJsonAsync("/overwatch/submanagers", new
+        {
+            existingUserId = _residentId, condominiumId = _condominiumId
+        });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = await response.Content.ReadFromJsonAsync<SubManagerEndpoints.CreatedResponse>();
+        Assert.Equal(_residentId, created!.Id);
+        Assert.Null(created.TemporaryPassword);
+        await _host.WithDbAsync(async db =>
+        {
+            var resident = await db.Users.SingleAsync(x => x.Id == _residentId);
+            Assert.False(resident.MustChangePassword);
+            Assert.Null(resident.PasswordHash);
+            Assert.True(await db.UnitMemberships.AnyAsync(x => x.Id == _unitMembershipId && x.IsActive));
+            Assert.True(await (from m in db.CondominiumMemberships
+                join r in db.CondominiumMembershipRoles on m.Id equals r.CondominiumMembershipId
+                where m.UserId == _residentId && m.CondominiumId == _condominiumId
+                    && r.Role == CondominiumRole.SubManager && m.IsActive && r.IsActive && r.RevokedAt == null
+                select r).AnyAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Existing_submanager_promotion_returns_conflict()
+    {
+        using var client = _host.ClientFor(_platformId);
+        client.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
+        var response = await client.PostAsJsonAsync("/overwatch/submanagers", new
+        {
+            existingUserId = _s1Id, condominiumId = _condominiumId
+        });
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Search_returns_existing_resident_without_sensitive_identity_data()
+    {
+        using var client = _host.ClientFor(_platformId);
+        client.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
+        var response = await client.GetAsync($"/overwatch/submanagers/search?query=Aline&condominiumId={_condominiumId}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains(_residentId.ToString(), body);
+        Assert.Contains("304", body);
+        Assert.DoesNotContain("PasswordHash", body);
     }
 
     [Fact]

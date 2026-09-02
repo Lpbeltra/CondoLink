@@ -2,9 +2,11 @@ import { api } from '../../services/api'
 import type { PixKeyType } from '../components/PixFields'
 export type { PixKeyType } from '../components/PixFields'
 export interface SubManager { id: string; fullName: string; email: string; phoneNumber: string | null; condominiumId: string; condominiumName: string; isActive: boolean; hasActiveLink: boolean; pixKeyType: PixKeyType | null; pixKey: string | null }
-export interface SubManagerInput { fullName: string; email: string; phoneNumber: string | null; condominiumId: string; pixKeyType: PixKeyType | null; pixKey: string | null }
+export interface SubManagerInput { fullName: string; email: string; phoneNumber: string | null; condominiumId: string; pixKeyType: PixKeyType | null; pixKey: string | null; existingUserId?: string }
+export interface ExistingUser { userId: string; fullName: string; email: string; phoneNumber: string | null; pixKeyType: PixKeyType | null; pixKey: string | null; links: { condominiumId: string; condominiumName: string; unit: string }[]; condominiumId: string | null; condominiumName: string | null; unit: string | null }
 export async function listSubManagers() { return (await api.get<SubManager[]>('/overwatch/submanagers')).data }
-export async function createSubManager(input: SubManagerInput) { return (await api.post<SubManager & { temporaryPassword: string }>('/overwatch/submanagers', input)).data }
+export async function createSubManager(input: SubManagerInput) { return (await api.post<SubManager & { temporaryPassword: string | null }>('/overwatch/submanagers', input)).data }
+export async function searchExistingUsers(query: string, condominiumId: string) { return (await api.get<ExistingUser[]>('/overwatch/submanagers/search', { params: { query, condominiumId } })).data }
 export async function updateSubManager(id: string, input: SubManagerInput) { await api.put(`/overwatch/submanagers/${id}`, input) }
 export async function setSubManagerStatus(id: string, isActive: boolean) { await api.patch(`/overwatch/submanagers/${id}/status`, { isActive }) }
 export const subManagerModules = ['Requests', 'Attendance', 'ManagementCompany', 'Agenda', 'Assistant', 'Documents', 'Management'] as const

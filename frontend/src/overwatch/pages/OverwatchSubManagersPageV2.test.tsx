@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const api = vi.hoisted(() => ({
-  listSubManagers: vi.fn(), listOverwatchCondominiums: vi.fn(), createSubManager: vi.fn(), updateSubManager: vi.fn(),
+  listSubManagers: vi.fn(), listOverwatchCondominiums: vi.fn(), searchExistingUsers: vi.fn(), createSubManager: vi.fn(), updateSubManager: vi.fn(),
   setSubManagerStatus: vi.fn(), listSubManagerPermissions: vi.fn(), updateSubManagerPermissions: vi.fn(),
   resendSubManagerFirstAccess: vi.fn(), resetSubManagerPassword: vi.fn(),
 }))
@@ -17,7 +17,7 @@ const s2 = { ...s1, id: 's2', fullName: 'Maria', email: 's2@test.local', phoneNu
 
 describe('OverwatchSubManagersPage row isolation', () => {
   afterEach(() => cleanup())
-  beforeEach(() => { vi.clearAllMocks(); api.listSubManagers.mockResolvedValue([s1, s2]); api.listOverwatchCondominiums.mockResolvedValue([{ id: 'c1', name: 'Monticello' }]); api.listSubManagerPermissions.mockResolvedValue([{ module: 'Requests', allowed: true }]); api.updateSubManager.mockResolvedValue(undefined); api.updateSubManagerPermissions.mockResolvedValue(undefined); api.setSubManagerStatus.mockResolvedValue(undefined); api.resendSubManagerFirstAccess.mockResolvedValue({}); api.resetSubManagerPassword.mockResolvedValue({ temporaryPassword: 'Temp123!' }) })
+  beforeEach(() => { vi.clearAllMocks(); api.listSubManagers.mockResolvedValue([s1, s2]); api.listOverwatchCondominiums.mockResolvedValue([{ id: 'c1', name: 'Monticello' }]); api.searchExistingUsers.mockResolvedValue([{ userId: 'resident-1', fullName: 'Aline Souza', email: 'aline@test.local', phoneNumber: '5511999990009', pixKeyType: null, pixKey: null, links: [{ condominiumId: 'c1', condominiumName: 'Monticello', unit: '304' }], condominiumId: 'c1', condominiumName: 'Monticello', unit: '304' }]); api.listSubManagerPermissions.mockResolvedValue([{ module: 'Requests', allowed: true }]); api.createSubManager.mockResolvedValue({ id: 'resident-1', email: 'aline@test.local', temporaryPassword: null }); api.updateSubManager.mockResolvedValue(undefined); api.updateSubManagerPermissions.mockResolvedValue(undefined); api.setSubManagerStatus.mockResolvedValue(undefined); api.resendSubManagerFirstAccess.mockResolvedValue({}); api.resetSubManagerPassword.mockResolvedValue({ temporaryPassword: 'Temp123!' }) })
 
   it('edits each row and keeps new form empty after modal transitions', async () => {
     const user = userEvent.setup(); render(<OverwatchSubManagersPage />); await screen.findByText('Tatiana')
@@ -32,5 +32,14 @@ describe('OverwatchSubManagersPage row isolation', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /Mais/ })[0]); await screen.findByRole('menuitem', { name: /Reenviar primeiro acesso/i }); await user.click(screen.getByRole('menuitem', { name: /Reenviar primeiro acesso/i })); expect(api.resendSubManagerFirstAccess).toHaveBeenCalledWith(s1)
     await user.click(screen.getAllByRole('button', { name: /Mais/ })[1]); await user.click(screen.getByRole('menuitem', { name: /Redefinir senha/i })); await waitFor(() => expect(api.resetSubManagerPassword).toHaveBeenCalledWith(s2)); await user.click(screen.getByRole('button', { name: 'Concluir' })); await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     await user.click(screen.getAllByRole('button', { name: /Mais/ })[0]); await user.click(screen.getByRole('menuitem', { name: /Inativar/i })); expect(api.setSubManagerStatus).toHaveBeenCalledWith('s1', false)
+  })
+
+  it('promotes selected existing user and sends UserId without first-access credentials', async () => {
+    const user = userEvent.setup(); render(<OverwatchSubManagersPage />); await screen.findByText('Tatiana')
+    await user.click(screen.getByRole('button', { name: /Novo.*sub/i })); await user.click(screen.getByRole('button', { name: 'Usuário existente' }))
+    await user.type(screen.getByRole('combobox', { name: /Buscar por nome/i }), 'Aline'); await user.click(await screen.findByText(/Aline Souza/))
+    await user.click(screen.getByRole('combobox', { name: 'Condomínio' })); await user.click(screen.getByRole('option', { name: 'Monticello' })); await user.click(screen.getByRole('button', { name: 'Cadastrar' }))
+    await waitFor(() => expect(api.createSubManager).toHaveBeenCalledWith(expect.objectContaining({ existingUserId: 'resident-1', condominiumId: 'c1' })))
+    expect(screen.queryByText('Credenciais temporárias')).toBeNull()
   })
 })

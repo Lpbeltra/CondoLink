@@ -2,7 +2,7 @@
 
 ## Cardinalidade de SubManager (atualização)
 
-Um condomínio pode ter 0..N SubManagers ativos. Cada usuário pode ter no máximo um vínculo SubManager ativo nesta versão. Permissões permanecem vinculadas ao `CondominiumMembershipId`.
+Um condomínio pode ter 0..N SubManagers ativos. Cada usuário pode ter no máximo um vínculo SubManager ativo nesta versão. Um mesmo usuário pode acumular vínculo de morador/unidade e vínculo de SubManager; o vínculo de morador permanece inalterado e a promoção cria novo `CondominiumMembership`. Permissões permanecem vinculadas ao `CondominiumMembershipId`.
 
 ## Objetivo
 
