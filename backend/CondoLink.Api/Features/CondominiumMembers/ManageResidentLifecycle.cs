@@ -6,6 +6,7 @@ using CondoLink.Domain.Entities;
 using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
+using CondoLink.Api.Features.Management;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -130,10 +131,7 @@ public static class ManageResidentLifecycle
             ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (!Guid.TryParse(value, out var administratorId)) return null;
         if (principal.IsInRole(DependencyInjection.PlatformAdminRole)) return administratorId;
-        var canManage = await db.CondominiumMemberships.AsNoTracking()
-            .Where(x => x.UserId == administratorId && x.CondominiumId == condominiumId && x.IsActive && x.EndedAt == null)
-            .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x => (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive && x.RevokedAt == null),
-                x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(ct);
+        var canManage = await SubManagerAccess.HasAsync(db, administratorId, condominiumId, SubManagerModule.Management, ct);
         return canManage ? administratorId : null;
     }
 }

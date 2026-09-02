@@ -55,7 +55,7 @@ public static class ResetMemberTemporaryPassword
                     && membership.CondominiumId == condominiumId
                     && membership.IsActive
                     && membership.EndedAt == null
-                    && (role.Role == CondominiumRole.Manager || role.Role == CondominiumRole.SubManager)
+                    && role.Role == CondominiumRole.Manager
                     && role.IsActive
                     && role.RevokedAt == null
                 select membership.Id)

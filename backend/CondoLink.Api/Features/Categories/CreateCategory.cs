@@ -7,6 +7,7 @@ using CondoLink.Infrastructure.Persistence;
 using CondoLink.Infrastructure.Persistence.Configurations;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using CondoLink.Api.Features.Management;
 
 namespace CondoLink.Api.Features.Categories;
 
@@ -72,7 +73,8 @@ public static class CreateCategory
             return Results.NotFound(new { error = "Condominium not found." });
         }
 
-        var isCondominiumManager = await dbContext.CondominiumMemberships
+        var isCondominiumManager = await SubManagerAccess.HasAsync(dbContext, authenticatedUserId, condominiumId, SubManagerModule.Management, cancellationToken);
+        /* var isCondominiumManager = await dbContext.CondominiumMemberships
             .AsNoTracking()
             .Where(membership =>
                 membership.UserId == authenticatedUserId
@@ -89,7 +91,7 @@ public static class CreateCategory
                 membership => membership.Id,
                 role => role.CondominiumMembershipId,
                 (_, _) => true)
-            .AnyAsync(cancellationToken);
+            .AnyAsync(cancellationToken); */
 
         if (!isCondominiumManager)
         {

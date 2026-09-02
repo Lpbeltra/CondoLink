@@ -1,6 +1,6 @@
 import { Suspense } from "react";
-import { Box, Button, Skeleton, Stack, Toolbar } from "@mui/material";
-import { Outlet } from "react-router-dom";
+import { Alert, Box, Button, Skeleton, Stack, Toolbar, Typography } from "@mui/material";
+import { Outlet, useLocation } from "react-router-dom";
 import { AppHeader } from "./AppHeader";
 import { MobileBottomNavigation } from "./MobileBottomNavigation";
 import { Sidebar } from "./Sidebar";
@@ -17,7 +17,8 @@ export function AppShell() {
   const { currentCondominium, isLoading, error, refreshCondominiums } =
     useCondominium();
   const { user } = useAuth();
-  const { condominiumCount, isLoading: isManagementLoading } =
+  const location = useLocation();
+  const { condominiumCount, isLoading: isManagementLoading, subManagerPermissions } =
     useManagementContext();
   const hasManagementContext = condominiumCount > 0;
   const { value: administrator, loading: administratorLoading } =
@@ -27,6 +28,14 @@ export function AppShell() {
     hasManagementContext ||
     Boolean(administrator);
   const showNavigation = hasContext || hasPlatformAdminAccess(user);
+  const routeModule = location.pathname.startsWith('/requests') ? 'Requests'
+    : location.pathname.startsWith('/management/requests') ? 'Attendance'
+    : location.pathname.startsWith('/management/administrator') ? 'ManagementCompany'
+    : location.pathname.startsWith('/management/agenda') ? 'Agenda'
+    : location.pathname.startsWith('/management/assistant') ? 'Assistant'
+    : location.pathname.startsWith('/management/documents') ? 'Documents'
+    : location.pathname.match(/^\/management\/(units|blocks|setup|categories|people)/) ? 'Management' : null;
+  const isRestricted = currentCondominium?.roles.includes('SubManager') && !currentCondominium.roles.includes('Manager') && routeModule !== null && !(subManagerPermissions ?? []).includes(routeModule);
 
   // The administrator portal context (/administrator/context) is irrelevant
   // to residents, managers and submanagers — most of them will get an
@@ -59,6 +68,8 @@ export function AppShell() {
           }
         />
       </PageContainer>
+    ) : isRestricted ? (
+      <PageContainer><Alert severity="warning"><Typography fontWeight={800}>Acesso não disponível</Typography>Você não possui permissão para acessar este módulo.</Alert></PageContainer>
     ) : !hasContext && !hasPlatformAdminAccess(user) ? (
       administratorLoading ? (
         <PageContainer>

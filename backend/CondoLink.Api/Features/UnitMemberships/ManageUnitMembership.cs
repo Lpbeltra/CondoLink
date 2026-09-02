@@ -3,6 +3,7 @@ using System.Security.Claims;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using CondoLink.Api.Features.Management;
 
 namespace CondoLink.Api.Features.UnitMemberships;
 
@@ -51,7 +52,7 @@ public static class ManageUnitMembership
     private static async Task<bool> IsManager(ClaimsPrincipal principal, Guid condominiumId, AppDbContext db, CancellationToken ct)
     {
         var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        return Guid.TryParse(value, out var userId) && await db.CondominiumMemberships.AsNoTracking().Where(x => x.UserId == userId && x.CondominiumId == condominiumId && x.IsActive && x.EndedAt == null).Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x => (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive && x.RevokedAt == null), x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(ct);
+        return Guid.TryParse(value, out var userId) && await SubManagerAccess.HasAsync(db, userId, condominiumId, SubManagerModule.Management, ct);
     }
     public sealed record Request(string? RelationshipType, bool IsResident, bool IsPrimaryResidence);
 }

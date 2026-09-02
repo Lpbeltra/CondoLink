@@ -15,6 +15,8 @@ export async function listRequests(p: {
   search?: string;
   from?: string;
   to?: string;
+  includeCompleted?: boolean;
+  includeCancelled?: boolean;
   page: number;
 }) {
   return (

@@ -7,6 +7,7 @@ using CondoLink.Infrastructure.Persistence;
 using CondoLink.Infrastructure.Persistence.Configurations;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using CondoLink.Api.Features.Management;
 
 namespace CondoLink.Api.Features.CondominiumMemberRoles;
 
@@ -78,7 +79,8 @@ public static class AddCondominiumMemberRole
                 new { error = "Condominium membership not found." });
         }
 
-        var isCondominiumManager = await dbContext.CondominiumMemberships
+        var isCondominiumManager = await SubManagerAccess.HasAsync(dbContext, authenticatedUserId, membership.CondominiumId, SubManagerModule.Management, cancellationToken);
+        /* var isCondominiumManager = await dbContext.CondominiumMemberships
             .AsNoTracking()
             .Where(managerMembership =>
                 managerMembership.UserId == authenticatedUserId
@@ -95,7 +97,7 @@ public static class AddCondominiumMemberRole
                 managerMembership => managerMembership.Id,
                 role => role.CondominiumMembershipId,
                 (_, _) => true)
-            .AnyAsync(cancellationToken);
+            .AnyAsync(cancellationToken); */
 
         if (!isCondominiumManager)
         {

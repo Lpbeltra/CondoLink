@@ -306,7 +306,7 @@ describe("ManagementPeoplePage password reset", () => {
     const user = userEvent.setup();
     render(<ManagementPeoplePage />);
     await screen.findByText("Maria Silva");
-    await user.click(screen.getByRole("button", { name: /adicionar pessoa/i }));
+    await user.click(screen.getByRole("button", { name: /adicionar morador/i }));
 
     await user.click(screen.getByLabelText("Enviar primeiro acesso"));
     expect(screen.getByRole("option", { name: "WhatsApp + E-mail" }))

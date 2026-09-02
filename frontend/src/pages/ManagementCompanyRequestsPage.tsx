@@ -5,6 +5,8 @@ import {
   Box,
   Button,
   Card,
+  Checkbox,
+  FormControlLabel,
   CardActionArea,
   CardContent,
   Chip,
@@ -43,6 +45,8 @@ export function ManagementCompanyRequestsPage() {
     [condo, setCondo] = useState(""),
     [from, setFrom] = useState(""),
     [to, setTo] = useState(""),
+    [includeCompleted, setIncludeCompleted] = useState(false),
+    [includeCancelled, setIncludeCancelled] = useState(false),
     [page, setPage] = useState(1);
   const invalid = Boolean(from && to && from > to);
   const load = useCallback(async () => {
@@ -57,6 +61,8 @@ export function ManagementCompanyRequestsPage() {
           search: search || undefined,
           from: from || undefined,
           to: to || undefined,
+          includeCompleted,
+          includeCancelled,
           page,
         }),
       );
@@ -73,6 +79,8 @@ export function ManagementCompanyRequestsPage() {
     invalid,
     page,
     search,
+    includeCompleted,
+    includeCancelled,
     status,
     to,
     type,
@@ -89,7 +97,7 @@ export function ManagementCompanyRequestsPage() {
   useManagementCompanyRequestRealtime({ enabled: true, onMessage: () => void load(), onUpdated: () => void load() });
   useEffect(
     () => setPage(1),
-    [activeCondominiumId, condo, from, search, status, to, type],
+    [activeCondominiumId, condo, from, search, status, to, type, includeCompleted, includeCancelled],
   );
   const filtered = Boolean(search || type || status || condo || from || to);
   const clear = () => {
@@ -163,6 +171,8 @@ export function ManagementCompanyRequestsPage() {
             onChange={(e) => setSearch(e.target.value)}
             sx={{ flex: 1, minWidth: 190 }}
           />
+          <FormControlLabel control={<Checkbox checked={includeCompleted} onChange={e => { setIncludeCompleted(e.target.checked); setPage(1) }} />} label="Exibir solicitações processadas" />
+          <FormControlLabel control={<Checkbox checked={includeCancelled} onChange={e => { setIncludeCancelled(e.target.checked); setPage(1) }} />} label="Exibir solicitações canceladas" />
           <TextField
             select
             label="Tipo"

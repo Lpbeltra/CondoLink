@@ -107,7 +107,7 @@ export function ManagementPeoplePage() {
   const [emailOnlyLogin, setEmailOnlyLogin] = useState(false);
   const [firstAccessChannel, setFirstAccessChannel] = useState<
     "WhatsApp" | "Email" | "WhatsAppAndEmail" | "None"
-  >("Email");
+  >("WhatsAppAndEmail");
   const [editing, setEditing] = useState<CondominiumMember | null>(null);
   const [cpf, setCpf] = useState("");
   const [cnpj, setCnpj] = useState("");
@@ -511,7 +511,7 @@ export function ManagementPeoplePage() {
             {exportingPdf ? "Gerando PDF..." : "Exportar moradores em PDF"}
           </Button>
           <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={beginAdd}>
-            Adicionar pessoa
+            Adicionar morador
           </Button>
         </Stack>
       </Stack>
@@ -563,7 +563,7 @@ export function ManagementPeoplePage() {
         <EmptyState
           title="Nenhuma pessoa cadastrada"
           description="Adicione moradores e responsáveis para que possam acessar o Comvy."
-          actionLabel="Adicionar pessoa"
+          actionLabel="Adicionar morador"
           onAction={beginAdd}
         />
       ) : (
@@ -792,7 +792,7 @@ export function ManagementPeoplePage() {
       >
         <Box component="form" onSubmit={(e) => void submit(e)}>
           <DialogTitle>
-            {editing ? "Editar pessoa" : "Adicionar pessoa"}
+            {editing ? "Editar pessoa" : "Adicionar morador"}
           </DialogTitle>
           <DialogContent>
             <Stack gap={2} pt={1}>

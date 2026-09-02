@@ -38,7 +38,7 @@ public sealed class ManagementCompanyRequestAccessService(AppDbContext db)
     }
     public Task<bool> HasManagementScopeAsync(Guid userId,Guid condominiumId,CancellationToken ct)=>
         db.CondominiumMemberships.AsNoTracking().Where(m=>m.UserId==userId&&m.CondominiumId==condominiumId&&m.IsActive&&m.EndedAt==null)
-        .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(r=>(r.Role==CondominiumRole.Manager||r.Role==CondominiumRole.SubManager)&&r.IsActive&&r.RevokedAt==null),m=>m.Id,r=>r.CondominiumMembershipId,(_,_)=>true).AnyAsync(ct);
+        .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(r=>(r.Role==CondominiumRole.Manager || (r.Role==CondominiumRole.SubManager && (!db.SubManagerModulePermissions.Any(p=>p.CondominiumMembershipId==r.CondominiumMembershipId) || db.SubManagerModulePermissions.Any(p=>p.CondominiumMembershipId==r.CondominiumMembershipId && p.Module==SubManagerModule.ManagementCompany && p.IsAllowed && p.RevokedAt==null))))&&r.IsActive&&r.RevokedAt==null),m=>m.Id,r=>r.CondominiumMembershipId,(_,_)=>true).AnyAsync(ct);
     private async Task<ApplicationUser> RequireActiveUserAsync(ClaimsPrincipal principal,CancellationToken ct)
     {
         var value=principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value??principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;

@@ -6,6 +6,7 @@ using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
+using CondoLink.Api.Features.Management;
 using Microsoft.EntityFrameworkCore;
 
 namespace CondoLink.Api.Features.CondominiumMembers;
@@ -35,13 +36,7 @@ public static class ExportCondominiumMembersPdf
             .Select(x => new { x.Name })
             .SingleOrDefaultAsync(ct);
         if (condominium is null) return Results.NotFound();
-        var manager = await db.CondominiumMemberships.AsNoTracking()
-            .Where(x => x.UserId == currentUserId && x.CondominiumId == condominiumId
-                && x.IsActive && x.EndedAt == null)
-            .Join(db.CondominiumMembershipRoles.AsNoTracking()
-                    .Where(x => (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive && x.RevokedAt == null),
-                x => x.Id, x => x.CondominiumMembershipId, (_, _) => true)
-            .AnyAsync(ct);
+        var manager = await SubManagerAccess.HasAsync(db, currentUserId, condominiumId, SubManagerModule.Management, ct);
         if (!manager && !principal.IsInRole(DependencyInjection.PlatformAdminRole))
             return Results.Forbid();
 

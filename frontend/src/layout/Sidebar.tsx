@@ -21,15 +21,14 @@ export const drawerWidth = 248;
 export function Sidebar() {
   const { currentCondominium } = useCondominium();
   const { user } = useAuth();
-  const { condominiumCount, hasEligibleManagementCompany } =
+  const { condominiumCount, hasEligibleManagementCompany, subManagerPermissions } =
     useManagementContext();
   const { value: administrator } = useAdministrator();
   const roles = currentCondominium?.roles ?? [];
   let navigationItems = getNavigationItems(
-    condominiumCount > 0 && !roles.includes("Manager")
-      ? [...roles, "Manager"]
-      : roles,
+    roles,
     user?.roles ?? [],
+    subManagerPermissions,
   ).filter(
     (item) =>
       item.path !== "/management/administrator" || hasEligibleManagementCompany,

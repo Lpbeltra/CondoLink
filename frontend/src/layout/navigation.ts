@@ -17,6 +17,7 @@ interface NavigationItem {
   path: string;
   icon: SvgIconComponent;
   requiredRole?: CondominiumRole;
+  requiredModule?: string;
   platformAdminOnly?: boolean;
 }
 
@@ -29,42 +30,42 @@ const commonItems: NavigationItem[] = [
     icon: AssessmentRoundedIcon,
     requiredRole: "Manager",
   },
-  { label: "Solicitações", path: "/requests", icon: ForumRoundedIcon },
+  { label: "Solicitações", path: "/requests", icon: ForumRoundedIcon, requiredModule: "Requests" },
   {
     label: "Atendimento",
     path: "/management/requests",
     icon: SupportAgentRoundedIcon,
-    requiredRole: "Manager",
+    requiredRole: "Manager", requiredModule: "Attendance",
   },
   {
     label: "Administradora",
     path: "/management/administrator",
     icon: BusinessRoundedIcon,
-    requiredRole: "Manager",
+    requiredRole: "Manager", requiredModule: "ManagementCompany",
   },
   {
     label: "Agenda",
     path: "/management/agenda",
     icon: EventNoteRoundedIcon,
-    requiredRole: "Manager",
+    requiredRole: "Manager", requiredModule: "Agenda",
   },
   {
     label: "Assistente",
     path: "/management/assistant",
     icon: AutoAwesomeRoundedIcon,
-    requiredRole: "Manager",
+    requiredRole: "Manager", requiredModule: "Assistant",
   },
   {
     label: "Documentos",
     path: "/management/documents",
     icon: DescriptionRoundedIcon,
-    requiredRole: "Manager",
+    requiredRole: "Manager", requiredModule: "Documents",
   },
   {
     label: "Gestão",
     path: "/management/units",
     icon: ApartmentRoundedIcon,
-    requiredRole: "Manager",
+    requiredRole: "Manager", requiredModule: "Management",
   },
   {
     label: "Overwatch",
@@ -78,12 +79,12 @@ const commonItems: NavigationItem[] = [
 export function getNavigationItems(
   roles: CondominiumRole[],
   userRoles: string[] = [],
+  subManagerPermissions?: string[],
 ) {
   return commonItems.filter(
     (item) =>
-      (!item.requiredRole ||
-        roles.includes(item.requiredRole) ||
-        (item.requiredRole === "Manager" && roles.includes("SubManager"))) &&
+      (!item.requiredRole || roles.includes(item.requiredRole) || (item.requiredModule !== undefined && roles.includes("SubManager"))) &&
+      (!roles.includes("SubManager") || !item.requiredModule || subManagerPermissions === undefined || subManagerPermissions.includes(item.requiredModule) || roles.includes("Manager")) &&
       (!item.platformAdminOnly || userRoles.includes("PlatformAdmin")),
   );
 }
@@ -91,8 +92,9 @@ export function getNavigationItems(
 export function getMobileNavigationItems(
   roles: CondominiumRole[],
   userRoles: string[] = [],
+  subManagerPermissions?: string[],
 ) {
-  const items = getNavigationItems(roles, userRoles);
+  const items = getNavigationItems(roles, userRoles, subManagerPermissions);
   if (!roles.includes("Manager") && !roles.includes("SubManager")) return items;
   const primary = items.filter(
     (item) =>

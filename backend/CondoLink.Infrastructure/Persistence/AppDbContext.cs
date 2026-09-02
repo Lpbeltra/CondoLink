@@ -37,6 +37,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         Set<CondominiumMembership>();
     public DbSet<CondominiumMembershipRole> CondominiumMembershipRoles =>
         Set<CondominiumMembershipRole>();
+    public DbSet<SubManagerModulePermission> SubManagerModulePermissions =>
+        Set<SubManagerModulePermission>();
     public DbSet<UnitMembership> UnitMemberships => Set<UnitMembership>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<DomainRequest> Requests => Set<DomainRequest>();

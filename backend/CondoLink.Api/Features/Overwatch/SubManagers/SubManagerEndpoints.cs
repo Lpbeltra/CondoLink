@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using CondoLink.Api.Features.Management;
 using CondoLink.Api.Features.Auth;
 using CondoLink.Api.Features.Overwatch.Managers;
@@ -21,6 +23,8 @@ public static class SubManagerEndpoints
         group.MapPost("/", CreateAsync);
         group.MapPut("/{userId:guid}", UpdateAsync);
         group.MapPatch("/{userId:guid}/status", SetStatusAsync);
+        group.MapGet("/{userId:guid}/permissions", ListPermissionsAsync);
+        group.MapPut("/{userId:guid}/permissions", UpdatePermissionsAsync);
         group.MapDelete("/{userId:guid}/condominium", RemoveAsync);
         return endpoints;
     }
@@ -70,6 +74,46 @@ public static class SubManagerEndpoints
         return Results.Created($"/overwatch/submanagers/{user.Id}", new CreatedResponse(
             user.Id, user.FullName, user.Email!, user.PhoneNumber, user.PixKeyType,
             user.PixKey, user.IsActive, request.CondominiumId, password));
+    }
+
+    private static async Task<IResult> ListPermissionsAsync(Guid userId, AppDbContext db, CancellationToken ct)
+    {
+        var membership = await ActiveRoleAsync(userId, db, ct);
+        if (membership is null) return Results.NotFound();
+        await SubManagerAccess.EnsureDefaultsAsync(db, membership.Role.CondominiumMembershipId, userId, ct);
+        await db.SaveChangesAsync(ct);
+        var rows = await db.SubManagerModulePermissions.AsNoTracking()
+            .Where(x => x.CondominiumMembershipId == membership.Role.CondominiumMembershipId)
+            .OrderBy(x => x.Module)
+            .Select(x => new { module = x.Module.ToString(), allowed = x.IsAllowed })
+            .ToListAsync(ct);
+        return Results.Ok(rows);
+    }
+
+    private static async Task<IResult> UpdatePermissionsAsync(Guid userId, PermissionRequest request, ClaimsPrincipal principal, AppDbContext db, ILoggerFactory loggerFactory, CancellationToken ct)
+    {
+        var membership = await ActiveRoleAsync(userId, db, ct);
+        if (membership is null) return Results.NotFound();
+        if (request.Permissions is null || request.Permissions.Count != Enum.GetValues<SubManagerModule>().Length
+            || request.Permissions.Any(x => !Enum.TryParse<SubManagerModule>(x.Module, true, out _)))
+            return Results.BadRequest(new { message = "Informe exatamente uma permissão por módulo." });
+        foreach (var item in request.Permissions)
+        {
+            var module = Enum.Parse<SubManagerModule>(item.Module, true);
+            var permission = await db.SubManagerModulePermissions.SingleOrDefaultAsync(
+                x => x.CondominiumMembershipId == membership.Role.CondominiumMembershipId && x.Module == module, ct);
+            if (permission is null)
+            {
+                permission = new SubManagerModulePermission(membership.Role.CondominiumMembershipId, module, userId);
+                db.Add(permission);
+            }
+            var actorValue = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!Guid.TryParse(actorValue, out var actorId)) return Results.Unauthorized();
+            permission.SetAllowed(item.Allowed, actorId);
+        }
+        await db.SaveChangesAsync(ct);
+        loggerFactory.CreateLogger(typeof(SubManagerEndpoints)).LogInformation("SubManager module permissions updated. TargetUserId: {TargetUserId}; Modules: {Modules}", userId, string.Join(',', request.Permissions.Select(x => x.Module)));
+        return Results.NoContent();
     }
 
     private static async Task<IResult> UpdateAsync(Guid userId, Request request, AppDbContext db, CancellationToken ct)
@@ -140,6 +184,8 @@ public static class SubManagerEndpoints
         if (role is null) db.Add(new CondominiumMembershipRole(membership.Id, CondominiumRole.SubManager));
         else role.Activate();
         await db.SaveChangesAsync(ct);
+        await SubManagerAccess.EnsureDefaultsAsync(db, membership.Id, user.Id, ct);
+        await db.SaveChangesAsync(ct);
         return null;
     }
 
@@ -168,6 +214,8 @@ public static class SubManagerEndpoints
     public sealed record Request(string? FullName, string? Email, string? PhoneNumber,
         Guid CondominiumId, PixKeyType? PixKeyType, string? PixKey);
     public sealed record StatusRequest(bool IsActive);
+    public sealed record PermissionRequest(IReadOnlyList<PermissionItem>? Permissions);
+    public sealed record PermissionItem(string Module, bool Allowed);
     public sealed record Response(Guid Id, string FullName, string Email, string? PhoneNumber,
         PixKeyType? PixKeyType, string? PixKey, bool IsActive, Guid CondominiumId,
         string CondominiumName, bool HasActiveLink, DateTime CreatedAt, DateTime UpdatedAt);

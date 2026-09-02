@@ -330,11 +330,12 @@ export function CondominiumAssistantPage() {
             display: "grid",
             gridTemplateColumns: { xs: "1fr", md: "280px minmax(0, 1fr)" },
             gap: 2,
+            alignItems: "start",
           }}
         >
           <Card sx={{ display: { xs: "none", md: "block" } }}>{history}</Card>
-          <Card>
-            <CardContent>
+          <Card sx={{ minWidth: 0 }}>
+            <CardContent sx={{ minWidth: 0 }}>
               {(conversation?.requestId || pendingRequestId) && (
                 <Alert
                   severity="info"
@@ -357,7 +358,7 @@ export function CondominiumAssistantPage() {
                   {error}
                 </Alert>
               )}
-              <Stack gap={2} minHeight={360} maxHeight="60vh" overflow="auto">
+              <Stack gap={2} minHeight={360} maxHeight="60vh" overflow="auto" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>
                 {opening ? (
                   <Skeleton height={240} />
                 ) : messages.length === 0 ? (

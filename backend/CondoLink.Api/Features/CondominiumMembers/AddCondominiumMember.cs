@@ -4,6 +4,7 @@ using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using CondoLink.Api.Features.Management;
 
 namespace CondoLink.Api.Features.CondominiumMembers;
 
@@ -74,7 +75,8 @@ public static class AddCondominiumMember
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
-        var isCondominiumManager =
+        var isCondominiumManager = await SubManagerAccess.HasAsync(dbContext, authenticatedUserId, condominiumId, SubManagerModule.Management, cancellationToken);
+        /* var isCondominiumManager =
             await dbContext.CondominiumMemberships
                 .AsNoTracking()
                 .Where(membership =>
@@ -92,7 +94,7 @@ public static class AddCondominiumMember
                     membership => membership.Id,
                     role => role.CondominiumMembershipId,
                     (_, _) => true)
-                .AnyAsync(cancellationToken);
+                .AnyAsync(cancellationToken); */
 
         if (!isCondominiumManager)
         {

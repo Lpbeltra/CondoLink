@@ -5,6 +5,7 @@ using CondoLink.Infrastructure.Persistence;
 using CondoLink.Infrastructure.Persistence.Configurations;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using CondoLink.Api.Features.Management;
 
 namespace CondoLink.Api.Features.Categories;
 
@@ -45,7 +46,7 @@ public static class ManageCategory
     private static async Task<bool> IsManager(ClaimsPrincipal principal, Guid condominiumId, AppDbContext db, CancellationToken ct)
     {
         var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        return Guid.TryParse(value, out var userId) && await db.CondominiumMemberships.AsNoTracking().Where(item => item.UserId == userId && item.CondominiumId == condominiumId && item.IsActive && item.EndedAt == null).Join(db.CondominiumMembershipRoles.AsNoTracking().Where(role => (role.Role == CondominiumRole.Manager || role.Role == CondominiumRole.SubManager) && role.IsActive && role.RevokedAt == null), item => item.Id, role => role.CondominiumMembershipId, (_, _) => true).AnyAsync(ct);
+        return Guid.TryParse(value, out var userId) && await SubManagerAccess.HasAsync(db, userId, condominiumId, SubManagerModule.Management, ct);
     }
     private static bool IsDuplicate(DbUpdateException exception) => exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: CategoryConfiguration.UniqueCondominiumNormalizedNameIndex };
     private static IResult Duplicate() => Results.Conflict(new { error = "A category with this name already exists in the condominium." });

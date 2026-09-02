@@ -96,6 +96,19 @@ public static class ListCondominiumRequests
         }
 
         var condominiumRequests = AuthorizedRequests(dbContext, authenticatedUserId);
+        if (!await (from m in dbContext.CondominiumMemberships.AsNoTracking()
+                    join r in dbContext.CondominiumMembershipRoles.AsNoTracking() on m.Id equals r.CondominiumMembershipId
+                    where m.UserId == authenticatedUserId && m.IsActive && m.EndedAt == null
+                        && r.Role == CondominiumRole.Manager && r.IsActive && r.RevokedAt == null
+                    select m.Id).AnyAsync(cancellationToken))
+        {
+            var permitted = dbContext.CondominiumMemberships.AsNoTracking()
+                .Where(m => m.UserId == authenticatedUserId && m.IsActive && m.EndedAt == null)
+                .Join(dbContext.CondominiumMembershipRoles.AsNoTracking().Where(r => r.Role == CondominiumRole.SubManager && r.IsActive && r.RevokedAt == null), m => m.Id, r => r.CondominiumMembershipId, (m, _) => m.Id)
+                .Where(id => !dbContext.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == id)
+                    || dbContext.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == id && p.Module == SubManagerModule.Requests && p.IsAllowed && p.RevokedAt == null));
+            condominiumRequests = condominiumRequests.Where(x => permitted.Any(id => dbContext.CondominiumMemberships.Any(m => m.Id == id && m.CondominiumId == x.CondominiumId)));
+        }
 
         if (condominiumId.HasValue)
         {

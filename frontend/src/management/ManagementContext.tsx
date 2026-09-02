@@ -8,6 +8,7 @@ export interface ManagementContextValue {
   condominiumCount: number
   usesConsolidatedManagementScope: boolean
   hasEligibleManagementCompany: boolean
+  subManagerPermissions?: string[]
 
   isLoading: boolean
   isSwitching: boolean

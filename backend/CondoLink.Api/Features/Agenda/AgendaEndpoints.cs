@@ -6,6 +6,7 @@ using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using CondoLink.Api.Features.Requests;
+using CondoLink.Api.Features.Management;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -249,11 +250,8 @@ public static class AgendaEndpoints
             && x.IsActive, ct);
         if (!active) return new(false, userId, Results.Forbid());
         var platformAdmin = principal.IsInRole(DependencyInjection.PlatformAdminRole);
-        var manager = await (from m in db.CondominiumMemberships
-            join r in db.CondominiumMembershipRoles on m.Id equals r.CondominiumMembershipId
-            where m.UserId == userId && m.CondominiumId == condominiumId
-                && m.IsActive && m.EndedAt == null && (r.Role == CondominiumRole.Manager || r.Role == CondominiumRole.SubManager)
-                && r.IsActive && r.RevokedAt == null select m.Id).AnyAsync(ct);
+        var manager = await SubManagerAccess.HasAsync(db, userId, condominiumId,
+            SubManagerModule.Agenda, ct);
         return manager || platformAdmin ? new(true, userId, null)
             : new(false, userId, Results.Forbid());
     }

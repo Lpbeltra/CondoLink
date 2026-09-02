@@ -7,6 +7,7 @@ using System.Text;
 using System.Globalization;
 using CondoLink.Domain.Entities;
 using CondoLink.Api.Features.Auth;
+using CondoLink.Api.Features.Management;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Identity;
@@ -979,22 +980,8 @@ public static class CondominiumSetupEndpoints
         if (principal.IsInRole(DependencyInjection.PlatformAdminRole))
             return null;
 
-        var manager = await db.CondominiumMemberships.AsNoTracking()
-            .Where(item =>
-                item.UserId == userId
-                && item.CondominiumId == condominiumId
-                && item.IsActive
-                && item.EndedAt == null)
-            .Join(
-                db.CondominiumMembershipRoles.AsNoTracking().Where(role =>
-                    (role.Role == CondominiumRole.Manager || role.Role == CondominiumRole.SubManager)
-                    && role.IsActive
-                    && role.RevokedAt == null),
-                membership => membership.Id,
-                role => role.CondominiumMembershipId,
-                (_, _) => true)
-            .AnyAsync(cancellationToken);
-        return manager ? null : Results.Forbid();
+        return await SubManagerAccess.HasAsync(db, userId, condominiumId, SubManagerModule.Management, cancellationToken)
+            ? null : Results.Forbid();
     }
 
     private static string UnitKey(string? block, string unit) =>

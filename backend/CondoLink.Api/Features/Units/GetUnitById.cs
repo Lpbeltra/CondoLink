@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
+using CondoLink.Api.Features.Management;
 using Microsoft.EntityFrameworkCore;
 
 namespace CondoLink.Api.Features.Units;
@@ -29,8 +30,7 @@ public static class GetUnitById
 
         if (unit is null) return Results.NotFound(new { error = "Unit not found." });
         var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var manager = Guid.TryParse(value, out var userId) && await dbContext.CondominiumMemberships.AsNoTracking().Where(x => x.UserId == userId && x.CondominiumId == unit.CondominiumId && x.IsActive && x.EndedAt == null)
-            .Join(dbContext.CondominiumMembershipRoles.AsNoTracking().Where(x => (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive && x.RevokedAt == null), x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(cancellationToken);
+        var manager = Guid.TryParse(value, out var userId) && await SubManagerAccess.HasAsync(dbContext, userId, unit.CondominiumId, SubManagerModule.Management, cancellationToken);
         return manager ? Results.Ok(unit) : Results.Forbid();
     }
 

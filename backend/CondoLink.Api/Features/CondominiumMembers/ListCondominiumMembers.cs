@@ -7,6 +7,7 @@ using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
 using System.Text;
+using CondoLink.Api.Features.Management;
 
 namespace CondoLink.Api.Features.CondominiumMembers;
 
@@ -73,7 +74,8 @@ public static class ListCondominiumMembers
             return Results.NotFound(new { error = "Condominium not found." });
         }
 
-        var isCondominiumManager = await dbContext.CondominiumMemberships
+        var isCondominiumManager = await SubManagerAccess.HasAsync(dbContext, authenticatedUserId, condominiumId, SubManagerModule.Management, cancellationToken);
+        /* var isCondominiumManager = await dbContext.CondominiumMemberships
             .AsNoTracking()
             .Where(membership =>
                 membership.UserId == authenticatedUserId
@@ -90,7 +92,7 @@ public static class ListCondominiumMembers
                 membership => membership.Id,
                 role => role.CondominiumMembershipId,
                 (_, _) => true)
-            .AnyAsync(cancellationToken);
+            .AnyAsync(cancellationToken); */
 
         if (!isCondominiumManager
             && !principal.IsInRole(

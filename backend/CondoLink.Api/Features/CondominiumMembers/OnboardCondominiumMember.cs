@@ -10,6 +10,7 @@ using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using CondoLink.Api.Features.Management;
 
 namespace CondoLink.Api.Features.CondominiumMembers;
 
@@ -44,10 +45,11 @@ public static class OnboardCondominiumMember
             .Select(x => new { x.IsActive, x.Name }).SingleOrDefaultAsync(cancellationToken);
         if (condominium is null) return Results.NotFound(new { error = "Condominium not found." });
 
-        var manager = await dbContext.CondominiumMemberships.AsNoTracking()
+        var manager = await SubManagerAccess.HasAsync(dbContext, authenticatedUserId, condominiumId, SubManagerModule.Management, cancellationToken);
+        /* var manager = await dbContext.CondominiumMemberships.AsNoTracking()
             .Where(x => x.UserId == authenticatedUserId && x.CondominiumId == condominiumId && x.IsActive && x.EndedAt == null)
             .Join(dbContext.CondominiumMembershipRoles.AsNoTracking().Where(x => (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive && x.RevokedAt == null),
-                x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(cancellationToken);
+                x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(cancellationToken); */
         if (!manager)
             return Results.Json(new { error = "Only condominium managers can onboard members." }, statusCode: 403);
         if (!condominium.IsActive)

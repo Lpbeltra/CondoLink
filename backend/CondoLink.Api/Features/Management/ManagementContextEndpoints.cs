@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
+using CondoLink.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace CondoLink.Api.Features.Management;
@@ -36,7 +37,7 @@ public static class ManagementContextEndpoints
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        return Results.Ok(await WithAdministratorEligibility(context,dbContext,cancellationToken));
+        return Results.Ok(await WithAdministratorEligibility(context, dbContext, principal, cancellationToken));
     }
 
     private static async Task<IResult> HandlePutAsync(
@@ -68,7 +69,7 @@ public static class ManagementContextEndpoints
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        return Results.Ok(await WithAdministratorEligibility(context,dbContext,cancellationToken));
+        return Results.Ok(await WithAdministratorEligibility(context, dbContext, principal, cancellationToken));
     }
 
     private static async Task<ApplicationUser?> GetActiveUserAsync(
@@ -93,11 +94,24 @@ public static class ManagementContextEndpoints
             new { error = "Authenticated user was not found or is inactive." },
             statusCode: StatusCodes.Status401Unauthorized);
 
-    private static async Task<object> WithAdministratorEligibility(ManagementContextState context,AppDbContext db,CancellationToken ct)
+    private static async Task<object> WithAdministratorEligibility(ManagementContextState context, AppDbContext db, ClaimsPrincipal principal, CancellationToken ct)
     {
         var ids=context.ActiveManagementCondominiumId is Guid active?[active]:context.AvailableCondominiums.Select(x=>x.Id).ToArray();
         var has=await db.CondominiumManagementCompanyLinks.AsNoTracking().AnyAsync(x=>x.IsActive&&ids.Contains(x.CondominiumId),ct);
-        return new{context.ActiveManagementCondominiumId,context.UsesConsolidatedManagementScope,context.CondominiumCount,context.ActiveCondominium,context.AvailableCondominiums,HasEligibleManagementCompany=has};
+        var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var permissions = new List<string>();
+        if (Guid.TryParse(value, out var userId) && context.ActiveManagementCondominiumId is Guid condominiumId)
+        {
+            var membershipId = await db.CondominiumMemberships.AsNoTracking().Where(x => x.UserId == userId && x.CondominiumId == condominiumId && x.IsActive && x.EndedAt == null)
+                .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x => x.Role == CondominiumRole.SubManager && x.IsActive && x.RevokedAt == null), x => x.Id, x => x.CondominiumMembershipId, (x, _) => x.Id).SingleOrDefaultAsync(ct);
+            if (membershipId != Guid.Empty)
+            {
+                await SubManagerAccess.EnsureDefaultsAsync(db, membershipId, userId, ct);
+                if (db.ChangeTracker.HasChanges()) await db.SaveChangesAsync(ct);
+                permissions = await db.SubManagerModulePermissions.AsNoTracking().Where(x => x.CondominiumMembershipId == membershipId && x.IsAllowed && x.RevokedAt == null).Select(x => x.Module.ToString()).ToListAsync(ct);
+            }
+        }
+        return new{context.ActiveManagementCondominiumId,context.UsesConsolidatedManagementScope,context.CondominiumCount,context.ActiveCondominium,context.AvailableCondominiums,HasEligibleManagementCompany=has,SubManagerPermissions=permissions};
     }
 
     public sealed record ManagementContextRequest(Guid? CondominiumId);

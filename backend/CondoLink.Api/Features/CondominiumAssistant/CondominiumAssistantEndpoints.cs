@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text.Json;
 using CondoLink.Api.Features.RequestAttachments;
+using CondoLink.Api.Features.Management;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure;
@@ -38,7 +39,7 @@ public static class CondominiumAssistantEndpoints
         AppDbContext db, [Microsoft.AspNetCore.Mvc.FromServices] IEmbeddingService embeddings,
         CancellationToken ct)
     {
-        var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
+        var access = await Access(condominiumId, principal, db, ct, SubManagerModule.Documents); if (access.Error is not null) return access.Error;
         return Results.Ok(await db.CondominiumDocuments.AsNoTracking().Where(x => x.CondominiumId == condominiumId)
             .OrderByDescending(x => x.UpdatedAt).Select(x => new { x.Id, x.Name, x.DocumentType,
                 x.OriginalFileName, x.Version, x.DocumentDate, x.IsActive, x.ProcessingStatus,
@@ -55,7 +56,7 @@ public static class CondominiumAssistantEndpoints
         CondominiumDocumentProcessor processor, IOptions<CondominiumAssistantOptions> options,
         CancellationToken ct)
     {
-        var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
+        var access = await Access(condominiumId, principal, db, ct, SubManagerModule.Documents); if (access.Error is not null) return access.Error;
         if (!request.HasFormContentType) return UploadBadRequest(
             "DocumentMultipartRequired", "Envie o documento como multipart/form-data.");
         var form = await request.ReadFormAsync(ct); var file = form.Files.GetFile("file");
@@ -97,7 +98,7 @@ public static class CondominiumAssistantEndpoints
     private static async Task<IResult> DownloadDocument(Guid condominiumId, Guid documentId,
         ClaimsPrincipal principal, AppDbContext db, LocalFileStorage storage, CancellationToken ct)
     {
-        var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
+        var access = await Access(condominiumId, principal, db, ct, SubManagerModule.Documents); if (access.Error is not null) return access.Error;
         var document = await db.CondominiumDocuments.AsNoTracking().SingleOrDefaultAsync(x => x.Id == documentId && x.CondominiumId == condominiumId, ct);
         if (document is null) return Results.NotFound(); var stream = storage.OpenRead(document.StorageKey);
         return stream is null ? Results.NotFound() : Results.File(stream, document.MimeType, document.OriginalFileName);
@@ -106,7 +107,7 @@ public static class CondominiumAssistantEndpoints
     private static async Task<IResult> SetDocumentActive(Guid condominiumId, Guid documentId,
         ActiveRequest body, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
     {
-        var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
+        var access = await Access(condominiumId, principal, db, ct, SubManagerModule.Documents); if (access.Error is not null) return access.Error;
         var document = await db.CondominiumDocuments.SingleOrDefaultAsync(x => x.Id == documentId && x.CondominiumId == condominiumId, ct);
         if (document is null) return Results.NotFound();
         if (body.Active && document.ProcessingStatus != CondominiumDocumentProcessingStatus.Ready)
@@ -117,7 +118,7 @@ public static class CondominiumAssistantEndpoints
     private static async Task<IResult> SetDocumentsActive(Guid condominiumId, BulkActiveRequest body,
         ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
     {
-        var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
+        var access = await Access(condominiumId, principal, db, ct, SubManagerModule.Documents); if (access.Error is not null) return access.Error;
         var ids = body.DocumentIds.Distinct().Take(200).ToArray();
         var documents = await db.CondominiumDocuments.Where(x => x.CondominiumId == condominiumId && ids.Contains(x.Id)).ToArrayAsync(ct);
         var failed = new List<object>(); var updated = 0;
@@ -135,7 +136,7 @@ public static class CondominiumAssistantEndpoints
         ClaimsPrincipal principal, AppDbContext db, ICondominiumDocumentStorage storage,
         ILogger<CondominiumDocumentProcessor> logger, CancellationToken ct)
     {
-        var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
+        var access = await Access(condominiumId, principal, db, ct, SubManagerModule.Documents); if (access.Error is not null) return access.Error;
         var ids = body.DocumentIds.Distinct().Take(200).ToArray(); var succeeded = 0; var failed = new List<object>();
         foreach (var id in ids)
         {
@@ -165,7 +166,7 @@ public static class CondominiumAssistantEndpoints
         [Microsoft.AspNetCore.Mvc.FromServices] ICondominiumDocumentStorage storage,
         ILogger<CondominiumDocumentProcessor> logger, CancellationToken ct)
     {
-        var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
+        var access = await Access(condominiumId, principal, db, ct, SubManagerModule.Documents); if (access.Error is not null) return access.Error;
         var document = await db.CondominiumDocuments.SingleOrDefaultAsync(
             x => x.Id == documentId && x.CondominiumId == condominiumId, ct);
         if (document is null) return Results.NotFound();
@@ -193,7 +194,7 @@ public static class CondominiumAssistantEndpoints
         ClaimsPrincipal principal, AppDbContext db, LocalFileStorage storage,
         CondominiumDocumentProcessor processor, CancellationToken ct)
     {
-        var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
+        var access = await Access(condominiumId, principal, db, ct, SubManagerModule.Documents); if (access.Error is not null) return access.Error;
         var document = await db.CondominiumDocuments.SingleOrDefaultAsync(
             x => x.Id == documentId && x.CondominiumId == condominiumId, ct);
         if (document is null) return Results.NotFound();
@@ -402,13 +403,12 @@ public static class CondominiumAssistantEndpoints
     private static Task<CondominiumAssistantConversation?> OwnConversation(Guid condominiumId, Guid id, Guid userId, AppDbContext db, CancellationToken ct) =>
         db.CondominiumAssistantConversations.SingleOrDefaultAsync(x => x.Id == id && x.CondominiumId == condominiumId && x.CreatedByUserId == userId, ct);
 
-    private static async Task<(Guid UserId, IResult? Error)> Access(Guid condominiumId, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
+    private static async Task<(Guid UserId, IResult? Error)> Access(Guid condominiumId, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct, SubManagerModule module = SubManagerModule.Assistant)
     {
         var claim = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (!Guid.TryParse(claim, out var userId)) return (Guid.Empty, Results.Unauthorized());
         if (principal.IsInRole(DependencyInjection.PlatformAdminRole)) return (userId, null);
-        var manager = await db.CondominiumMemberships.AsNoTracking().Where(x => x.UserId == userId && x.CondominiumId == condominiumId && x.IsActive && x.EndedAt == null)
-            .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x => (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive && x.RevokedAt == null), x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(ct);
+        var manager = await SubManagerAccess.HasAsync(db, userId, condominiumId, module, ct);
         return manager ? (userId, null) : (userId, Results.Forbid());
     }
 

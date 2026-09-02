@@ -9,6 +9,7 @@ using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using CondoLink.Api.Features.Management;
 
 namespace CondoLink.Api.Features.CondominiumMembers;
 
@@ -44,7 +45,8 @@ public static class UpdateCondominiumMember
         if (!callerActive) return Results.Unauthorized();
         if (!principal.IsInRole(DependencyInjection.PlatformAdminRole))
         {
-            var manager = await db.CondominiumMemberships.AsNoTracking()
+            var manager = await SubManagerAccess.HasAsync(db, callerId, condominiumId, SubManagerModule.Management, cancellationToken);
+            /* var manager = await db.CondominiumMemberships.AsNoTracking()
                 .Where(item =>
                     item.UserId == callerId
                     && item.CondominiumId == condominiumId
@@ -58,7 +60,7 @@ public static class UpdateCondominiumMember
                     membership => membership.Id,
                     role => role.CondominiumMembershipId,
                     (_, _) => true)
-                .AnyAsync(cancellationToken);
+                .AnyAsync(cancellationToken); */
             if (!manager) return Results.Forbid();
         }
 

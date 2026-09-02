@@ -38,7 +38,7 @@ public static class ManagementCompanyRequestEndpoints
         return app;
     }
 
-    private static async Task<IResult> List(ClaimsPrincipal user, AppDbContext db, ManagementCompanyRequestAccessService access, CancellationToken ct, Guid? condominiumId = null, ManagementCompanyRequestType? type = null, ManagementCompanyRequestStatus? status = null, string? search = null, DateOnly? from = null, DateOnly? to = null, int page = 1, int pageSize = 20)
+    private static async Task<IResult> List(ClaimsPrincipal user, AppDbContext db, ManagementCompanyRequestAccessService access, CancellationToken ct, Guid? condominiumId = null, ManagementCompanyRequestType? type = null, ManagementCompanyRequestStatus? status = null, string? search = null, DateOnly? from = null, DateOnly? to = null, bool includeCompleted = false, bool includeCancelled = false, int page = 1, int pageSize = 20)
     {
         page = Math.Max(1, page); pageSize = Math.Clamp(pageSize, 1, 50);
         var userId = await access.RequireUserIdAsync(user, ct);
@@ -49,6 +49,9 @@ public static class ManagementCompanyRequestEndpoints
         if (condominiumId.HasValue) query = query.Where(r => r.CondominiumId == condominiumId);
         if (type.HasValue) query = query.Where(r => r.Type == type);
         if (status.HasValue) query = query.Where(r => r.Status == status);
+        else if (!includeCompleted && !includeCancelled) query = query.Where(r => r.Status != ManagementCompanyRequestStatus.Completed && r.Status != ManagementCompanyRequestStatus.Cancelled);
+        else if (includeCompleted && !includeCancelled) query = query.Where(r => r.Status == ManagementCompanyRequestStatus.Completed || r.Status != ManagementCompanyRequestStatus.Cancelled);
+        else if (!includeCompleted && includeCancelled) query = query.Where(r => r.Status != ManagementCompanyRequestStatus.Completed);
         if (from.HasValue) { var start = DateTime.SpecifyKind(from.Value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc); query = query.Where(r => r.CreatedAt >= start); }
         if (to.HasValue) { var end = DateTime.SpecifyKind(to.Value.AddDays(1).ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc); query = query.Where(r => r.CreatedAt < end); }
         if (!string.IsNullOrWhiteSpace(search))
