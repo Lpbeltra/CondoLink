@@ -17,7 +17,7 @@ public sealed class ResidentReplyService(AppDbContext dbContext, LocalFileStorag
     {
         var content = text?.Trim();
         content = string.IsNullOrEmpty(content) ? null : content;
-        if (content?.Length > 4000) return new(ResultCode.Invalid, "A resposta deve possuir no máximo 4000 caracteres.");
+        if (content?.Length > RequestMessage.MaximumContentLength) return new(ResultCode.Invalid, "A resposta deve possuir no máximo 3000 caracteres.");
         if (content is null && files.Count == 0) return new(ResultCode.Invalid, "Informe uma resposta ou selecione ao menos um arquivo.");
         if (files.Count > AttachmentPolicy.MaximumFileCount) return new(ResultCode.Invalid, "É permitido enviar no máximo 10 arquivos.");
 

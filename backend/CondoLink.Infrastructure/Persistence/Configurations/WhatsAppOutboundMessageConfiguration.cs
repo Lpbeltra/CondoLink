@@ -25,7 +25,7 @@ public sealed class WhatsAppOutboundMessageConfiguration
         b.Property(x => x.TemplateName).HasColumnName("template_name").HasMaxLength(200);
         b.Property(x => x.TemplateLanguage).HasColumnName("template_language").HasMaxLength(20);
         b.Property(x => x.Content).HasColumnName("content").HasMaxLength(4000).IsRequired();
-        b.Property(x => x.TemplateParameterContent).HasColumnName("template_parameter_content").HasMaxLength(1000);
+        b.Property(x => x.TemplateParameterContent).HasColumnName("template_parameter_content").HasMaxLength(3000);
         b.Property(x => x.ExternalMessageId).HasColumnName("external_message_id").HasMaxLength(200);
         b.Property(x => x.Status).HasColumnName("status").HasConversion<int>().IsRequired();
         b.Property(x => x.AttemptCount).HasColumnName("attempt_count").IsRequired();

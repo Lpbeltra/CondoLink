@@ -28,7 +28,7 @@ export function ResidentReplyPanel({ requestId, requirement, onSent }: Props) {
     <Typography color="text.secondary" fontSize=".8rem" mt={.5}>{formatDateTime(requirement.requestedAt)}</Typography>
     <Alert severity="warning" sx={{ my: 2, whiteSpace: 'pre-wrap' }}>{requirement.question}</Alert>
     <Box component="form" onSubmit={submit}>{error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      <TextField fullWidth multiline minRows={3} maxRows={8} label="Sua resposta" value={message} onChange={event => setMessage(event.target.value)} disabled={sending} inputProps={{ maxLength: 4000 }} />
+      <TextField fullWidth multiline minRows={3} maxRows={8} label="Sua resposta" value={message} onChange={event => setMessage(event.target.value)} disabled={sending} inputProps={{ maxLength: 3001 }} error={message.length > 3000} helperText={`${message.length}/3000`} />
       <input ref={inputRef} hidden multiple type="file" accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf,audio/ogg,audio/mpeg,audio/mp4,audio/aac,audio/amr" onChange={event => { setFiles(current => [...current, ...Array.from(event.target.files ?? [])].slice(0, 10)); event.target.value = '' }} />
       <Stack direction="row" flexWrap="wrap" gap={1} mt={2}>{files.map((file, index) => <Chip key={`${file.name}-${index}`} label={file.name} onDelete={sending ? undefined : () => setFiles(current => current.filter((_, itemIndex) => itemIndex !== index))} deleteIcon={<CloseRoundedIcon />} />)}</Stack>
       {sending && progress !== null && <LinearProgress variant="determinate" value={progress} sx={{ mt: 2 }} />}

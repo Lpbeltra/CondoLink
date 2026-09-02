@@ -17,7 +17,7 @@ const s2 = { ...s1, id: 's2', fullName: 'Maria', email: 's2@test.local', phoneNu
 
 describe('OverwatchSubManagersPage row isolation', () => {
   afterEach(() => cleanup())
-  beforeEach(() => { vi.clearAllMocks(); api.listSubManagers.mockResolvedValue([s1, s2]); api.listOverwatchCondominiums.mockResolvedValue([{ id: 'c1', name: 'Monticello' }]); api.searchExistingUsers.mockResolvedValue([{ userId: 'resident-1', fullName: 'Aline Souza', email: 'aline@test.local', phoneNumber: '5511999990009', pixKeyType: null, pixKey: null, links: [{ condominiumId: 'c1', condominiumName: 'Monticello', unit: '304' }], condominiumId: 'c1', condominiumName: 'Monticello', unit: '304' }]); api.listSubManagerPermissions.mockResolvedValue([{ module: 'Requests', allowed: true }]); api.createSubManager.mockResolvedValue({ id: 'resident-1', email: 'aline@test.local', temporaryPassword: null }); api.updateSubManager.mockResolvedValue(undefined); api.updateSubManagerPermissions.mockResolvedValue(undefined); api.setSubManagerStatus.mockResolvedValue(undefined); api.resendSubManagerFirstAccess.mockResolvedValue({}); api.resetSubManagerPassword.mockResolvedValue({ temporaryPassword: 'Temp123!' }) })
+  beforeEach(() => { vi.clearAllMocks(); api.listSubManagers.mockResolvedValue([s1, s2]); api.listOverwatchCondominiums.mockResolvedValue([{ id: '00000000-0000-4000-8000-000000000001', name: 'Monticello' }]); api.searchExistingUsers.mockResolvedValue([{ userId: 'resident-1', fullName: 'Aline Souza', email: 'aline@test.local', phoneNumber: '5511999990009', pixKeyType: null, pixKey: null, links: [{ condominiumId: '00000000-0000-4000-8000-000000000001', condominiumName: 'Monticello', unit: '304' }], condominiumId: '00000000-0000-4000-8000-000000000001', condominiumName: 'Monticello', unit: '304' }]); api.listSubManagerPermissions.mockResolvedValue([{ module: 'Requests', allowed: true }]); api.createSubManager.mockResolvedValue({ id: 'resident-1', email: 'aline@test.local', temporaryPassword: null }); api.updateSubManager.mockResolvedValue(undefined); api.updateSubManagerPermissions.mockResolvedValue(undefined); api.setSubManagerStatus.mockResolvedValue(undefined); api.resendSubManagerFirstAccess.mockResolvedValue({}); api.resetSubManagerPassword.mockResolvedValue({ temporaryPassword: 'Temp123!' }) })
 
   it('edits each row and keeps new form empty after modal transitions', async () => {
     const user = userEvent.setup(); render(<OverwatchSubManagersPage />); await screen.findByText('Tatiana')
@@ -37,9 +37,8 @@ describe('OverwatchSubManagersPage row isolation', () => {
   it('promotes selected existing user and sends UserId without first-access credentials', async () => {
     const user = userEvent.setup(); render(<OverwatchSubManagersPage />); await screen.findByText('Tatiana')
     await user.click(screen.getByRole('button', { name: /Novo.*sub/i })); await user.click(screen.getByRole('button', { name: 'Usuário existente' }))
-    await user.type(screen.getByRole('combobox', { name: /Buscar por nome/i }), 'Aline'); await user.click(await screen.findByText(/Aline Souza/))
-    await user.click(screen.getByRole('combobox', { name: 'Condomínio' })); await user.click(screen.getByRole('option', { name: 'Monticello' })); await user.click(screen.getByRole('button', { name: 'Cadastrar' }))
-    await waitFor(() => expect(api.createSubManager).toHaveBeenCalledWith(expect.objectContaining({ existingUserId: 'resident-1', condominiumId: 'c1' })))
+    await user.click(screen.getByRole('combobox', { name: 'Condomínio' })); await user.click(screen.getByRole('option', { name: 'Monticello' })); const search = screen.getByRole('combobox', { name: /Buscar por nome/i }); await user.type(search, 'Aline'); await waitFor(() => expect(api.searchExistingUsers).toHaveBeenCalled()); await user.keyboard('{ArrowDown}{Enter}'); await user.click(screen.getByRole('button', { name: 'Cadastrar' }))
+    await waitFor(() => expect(api.createSubManager).toHaveBeenCalledWith(expect.objectContaining({ existingUserId: 'resident-1', condominiumId: '00000000-0000-4000-8000-000000000001' })))
     expect(screen.queryByText('Credenciais temporárias')).toBeNull()
   })
 })

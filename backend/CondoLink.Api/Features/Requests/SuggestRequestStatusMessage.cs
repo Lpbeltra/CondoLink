@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CondoLink.Api.Features.Notifications;
 using CondoLink.Api.Features.WhatsApp;
+using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
@@ -67,8 +68,8 @@ public static class SuggestRequestStatusMessage
         var original = request.Message?.Trim();
         if (string.IsNullOrWhiteSpace(original))
             return Results.BadRequest(new { error = "Informe uma mensagem para gerar a sugestão." });
-        if (original.Length > 1000)
-            return Results.BadRequest(new { error = "A mensagem pode ter no máximo 1000 caracteres." });
+        if (original.Length > RequestMessage.MaximumContentLength)
+            return Results.BadRequest(new { error = "A mensagem pode ter no máximo 3000 caracteres." });
 
         var result = await ai.SynthesizeResidentStatusAsync(target.Title,
             NotificationService.Describe(status), original, cancellationToken);

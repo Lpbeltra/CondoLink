@@ -504,11 +504,11 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Reason_longer_than_1000_characters_returns_400()
+    public async Task Reason_longer_than_3000_characters_returns_400()
     {
         var response = await _host.ClientFor(_managerId).PatchAsJsonAsync(
             $"/requests/{_requestId}/status",
-            new { status = "InProgress", reason = new string('a', 1001) });
+            new { status = "InProgress", reason = new string('a', 3001) });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(RequestStatus.Open, await CurrentStatusAsync());
@@ -855,12 +855,12 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Ai_suggestion_rejects_1001_characters()
+    public async Task Ai_suggestion_rejects_3001_characters()
     {
         var callsBefore = _statusSuggestionAi.Calls;
         var response = await _host.ClientFor(_managerId).PostAsJsonAsync(
             $"/requests/{_requestId}/status-message-suggestion",
-            new { status = "WaitingForThirdParty", message = new string('á', 1001) });
+            new { status = "WaitingForThirdParty", message = new string('á', 3001) });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(callsBefore, _statusSuggestionAi.Calls);

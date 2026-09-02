@@ -21,12 +21,12 @@ public sealed class RequestClosureService(AppDbContext db, NotificationService n
         QuestionAsync(requestId, residentId, text, MessageChannel.WhatsAppResidentUpdate, ct);
     public Task<Result> QuestionAsync(Guid requestId, Guid residentId, string text,
         MessageChannel channel, CancellationToken ct) =>
-        DecideAsync(requestId, null, residentId, text.Trim()[..Math.Min(text.Trim().Length, 4000)], false, channel, ct);
+        DecideAsync(requestId, null, residentId, text.Trim(), false, channel, ct);
 
     public Task<Result> QuestionAsync(Guid requestId, Guid confirmationId,
         Guid residentId, string text, CancellationToken ct) =>
         DecideAsync(requestId, confirmationId, residentId,
-            text.Trim()[..Math.Min(text.Trim().Length, 4000)], false,
+            text.Trim(), false,
             MessageChannel.WhatsAppResidentUpdate, ct);
 
     private async Task<Result> DecideAsync(Guid requestId, Guid? confirmationId,
@@ -36,6 +36,7 @@ public sealed class RequestClosureService(AppDbContext db, NotificationService n
         var request = await db.Requests.AsNoTracking().SingleOrDefaultAsync(x => x.Id == requestId, ct);
         if (request is null || request.AuthorUserId != residentId) return new(false, "not_found");
         if (!confirmed && string.IsNullOrWhiteSpace(question)) return new(false, "question_required");
+        if (!confirmed && question!.Length > RequestMessage.MaximumContentLength) return new(false, "question_too_long");
         var now = DateTime.UtcNow;
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         RequestMessage? message = null;

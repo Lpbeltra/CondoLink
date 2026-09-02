@@ -47,8 +47,8 @@ public static class CreateAdministrativeRequestUpdate
         var content = input.Content?.Trim();
         if (string.IsNullOrWhiteSpace(content))
             return Results.BadRequest(new { error = "Informe a mensagem." });
-        if (content.Length > 1000)
-            return Results.BadRequest(new { error = "A mensagem pode ter no máximo 1000 caracteres." });
+        if (content.Length > RequestMessage.MaximumContentLength)
+            return Results.BadRequest(new { error = "A mensagem pode ter no máximo 3000 caracteres." });
 
         var message = new RequestMessage(request.Id, userId, content,
             MessageChannel.Portal);

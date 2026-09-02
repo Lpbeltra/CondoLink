@@ -12,7 +12,7 @@ public sealed class RequestClosureConfirmation
         if (requestId == Guid.Empty) throw new ArgumentException("RequestId is required.", nameof(requestId));
         if (requestStatusHistoryId == Guid.Empty) throw new ArgumentException("RequestStatusHistoryId is required.", nameof(requestStatusHistoryId));
         if (string.IsNullOrWhiteSpace(conclusion)) throw new ArgumentException("Conclusion is required.", nameof(conclusion));
-        if (conclusion.Trim().Length > 1000) throw new ArgumentException("A mensagem pode ter no máximo 1000 caracteres.", nameof(conclusion));
+        if (conclusion.Trim().Length > RequestMessage.MaximumContentLength) throw new ArgumentException("A mensagem pode ter no máximo 3000 caracteres.", nameof(conclusion));
         Id = Guid.NewGuid();
         RequestId = requestId;
         RequestStatusHistoryId = requestStatusHistoryId;

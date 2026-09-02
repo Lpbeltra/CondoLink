@@ -31,7 +31,7 @@ export function RequestConversation({ requestId, status, messages, onMessageCrea
   const send = async (event?: FormEvent) => {
     event?.preventDefault()
     const trimmed = content.trim()
-    if (!trimmed || trimmed.length > 4000 || isSending) return
+    if (!trimmed || trimmed.length > 3000 || isSending) return
     setIsSending(true); setError('')
     try {
       const message = await createRequestMessage(requestId, trimmed)
@@ -60,7 +60,7 @@ export function RequestConversation({ requestId, status, messages, onMessageCrea
       {readOnly || !canSendMessage(status) ? <Alert severity="info">Esta solicitação está encerrada e disponível somente para consulta.</Alert> : (
         <Box component="form" onSubmit={send}>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-          <TextField fullWidth multiline minRows={3} maxRows={8} label="Descreva uma nova informação sobre a solicitação" value={content} onChange={(event) => setContent(event.target.value)} onKeyDown={handleKeyDown} inputProps={{ maxLength: 4000 }} helperText={`${content.length}/4000 · Ctrl + Enter para adicionar`} disabled={isSending} />
+          <TextField fullWidth multiline minRows={3} maxRows={8} label="Descreva uma nova informação sobre a solicitação" value={content} onChange={(event) => setContent(event.target.value)} onKeyDown={handleKeyDown} inputProps={{ maxLength: 3001 }} error={content.length > 3000} helperText={`${content.length}/3000 · Ctrl + Enter para adicionar`} disabled={isSending} />
           <Box display="flex" justifyContent="flex-end" mt={1.5}><Button type="submit" variant="contained" disabled={!content.trim() || isSending} startIcon={isSending ? <CircularProgress size={18} color="inherit" /> : <SendRoundedIcon />}>{isSending ? 'Adicionando…' : 'Adicionar atualização'}</Button></Box>
         </Box>
       )}

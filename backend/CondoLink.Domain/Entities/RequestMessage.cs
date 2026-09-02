@@ -4,6 +4,8 @@ namespace CondoLink.Domain.Entities;
 
 public sealed class RequestMessage
 {
+    public const int MaximumContentLength = 3000;
+
     private RequestMessage()
     {
     }

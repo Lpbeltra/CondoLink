@@ -130,10 +130,10 @@ public static class CreateRequestMessage
 
         var content = request.Content.Trim();
 
-        if (content.Length > 4000)
+        if (content.Length > RequestMessage.MaximumContentLength)
         {
             return Results.BadRequest(
-                new { error = "Content must not exceed 4000 characters." });
+                new { error = "Content must not exceed 3000 characters." });
         }
 
         var message = new RequestMessage(requestId, authenticatedUserId, content);

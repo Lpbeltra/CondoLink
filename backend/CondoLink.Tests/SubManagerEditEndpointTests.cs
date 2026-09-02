@@ -5,6 +5,7 @@ using CondoLink.Api.Features.Auth;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
+using CondoLink.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -28,12 +29,15 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
             var platform = CoreTestSeed.User("Platform", "platform-edit@test.local");
             var s1 = CoreTestSeed.User("S1 original", "s1-original@test.local");
             var s2 = CoreTestSeed.User("S2 original", "s2-original@test.local");
-            var resident = CoreTestSeed.User("Aline Souza", "aline@test.local");
+            var resident = new ApplicationUser("Aline Souza", "aline@test.local", "+5511999990010");
+            resident.NormalizedUserName = "ALINE@TEST.LOCAL";
+            resident.NormalizedEmail = "ALINE@TEST.LOCAL";
+            resident.SetPix(PixKeyType.Email, "aline-pix@test.local");
             db.AddRange(condominium, platform, s1, s2, resident);
             var unit = new Unit(condominium.Id, "304", null, null, null);
             db.Add(unit);
             var unitMembership = new UnitMembership(resident.Id, unit.Id, UnitRelationshipType.Owner, true, true);
-            db.Add(unitMembership);
+            db.AddRange(unitMembership, new CondominiumMembership(resident.Id, condominium.Id));
             var m1 = CoreTestSeed.AddMember(db, s1.Id, condominium.Id, CondominiumRole.SubManager);
             var m2 = CoreTestSeed.AddMember(db, s2.Id, condominium.Id, CondominiumRole.SubManager);
             db.SubManagerModulePermissions.Add(new(m1.Id, SubManagerModule.Requests, platform.Id));
@@ -105,6 +109,7 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
             Assert.False(resident.MustChangePassword);
             Assert.Null(resident.PasswordHash);
             Assert.True(await db.UnitMemberships.AnyAsync(x => x.Id == _unitMembershipId && x.IsActive));
+            Assert.Equal(1, await db.CondominiumMemberships.CountAsync(x => x.UserId == _residentId && x.CondominiumId == _condominiumId));
             Assert.True(await (from m in db.CondominiumMemberships
                 join r in db.CondominiumMembershipRoles on m.Id equals r.CondominiumMembershipId
                 where m.UserId == _residentId && m.CondominiumId == _condominiumId

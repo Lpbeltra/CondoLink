@@ -4,6 +4,8 @@
 
 Permitir múltiplos SubManagers ativos por condomínio; manter um único vínculo SubManager ativo por usuário nesta versão. Usuário pode acumular vínculo de morador/unidade e SubManager; promoção preserva vínculo de morador e cria novo `CondominiumMembership`.
 
+Mensagens do atendimento entre Manager/SubManager e Morador: limite de 3000 caracteres.
+
 ## Objetivo
 
 ## Build/deploy em hosts pequenos (concluído)

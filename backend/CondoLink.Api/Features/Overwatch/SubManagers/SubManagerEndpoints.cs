@@ -30,11 +30,14 @@ public static class SubManagerEndpoints
         return endpoints;
     }
 
-    private static async Task<IResult> SearchAsync(string? query, Guid? condominiumId, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> SearchAsync(string? query, string? condominiumId, AppDbContext db, CancellationToken ct)
     {
         var term = query?.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(term) || term.Length < 2)
             return Results.Ok(Array.Empty<ExistingUserResponse>());
+        var preferredCondominiumId = Guid.TryParse(condominiumId, out var parsedCondominiumId)
+            ? parsedCondominiumId
+            : (Guid?)null;
 
         var users = await db.Users.AsNoTracking()
             .Where(user => user.IsActive
@@ -61,14 +64,14 @@ public static class SubManagerEndpoints
         var rows = users.Select(user =>
         {
             var links = units.Where(link => link.UserId == user.Id).ToArray();
-            var preferred = condominiumId.HasValue
-                ? links.FirstOrDefault(link => link.CondominiumId == condominiumId.Value) ?? links.FirstOrDefault()
+            var preferred = preferredCondominiumId.HasValue
+                ? links.FirstOrDefault(link => link.CondominiumId == preferredCondominiumId.Value) ?? links.FirstOrDefault()
                 : links.FirstOrDefault();
             return new ExistingUserResponse(user.Id, user.FullName, user.Email!, user.PhoneNumber,
                 user.PixKeyType, user.PixKey, links.Select(link => new ExistingUserLink(
                     link.CondominiumId, link.CondominiumName, link.Unit)).ToArray(),
                 preferred?.CondominiumId, preferred?.CondominiumName, preferred?.Unit);
-        }).OrderByDescending(row => condominiumId.HasValue && row.CondominiumId == condominiumId)
+        }).OrderByDescending(row => preferredCondominiumId.HasValue && row.CondominiumId == preferredCondominiumId)
             .ThenBy(row => row.FullName);
         return Results.Ok(rows);
     }
@@ -152,7 +155,12 @@ public static class SubManagerEndpoints
         if (!user.IsActive) return Results.Conflict(new { message = "Este usuário está inativo." });
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var assignment = await AssignAsync(user, request.CondominiumId, db, ct);
+        string? assignment;
+        try { assignment = await AssignAsync(user, request.CondominiumId, db, ct); }
+        catch (DbUpdateException)
+        {
+            return Results.Conflict(new { message = "Não foi possível criar o vínculo de subsíndico. Verifique se o usuário já possui esse vínculo ativo." });
+        }
         if (assignment is not null) return Results.Conflict(new { message = assignment });
         await transaction.CommitAsync(ct);
         return Results.Created($"/overwatch/submanagers/{user.Id}", new CreatedResponse(
@@ -264,9 +272,18 @@ public static class SubManagerEndpoints
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({user.Id.ToString()}, 9182));", ct);
         if (await ActiveRoleAsync(user.Id, db, ct) is not null)
             return "Este usuário já possui um vínculo ativo como subsíndico.";
-        var membership = new CondominiumMembership(user.Id, condominiumId);
-        db.Add(membership);
-        db.Add(new CondominiumMembershipRole(membership.Id, CondominiumRole.SubManager));
+        var membership = await db.CondominiumMemberships.SingleOrDefaultAsync(
+            x => x.UserId == user.Id && x.CondominiumId == condominiumId, ct);
+        if (membership is null)
+        {
+            membership = new CondominiumMembership(user.Id, condominiumId);
+            db.Add(membership);
+        }
+        else membership.Activate();
+        var role = await db.CondominiumMembershipRoles.SingleOrDefaultAsync(
+            x => x.CondominiumMembershipId == membership.Id && x.Role == CondominiumRole.SubManager, ct);
+        if (role is null) db.Add(new CondominiumMembershipRole(membership.Id, CondominiumRole.SubManager));
+        else role.Activate();
         await db.SaveChangesAsync(ct);
         await SubManagerAccess.EnsureDefaultsAsync(db, membership.Id, user.Id, ct);
         await db.SaveChangesAsync(ct);

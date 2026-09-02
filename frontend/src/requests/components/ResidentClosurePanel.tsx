@@ -48,7 +48,7 @@ export function ResidentClosurePanel({ requestId, proposal, onUpdated }: Props) 
           </Button>
           <Button size="large" variant="outlined" disabled={saving} onClick={() => setQuestioning(true)}>Ainda tenho uma dúvida</Button>
         </Stack> : <Stack gap={1.5}>
-          <TextField autoFocus fullWidth multiline minRows={3} maxRows={8} label="Escreva sua dúvida ou observação" value={message} onChange={event => setMessage(event.target.value)} inputProps={{ maxLength: 4000 }} helperText={`${message.length}/4000`} disabled={saving} />
+          <TextField autoFocus fullWidth multiline minRows={3} maxRows={8} label="Escreva sua dúvida ou observação" value={message} onChange={event => setMessage(event.target.value)} inputProps={{ maxLength: 3001 }} helperText={`${message.length}/3000`} disabled={saving} />
           <Stack direction={{ xs: 'column-reverse', sm: 'row' }} justifyContent="flex-end" gap={1}>
             <Button disabled={saving} onClick={() => { setQuestioning(false); setMessage('') }}>Cancelar</Button>
             <Button variant="contained" disabled={saving || !message.trim()} onClick={() => void run(() => questionResidentClosure(requestId, message.trim()), 'Sua mensagem foi enviada e o atendimento voltou para análise da administração.')}>

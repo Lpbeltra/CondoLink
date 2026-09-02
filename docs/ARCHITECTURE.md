@@ -4,6 +4,8 @@
 
 Um condomínio pode ter 0..N SubManagers ativos. Cada usuário pode ter no máximo um vínculo SubManager ativo nesta versão. Um mesmo usuário pode acumular vínculo de morador/unidade e vínculo de SubManager; o vínculo de morador permanece inalterado e a promoção cria novo `CondominiumMembership`. Permissões permanecem vinculadas ao `CondominiumMembershipId`.
 
+Mensagens do atendimento entre Manager/SubManager e Morador aceitam até 3000 caracteres; o limite também vale para respostas do morador e confirmações/questionamentos de conclusão.
+
 ## Objetivo
 
 ## Agenda operacional

@@ -115,6 +115,17 @@ public sealed class AdministrativeRequestUpdateTests : IAsyncLifetime
     }
 
     [Theory]
+    [InlineData(3000, HttpStatusCode.Created)]
+    [InlineData(3001, HttpStatusCode.BadRequest)]
+    public async Task Enforces_the_3000_character_message_limit(int length, HttpStatusCode expected)
+    {
+        var response = await _host.ClientFor(_managerId).PostAsJsonAsync(
+            $"/management/requests/{_requestId}/updates",
+            new { content = new string('x', length) });
+        Assert.Equal(expected, response.StatusCode);
+    }
+
+    [Theory]
     [InlineData(RequestStatus.WaitingForResidentClosure)]
     [InlineData(RequestStatus.Resolved)]
     [InlineData(RequestStatus.Cancelled)]

@@ -67,4 +67,13 @@ describe('RequestManagementActions AI preview', () => {
     expect(createAdministrativeRequestUpdate).toHaveBeenCalledWith('request-1', 'Visita amanhã às 14h.')
     expect(updateRequestStatus).not.toHaveBeenCalled()
   })
+
+  it('blocks an administrative message above 3000 characters', async () => {
+    const user = userEvent.setup(); renderActions()
+    await user.click(screen.getByRole('button', { name: 'Atualizar / enviar mensagem' }))
+    const input = screen.getByLabelText('Mensagem ao morador')
+    fireEvent.change(input, { target: { value: 'x'.repeat(3001) } })
+    expect(screen.getByRole('button', { name: 'Enviar meu texto' })).toBeDisabled()
+    expect(createAdministrativeRequestUpdate).not.toHaveBeenCalled()
+  })
 })

@@ -36,7 +36,9 @@ public static class ManageResidentClosure
             ? Results.NotFound(new { error = "Atendimento não encontrado." })
             : result.Code == "question_required"
                 ? Results.BadRequest(new { error = "Informe sua dúvida ou observação." })
-                : Results.Conflict(new { error = "Este atendimento já foi atualizado." });
+                : result.Code == "question_too_long"
+                    ? Results.BadRequest(new { error = "A mensagem pode ter no máximo 3000 caracteres." })
+                    : Results.Conflict(new { error = "Este atendimento já foi atualizado." });
 
     private static bool TryUserId(ClaimsPrincipal principal, out Guid userId)
     {
