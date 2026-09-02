@@ -149,6 +149,13 @@ export function ManagementCompanyRequestsPage() {
           spacing={1.5}
           flexWrap="wrap"
           alignItems={{ xs: "stretch", md: "center" }}
+          sx={{
+            '& > .MuiFormControlLabel-root': {
+              order: 6,
+              flexBasis: { xs: 'auto', md: '100%' },
+            },
+            '& > .MuiButton-root': { order: 7 },
+          }}
         >
           {!activeCondominiumId && (
             <TextField
@@ -157,7 +164,7 @@ export function ManagementCompanyRequestsPage() {
               size="small"
               value={condo}
               onChange={(e) => setCondo(e.target.value)}
-              sx={{ minWidth: 210 }}
+              sx={{ minWidth: 210, order: 5 }}
             >
               <MenuItem value="">Todos</MenuItem>
               {condominiums.map((c) => (
@@ -172,7 +179,7 @@ export function ManagementCompanyRequestsPage() {
             size="small"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            sx={{ flex: "1 1 280px", minWidth: { xs: "100%", md: 240 }, order: 1 }}
+            sx={{ flex: "1 1 360px", minWidth: { xs: "100%", md: 300 }, order: 1 }}
           />
           <FormControlLabel control={<Checkbox checked={includeCompleted} onChange={e => { setIncludeCompleted(e.target.checked); setPage(1) }} />} label="Exibir solicitações processadas" />
           <FormControlLabel control={<Checkbox checked={includeCancelled} onChange={e => { setIncludeCancelled(e.target.checked); setPage(1) }} />} label="Exibir solicitações canceladas" />
@@ -221,7 +228,7 @@ export function ManagementCompanyRequestsPage() {
             value={from}
             onChange={(e) => setFrom(e.target.value)}
             InputLabelProps={{ shrink: true }}
-            sx={{ minWidth: { xs: "100%", md: 160 }, order: 5 }}
+            sx={{ minWidth: { xs: "100%", md: 160 }, order: 4 }}
           />
           <TextField
             type="date"
@@ -230,7 +237,7 @@ export function ManagementCompanyRequestsPage() {
             value={to}
             onChange={(e) => setTo(e.target.value)}
             InputLabelProps={{ shrink: true }}
-            sx={{ minWidth: { xs: "100%", md: 160 }, order: 5 }}
+            sx={{ minWidth: { xs: "100%", md: 160 }, order: 4 }}
           />
           {filtered && <Button onClick={clear}>Limpar filtros</Button>}
         </Stack>

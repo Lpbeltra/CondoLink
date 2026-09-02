@@ -60,14 +60,27 @@ public static class SubManagerEndpoints
 
         var password = GenerateTemporaryPassword();
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        var user = new ApplicationUser(request.FullName!.Trim(), email, request.PhoneNumber);
-        user.SetPix(request.PixKeyType, request.PixKey);
+        ApplicationUser user;
+        try
+        {
+            user = new ApplicationUser(request.FullName!.Trim(), email, request.PhoneNumber);
+            user.SetPix(request.PixKeyType, request.PixKey);
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new { message = exception.Message });
+        }
         user.RequirePasswordChange();
         user.SetEmailDeliveryEnabled(FirstAccessEmailPolicy.IsDeliverable(email));
         var created = await users.CreateAsync(user, password);
         if (!created.Succeeded)
-            return Results.BadRequest(new { errors = created.Errors.Select(x => x.Description) });
-        var assignment = await AssignAsync(user, request.CondominiumId, db, ct);
+            return Results.BadRequest(new { message = IdentityErrorMessage(created.Errors), errors = created.Errors.Select(x => x.Description) });
+        string? assignment;
+        try { assignment = await AssignAsync(user, request.CondominiumId, db, ct); }
+        catch (DbUpdateException)
+        {
+            return Results.Conflict(new { message = "Não foi possível criar o vínculo de subsíndico. Verifique se o usuário ou condomínio já possui vínculo ativo." });
+        }
         if (assignment is not null) return Results.Conflict(new { message = assignment });
         await transaction.CommitAsync(ct);
         _ = await firstAccess.SendAsync(user, condominium.Name, ct);
@@ -206,10 +219,18 @@ public static class SubManagerEndpoints
         if (string.IsNullOrWhiteSpace(request.FullName) || string.IsNullOrWhiteSpace(request.Email)
             || request.CondominiumId == Guid.Empty) return "Nome, e-mail e condomínio são obrigatórios.";
         if (!Domain.PhoneNumberNormalizer.IsValidOptional(request.PhoneNumber)) return "Telefone inválido.";
-        try { _ = new ApplicationUser(request.FullName, request.Email, request.PhoneNumber); }
+        try
+        {
+            var user = new ApplicationUser(request.FullName, request.Email, request.PhoneNumber);
+            user.SetPix(request.PixKeyType, request.PixKey);
+        }
         catch (ArgumentException ex) { return ex.Message; }
         return null;
     }
+    private static string IdentityErrorMessage(IEnumerable<IdentityError> errors) =>
+        errors.Any(error => error.Code is "DuplicateEmail" or "DuplicateUserName")
+            ? "Já existe um usuário com este e-mail."
+            : "Os dados informados não puderam ser validados.";
     private static string GenerateTemporaryPassword()
     {
         const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";

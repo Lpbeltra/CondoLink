@@ -66,6 +66,67 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
         });
     }
 
+    [Fact]
+    public async Task Creating_submanager_accepts_current_frontend_payload()
+    {
+        using var client = _host.ClientFor(_platformId);
+        client.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
+        var response = await client.PostAsJsonAsync("/overwatch/submanagers", new
+        {
+            fullName = "Novo Subsíndico", email = "novo-submanager@test.local",
+            phoneNumber = "+5511999990003", condominiumId = _condominiumId,
+            pixKeyType = (string?)null, pixKey = (string?)null
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Creating_two_submanagers_in_same_condominium_persists_user_link_permissions_pix_and_list()
+    {
+        using var client = _host.ClientFor(_platformId);
+        client.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
+        var first = await client.PostAsJsonAsync("/overwatch/submanagers", new
+        {
+            fullName = "Subsíndico PIX", email = "submanager-pix@test.local",
+            phoneNumber = "+5511999990004", condominiumId = _condominiumId,
+            pixKeyType = "Email", pixKey = "submanager-pix@test.local"
+        });
+        var second = await client.PostAsJsonAsync("/overwatch/submanagers", new
+        {
+            fullName = "Subsíndico sem PIX", email = "submanager-no-pix@test.local",
+            phoneNumber = (string?)null, condominiumId = _condominiumId,
+            pixKeyType = (string?)null, pixKey = (string?)null
+        });
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+        var firstCreated = await first.Content.ReadFromJsonAsync<SubManagerEndpoints.CreatedResponse>();
+        var secondCreated = await second.Content.ReadFromJsonAsync<SubManagerEndpoints.CreatedResponse>();
+        Assert.NotEqual(firstCreated!.Id, secondCreated!.Id);
+
+        await _host.WithDbAsync(async db =>
+        {
+            var users = await db.Users.Where(x => x.Id == firstCreated.Id || x.Id == secondCreated.Id).ToListAsync();
+            Assert.Equal(2, users.Count);
+            Assert.All(users, user => Assert.True(user.MustChangePassword));
+            Assert.Equal(PixKeyType.Email, users.Single(x => x.Id == firstCreated.Id).PixKeyType);
+            Assert.Equal("submanager-pix@test.local", users.Single(x => x.Id == firstCreated.Id).PixKey);
+            Assert.Null(users.Single(x => x.Id == secondCreated.Id).PixKeyType);
+            Assert.Equal(7, await db.SubManagerModulePermissions.CountAsync(x => x.CondominiumMembershipId ==
+                db.CondominiumMemberships.Where(m => m.UserId == firstCreated.Id).Select(m => m.Id).Single()));
+            Assert.Equal(4, await (from m in db.CondominiumMemberships
+                join r in db.CondominiumMembershipRoles on m.Id equals r.CondominiumMembershipId
+                where m.CondominiumId == _condominiumId && r.Role == CondominiumRole.SubManager
+                    && m.IsActive && r.IsActive && r.RevokedAt == null
+                select r.Id).CountAsync());
+        });
+
+        var listed = await client.GetFromJsonAsync<List<SubManagerEndpoints.Response>>("/overwatch/submanagers");
+        Assert.Contains(listed!, item => item.Id == firstCreated.Id);
+        Assert.Contains(listed!, item => item.Id == secondCreated.Id);
+    }
+
     private Task<S2Snapshot> Snapshot(Guid userId) => _host.WithDbAsync(db => Snapshot(userId, db));
     private static async Task<S2Snapshot> Snapshot(Guid userId, AppDbContext db)
     {

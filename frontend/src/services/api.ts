@@ -34,4 +34,14 @@ api.interceptors.response.use(response => response, async (error: AxiosError) =>
 })
 
 export function getErrorMessageForStatus(status:number|undefined){if(status===undefined)return'Não foi possível conectar ao servidor. Tente novamente.';if(status===400)return'Os dados informados são inválidos. Revise e tente novamente.';if(status===401)return'Sua sessão expirou. Entre novamente.';if(status===403)return'Você não possui permissão para realizar esta ação.';if(status===404)return'O conteúdo solicitado não foi encontrado.';if(status===409)return'A operação não pôde ser concluída devido ao estado atual dos dados.';if(status>=500)return'A Comvy está temporariamente indisponível.';return'Não foi possível concluir esta ação. Verifique os dados e tente novamente.'}
-export function getErrorMessage(error:unknown){return axios.isAxiosError(error)?getErrorMessageForStatus(error.response?.status):'Não foi possível concluir esta ação. Verifique os dados e tente novamente.'}
+export function getErrorMessage(error:unknown){
+  if(!axios.isAxiosError(error))return'Não foi possível concluir esta ação. Verifique os dados e tente novamente.'
+  const data=error.response?.data as {message?:unknown;title?:unknown;errors?:unknown} | undefined
+  if(typeof data?.message==='string'&&data.message.trim())return data.message
+  if(typeof data?.title==='string'&&data.title.trim())return data.title
+  if(data?.errors&&typeof data.errors==='object'){
+    const messages=Object.values(data.errors as Record<string,unknown>).flatMap(value=>Array.isArray(value)?value:[value]).filter((value):value is string=>typeof value==='string'&&value.trim().length>0)
+    if(messages.length)return messages[0]
+  }
+  return getErrorMessageForStatus(error.response?.status)
+}
