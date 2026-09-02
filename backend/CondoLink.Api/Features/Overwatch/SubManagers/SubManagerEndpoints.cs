@@ -270,8 +270,17 @@ public static class SubManagerEndpoints
     {
         if (db.Database.IsNpgsql())
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({user.Id.ToString()}, 9182));", ct);
-        if (await ActiveRoleAsync(user.Id, db, ct) is not null)
-            return "Este usuário já possui um vínculo ativo como subsíndico.";
+        var activeRole = await ActiveRoleAsync(user.Id, db, ct);
+        if (activeRole is not null)
+        {
+            if (activeRole.CondominiumId != condominiumId)
+                return "Este usuário já possui um vínculo ativo como subsíndico em outro condomínio.";
+
+            await SubManagerAccess.EnsureDefaultsAsync(db,
+                activeRole.Role.CondominiumMembershipId, user.Id, ct);
+            await db.SaveChangesAsync(ct);
+            return null;
+        }
         var membership = await db.CondominiumMemberships.SingleOrDefaultAsync(
             x => x.UserId == user.Id && x.CondominiumId == condominiumId, ct);
         if (membership is null)

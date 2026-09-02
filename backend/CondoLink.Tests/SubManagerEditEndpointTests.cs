@@ -14,7 +14,7 @@ namespace CondoLink.Tests;
 public sealed class SubManagerEditEndpointTests : IAsyncLifetime
 {
     private CoreEndpointTestHost _host = null!;
-    private Guid _platformId, _s1Id, _s2Id, _residentId, _condominiumId, _s1MembershipId, _s2MembershipId, _unitMembershipId;
+    private Guid _platformId, _s1Id, _s2Id, _residentId, _condominiumId, _otherCondominiumId, _s1MembershipId, _s2MembershipId, _unitMembershipId;
 
     public async Task InitializeAsync()
     {
@@ -26,14 +26,17 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
         await _host.WithDbAsync(async db =>
         {
             var condominium = new Condominium("Monticello", null, null);
+            var otherCondominium = new Condominium("Outro", null, null);
             var platform = CoreTestSeed.User("Platform", "platform-edit@test.local");
             var s1 = CoreTestSeed.User("S1 original", "s1-original@test.local");
             var s2 = CoreTestSeed.User("S2 original", "s2-original@test.local");
             var resident = new ApplicationUser("Aline Souza", "aline@test.local", "+5511999990010");
+            resident.RequirePasswordChange();
+            resident.PasswordHash = "existing-password-hash";
             resident.NormalizedUserName = "ALINE@TEST.LOCAL";
             resident.NormalizedEmail = "ALINE@TEST.LOCAL";
             resident.SetPix(PixKeyType.Email, "aline-pix@test.local");
-            db.AddRange(condominium, platform, s1, s2, resident);
+            db.AddRange(condominium, otherCondominium, platform, s1, s2, resident);
             var unit = new Unit(condominium.Id, "304", null, null, null);
             db.Add(unit);
             var unitMembership = new UnitMembership(resident.Id, unit.Id, UnitRelationshipType.Owner, true, true);
@@ -43,7 +46,7 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
             db.SubManagerModulePermissions.Add(new(m1.Id, SubManagerModule.Requests, platform.Id));
             db.SubManagerModulePermissions.Add(new(m2.Id, SubManagerModule.Agenda, platform.Id));
             await db.SaveChangesAsync();
-            (_platformId, _s1Id, _s2Id, _residentId, _condominiumId, _s1MembershipId, _s2MembershipId, _unitMembershipId) = (platform.Id, s1.Id, s2.Id, resident.Id, condominium.Id, m1.Id, m2.Id, unitMembership.Id);
+            (_platformId, _s1Id, _s2Id, _residentId, _condominiumId, _otherCondominiumId, _s1MembershipId, _s2MembershipId, _unitMembershipId) = (platform.Id, s1.Id, s2.Id, resident.Id, condominium.Id, otherCondominium.Id, m1.Id, m2.Id, unitMembership.Id);
         });
     }
 
@@ -106,8 +109,10 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
         await _host.WithDbAsync(async db =>
         {
             var resident = await db.Users.SingleAsync(x => x.Id == _residentId);
-            Assert.False(resident.MustChangePassword);
-            Assert.Null(resident.PasswordHash);
+            Assert.Equal("existing-password-hash", resident.PasswordHash);
+            Assert.True(resident.MustChangePassword);
+            Assert.Null(resident.LastLoginAt);
+            Assert.Null(resident.PasswordChangedAt);
             Assert.True(await db.UnitMemberships.AnyAsync(x => x.Id == _unitMembershipId && x.IsActive));
             Assert.Equal(1, await db.CondominiumMemberships.CountAsync(x => x.UserId == _residentId && x.CondominiumId == _condominiumId));
             Assert.True(await (from m in db.CondominiumMemberships
@@ -116,16 +121,33 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
                     && r.Role == CondominiumRole.SubManager && m.IsActive && r.IsActive && r.RevokedAt == null
                 select r).AnyAsync());
         });
+
+        var second = await client.PostAsJsonAsync("/overwatch/submanagers", new
+        {
+            existingUserId = _residentId, condominiumId = _condominiumId
+        });
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+        await _host.WithDbAsync(async db =>
+        {
+            var membershipId = await db.CondominiumMemberships
+                .Where(x => x.UserId == _residentId && x.CondominiumId == _condominiumId)
+                .Select(x => x.Id).SingleAsync();
+            Assert.Equal(1, await db.CondominiumMemberships.CountAsync(x => x.UserId == _residentId && x.CondominiumId == _condominiumId));
+            Assert.Equal(1, await db.CondominiumMembershipRoles.CountAsync(x => x.CondominiumMembershipId == membershipId && x.Role == CondominiumRole.SubManager));
+            Assert.Equal(7, await db.SubManagerModulePermissions.CountAsync(x => x.CondominiumMembershipId == membershipId));
+        });
+        var listed = await client.GetFromJsonAsync<List<SubManagerEndpoints.Response>>("/overwatch/submanagers");
+        Assert.Contains(listed!, item => item.Id == _residentId && item.CondominiumId == _condominiumId && item.HasActiveLink);
     }
 
     [Fact]
-    public async Task Existing_submanager_promotion_returns_conflict()
+    public async Task Existing_submanager_in_other_condominium_returns_conflict()
     {
         using var client = _host.ClientFor(_platformId);
         client.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
         var response = await client.PostAsJsonAsync("/overwatch/submanagers", new
         {
-            existingUserId = _s1Id, condominiumId = _condominiumId
+            existingUserId = _s1Id, condominiumId = _otherCondominiumId
         });
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
