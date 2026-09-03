@@ -13,6 +13,9 @@ public sealed class RestoreGlobalSubManagerUniquenessMigrationTests
         var type = typeof(AppDbContext).Assembly
             .GetTypes().Single(x => x.Name == "RestoreGlobalSubManagerUniqueness");
         var migration = (Migration)Activator.CreateInstance(type)!;
+        Assert.Equal(
+            "20260903090000_RestoreGlobalSubManagerUniqueness",
+            type.GetCustomAttribute<MigrationAttribute>()?.Id);
         var builder = new MigrationBuilder("Npgsql.EntityFrameworkCore.PostgreSQL");
         type.GetMethod("Up", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(migration, [builder]);
         var sql = string.Join('\n', builder.Operations.OfType<SqlOperation>().Select(x => x.Sql));
