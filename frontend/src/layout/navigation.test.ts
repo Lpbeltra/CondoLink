@@ -1,83 +1,44 @@
 import { describe, expect, it } from "vitest";
-import {
-  getMobileNavigationItems,
-  getMoreNavigationItems,
-  getMobileSelectedPath,
-  getNavigationItems,
-  shouldShowGeneralCondominiumSwitcher,
-} from "./navigation";
+import { getMobileNavigationItems, getMobileNavigationParts, getMobileSelectedPath, getMoreNavigationItems, getNavigationItems, shouldShowGeneralCondominiumSwitcher } from "./navigation";
 import type { CondominiumContext } from "../condominiums/types";
 
+const allPermissions = ["Requests", "Attendance", "ManagementCompany", "Agenda", "Assistant", "Documents", "Management"];
+
 describe("role-based navigation", () => {
-  it("shows only common items to residents", () => {
-    expect(getNavigationItems(["Resident"]).map((item) => item.label)).toEqual([
-      "Solicitações",
-    ]);
-    expect(
-      getMobileNavigationItems(["Resident"]).map((item) => item.label),
-    ).toEqual(["Solicitações"]);
+  it("keeps Resident navigation free of administrative modules", () => {
+    expect(getNavigationItems(["Resident"], [], allPermissions).map(item => item.label)).toEqual(["Solicitações"]);
+    expect(getMobileNavigationItems(["Resident"], [], allPermissions).map(item => item.label)).toEqual(["Solicitações"]);
   });
 
-  it("shows management resources to managers", () => {
-    expect(
-      getNavigationItems(["Manager", "Resident"]).map((item) => item.label),
-    ).toEqual([
-      "Dashboard",
-      "Solicitações",
-      "Atendimento",
-      "Administradora",
-      "Agenda",
-      "Assistente",
-      "Documentos",
-      "Gestão",
-    ]);
+  it("gives Manager the complete catalog", () => {
+    expect(getNavigationItems(["Manager", "Resident"]).map(item => item.label)).toEqual(["Dashboard", "Solicitações", "Atendimento", "Administradora", "Agenda", "Assistente", "Documentos", "Gestão"]);
+    expect(getMobileNavigationItems(["Manager"]).map(item => item.label)).toEqual(["Dashboard", "Solicitações", "Assistente", "Mais"]);
   });
 
-  it("gives contextual management navigation to submanagers", () => {
-    expect(
-      getNavigationItems(["SubManager"]).map((item) => item.label),
-    ).toContain("Administradora");
-  });
-
-  it("shows every granted module, including Assistant, without relying on array position", () => {
-    const permissions = ["Documents", "Assistant", "Attendance", "Agenda", "Requests", "ManagementCompany", "Management"];
-    expect(getNavigationItems(["SubManager"], [], permissions).map(item => item.label)).toEqual([
-      "Solicitações", "Atendimento", "Administradora", "Agenda", "Assistente", "Documentos", "Gestão",
+  it("maps all seven real SubManager permissions, including Assistant", () => {
+    expect(getNavigationItems(["SubManager"], [], allPermissions).map(item => item.path)).toEqual([
+      "/requests", "/management/requests", "/management/administrator", "/management/agenda", "/management/assistant", "/management/documents", "/management/units",
     ]);
-    expect(getNavigationItems(["SubManager"], [], ["Attendance"]).map(item => item.label)).toEqual(["Atendimento"]);
+    expect(getNavigationItems(["SubManager"], [], ["Assistant"]).map(item => item.label)).toEqual(["Assistente"]);
     expect(getNavigationItems(["SubManager"], [], []).map(item => item.label)).toEqual([]);
-    expect(getMobileNavigationItems(["SubManager"], [], permissions).map(item => item.label)).toEqual(["Solicitações", "Mais"]);
-    expect(getMoreNavigationItems(["SubManager"], [], permissions).map(item => item.label)).toContain("Assistente");
   });
 
-  it("keeps Manager unrestricted and Resident administrative modules blocked", () => {
-    expect(getNavigationItems(["Manager"], [], []).map(item => item.label)).toContain("Assistente");
-    expect(getNavigationItems(["Resident"], [], ["Assistant"]).map(item => item.label)).toEqual(["Solicitações"]);
+  it("partitions authorized modules without loss or duplication", () => {
+    const parts = getMobileNavigationParts(["SubManager"], [], allPermissions);
+    expect(parts.allowed.map(item => item.label)).toEqual(["Solicitações", "Atendimento", "Administradora", "Agenda", "Assistente", "Documentos", "Gestão"]);
+    expect(parts.bottom.map(item => item.label)).toEqual(["Solicitações", "Assistente", "Atendimento"]);
+    expect(parts.more.map(item => item.label)).toEqual(["Administradora", "Agenda", "Documentos", "Gestão"]);
+    expect(new Set([...parts.bottom, ...parts.more]).size).toBe(parts.allowed.length);
+    expect(getMoreNavigationItems(["SubManager"], [], allPermissions)).toEqual(parts.more);
+  });
+
+  it("preserves legacy full access when permission payload is absent", () => {
+    expect(getNavigationItems(["SubManager"]).map(item => item.label)).toContain("Administradora");
   });
 
   it("shows Overwatch only to PlatformAdmin", () => {
-    expect(
-      getNavigationItems(["Resident"], ["PlatformAdmin"]).map(
-        (item) => item.label,
-      ),
-    ).toContain("Overwatch");
-    expect(
-      getMobileNavigationItems(["Resident"], ["PlatformAdmin"]).map(
-        (item) => item.label,
-      ),
-    ).toContain("Overwatch");
-    expect(
-      getNavigationItems(["Resident"]).map((item) => item.label),
-    ).not.toContain("Overwatch");
-    expect(
-      getMobileNavigationItems(["Resident"]).map((item) => item.label),
-    ).not.toContain("Overwatch");
-  });
-
-  it("keeps manager mobile navigation compact", () => {
-    expect(
-      getMobileNavigationItems(["Manager"]).map((item) => item.label),
-    ).toEqual(["Dashboard", "Solicitações", "Mais"]);
+    expect(getNavigationItems(["Resident"], ["PlatformAdmin"]).map(item => item.label)).toContain("Overwatch");
+    expect(getNavigationItems(["Resident"]).map(item => item.label)).not.toContain("Overwatch");
   });
 
   it("marks the correct mobile destination for nested routes", () => {
@@ -86,39 +47,16 @@ describe("role-based navigation", () => {
     expect(getMobileSelectedPath("/more")).toBe("/more");
     expect(getMobileSelectedPath("/")).toBe("/");
     expect(getMobileSelectedPath("/overwatch/managers")).toBe("/overwatch");
-    expect(getMobileSelectedPath("/management/reports")).toBe(
-      "/management/dashboard",
-    );
-    expect(getMobileSelectedPath("/administrator/requests/abc")).toBe(
-      "/administrator/requests",
-    );
+    expect(getMobileSelectedPath("/management/reports")).toBe("/management/dashboard");
+    expect(getMobileSelectedPath("/administrator/requests/abc")).toBe("/administrator/requests");
   });
 
   it("hides the general condominium switcher in management and for manager-only users", () => {
-    const resident: CondominiumContext = {
-      membershipId: "1",
-      condominium: { id: "c1", name: "A", isActive: true },
-      roles: ["Resident"],
-      joinedAt: "",
-      membershipActive: true,
-    };
-    const manager: CondominiumContext = {
-      membershipId: "2",
-      condominium: { id: "c2", name: "B", isActive: true },
-      roles: ["Manager"],
-      joinedAt: "",
-      membershipActive: true,
-    };
+    const resident: CondominiumContext = { membershipId: "1", condominium: { id: "c1", name: "A", isActive: true }, roles: ["Resident"], joinedAt: "", membershipActive: true };
+    const manager: CondominiumContext = { membershipId: "2", condominium: { id: "c2", name: "B", isActive: true }, roles: ["Manager"], joinedAt: "", membershipActive: true };
     expect(shouldShowGeneralCondominiumSwitcher("/", [resident])).toBe(true);
     expect(shouldShowGeneralCondominiumSwitcher("/", [manager])).toBe(false);
-    expect(
-      shouldShowGeneralCondominiumSwitcher("/management/units", [
-        resident,
-        manager,
-      ]),
-    ).toBe(false);
-    expect(shouldShowGeneralCondominiumSwitcher("/overwatch", [resident])).toBe(
-      false,
-    );
+    expect(shouldShowGeneralCondominiumSwitcher("/management/units", [resident, manager])).toBe(false);
+    expect(shouldShowGeneralCondominiumSwitcher("/overwatch", [resident])).toBe(false);
   });
 });
