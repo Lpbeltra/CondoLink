@@ -60,6 +60,7 @@ describe("management company request attachment previews", () => {
     render(
       <AttachmentsPreview items={[item("e", "erro.pdf", "application/pdf")]} />,
     );
+    fireEvent.click(screen.getByRole("button", { name: /erro\.pdf/i }));
     await waitFor(() => expect(attachmentBlob).toHaveBeenCalledWith("e"));
     expect(
       await screen.findByText(/não foi possível carregar o anexo/i),

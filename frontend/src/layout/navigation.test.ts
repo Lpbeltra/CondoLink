@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getMobileNavigationItems,
+  getMoreNavigationItems,
   getMobileSelectedPath,
   getNavigationItems,
   shouldShowGeneralCondominiumSwitcher,
@@ -36,6 +37,22 @@ describe("role-based navigation", () => {
     expect(
       getNavigationItems(["SubManager"]).map((item) => item.label),
     ).toContain("Administradora");
+  });
+
+  it("shows every granted module, including Assistant, without relying on array position", () => {
+    const permissions = ["Documents", "Assistant", "Attendance", "Agenda", "Requests", "ManagementCompany", "Management"];
+    expect(getNavigationItems(["SubManager"], [], permissions).map(item => item.label)).toEqual([
+      "Solicitações", "Atendimento", "Administradora", "Agenda", "Assistente", "Documentos", "Gestão",
+    ]);
+    expect(getNavigationItems(["SubManager"], [], ["Attendance"]).map(item => item.label)).toEqual(["Atendimento"]);
+    expect(getNavigationItems(["SubManager"], [], []).map(item => item.label)).toEqual([]);
+    expect(getMobileNavigationItems(["SubManager"], [], permissions).map(item => item.label)).toEqual(["Solicitações", "Mais"]);
+    expect(getMoreNavigationItems(["SubManager"], [], permissions).map(item => item.label)).toContain("Assistente");
+  });
+
+  it("keeps Manager unrestricted and Resident administrative modules blocked", () => {
+    expect(getNavigationItems(["Manager"], [], []).map(item => item.label)).toContain("Assistente");
+    expect(getNavigationItems(["Resident"], [], ["Assistant"]).map(item => item.label)).toEqual(["Solicitações"]);
   });
 
   it("shows Overwatch only to PlatformAdmin", () => {

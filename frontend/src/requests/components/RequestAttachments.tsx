@@ -3,6 +3,7 @@ import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded'
+import VideoLibraryRoundedIcon from '@mui/icons-material/VideoLibraryRounded'
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded'
 import {
   Alert,
@@ -371,7 +372,9 @@ export function RequestAttachments({
                 }}
               >
                 <Stack direction="row" gap={1.5} alignItems="center">
-                  {item.contentType.startsWith('image/')
+                  {item.contentType.startsWith('video/') ? (
+                    <VideoLibraryRoundedIcon color="action" sx={{ fontSize: 42 }} />
+                  ) : item.contentType.startsWith('image/')
                     && previews[item.id] ? (
                       <Box
                         component="button"
@@ -484,8 +487,8 @@ export function RequestAttachments({
               sx={{ width: '100%' }} />
           )}
           {dialogUrl && dialogItem?.contentType.startsWith('video/') && (
-            <Box component="video" src={dialogUrl} controls autoPlay={false}
-              sx={{ width: '100%', maxHeight: '75vh' }} />
+            <Box component="video" src={dialogUrl} controls playsInline
+              sx={{ width: '100%', maxHeight: '75vh', objectFit: 'contain' }} />
           )}
           {dialogUrl && dialogItem?.contentType === 'application/pdf' && (
             <Box component="iframe" src={dialogUrl}

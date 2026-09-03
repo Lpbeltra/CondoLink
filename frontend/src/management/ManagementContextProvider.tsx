@@ -33,7 +33,7 @@ export function ManagementContextProvider({
   const [usesConsolidatedManagementScope, setUsesConsolidatedManagementScope] =
     useState(false)
   const [hasEligibleManagementCompany,setHasEligibleManagementCompany]=useState(false)
-  const [subManagerPermissions, setSubManagerPermissions] = useState<string[]>([])
+  const [subManagerPermissions, setSubManagerPermissions] = useState<string[] | undefined>(undefined)
 
   // Apenas para o carregamento inicial do contexto
   const [isLoading, setIsLoading] = useState(false)
@@ -52,7 +52,7 @@ export function ManagementContextProvider({
     setActiveCondominiumId(null)
     setUsesConsolidatedManagementScope(false)
     setHasEligibleManagementCompany(false)
-    setSubManagerPermissions([])
+    setSubManagerPermissions(undefined)
 
     setIsLoading(false)
     setIsSwitching(false)
@@ -73,6 +73,8 @@ export function ManagementContextProvider({
     setCondominiums([])
     setActiveCondominiumId(null)
     setUsesConsolidatedManagementScope(false)
+    setHasEligibleManagementCompany(false)
+    setSubManagerPermissions(undefined)
 
     try {
       const context = await getManagementContext()
@@ -85,7 +87,7 @@ export function ManagementContextProvider({
         context.usesConsolidatedManagementScope,
       )
       setHasEligibleManagementCompany(Boolean(context.hasEligibleManagementCompany))
-      setSubManagerPermissions(context.subManagerPermissions ?? [])
+      setSubManagerPermissions(context.subManagerPermissions)
     } catch (requestError) {
       if (!isCurrentManagementRequest(version, requestVersion.current)) return
 
@@ -117,6 +119,8 @@ export function ManagementContextProvider({
       setError(null)
       setActiveCondominiumId(null)
       setUsesConsolidatedManagementScope(false)
+      setHasEligibleManagementCompany(false)
+      setSubManagerPermissions(undefined)
 
       try {
         const context = await setManagementContext(condominiumId)
@@ -129,7 +133,7 @@ export function ManagementContextProvider({
           context.usesConsolidatedManagementScope,
         )
         setHasEligibleManagementCompany(Boolean(context.hasEligibleManagementCompany))
-        setSubManagerPermissions(context.subManagerPermissions ?? [])
+        setSubManagerPermissions(context.subManagerPermissions)
       } catch (requestError) {
         if (!isCurrentManagementRequest(version, requestVersion.current)) return
         setActiveCondominiumId(previousCondominiumId)

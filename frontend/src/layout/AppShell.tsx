@@ -11,14 +11,16 @@ import { useAuth } from "../auth/AuthContext";
 import { hasPlatformAdminAccess } from "../auth/permissions";
 import { useManagementContext } from "../management/ManagementContext";
 import { PwaInstallBanner } from "../pwa/PwaInstallBanner";
+import { PwaUpdatePrompt } from "../pwa/PwaUpdatePrompt";
 import { useAdministrator } from "../administrator/AdministratorContext";
+import { canAccessNavigationItem, getNavigationItemForPath } from "./navigation";
 
 export function AppShell() {
   const { currentCondominium, isLoading, error, refreshCondominiums } =
     useCondominium();
   const { user } = useAuth();
   const location = useLocation();
-  const { condominiumCount, isLoading: isManagementLoading, subManagerPermissions } =
+  const { condominiumCount, isLoading: isManagementLoading, isSwitching, subManagerPermissions } =
     useManagementContext();
   const hasManagementContext = condominiumCount > 0;
   const { value: administrator, loading: administratorLoading } =
@@ -28,15 +30,10 @@ export function AppShell() {
     hasManagementContext ||
     Boolean(administrator);
   const showNavigation = hasContext || hasPlatformAdminAccess(user);
-  const routeModule = location.pathname.startsWith('/requests') ? 'Requests'
-    : location.pathname.startsWith('/management/requests') ? 'Attendance'
-    : location.pathname.startsWith('/management/administrator') ? 'ManagementCompany'
-    : location.pathname.startsWith('/management/agenda') ? 'Agenda'
-    : location.pathname.startsWith('/management/assistant') ? 'Assistant'
-    : location.pathname.startsWith('/management/documents') ? 'Documents'
-    : location.pathname.match(/^\/management\/(units|blocks|setup|categories|people)/) ? 'Management' : null;
-  const isRestricted = currentCondominium?.roles.includes('SubManager') && !currentCondominium.roles.includes('Manager') && routeModule !== null && !(subManagerPermissions ?? []).includes(routeModule);
-
+  const routeItem = getNavigationItemForPath(location.pathname);
+  const isRestricted = Boolean(currentCondominium && routeItem && !canAccessNavigationItem(
+    routeItem, currentCondominium.roles, user?.roles ?? [], subManagerPermissions,
+  ));
   // The administrator portal context (/administrator/context) is irrelevant
   // to residents, managers and submanagers — most of them will get an
   // expected 403 from it. Routes must never wait on it to render: a condominium or
@@ -45,7 +42,7 @@ export function AppShell() {
   // flash "no condominium available" for a pure administrator-portal user
   // whose administrator context just hasn't resolved yet.
   const content =
-    isLoading || isManagementLoading ? (
+    isLoading || isManagementLoading || isSwitching ? (
       <PageContainer>
         <Stack spacing={2}>
           <Skeleton variant="rounded" height={180} />
@@ -114,6 +111,7 @@ export function AppShell() {
           sx={{ minHeight: { xs: "64px !important", md: "72px !important" } }}
         />
         <PwaInstallBanner />
+        <PwaUpdatePrompt />
         {content}
       </Box>
       {showNavigation && <MobileBottomNavigation />}
