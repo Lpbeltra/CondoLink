@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace CondoLink.Infrastructure.Migrations;
 
-[Migration("20260903090000_RestoreGlobalSubManagerUniqueness")]
 public partial class RestoreGlobalSubManagerUniqueness : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
