@@ -2,7 +2,7 @@
 
 ## Cardinalidade de SubManager (atualização)
 
-Um condomínio pode ter 0..N SubManagers ativos. Cada usuário pode ter no máximo um vínculo SubManager ativo nesta versão. Um mesmo usuário pode acumular vínculo de morador/unidade e vínculo de SubManager; o vínculo de morador permanece inalterado e a promoção cria novo `CondominiumMembership`. Permissões permanecem vinculadas ao `CondominiumMembershipId`.
+Um condomínio pode ter 0..N SubManagers ativos. Cada usuário pode ter no máximo um vínculo SubManager ativo globalmente. Um mesmo usuário pode acumular `Resident` e `SubManager` no mesmo `CondominiumMembership`; a promoção reutiliza o membership e preserva `UnitMembership`, senha e estado de primeiro acesso. Permissões permanecem vinculadas ao `CondominiumMembershipId`.
 
 Mensagens do atendimento entre Manager/SubManager e Morador aceitam até 3000 caracteres; o limite também vale para respostas do morador e confirmações/questionamentos de conclusão.
 
@@ -1606,8 +1606,9 @@ da API, reiniciando a cada deploy que recria o processo.
 O escopo administrativo de um condomínio é contextual e deriva de um vínculo ativo em
 `CondominiumMembership` com papel ativo `Manager` ou `SubManager`. `Manager` continua
 podendo gerir vários condomínios; `SubManager` representa **Subsíndico** na interface e
-pode ter somente um vínculo ativo globalmente e somente um ocupante ativo por condomínio.
-A API valida esse escopo no banco; papéis globais, inclusive `PlatformAdmin`, não concedem
+deve ter somente um vínculo ativo globalmente. Um condomínio pode ter 0..N `SubManager`
+ativos; `Manager` permanece único por condomínio. `Resident` e `SubManager` podem coexistir
+no mesmo `CondominiumMembership`. A API valida esse escopo no banco; papéis globais, inclusive `PlatformAdmin`, não concedem
 automaticamente o papel contextual. A migration do lote instala uma restrição PostgreSQL
 com advisory locks para serializar atribuições concorrentes de subsíndico.
 
@@ -1755,10 +1756,9 @@ gated por `COMVY_TEST_POSTGRES`):
 - Idempotência de notificação sob concorrência real (duas chamadas simultâneas de
   `NotifyCreatedAsync` para o mesmo destinatário): exatamente 1 `Notification`, com o branch
   `catch(DbUpdateException)` do `DispatchAsync` de fato exercitado pela primeira vez.
-- SubManager único: mesmo usuário não vence em dois condomínios simultaneamente; dois
-  usuários não vencem no mesmo condomínio simultaneamente — este segundo caso só é protegido
-  pelo trigger de banco `enforce_single_active_submanager_role` (o lock de aplicação em
-  `SubManagerEndpoints.AssignAsync` é só por usuário), agora comprovado por teste real.
+- SubManager global por usuário: o mesmo usuário não vence em dois condomínios
+  simultaneamente. O trigger `enforce_single_active_submanager_role` usa advisory lock
+  por `user_id`; múltiplos usuários podem ser SubManager no mesmo condomínio.
 - Administradora ativa única por condomínio: duas trocas concorrentes de vínculo para o
   mesmo condomínio terminam com exatamente um link ativo e nunca alteram o
   `ManagementCompanyId` histórico de uma `ManagementCompanyRequest` já existente.

@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 namespace CondoLink.Tests;
 
 /// <summary>
-/// Lote 6 — item 8: SubManager uniqueness (global-per-user and one-per-condominium) is
+/// SubManager uniqueness (global-per-user) is
 /// enforced by an advisory-lock + DB trigger (see migration
 /// AddManagementCompanyFoundation, function enforce_single_active_submanager_role), but
 /// had zero concurrency coverage anywhere in the suite. These tests exercise the real
@@ -123,9 +123,6 @@ public sealed class SubManagerPostgresConcurrencyTests
         }
         catch (DbUpdateException exception)
         {
-            // The condominium-scoped advisory lock inside the DB trigger is the real
-            // backstop when two different users race for the same condominium: the
-            // app-level pre-check can pass for both before either commits.
             return (false, exception.Message);
         }
     }

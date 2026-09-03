@@ -137,7 +137,10 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
             Assert.Equal(7, await db.SubManagerModulePermissions.CountAsync(x => x.CondominiumMembershipId == membershipId));
         });
         var listed = await client.GetFromJsonAsync<List<SubManagerEndpoints.Response>>("/overwatch/submanagers");
+        Assert.Contains(listed!, item => item.Id == _s1Id && item.CondominiumId == _condominiumId && item.HasActiveLink);
+        Assert.Contains(listed!, item => item.Id == _s2Id && item.CondominiumId == _condominiumId && item.HasActiveLink);
         Assert.Contains(listed!, item => item.Id == _residentId && item.CondominiumId == _condominiumId && item.HasActiveLink);
+        Assert.Equal(3, listed!.Count(item => item.CondominiumId == _condominiumId && item.HasActiveLink));
     }
 
     [Fact]
@@ -150,6 +153,35 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
             existingUserId = _s1Id, condominiumId = _otherCondominiumId
         });
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Existing_inactive_submanager_is_reactivated_in_same_condominium()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            var role = await db.CondominiumMembershipRoles.SingleAsync(x =>
+                x.CondominiumMembershipId == _s2MembershipId && x.Role == CondominiumRole.SubManager);
+            role.Deactivate();
+            await db.SaveChangesAsync();
+        });
+
+        using var client = _host.ClientFor(_platformId);
+        client.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
+        var response = await client.PostAsJsonAsync("/overwatch/submanagers", new
+        {
+            existingUserId = _s2Id, condominiumId = _condominiumId
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.True(await (from m in db.CondominiumMemberships
+                join r in db.CondominiumMembershipRoles on m.Id equals r.CondominiumMembershipId
+                where m.Id == _s2MembershipId && m.IsActive && m.EndedAt == null
+                    && r.Role == CondominiumRole.SubManager && r.IsActive && r.RevokedAt == null
+                select r).AnyAsync());
+        });
     }
 
     [Fact]
