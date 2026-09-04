@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using CondoLink.Api.Features.Overwatch.SubManagers;
 using CondoLink.Api.Features.Auth;
 using CondoLink.Domain.Entities;
@@ -79,6 +80,24 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Permission_catalog_hides_legacy_requests_without_deleting_it()
+    {
+        using var client = _host.ClientFor(_platformId);
+        client.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
+
+        var response = await client.GetAsync($"/overwatch/submanagers/{_s1Id}/permissions");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var rows = await response.Content.ReadFromJsonAsync<List<PermissionRow>>();
+        Assert.Equal(6, rows!.Count);
+        Assert.DoesNotContain(rows, row => row.Module == "Requests");
+        Assert.Contains(rows, row => row.Module == "Attendance");
+
+        await _host.WithDbAsync(async db =>
+            Assert.True(await db.SubManagerModulePermissions.AnyAsync(x =>
+                x.CondominiumMembershipId == _s1MembershipId && x.Module == SubManagerModule.Requests)));
+    }
+
+    [Fact]
     public async Task Creating_submanager_accepts_current_frontend_payload()
     {
         using var client = _host.ClientFor(_platformId);
@@ -134,7 +153,7 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
                 .Select(x => x.Id).SingleAsync();
             Assert.Equal(1, await db.CondominiumMemberships.CountAsync(x => x.UserId == _residentId && x.CondominiumId == _condominiumId));
             Assert.Equal(1, await db.CondominiumMembershipRoles.CountAsync(x => x.CondominiumMembershipId == membershipId && x.Role == CondominiumRole.SubManager));
-            Assert.Equal(7, await db.SubManagerModulePermissions.CountAsync(x => x.CondominiumMembershipId == membershipId));
+            Assert.Equal(6, await db.SubManagerModulePermissions.CountAsync(x => x.CondominiumMembershipId == membershipId));
         });
         var listed = await client.GetFromJsonAsync<List<SubManagerEndpoints.Response>>("/overwatch/submanagers");
         Assert.Contains(listed!, item => item.Id == _s1Id && item.CondominiumId == _condominiumId && item.HasActiveLink);
@@ -229,7 +248,7 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
             Assert.Equal(PixKeyType.Email, users.Single(x => x.Id == firstCreated.Id).PixKeyType);
             Assert.Equal("submanager-pix@test.local", users.Single(x => x.Id == firstCreated.Id).PixKey);
             Assert.Null(users.Single(x => x.Id == secondCreated.Id).PixKeyType);
-            Assert.Equal(7, await db.SubManagerModulePermissions.CountAsync(x => x.CondominiumMembershipId ==
+            Assert.Equal(6, await db.SubManagerModulePermissions.CountAsync(x => x.CondominiumMembershipId ==
                 db.CondominiumMemberships.Where(m => m.UserId == firstCreated.Id).Select(m => m.Id).Single()));
             Assert.Equal(4, await (from m in db.CondominiumMemberships
                 join r in db.CondominiumMembershipRoles on m.Id equals r.CondominiumMembershipId
@@ -243,6 +262,39 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
         Assert.Contains(listed!, item => item.Id == secondCreated.Id);
     }
 
+    [Fact]
+    public async Task Exclusive_submanager_can_be_hard_deleted_and_confirmation_is_required()
+    {
+        using var client = _host.ClientFor(_platformId); client.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
+        var eligibility = await client.GetFromJsonAsync<JsonElement>($"/overwatch/submanagers/{_s2Id}/hard-delete-eligibility");
+        Assert.True(eligibility.GetProperty("canHardDelete").GetBoolean());
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.DeleteAsync($"/overwatch/submanagers/{_s2Id}/hard-delete")).StatusCode);
+        var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/overwatch/submanagers/{_s2Id}/hard-delete") { Content = JsonContent.Create(new { confirmation = "EXCLUIR PERMANENTEMENTE" }) });
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        await _host.WithDbAsync(async db => { Assert.False(await db.Users.AnyAsync(x => x.Id == _s2Id)); Assert.False(await db.CondominiumMemberships.AnyAsync(x => x.Id == _s2MembershipId)); Assert.False(await db.SubManagerModulePermissions.AnyAsync(x => x.CondominiumMembershipId == _s2MembershipId)); });
+    }
+
+    [Fact]
+    public async Task Promoted_resident_hard_delete_removes_only_submanager_role()
+    {
+        using var client = _host.ClientFor(_platformId); client.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
+        await client.PostAsJsonAsync("/overwatch/submanagers", new { existingUserId = _residentId, condominiumId = _condominiumId });
+        var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/overwatch/submanagers/{_residentId}/hard-delete") { Content = JsonContent.Create(new { confirmation = "EXCLUIR PERMANENTEMENTE" }) });
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        await _host.WithDbAsync(async db => { Assert.True(await db.Users.AnyAsync(x => x.Id == _residentId)); Assert.True(await db.UnitMemberships.AnyAsync(x => x.Id == _unitMembershipId)); Assert.True(await db.CondominiumMemberships.AnyAsync(x => x.UserId == _residentId)); Assert.False(await (from r in db.CondominiumMembershipRoles join m in db.CondominiumMemberships on r.CondominiumMembershipId equals m.Id where m.UserId == _residentId && r.Role == CondominiumRole.SubManager && r.IsActive && r.RevokedAt == null select r).AnyAsync()); });
+    }
+
+    [Fact]
+    public async Task Hard_delete_revalidates_history_and_returns_conflict_without_partial_delete()
+    {
+        using var client = _host.ClientFor(_platformId); client.DefaultRequestHeaders.Add("X-Test-Role", "PlatformAdmin");
+        var eligibility = await client.GetFromJsonAsync<JsonElement>($"/overwatch/submanagers/{_s2Id}/hard-delete-eligibility"); Assert.True(eligibility.GetProperty("canHardDelete").GetBoolean());
+        await _host.WithDbAsync(async db => { var category = new Category(_condominiumId, "Histórico", null); db.Add(category); await db.SaveChangesAsync(); db.Requests.Add(new Request(_condominiumId, _s2Id, null, category.Id, "Histórico", "Histórico")); await db.SaveChangesAsync(); });
+        var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/overwatch/submanagers/{_s2Id}/hard-delete") { Content = JsonContent.Create(new { confirmation = "EXCLUIR PERMANENTEMENTE" }) });
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        await _host.WithDbAsync(async db => Assert.True(await db.Users.AnyAsync(x => x.Id == _s2Id)));
+    }
+
     private Task<S2Snapshot> Snapshot(Guid userId) => _host.WithDbAsync(db => Snapshot(userId, db));
     private static async Task<S2Snapshot> Snapshot(Guid userId, AppDbContext db)
     {
@@ -253,5 +305,6 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
     }
 
     private sealed record PermissionSnapshot(SubManagerModule Module, bool Allowed);
+    private sealed record PermissionRow(string Module, bool Allowed);
     private sealed record S2Snapshot(string FullName, string? Email, string? Phone, PixKeyType? PixType, string? PixKey, Guid MembershipId, Guid CondominiumId, PermissionSnapshot[] Permissions);
 }

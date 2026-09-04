@@ -94,6 +94,13 @@ public sealed class OperationalObservabilityTests
     }
 
     [Fact]
+    public void Realtime_is_not_counted_as_conventional_http_latency()
+    {
+        Assert.True(ApiRequestMetrics.IsHeavy("/management-company-requests/realtime"));
+        Assert.False(ApiRequestMetrics.IsHeavy("/management-company-requests/123"));
+    }
+
+    [Fact]
     public void Operational_reason_is_reduced_to_safe_code()
         => Assert.Equal("invalid_reason_code", OperationalTelemetry.SafeCode("timeout: user@example.com"));
 

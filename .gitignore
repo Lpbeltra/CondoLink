@@ -5,6 +5,7 @@
 
 # dotenv files
 .env
+.env.local
 **/data-protection-keys/
 
 # User-specific files

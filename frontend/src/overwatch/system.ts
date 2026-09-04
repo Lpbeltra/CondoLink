@@ -2,7 +2,7 @@ import { api } from '../services/api'
 export type HealthState = 'Healthy' | 'Degraded' | 'Unhealthy' | 'Unknown' | 'Disabled'
 export interface AiMetrics { calls: number; failures: number; successRate?: number; averageLatencyMs?: number; p95LatencyMs?: number; inputTokens: number; outputTokens: number; totalTokens: number }
 export interface SystemStatus {
-  generatedAt: string; globalStatus: HealthState
+  generatedAt: string; globalStatus: HealthState; reasons?: string[]
   components: { name: string; status: HealthState; detail: string }[]
   activity24h: { requestsCreated: number; whatsappReceived: number; whatsappSent: number; aiCalls: number; operationalErrors: number }
   workers: { workerName: string; instanceId: string; status: HealthState; enabled: boolean; lastHeartbeatAt?: string; lastCompletedAt?: string; lastSucceeded?: boolean; lastProcessedItems?: number; lastResultCode?: string }[]

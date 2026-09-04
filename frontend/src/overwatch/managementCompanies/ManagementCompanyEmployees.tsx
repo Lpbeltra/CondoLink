@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
+import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import PowerSettingsNewRoundedIcon from '@mui/icons-material/PowerSettingsNewRounded'
 import {
   Alert,
@@ -15,6 +16,7 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  Menu,
   Paper,
   MenuItem,
   Skeleton,
@@ -31,6 +33,7 @@ import {
 } from '@mui/material'
 import { EmptyState } from '../../components/EmptyState'
 import { TransientFeedback } from '../../components/TransientFeedback'
+import { PermanentDeleteDialog } from '../components/PermanentDeleteDialog'
 import {
   createManagementCompanyEmployee,
   listManagementCompanyEmployees,
@@ -38,6 +41,7 @@ import {
   updateManagementCompanyEmployeeStatus,
   resendManagementCompanyAccess,
   resetManagementCompanyAccessPassword,
+  hardDeleteManagementCompanyEmployee, hardDeleteManagementCompanyEmployeeEligibility,
 } from './api'
 import { employeeCredentialsText } from './credentials'
 import { employeeError } from './errors'
@@ -72,6 +76,13 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
     useState<CreatedManagementCompanyEmployee | null>(null)
   const [pendingAction, setPendingAction] = useState<PendingAction>(null)
   const [feedback, setFeedback] = useState('')
+  const [hardDeleteTarget, setHardDeleteTarget] = useState<ManagementCompanyEmployee | null>(null)
+  const [hardDeleteReason, setHardDeleteReason] = useState<string | null>(null)
+  const [hardDeleteError, setHardDeleteError] = useState('')
+  const [employeeMenu, setEmployeeMenu] = useState<{
+    employee: ManagementCompanyEmployee
+    anchorEl: HTMLElement
+  } | null>(null)
 
   const load = useCallback(async () => {
     setIsLoading(true)
@@ -178,6 +189,8 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
       setIsSaving(false)
     }
   }
+  const openHardDelete = async (employee: ManagementCompanyEmployee) => { setHardDeleteTarget(employee); setHardDeleteReason(null); setHardDeleteError(''); try { const result = await hardDeleteManagementCompanyEmployeeEligibility(employee.id); setHardDeleteReason(result.canHardDelete ? null : result.reason || 'Este acesso não pode ser excluído permanentemente.') } catch (error) { setHardDeleteReason(employeeError(error)) } }
+  const confirmHardDelete = async () => { if (!hardDeleteTarget || isSaving || hardDeleteReason) return; setIsSaving(true); setHardDeleteError(''); try { await hardDeleteManagementCompanyEmployee(hardDeleteTarget.id); setEmployees(current => current.filter(item => item.id !== hardDeleteTarget.id)); setHardDeleteTarget(null); setFeedback('Acesso excluído permanentemente.') } catch (error) { setHardDeleteError(employeeError(error)) } finally { setIsSaving(false) } }
 
   return (
     <Box>
@@ -271,6 +284,12 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
                         <DeleteOutlineRoundedIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
+                    <IconButton
+                      aria-label={`Mais ações de ${employee.fullName}`}
+                      onClick={(event) => setEmployeeMenu({ employee, anchorEl: event.currentTarget })}
+                    >
+                      <MoreVertRoundedIcon fontSize="small" />
+                    </IconButton>
                   </TableCell>
                 </TableRow>
               ))}
@@ -446,6 +465,25 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
         </DialogActions>
       </Dialog>
 
+      <Menu
+        open={Boolean(employeeMenu)}
+        anchorEl={employeeMenu?.anchorEl}
+        onClose={() => setEmployeeMenu(null)}
+      >
+        {employeeMenu && (
+          <MenuItem
+            onClick={() => {
+              const employee = employeeMenu.employee
+              setEmployeeMenu(null)
+              void openHardDelete(employee)
+            }}
+          >
+            Excluir permanentemente
+          </MenuItem>
+        )}
+      </Menu>
+
+      <PermanentDeleteDialog open={Boolean(hardDeleteTarget)} displayName={hardDeleteTarget?.fullName ?? ''} contextLabel="acesso da administradora" expectedConfirmation="EXCLUIR PERMANENTEMENTE" loading={isSaving} reason={hardDeleteReason} error={hardDeleteError} onClose={() => setHardDeleteTarget(null)} onConfirm={() => void confirmHardDelete()} />
       <TransientFeedback
         message={feedback}
         severity="success"

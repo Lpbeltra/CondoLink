@@ -401,5 +401,6 @@ app.MapWhatsAppAdministration();
 app.MapOverwatchEndpoints();
 
 await app.InitializePlatformAdminAsync();
+await app.InitializeDevelopmentSeedAsync();
 
 app.Run();

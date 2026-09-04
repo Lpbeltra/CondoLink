@@ -106,7 +106,7 @@ public static class ListCondominiumRequests
                 .Where(m => m.UserId == authenticatedUserId && m.IsActive && m.EndedAt == null)
                 .Join(dbContext.CondominiumMembershipRoles.AsNoTracking().Where(r => r.Role == CondominiumRole.SubManager && r.IsActive && r.RevokedAt == null), m => m.Id, r => r.CondominiumMembershipId, (m, _) => m.Id)
                 .Where(id => !dbContext.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == id)
-                    || dbContext.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == id && p.Module == SubManagerModule.Requests && p.IsAllowed && p.RevokedAt == null));
+                    || dbContext.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == id && p.Module == SubManagerModule.Attendance && p.IsAllowed && p.RevokedAt == null));
             condominiumRequests = condominiumRequests.Where(x => permitted.Any(id => dbContext.CondominiumMemberships.Any(m => m.Id == id && m.CondominiumId == x.CondominiumId)));
         }
 

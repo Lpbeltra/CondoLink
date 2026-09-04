@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
+using CondoLink.Api.Features.Management;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
@@ -164,10 +165,8 @@ public static class RequestAttachmentEndpoints
             .Select(x => new { x.AuthorUserId, x.CondominiumId, x.Status }).SingleOrDefaultAsync(cancellationToken);
         if (target is null)
             return new(userId, user.FullName, default, false, Results.NotFound(new { error = "Request not found." }));
-        var manager = await dbContext.CondominiumMemberships.AsNoTracking()
-                .Where(x => x.UserId == userId && x.CondominiumId == target.CondominiumId && x.IsActive && x.EndedAt == null)
-                .Join(dbContext.CondominiumMembershipRoles.AsNoTracking().Where(x => (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive && x.RevokedAt == null),
-                    x => x.Id, x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(cancellationToken);
+        var manager = await SubManagerAccess.HasAsync(dbContext, userId,
+            target.CondominiumId, SubManagerModule.Attendance, cancellationToken);
         if (target.AuthorUserId != userId && !manager)
             return new(userId, user.FullName, target.Status, false, Results.Json(new { error = "You do not have access to this request." }, statusCode: 403));
         return new(userId, user.FullName, target.Status, manager, null);

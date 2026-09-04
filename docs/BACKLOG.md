@@ -1248,4 +1248,4 @@ A prioridade real deverá ser revisada após validação do MVP com usuários.
 - Concluído: contexto da Administradora condicionado à elegibilidade retornada pela sessão autenticada.
 # Lote SubManager — permissões e primeiro acesso
 
-Implementada a base contextual persistente de permissões por módulo, com default compatível integral, gerenciamento no Overwatch, primeiro acesso/reset reaproveitando os endpoints existentes e autoria por usuário autenticado. Solicitações (`Request`) e Atendimento (`/management/requests`) permanecem módulos operacionais distintos.
+Implementada a base contextual persistente de permissões por módulo, com default compatível integral, gerenciamento no Overwatch, primeiro acesso/reset reaproveitando os endpoints existentes e autoria por usuário autenticado. `Requests` permanece valor histórico; Atendimento (`/management/requests`) usa `Attendance` como permissão operacional.

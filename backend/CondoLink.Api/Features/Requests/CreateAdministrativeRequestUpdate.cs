@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CondoLink.Api.Features.Notifications;
+using CondoLink.Api.Features.Management;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
@@ -32,13 +33,8 @@ public static class CreateAdministrativeRequestUpdate
         if (!active) return Results.Forbid();
         var request = await db.Requests.SingleOrDefaultAsync(x => x.Id == requestId, ct);
         if (request is null) return Results.NotFound(new { error = "Request not found." });
-        var manager = await db.CondominiumMemberships.AsNoTracking()
-            .Where(x => x.UserId == userId && x.CondominiumId == request.CondominiumId
-                && x.IsActive && x.EndedAt == null)
-            .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x =>
-                    (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager) && x.IsActive
-                    && x.RevokedAt == null), x => x.Id,
-                x => x.CondominiumMembershipId, (_, _) => true).AnyAsync(ct);
+        var manager = await SubManagerAccess.HasAsync(db, userId, request.CondominiumId,
+            SubManagerModule.Attendance, ct);
         if (!manager) return Results.Forbid();
         if (request.Status is not RequestStatus.InProgress
             and not RequestStatus.WaitingForThirdParty)

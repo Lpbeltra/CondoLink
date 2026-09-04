@@ -60,6 +60,8 @@ export async function updateManagementCompanyEmployeeStatus(
 export async function removeManagementCompanyEmployee(employeeId: string) {
   await api.delete(`/employees/${employeeId}`)
 }
+export async function hardDeleteManagementCompanyEmployee(employeeId: string) { await api.delete(`/overwatch/management-company-accesses/${employeeId}/hard-delete`, { data: { confirmation: 'EXCLUIR PERMANENTEMENTE' } }) }
+export async function hardDeleteManagementCompanyEmployeeEligibility(employeeId: string) { return (await api.get<{ canHardDelete: boolean; reason: string | null }>(`/overwatch/management-company-accesses/${employeeId}/hard-delete-eligibility`)).data }
 
 export async function permanentlyDeleteManagementCompanyRequest(id: string, friendlyIdentifier: string) {
   await api.delete(`/overwatch/management-company-requests/${id}`, { data: { friendlyIdentifier } })

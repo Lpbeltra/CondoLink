@@ -9,9 +9,11 @@ export async function createSubManager(input: SubManagerInput) { return (await a
 export async function searchExistingUsers(query: string, condominiumId: string, signal?: AbortSignal) { return (await api.get<ExistingUser[]>('/overwatch/submanagers/search', { params: { query, condominiumId }, signal })).data }
 export async function updateSubManager(id: string, input: SubManagerInput) { await api.put(`/overwatch/submanagers/${id}`, input) }
 export async function setSubManagerStatus(id: string, isActive: boolean) { await api.patch(`/overwatch/submanagers/${id}/status`, { isActive }) }
-export const subManagerModules = ['Requests', 'Attendance', 'ManagementCompany', 'Agenda', 'Assistant', 'Documents', 'Management'] as const
+export const subManagerModules = ['Attendance', 'ManagementCompany', 'Agenda', 'Assistant', 'Documents', 'Management'] as const
 export type SubManagerModule = typeof subManagerModules[number]
 export async function listSubManagerPermissions(id: string) { return (await api.get<{ module: SubManagerModule; allowed: boolean }[]>(`/overwatch/submanagers/${id}/permissions`)).data }
 export async function updateSubManagerPermissions(id: string, permissions: { module: SubManagerModule; allowed: boolean }[]) { await api.put(`/overwatch/submanagers/${id}/permissions`, { permissions }) }
 export async function resendSubManagerFirstAccess(item: SubManager, channel = 'WhatsAppAndEmail') { return (await api.post(`/condominiums/${item.condominiumId}/members/${item.id}/first-access/resend`, { channel })).data as { status: string; emailSent?: boolean; whatsappQueued?: boolean } }
 export async function resetSubManagerPassword(item: SubManager) { return (await api.post<{ temporaryPassword: string }>(`/condominiums/${item.condominiumId}/members/${item.id}/reset-temporary-password`)).data }
+export async function hardDeleteSubManager(id: string) { await api.delete(`/overwatch/submanagers/${id}/hard-delete`, { data: { confirmation: 'EXCLUIR PERMANENTEMENTE' } }) }
+export async function hardDeleteSubManagerEligibility(id: string) { return (await api.get<{ canHardDelete: boolean; reason: string | null; canRemoveLinkOnly: boolean }>(`/overwatch/submanagers/${id}/hard-delete-eligibility`)).data }

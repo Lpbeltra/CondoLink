@@ -25,6 +25,7 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
     private Guid _managerId;
     private Guid _otherManagerId;
     private Guid _residentId;
+    private Guid _subManagerId;
     private Guid _requestId;
     private readonly StatusSuggestionAi _statusSuggestionAi = new();
 
@@ -55,6 +56,7 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
             var otherCondominium = new Condominium("Residencial Beta", null, null);
             var manager = CoreTestSeed.User("Sindico Alfa", "alfa@example.com");
             var otherManager = CoreTestSeed.User("Sindico Beta", "beta@example.com");
+            var subManager = CoreTestSeed.User("Subsíndico Alfa", "submanager@example.com");
             var resident = CoreTestSeed.User("Morador", "morador@example.com");
             var category = new Category(condominium.Id, "Manutenção", null);
             var request = new DomainRequest(
@@ -63,13 +65,20 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
 
             db.AddRange(
                 condominium, otherCondominium, manager, otherManager,
-                resident, category, request);
+                subManager, resident, category, request);
             CoreTestSeed.AddMember(
                 db, manager.Id, condominium.Id, CondominiumRole.Manager);
             CoreTestSeed.AddMember(
                 db, otherManager.Id, otherCondominium.Id, CondominiumRole.Manager);
             CoreTestSeed.AddMember(
                 db, resident.Id, condominium.Id, CondominiumRole.Resident);
+            var subManagerMembership = CoreTestSeed.AddMember(
+                db, subManager.Id, condominium.Id, CondominiumRole.SubManager);
+            db.SubManagerModulePermissions.AddRange(
+                new SubManagerModulePermission(subManagerMembership.Id,
+                    SubManagerModule.Requests, manager.Id),
+                new SubManagerModulePermission(subManagerMembership.Id,
+                    SubManagerModule.Attendance, manager.Id));
             await db.SaveChangesAsync();
             // Mantém a cobertura das transições de solicitações legadas ainda abertas.
             await db.Requests.Where(item => item.Id == request.Id).ExecuteUpdateAsync(
@@ -79,6 +88,7 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
             _managerId = manager.Id;
             _otherManagerId = otherManager.Id;
             _residentId = resident.Id;
+            _subManagerId = subManager.Id;
             _requestId = request.Id;
         });
     }
@@ -279,6 +289,19 @@ public sealed class RequestStatusEndpointsTests : IAsyncLifetime
         Assert.Equal(_requestId, session.RequestId);
         var history = Assert.Single(await HistoryAsync());
         Assert.Equal($"request-status:{history.Id}", outbound.IdempotencyKey);
+    }
+
+    [Fact]
+    public async Task Submanager_with_attendance_without_requests_can_update_status()
+    {
+        await _host.WithDbAsync(db => db.SubManagerModulePermissions
+            .Where(x => x.Module == SubManagerModule.Requests)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.IsAllowed, false)));
+
+        var response = await _host.ClientFor(_subManagerId).PatchAsJsonAsync(
+            $"/requests/{_requestId}/status", new { status = "InProgress" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]

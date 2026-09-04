@@ -10,6 +10,8 @@ using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Mvc;
+using DomainRequest = CondoLink.Domain.Entities.Request;
 
 namespace CondoLink.Api.Features.Overwatch.SubManagers;
 
@@ -27,6 +29,8 @@ public static class SubManagerEndpoints
         group.MapGet("/{userId:guid}/permissions", ListPermissionsAsync);
         group.MapPut("/{userId:guid}/permissions", UpdatePermissionsAsync);
         group.MapDelete("/{userId:guid}/condominium", RemoveAsync);
+        group.MapGet("/{userId:guid}/hard-delete-eligibility", HardDeleteEligibilityAsync);
+        group.MapDelete("/{userId:guid}/hard-delete", HardDeleteAsync);
         return endpoints;
     }
 
@@ -176,6 +180,7 @@ public static class SubManagerEndpoints
         await db.SaveChangesAsync(ct);
         var rows = await db.SubManagerModulePermissions.AsNoTracking()
             .Where(x => x.CondominiumMembershipId == membership.Role.CondominiumMembershipId)
+            .Where(x => SubManagerAccess.ConfigurableModules.Contains(x.Module))
             .OrderBy(x => x.Module)
             .Select(x => new { module = x.Module.ToString(), allowed = x.IsAllowed })
             .ToListAsync(ct);
@@ -186,8 +191,9 @@ public static class SubManagerEndpoints
     {
         var membership = await ActiveRoleAsync(userId, db, ct);
         if (membership is null) return Results.NotFound();
-        if (request.Permissions is null || request.Permissions.Count != Enum.GetValues<SubManagerModule>().Length
-            || request.Permissions.Any(x => !Enum.TryParse<SubManagerModule>(x.Module, true, out _)))
+        if (request.Permissions is null || request.Permissions.Count != SubManagerAccess.ConfigurableModules.Count
+            || request.Permissions.Any(x => !Enum.TryParse<SubManagerModule>(x.Module, true, out var module)
+                || !SubManagerAccess.ConfigurableModules.Contains(module)))
             return Results.BadRequest(new { message = "Informe exatamente uma permissão por módulo." });
         foreach (var item in request.Permissions)
         {
@@ -265,6 +271,63 @@ public static class SubManagerEndpoints
         return Results.NoContent();
     }
 
+    private static async Task<IResult> HardDeleteEligibilityAsync(Guid userId, AppDbContext db, CancellationToken ct)
+    {
+        var result = await EvaluateHardDeleteAsync(userId, db, ct);
+        return result is null ? Results.NotFound() : Results.Ok(result);
+    }
+
+    private static async Task<IResult> HardDeleteAsync(Guid userId, [FromBody] HardDeleteConfirmation confirmation, AppDbContext db, CancellationToken ct)
+    {
+        if (!string.Equals(confirmation.Confirmation, "EXCLUIR PERMANENTEMENTE", StringComparison.Ordinal))
+            return Results.BadRequest(new { message = "Confirmação inválida." });
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var result = await EvaluateHardDeleteAsync(userId, db, ct);
+        if (result is null) return Results.NotFound();
+        if (!result.CanHardDelete && !result.CanRemoveLinkOnly) return Results.Conflict(new { message = result.Reason });
+        var role = await (from membership in db.CondominiumMemberships
+                          join row in db.CondominiumMembershipRoles on membership.Id equals row.CondominiumMembershipId
+                          where membership.UserId == userId && row.Role == CondominiumRole.SubManager && row.IsActive && row.RevokedAt == null
+                          select row).SingleAsync(ct);
+        var membershipId = role.CondominiumMembershipId;
+        db.SubManagerModulePermissions.RemoveRange(db.SubManagerModulePermissions.Where(x => x.CondominiumMembershipId == membershipId));
+        db.CondominiumMembershipRoles.Remove(role);
+        var hasOtherRole = await db.CondominiumMembershipRoles.AnyAsync(x => x.CondominiumMembershipId == membershipId && x.Id != role.Id && x.IsActive && x.RevokedAt == null, ct);
+        if (!hasOtherRole && !result.CanRemoveLinkOnly) db.CondominiumMemberships.Remove(await db.CondominiumMemberships.SingleAsync(x => x.Id == membershipId, ct));
+        if (result.CanHardDelete) db.Users.Remove(await db.Users.SingleAsync(x => x.Id == userId, ct));
+        try { await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); }
+        catch (DbUpdateException) { return Results.Conflict(new { message = "O registro mudou e não pode ser excluído com segurança. Atualize a tela e tente novamente." }); }
+        return Results.NoContent();
+    }
+
+    private static async Task<HardDeleteResult?> EvaluateHardDeleteAsync(Guid userId, AppDbContext db, CancellationToken ct)
+    {
+        if (!await db.Users.AnyAsync(x => x.Id == userId, ct)) return null;
+        var subManagerRole = await (from membership in db.CondominiumMemberships
+                                    join role in db.CondominiumMembershipRoles on membership.Id equals role.CondominiumMembershipId
+                                    where membership.UserId == userId && role.Role == CondominiumRole.SubManager && role.IsActive && role.RevokedAt == null
+                                    select new { membership.Id }).SingleOrDefaultAsync(ct);
+        if (subManagerRole is null) return new(false, "Este usuário não possui vínculo ativo de subsíndico.", false);
+        var hasResidentLink = await db.UnitMemberships.AnyAsync(x => x.UserId == userId, ct);
+        var hasOtherMembershipRole = await (from membership in db.CondominiumMemberships
+                                            join role in db.CondominiumMembershipRoles on membership.Id equals role.CondominiumMembershipId
+                                            where membership.UserId == userId && role.CondominiumMembershipId != subManagerRole.Id && role.IsActive && role.RevokedAt == null
+                                            select role).AnyAsync(ct);
+        var hasAnyHistory = await db.Set<DomainRequest>().AnyAsync(x => x.AuthorUserId == userId, ct)
+            || await db.RequestMessages.AnyAsync(x => x.AuthorUserId == userId, ct)
+            || await db.RequestStatusHistories.AnyAsync(x => x.ChangedByUserId == userId, ct)
+            || await db.RequestAttachments.AnyAsync(x => x.UploadedByUserId == userId, ct)
+            || await db.ManagementCompanyRequests.AnyAsync(x => x.CreatedByUserId == userId || x.AcknowledgedByUserId == userId || x.CompletedByUserId == userId || x.CancelledByUserId == userId, ct)
+            || await db.ManagementCompanyRequestMessages.AnyAsync(x => x.AuthorUserId == userId, ct)
+            || await db.ManagementCompanyRequestHistories.AnyAsync(x => x.ChangedByUserId == userId, ct)
+            || await db.ManagementCompanyRequestAttachments.AnyAsync(x => x.UploadedByUserId == userId, ct)
+            || await db.ManagementCompanyEmployees.AnyAsync(x => x.UserId == userId, ct)
+            || await db.Notifications.AnyAsync(x => x.RecipientUserId == userId, ct);
+        if (hasResidentLink || hasOtherMembershipRole) return new(false, "Este usuário possui outro vínculo e sua conta precisa ser preservada.", true);
+        if (hasAnyHistory) return new(false, "Este subsíndico possui histórico e não pode ser excluído permanentemente.", false);
+        return new(true, null, false);
+    }
+
     /// <summary>Internal (not private) so Postgres-backed concurrency tests can call the real assignment path directly.</summary>
     internal static async Task<string?> AssignAsync(ApplicationUser user, Guid condominiumId, AppDbContext db, CancellationToken ct)
     {
@@ -334,6 +397,8 @@ public static class SubManagerEndpoints
     public sealed record StatusRequest(bool IsActive);
     public sealed record PermissionRequest(IReadOnlyList<PermissionItem>? Permissions);
     public sealed record PermissionItem(string Module, bool Allowed);
+    public sealed record HardDeleteConfirmation(string Confirmation);
+    public sealed record HardDeleteResult(bool CanHardDelete, string? Reason, bool CanRemoveLinkOnly);
     public sealed record Response(Guid Id, string FullName, string Email, string? PhoneNumber,
         PixKeyType? PixKeyType, string? PixKey, bool IsActive, Guid CondominiumId,
         string CondominiumName, bool HasActiveLink, DateTime CreatedAt, DateTime UpdatedAt);

@@ -6,7 +6,7 @@ import type { OverwatchCondominium } from '../condominiums/types'
 import { createSubManager, listSubManagers, setSubManagerStatus, listSubManagerPermissions, updateSubManagerPermissions, resendSubManagerFirstAccess, resetSubManagerPassword, updateSubManager, subManagerModules, type PixKeyType, type SubManager, type SubManagerModule } from '../submanagers/api'
 import { PixFields } from '../components/PixFields'
 
-const labels: Record<SubManagerModule, string> = { Requests: 'Solicitações', Attendance: 'Atendimento', ManagementCompany: 'Administradora', Agenda: 'Agenda', Assistant: 'Assistente', Documents: 'Documentos', Management: 'Gestão' }
+const labels: Record<SubManagerModule, string> = { Attendance: 'Atendimento', ManagementCompany: 'Administradora', Agenda: 'Agenda', Assistant: 'Assistente', Documents: 'Documentos', Management: 'Gestão' }
 const emptyForm = () => ({ fullName: '', email: '', phoneNumber: '', condominiumId: '', pixKeyType: '' as PixKeyType | '', pixKey: '' })
 
 export function OverwatchSubManagersPage() {

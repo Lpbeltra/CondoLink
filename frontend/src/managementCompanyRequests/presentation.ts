@@ -26,6 +26,15 @@ export const money = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
     value,
   );
+export const moneyInput = (value: number | null | undefined) =>
+  value == null ? "" : new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+export function parseMoneyInput(value: string): number | null {
+  const raw = value.replace(/R\$\s*/gi, "").replace(/\s/g, "").trim();
+  if (!raw) return null;
+  const normalized = raw.includes(",") ? raw.replace(/\./g, "").replace(",", ".") : raw;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
 export const date = (value: string) =>
   new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium" }).format(
     new Date(`${value.slice(0, 10)}T12:00:00`),

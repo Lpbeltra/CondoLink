@@ -107,7 +107,7 @@ public static class GetRequestById
                     dbContext.CondominiumMembershipRoles
                         .AsNoTracking()
                         .Where(role =>
-                            (role.Role == CondominiumRole.Manager || (role.Role == CondominiumRole.SubManager && (!dbContext.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == role.CondominiumMembershipId) || dbContext.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == role.CondominiumMembershipId && p.Module == SubManagerModule.Requests && p.IsAllowed && p.RevokedAt == null))))
+                            (role.Role == CondominiumRole.Manager || (role.Role == CondominiumRole.SubManager && (!dbContext.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == role.CondominiumMembershipId) || dbContext.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == role.CondominiumMembershipId && p.Module == SubManagerModule.Attendance && p.IsAllowed && p.RevokedAt == null))))
                             && role.IsActive
                             && role.RevokedAt == null),
                     membership => membership.Id,

@@ -3,6 +3,7 @@ namespace CondoLink.Domain.Enums;
 /// <summary>Stable module identifiers used only for contextual SubManager access.</summary>
 public enum SubManagerModule
 {
+    // Legacy persisted value. Operational request access belongs to Attendance.
     Requests = 1,
     Attendance = 2,
     ManagementCompany = 3,

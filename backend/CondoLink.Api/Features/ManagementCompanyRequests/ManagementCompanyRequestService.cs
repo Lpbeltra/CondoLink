@@ -111,7 +111,14 @@ public sealed class ManagementCompanyRequestService(AppDbContext db, ManagementC
             {
                 case ManagementCompanyRequestType.Fine:
                     if (command.Fine is null || !await db.Units.AnyAsync(x => x.Id == command.Fine.UnitId && x.CondominiumId == request.CondominiumId, ct)) throw new ValidationAppException("A unidade não pertence ao condomínio selecionado.");
-                    (await db.ManagementCompanyFineRequests.SingleAsync(x => x.RequestId == request.Id, ct)).Update(command.Fine.UnitId, command.Fine.Nature, command.Fine.Description, command.Fine.OccurrenceDate, command.Fine.Value, command.Fine.ValueNotDefined);
+                    try
+                    {
+                        (await db.ManagementCompanyFineRequests.SingleAsync(x => x.RequestId == request.Id, ct)).Update(command.Fine.UnitId, command.Fine.Nature, command.Fine.Description, command.Fine.OccurrenceDate, command.Fine.Value, command.Fine.ValueNotDefined);
+                    }
+                    catch (ArgumentException exception)
+                    {
+                        throw new ValidationAppException(exception.Message);
+                    }
                     break;
                 case ManagementCompanyRequestType.Payment:
                     if (command.Payment is null) throw new ValidationAppException("Dados de pagamento obrigatórios.");

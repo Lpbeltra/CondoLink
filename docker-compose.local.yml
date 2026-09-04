@@ -1,0 +1,67 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-comvy_local}
+      POSTGRES_USER: ${POSTGRES_USER:-comvy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-comvy_local_only}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - comvy_local_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: CondoLink.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: 8080
+      PlatformAdmin__Email: ${PLATFORM_ADMIN_EMAIL:-admin@local.comvy}
+      PlatformAdmin__Password: ${PLATFORM_ADMIN_PASSWORD:-ComvyLocal123!}
+      DevelopmentSeed__Enabled: "true"
+      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=${POSTGRES_DB:-comvy_local};Username=${POSTGRES_USER:-comvy};Password=${POSTGRES_PASSWORD:-comvy_local_only}
+      Jwt__Issuer: CondoLink.Local
+      Jwt__Audience: CondoLink.Local
+      Jwt__Key: ${JWT_KEY:-comvy-local-development-key-32-bytes-minimum}
+      Jwt__ExpirationMinutes: 60
+      Cors__AllowedOrigins__0: http://localhost:3000
+      FirstAccess__FrontendBaseUrl: http://localhost:3000
+      FileStorage__RootPath: /app/data/attachments
+      DataProtection__KeysPath: /app/data-protection-keys
+      WhatsApp__Enabled: "false"
+      WhatsApp__OutboundWorkerEnabled: "false"
+      Email__Enabled: "false"
+      RequestDraftAi__Enabled: "false"
+      RequestDraftAiAudio__Enabled: "false"
+      DocumentOcr__Enabled: "false"
+      CondominiumAssistant__Enabled: "false"
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - comvy_local_attachments:/app/data/attachments
+      - comvy_local_dataprotection:/app/data-protection-keys
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:8080
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  comvy_local_db:
+  comvy_local_attachments:
+  comvy_local_dataprotection:

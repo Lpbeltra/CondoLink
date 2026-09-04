@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getMobileNavigationItems, getMobileNavigationParts, getMobileSelectedPath, getMoreNavigationItems, getNavigationItems, shouldShowGeneralCondominiumSwitcher } from "./navigation";
 import type { CondominiumContext } from "../condominiums/types";
 
-const allPermissions = ["Requests", "Attendance", "ManagementCompany", "Agenda", "Assistant", "Documents", "Management"];
+const allPermissions = ["Attendance", "ManagementCompany", "Agenda", "Assistant", "Documents", "Management"];
 
 describe("role-based navigation", () => {
   it("keeps Resident navigation free of administrative modules", () => {
@@ -11,13 +11,13 @@ describe("role-based navigation", () => {
   });
 
   it("gives Manager the complete catalog", () => {
-    expect(getNavigationItems(["Manager", "Resident"]).map(item => item.label)).toEqual(["Dashboard", "Solicitações", "Atendimento", "Administradora", "Agenda", "Assistente", "Documentos", "Gestão"]);
-    expect(getMobileNavigationItems(["Manager"]).map(item => item.label)).toEqual(["Dashboard", "Solicitações", "Assistente", "Mais"]);
+    expect(getNavigationItems(["Manager", "Resident"]).map(item => item.label)).toEqual(["Dashboard", "Atendimento", "Administradora", "Agenda", "Assistente", "Documentos", "Gestão"]);
+    expect(getMobileNavigationItems(["Manager"]).map(item => item.label)).toEqual(["Dashboard", "Assistente", "Atendimento", "Mais"]);
   });
 
-  it("maps all seven real SubManager permissions, including Assistant", () => {
+  it("maps six configurable SubManager permissions, including Assistant", () => {
     expect(getNavigationItems(["SubManager"], [], allPermissions).map(item => item.path)).toEqual([
-      "/requests", "/management/requests", "/management/administrator", "/management/agenda", "/management/assistant", "/management/documents", "/management/units",
+      "/management/requests", "/management/administrator", "/management/agenda", "/management/assistant", "/management/documents", "/management/units",
     ]);
     expect(getNavigationItems(["SubManager"], [], ["Assistant"]).map(item => item.label)).toEqual(["Assistente"]);
     expect(getNavigationItems(["SubManager"], [], []).map(item => item.label)).toEqual([]);
@@ -25,9 +25,9 @@ describe("role-based navigation", () => {
 
   it("partitions authorized modules without loss or duplication", () => {
     const parts = getMobileNavigationParts(["SubManager"], [], allPermissions);
-    expect(parts.allowed.map(item => item.label)).toEqual(["Solicitações", "Atendimento", "Administradora", "Agenda", "Assistente", "Documentos", "Gestão"]);
-    expect(parts.bottom.map(item => item.label)).toEqual(["Solicitações", "Assistente", "Atendimento"]);
-    expect(parts.more.map(item => item.label)).toEqual(["Administradora", "Agenda", "Documentos", "Gestão"]);
+    expect(parts.allowed.map(item => item.label)).toEqual(["Atendimento", "Administradora", "Agenda", "Assistente", "Documentos", "Gestão"]);
+    expect(parts.bottom.map(item => item.label)).toEqual(["Assistente", "Atendimento", "Agenda"]);
+    expect(parts.more.map(item => item.label)).toEqual(["Administradora", "Documentos", "Gestão"]);
     expect(new Set([...parts.bottom, ...parts.more]).size).toBe(parts.allowed.length);
     expect(getMoreNavigationItems(["SubManager"], [], allPermissions)).toEqual(parts.more);
   });

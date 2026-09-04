@@ -6,6 +6,11 @@ namespace CondoLink.Api.Features.Management;
 
 public static class SubManagerAccess
 {
+    public static IReadOnlyList<SubManagerModule> ConfigurableModules { get; } =
+        [SubManagerModule.Attendance, SubManagerModule.ManagementCompany,
+         SubManagerModule.Agenda, SubManagerModule.Assistant,
+         SubManagerModule.Documents, SubManagerModule.Management];
+
     public static IQueryable<Guid> ActiveMemberships(AppDbContext db, Guid userId, Guid condominiumId) =>
         from membership in db.CondominiumMemberships.AsNoTracking()
         join role in db.CondominiumMembershipRoles.AsNoTracking() on membership.Id equals role.CondominiumMembershipId
@@ -25,7 +30,7 @@ public static class SubManagerAccess
     public static async Task EnsureDefaultsAsync(AppDbContext db, Guid membershipId, Guid actorUserId, CancellationToken ct)
     {
         var existing = await db.SubManagerModulePermissions.Where(x => x.CondominiumMembershipId == membershipId).ToListAsync(ct);
-        foreach (var module in Enum.GetValues<SubManagerModule>())
+        foreach (var module in ConfigurableModules)
             if (existing.All(x => x.Module != module)) db.SubManagerModulePermissions.Add(new(membershipId, module, actorUserId));
     }
 }

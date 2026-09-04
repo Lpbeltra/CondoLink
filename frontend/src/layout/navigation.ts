@@ -34,7 +34,7 @@ export const managementEntryPath = "/management/dashboard";
 
 const commonItems: NavigationItem[] = [
   { label: "Dashboard", path: "/management/dashboard", icon: AssessmentRoundedIcon, requiredRole: "Manager", mobilePrimary: true, mobilePriority: 10 },
-  { label: "Solicitações", path: "/requests", icon: ForumRoundedIcon, requiredModule: "Requests", mobilePrimary: true, mobilePriority: 20, residentAllowed: true },
+  { label: "Solicitações", path: "/requests", icon: ForumRoundedIcon, requiredRole: "Resident", residentAllowed: true },
   { label: "Atendimento", path: "/management/requests", icon: SupportAgentRoundedIcon, requiredRole: "Manager", requiredModule: "Attendance", mobilePriority: 40 },
   { label: "Administradora", path: "/management/administrator", icon: BusinessRoundedIcon, requiredRole: "Manager", requiredModule: "ManagementCompany", mobilePriority: 70 },
   { label: "Agenda", path: "/management/agenda", icon: EventNoteRoundedIcon, requiredRole: "Manager", requiredModule: "Agenda", mobilePriority: 50 },
@@ -46,6 +46,7 @@ const commonItems: NavigationItem[] = [
 
 export function canAccessNavigationItem(item: NavigationItem, roles: CondominiumRole[], userRoles: string[] = [], subManagerPermissions?: string[]) {
   if (item.platformAdminOnly && !userRoles.includes("PlatformAdmin")) return false;
+  if (item.requiredRole === "Resident" && (roles.includes("Manager") || roles.includes("SubManager"))) return false;
   if (!item.requiredRole && !item.requiredModule) return true;
   if (item.residentAllowed && roles.includes("Resident")) return true;
   if (roles.includes("Manager")) return true;

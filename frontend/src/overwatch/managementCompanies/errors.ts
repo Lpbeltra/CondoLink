@@ -70,6 +70,7 @@ export function employeeError(error: unknown) {
       const message = getResponseMessage(error)
       if (message?.includes('acesso ativo')) return 'Ja existe um acesso ativo com este e-mail nesta administradora.'
       if (message?.includes('acesso inativo')) return 'Ja existe um acesso inativo com este e-mail. Reative o acesso existente em vez de criar um novo.'
+      if (message && !message.includes('already belongs')) return message
       return message?.includes('already belongs')
         ? 'Este usuário já pertence a uma administradora.'
         : 'Já existe um usuário cadastrado com este e-mail.'
