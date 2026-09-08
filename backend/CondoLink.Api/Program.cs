@@ -376,6 +376,7 @@ app.MapManageCategory();
 // Requests
 app.MapCreateRequest();
 app.MapGetRequestById();
+app.MapRequestInternalNotes();
 app.MapListMyRequests();
 app.MapListCondominiumRequests();
 app.MapUpdateRequestStatus();

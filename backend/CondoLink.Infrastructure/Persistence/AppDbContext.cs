@@ -45,6 +45,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RequestStatusHistory> RequestStatusHistories =>
         Set<RequestStatusHistory>();
     public DbSet<RequestMessage> RequestMessages => Set<RequestMessage>();
+    public DbSet<RequestInternalNote> RequestInternalNotes => Set<RequestInternalNote>();
     public DbSet<RequestAttachment> RequestAttachments => Set<RequestAttachment>();
     public DbSet<RequestAiAnalysis> RequestAiAnalyses => Set<RequestAiAnalysis>();
     public DbSet<RequestResidentReplyRequirement> RequestResidentReplyRequirements =>

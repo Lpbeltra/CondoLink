@@ -1,5 +1,7 @@
+using CondoLink.Api.Features.WhatsApp;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Text.Json.Serialization;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
@@ -152,7 +154,16 @@ public static class GetRequestById
                     history.ChangedByUserId,
                     ChangedByFullName = user.FullName,
                     history.Reason,
-                    history.CreatedAt
+                    history.CreatedAt,
+                    WhatsAppStatus = dbContext.WhatsAppOutboundMessages
+                        .Where(outbound => outbound.RequestId == id
+                            && outbound.CondominiumId == request.CondominiumId
+                            && outbound.UserId == request.AuthorUserId
+                            && outbound.RequestStatusHistoryId == history.Id)
+                        .OrderByDescending(outbound => outbound.CreatedAt)
+                        .ThenByDescending(outbound => outbound.Id)
+                        .Select(outbound => (WhatsAppOutboundStatus?)outbound.Status)
+                        .FirstOrDefault()
                 })
             .OrderBy(history => history.CreatedAt)
             .ThenBy(history => history.Id)
@@ -186,7 +197,8 @@ public static class GetRequestById
                     history.ChangedByFullName,
                     history.Reason,
                     history.CreatedAt,
-                    answerMessageId);
+                    answerMessageId,
+                    WhatsAppDeliveryResponse.FromStatus(history.WhatsAppStatus));
             })
             .ToArray();
 
@@ -212,6 +224,7 @@ public static class GetRequestById
         var hasUnreadResidentReply = false;
         var hasUnreadResidentUpdate = false;
         ResidentSummaryResponse? residentSummary = null;
+        IReadOnlyList<InternalNoteResponse>? internalNotes = null;
         if (request.AuthorUserId == authenticatedUserId)
         {
             residentReplyRequirement = await dbContext.RequestResidentReplyRequirements
@@ -232,6 +245,13 @@ public static class GetRequestById
         }
         if (isCondominiumManager)
         {
+            internalNotes = await (from note in dbContext.RequestInternalNotes.AsNoTracking()
+                join author in dbContext.Set<ApplicationUser>().AsNoTracking() on note.AuthorUserId equals author.Id
+                where note.RequestId == id
+                orderby note.CreatedAt descending, note.Id descending
+                select new InternalNoteResponse(note.Id, note.Content,
+                    new AuthorResponse(author.Id, author.FullName), note.CreatedAt, note.UpdatedAt))
+                .ToListAsync(cancellationToken);
             var relationship = request.TargetUnitId.HasValue
                 ? await dbContext.UnitMemberships.AsNoTracking()
                     .Where(x => x.UserId == request.AuthorUserId
@@ -324,6 +344,8 @@ public static class GetRequestById
             agendaReminder,
             hasUnreadResidentReply,
             hasUnreadResidentUpdate,
+            isCondominiumManager,
+            internalNotes,
             serviceProvider,
             serviceProviderHistory);
 
@@ -387,6 +409,8 @@ public static class GetRequestById
     public sealed record AgendaReminderSummaryResponse(Guid Id, string Title,
         DateTime? NextOccurrenceAtUtc, string RecurrenceType, bool IsActive,
         DateTime? CompletedAt);
+    public sealed record InternalNoteResponse(Guid Id, string Content,
+        AuthorResponse Author, DateTime CreatedAt, DateTime? UpdatedAt);
 
     public sealed record StatusHistoryResponse(
         Guid Id,
@@ -396,7 +420,8 @@ public static class GetRequestById
         string ChangedByFullName,
         string? Reason,
         DateTime CreatedAt,
-        Guid? AnswerMessageId);
+        Guid? AnswerMessageId,
+        WhatsAppDeliveryResponse? WhatsAppDelivery = null);
 
     public sealed record ServiceProviderResponse(Guid Id, string Name, string? CompanyName, string Specialty, string Phone, bool IsActive);
     public sealed record ServiceProviderHistoryResponse(Guid Id, string EventType, string? PreviousName, string? PreviousSpecialty, string? ProviderName, string? ProviderSpecialty, string ChangedByFullName, DateTime CreatedAt);
@@ -423,9 +448,14 @@ public static class GetRequestById
         AgendaReminderSummaryResponse? AgendaReminder,
         bool HasUnreadResidentReply,
         bool HasUnreadResidentUpdate,
-        ServiceProviderResponse? ServiceProvider,
-        IReadOnlyList<ServiceProviderHistoryResponse> ServiceProviderHistory)
+        bool CanManageInternalNotes = false,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        IReadOnlyList<InternalNoteResponse>? InternalNotes = null,
+        ServiceProviderResponse? ServiceProvider = null,
+        IReadOnlyList<ServiceProviderHistoryResponse>? ServiceProviderHistory = null)
     {
         public string Protocol => RequestProtocol.From(Id);
+        public string MainDescription => string.IsNullOrWhiteSpace(AiAnalysis?.Description)
+            ? Description : AiAnalysis.Description.Trim();
     }
 }

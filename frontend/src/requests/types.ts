@@ -1,3 +1,5 @@
+export interface WhatsAppDelivery { status: 'Pending' | 'Processing' | 'Sent' | 'Delivered' | 'Read' | 'Failed' | 'PermanentlyFailed' | 'Cancelled' | 'Skipped' }
+
 export type RequestStatus = 'Open' | 'InProgress' | 'WaitingForResident' | 'WaitingForManager' | 'WaitingForThirdParty' | 'WaitingForResidentClosure' | 'Resolved' | 'Cancelled'
 export type RequestPriority = 'Normal' | 'High' | 'Urgent'
 
@@ -22,6 +24,7 @@ export interface RequestListItem {
 }
 
 export interface StatusHistoryItem {
+  whatsAppDelivery?: WhatsAppDelivery | null
   id: string
   previousStatus: RequestStatus | null
   newStatus: RequestStatus
@@ -33,6 +36,8 @@ export interface StatusHistoryItem {
 }
 
 export interface RequestDetails extends RequestListItem {
+  mainDescription?: string
+  canManageInternalNotes?: boolean
   author: Person
   description: string
   statusHistory: StatusHistoryItem[]
@@ -46,6 +51,7 @@ export interface RequestDetails extends RequestListItem {
   hasUnreadResidentUpdate?: boolean
   serviceProvider?: ServiceProvider | null
   serviceProviderHistory?: ServiceProviderHistoryItem[]
+  internalNotes?: RequestInternalNoteSummary[] | null
 }
 export interface ServiceProvider { id:string; name:string; companyName:string|null; specialty:string; phone:string; isActive:boolean }
 export interface ServiceProviderHistoryItem { id:string; eventType:'Linked'|'Changed'|'Removed'; previousName?:string|null; previousSpecialty?:string|null; providerName?:string|null; providerSpecialty?:string|null; changedByFullName:string; createdAt:string }
@@ -90,14 +96,17 @@ export interface OriginalAudioAttachment {
 }
 
 export interface RequestMessage {
+  whatsAppDelivery?: WhatsAppDelivery | null
   id: string
   requestId: string
   author: Person
   content: string
-  channel?: 'Portal' | 'WhatsApp' | 'WhatsAppResidentUpdate'
+  channel?: 'Portal' | 'WhatsApp' | 'WhatsAppResidentUpdate' | 'System'
   createdAt: string
   isResidentReply?: boolean
+  isAdministrativeEvent?: boolean
 }
+export interface RequestInternalNoteSummary { id: string; content: string; author: Person; createdAt: string; updatedAt: string | null }
 
 export interface RequestAttachment {
   id: string

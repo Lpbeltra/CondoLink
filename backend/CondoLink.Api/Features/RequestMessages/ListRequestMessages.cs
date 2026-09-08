@@ -1,3 +1,4 @@
+using CondoLink.Api.Features.WhatsApp;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CondoLink.Domain.Enums;
@@ -110,7 +111,21 @@ public static class ListRequestMessages
                     AuthorFullName = user.FullName,
                     message.Content,
                     message.Channel,
-                    message.CreatedAt
+                    message.CreatedAt,
+                    IsAdministrativeEvent = dbContext.RequestStatusHistories.Any(history =>
+                            history.RequestId == requestId
+                            && history.NewStatus == RequestStatus.WaitingForResidentClosure
+                            && history.ChangedByUserId == message.AuthorUserId
+                            && history.Reason == message.Content),
+                    WhatsAppStatus = dbContext.WhatsAppOutboundMessages
+                        .Where(outbound => outbound.RequestId == requestId
+                            && outbound.CondominiumId == targetRequest.CondominiumId
+                            && outbound.UserId == targetRequest.AuthorUserId
+                            && outbound.RequestMessageId == message.Id)
+                        .OrderByDescending(outbound => outbound.CreatedAt)
+                        .ThenByDescending(outbound => outbound.Id)
+                        .Select(outbound => (WhatsAppOutboundStatus?)outbound.Status)
+                        .FirstOrDefault()
                 })
             .OrderBy(message => message.CreatedAt)
             .ThenBy(message => message.Id)
@@ -157,7 +172,9 @@ public static class ListRequestMessages
                 message.Content,
                 message.Channel.ToString(),
                 message.CreatedAt,
-                residentReplyMessageIds.Contains(message.Id)))
+                residentReplyMessageIds.Contains(message.Id),
+                WhatsAppDeliveryResponse.FromStatus(message.WhatsAppStatus),
+                message.IsAdministrativeEvent))
             .ToArray();
 
         return Results.Ok(messages);
@@ -172,5 +189,7 @@ public static class ListRequestMessages
         string Content,
         string Channel,
         DateTime CreatedAt,
-        bool IsResidentReply);
+        bool IsResidentReply,
+        WhatsAppDeliveryResponse? WhatsAppDelivery = null,
+        bool IsAdministrativeEvent = false);
 }

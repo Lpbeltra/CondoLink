@@ -1,3 +1,4 @@
+using CondoLink.Api.Features.WhatsApp;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CondoLink.Api.Features.Notifications;
@@ -186,13 +187,24 @@ public static class CreateRequestMessage
                 (_, _) => true)
             .AnyAsync(cancellationToken);
 
+        var whatsAppStatus = await dbContext.WhatsAppOutboundMessages.AsNoTracking()
+            .Where(outbound => outbound.RequestId == requestId
+                && outbound.RequestMessageId == message.Id
+                && outbound.CondominiumId == targetRequest.CondominiumId
+                && outbound.UserId == targetRequest.AuthorUserId)
+            .OrderByDescending(outbound => outbound.CreatedAt)
+            .ThenByDescending(outbound => outbound.Id)
+            .Select(outbound => (WhatsAppOutboundStatus?)outbound.Status)
+            .FirstOrDefaultAsync(cancellationToken);
+
         var response = new Response(
             message.Id,
             message.RequestId,
             new AuthorResponse(message.AuthorUserId, authenticatedUser.FullName, authorIsManager),
             message.Content,
             message.Channel.ToString(),
-            message.CreatedAt);
+            message.CreatedAt,
+            WhatsAppDeliveryResponse.FromStatus(whatsAppStatus));
 
         return Results.Created($"/request-messages/{message.Id}", response);
     }
@@ -212,5 +224,6 @@ public static class CreateRequestMessage
         AuthorResponse Author,
         string Content,
         string Channel,
-        DateTime CreatedAt);
+        DateTime CreatedAt,
+        WhatsAppDeliveryResponse? WhatsAppDelivery = null);
 }

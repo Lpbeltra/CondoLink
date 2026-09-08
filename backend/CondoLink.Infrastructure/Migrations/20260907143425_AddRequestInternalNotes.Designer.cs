@@ -3,6 +3,7 @@ using System;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CondoLink.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260907143425_AddRequestInternalNotes")]
+    partial class AddRequestInternalNotes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1657,10 +1660,6 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("resolved_at");
 
-                    b.Property<Guid?>("ServiceProviderId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("service_provider_id");
-
                     b.Property<int>("Source")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
@@ -1694,8 +1693,6 @@ namespace CondoLink.Infrastructure.Migrations
                     b.HasIndex("CondominiumId");
 
                     b.HasIndex("CreatedAt");
-
-                    b.HasIndex("ServiceProviderId");
 
                     b.HasIndex("Status");
 
@@ -2038,60 +2035,6 @@ namespace CondoLink.Infrastructure.Migrations
                     b.ToTable("request_resident_reply_requirements", (string)null);
                 });
 
-            modelBuilder.Entity("CondoLink.Domain.Entities.RequestServiceProviderHistory", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<Guid>("ChangedByUserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("changed_by_user_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("EventType")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("event_type");
-
-                    b.Property<string>("PreviousName")
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)")
-                        .HasColumnName("previous_name");
-
-                    b.Property<string>("PreviousSpecialty")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("previous_specialty");
-
-                    b.Property<string>("ProviderName")
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)")
-                        .HasColumnName("provider_name");
-
-                    b.Property<string>("ProviderSpecialty")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("provider_specialty");
-
-                    b.Property<Guid>("RequestId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("request_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ChangedByUserId");
-
-                    b.HasIndex("RequestId", "CreatedAt");
-
-                    b.ToTable("request_service_provider_history", (string)null);
-                });
-
             modelBuilder.Entity("CondoLink.Domain.Entities.RequestStatusHistory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2131,129 +2074,6 @@ namespace CondoLink.Infrastructure.Migrations
                     b.HasIndex("RequestId", "CreatedAt");
 
                     b.ToTable("request_status_history", (string)null);
-                });
-
-            modelBuilder.Entity("CondoLink.Domain.Entities.ServiceProvider", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("CompanyName")
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)")
-                        .HasColumnName("company_name");
-
-                    b.Property<string>("ContactName")
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)")
-                        .HasColumnName("contact_name");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("Email")
-                        .HasMaxLength(254)
-                        .HasColumnType("character varying(254)")
-                        .HasColumnName("email");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)")
-                        .HasColumnName("name");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
-                        .HasColumnName("notes");
-
-                    b.Property<string>("Phone")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("phone");
-
-                    b.Property<string>("PixKey")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("pix_key");
-
-                    b.Property<int?>("PixKeyType")
-                        .HasColumnType("integer")
-                        .HasColumnName("pix_key_type");
-
-                    b.Property<string>("Specialty")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)")
-                        .HasColumnName("specialty");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Name");
-
-                    b.ToTable("service_providers", (string)null);
-                });
-
-            modelBuilder.Entity("CondoLink.Domain.Entities.ServiceProviderCondominiumLink", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<Guid>("CondominiumId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("condominium_id");
-
-                    b.Property<Guid>("ServiceProviderId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("service_provider_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CondominiumId");
-
-                    b.HasIndex("ServiceProviderId", "CondominiumId")
-                        .IsUnique();
-
-                    b.ToTable("service_provider_condominium_links", (string)null);
-                });
-
-            modelBuilder.Entity("CondoLink.Domain.Entities.ServiceProviderUserLink", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<Guid>("ServiceProviderId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("service_provider_id");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("ServiceProviderId", "UserId")
-                        .IsUnique();
-
-                    b.ToTable("service_provider_user_links", (string)null);
                 });
 
             modelBuilder.Entity("CondoLink.Domain.Entities.SubManagerModulePermission", b =>
@@ -3695,11 +3515,6 @@ namespace CondoLink.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("CondoLink.Domain.Entities.ServiceProvider", null)
-                        .WithMany()
-                        .HasForeignKey("ServiceProviderId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("CondoLink.Domain.Entities.Unit", null)
                         .WithMany()
                         .HasForeignKey("TargetUnitId")
@@ -3811,21 +3626,6 @@ namespace CondoLink.Infrastructure.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("CondoLink.Domain.Entities.RequestServiceProviderHistory", b =>
-                {
-                    b.HasOne("CondoLink.Infrastructure.Identity.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("ChangedByUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CondoLink.Domain.Entities.Request", null)
-                        .WithMany()
-                        .HasForeignKey("RequestId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("CondoLink.Domain.Entities.RequestStatusHistory", b =>
                 {
                     b.HasOne("CondoLink.Infrastructure.Identity.ApplicationUser", null)
@@ -3838,36 +3638,6 @@ namespace CondoLink.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("RequestId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("CondoLink.Domain.Entities.ServiceProviderCondominiumLink", b =>
-                {
-                    b.HasOne("CondoLink.Domain.Entities.Condominium", null)
-                        .WithMany()
-                        .HasForeignKey("CondominiumId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("CondoLink.Domain.Entities.ServiceProvider", null)
-                        .WithMany()
-                        .HasForeignKey("ServiceProviderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("CondoLink.Domain.Entities.ServiceProviderUserLink", b =>
-                {
-                    b.HasOne("CondoLink.Domain.Entities.ServiceProvider", null)
-                        .WithMany()
-                        .HasForeignKey("ServiceProviderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("CondoLink.Infrastructure.Identity.ApplicationUser", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

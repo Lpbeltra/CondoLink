@@ -111,6 +111,7 @@ public static class ManageResidentLifecycle
                    select role).AnyAsync(ct)) return true;
         return await db.Requests.AnyAsync(x => x.AuthorUserId == userId, ct)
             || await db.RequestMessages.AnyAsync(x => x.AuthorUserId == userId, ct)
+            || await db.RequestInternalNotes.AnyAsync(x => x.AuthorUserId == userId, ct)
             || await db.RequestStatusHistories.AnyAsync(x => x.ChangedByUserId == userId, ct)
             || await db.RequestAttachments.AnyAsync(x => x.UploadedByUserId == userId, ct)
             || await db.RequestResidentReplyRequirements.AnyAsync(x => x.RequestedByUserId == userId, ct)

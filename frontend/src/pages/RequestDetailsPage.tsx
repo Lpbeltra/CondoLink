@@ -13,7 +13,9 @@ import { formatDateTime, formatRequestProtocol, getRequestError, isClosedRequest
 import type { RequestDetails, RequestMessage } from '../requests/types'
 import { RequestManagementActions } from '../requests/components/RequestManagementActions'
 import { RequestAttachments } from '../requests/components/RequestAttachments'
-import { canViewInternalRequestDetails, RequestAiAssistant } from '../requests/components/RequestAiAssistant'
+import { canViewInternalRequestDetails } from '../requests/components/RequestAiAssistant'
+import { RequestInternalNotes } from '../requests/components/RequestInternalNotes'
+import { ResidentUpdateDialog } from '../requests/components/ResidentUpdateDialog'
 import { OriginalReportAccordion } from '../requests/components/OriginalReportAccordion'
 import { ResidentReplyPanel } from '../requests/components/ResidentReplyPanel'
 import { ResidentClosurePanel } from '../requests/components/ResidentClosurePanel'
@@ -66,7 +68,7 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
   const unit = details.targetUnit && `${details.targetUnit.block ? `Bloco ${details.targetUnit.block} · ` : ''}${details.targetUnit.identifier}`
   const residentReadOnly = !managementMode && isClosedRequest(details.status)
   const residentClosurePending = !managementMode && details.status === 'WaitingForResidentClosure'
-  const canViewInternal = canViewInternalRequestDetails(
+  const canViewInternal = details.canManageInternalNotes ?? canViewInternalRequestDetails(
     managementMode, isManager, details.condominiumId, expectedCondominiumId)
   return (
     <PageContainer>
@@ -85,8 +87,9 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
             <Typography color="primary.main" fontWeight={800}>Atendimento #{formatRequestProtocol(details.id, details.protocol)}</Typography>
             <Typography variant="h1" mt={.5}>{details.title}</Typography>
             <Typography color="text.secondary" mt={1}>{details.category.name} · aberta em {formatDateTime(details.createdAt)}</Typography>
+            {canViewInternal && details.aiAnalysis?.suggestedCategory?.trim() && <Typography color="text.secondary" fontSize=".82rem" mt={.5}>Sugestão da IA: {details.aiAnalysis.suggestedCategory}</Typography>}
             <Divider sx={{ my: 3 }} />
-            <Typography variant="h3" mb={1}>Descrição</Typography><Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{details.description}</Typography>
+            <Typography variant="h3" mb={1}>Resumo do atendimento</Typography><Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{canViewInternal ? details.mainDescription?.trim() || details.aiAnalysis?.description?.trim() || details.description : details.description}</Typography>
             {unit && <><Divider sx={{ my: 3 }} /><Typography variant="h3" mb={1}>Unidade relacionada</Typography><Typography>{unit}</Typography></>}
           </CardContent></Card>
           {managementMode && details.residentSummary
@@ -94,13 +97,13 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
           {canViewInternal && <RequestManagementActions requestId={details.id} status={details.status} priority={details.priority} agendaReminder={details.agendaReminder} onUpdated={load} />}
           {managementMode && canViewInternal && <RequestServiceProviderCard requestId={details.id} current={details.serviceProvider} history={details.serviceProviderHistory ?? []} onUpdated={()=>void load()} />}
           {!managementMode && details.residentClosureProposal && <ResidentClosurePanel requestId={details.id} proposal={details.residentClosureProposal} onUpdated={async feedback => { if (feedback) setActionFeedback(feedback); await load() }} />}
-          <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}><Typography variant="h2" mb={.5}>Atualizações</Typography><Typography color="text.secondary" mb={3}>{residentReadOnly ? 'Consulte o histórico de mensagens do atendimento.' : 'Registre novas informações e acompanhe o atendimento.'}</Typography><RequestConversation requestId={details.id} status={details.status} messages={messages} residentSummary={details.aiAnalysis?.description} readOnly={residentReadOnly || residentClosurePending || (!managementMode && Boolean(details.residentReplyRequirement))} onMessageCreated={(message) => setMessages((current) => [...current, message])} /></CardContent></Card>
-          {canViewInternal && <RequestAiAssistant analysis={details.aiAnalysis} />}
+          <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}><Typography variant="h2" mb={.5}>Atualizações do atendimento</Typography><Typography color="text.secondary" mb={3}>Registro cronológico das comunicações entre o morador e a gestão.</Typography><RequestConversation requestId={details.id} status={details.status} messages={messages} readOnly={residentReadOnly || residentClosurePending || (!managementMode && Boolean(details.residentReplyRequirement))} showComposer={false} onMessageCreated={(message) => setMessages((current) => [...current, message])} />{!managementMode && !residentReadOnly && !residentClosurePending && !details.residentReplyRequirement && <ResidentUpdateDialog requestId={details.id} onSent={async message => { setMessages(current => [...current, message]); await load(true) }} />}</CardContent></Card>
+          {canViewInternal && details.canManageInternalNotes && <RequestInternalNotes requestId={details.id} onChanged={() => load(true)} />}
           {canViewInternal && <OriginalReportAccordion key={details.id} requestId={details.id} report={details.originalReport} messages={messages} authorId={details.author.id} portalDescription={details.description} requestCreatedAt={details.createdAt} />}
           {!managementMode && details.residentReplyRequirement && <ResidentReplyPanel requestId={details.id} requirement={details.residentReplyRequirement} onSent={load} />}
           <RequestAttachments requestId={details.id} readOnly={residentReadOnly || residentClosurePending || Boolean(!managementMode && details.residentReplyRequirement)} />
         </Grid>
-        <Grid size={{ xs: 12, lg: 4 }}><Card elevation={0}><CardContent sx={{ p: { xs: 2.5, sm: 3 } }}><Typography variant="h2" mb={3}>Timeline</Typography><RequestTimeline history={details.statusHistory} messages={messages} serviceProviderHistory={managementMode ? (details.serviceProviderHistory ?? []) : []} /></CardContent></Card></Grid>
+        <Grid size={{ xs: 12, lg: 4 }}><Card elevation={0}><CardContent sx={{ p: { xs: 2.5, sm: 3 } }}><Typography variant="h2" mb={3}>Timeline</Typography><RequestTimeline history={details.statusHistory} messages={messages} internalNotes={details.internalNotes} serviceProviderHistory={managementMode ? (details.serviceProviderHistory ?? []) : []} /></CardContent></Card></Grid>
       </Grid>
     </PageContainer>
   )

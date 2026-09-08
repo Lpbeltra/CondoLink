@@ -50,6 +50,7 @@ public sealed class ProductionDataResetService(AppDbContext db)
             await db.RequestAttachments.ExecuteDeleteAsync(cancellationToken);
             await db.Notifications.ExecuteDeleteAsync(cancellationToken);
             await db.RequestMessages.ExecuteDeleteAsync(cancellationToken);
+            await db.RequestInternalNotes.ExecuteDeleteAsync(cancellationToken);
             await db.RequestStatusHistories.ExecuteDeleteAsync(cancellationToken);
             await db.WhatsAppSessions.ExecuteDeleteAsync(cancellationToken);
             await db.WhatsAppInboundMessages.ExecuteDeleteAsync(cancellationToken);
@@ -103,6 +104,7 @@ public sealed class ProductionDataResetService(AppDbContext db)
             ["requests"] = await db.Requests.CountAsync(ct),
             ["request_status_histories"] = await db.RequestStatusHistories.CountAsync(ct),
             ["request_messages"] = await db.RequestMessages.CountAsync(ct),
+            ["request_internal_notes"] = await db.RequestInternalNotes.CountAsync(ct),
             ["request_attachments"] = await db.RequestAttachments.CountAsync(ct),
             ["request_ai_analyses"] = await db.RequestAiAnalyses.CountAsync(ct),
             ["request_resident_reply_requirements"] = await db.RequestResidentReplyRequirements.CountAsync(ct),
