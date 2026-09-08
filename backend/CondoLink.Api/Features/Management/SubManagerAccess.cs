@@ -22,9 +22,9 @@ public static class SubManagerAccess
         (from membershipId in ActiveMemberships(db, userId, condominiumId)
          join membership in db.CondominiumMemberships.AsNoTracking() on membershipId equals membership.Id
          join role in db.CondominiumMembershipRoles.AsNoTracking() on membership.Id equals role.CondominiumMembershipId
-         where role.Role == CondominiumRole.Manager
+         where role.IsActive && role.RevokedAt == null && (role.Role == CondominiumRole.Manager
             || !db.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == membershipId)
-            || db.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == membershipId && p.Module == module && p.IsAllowed && p.RevokedAt == null)
+            || db.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == membershipId && p.Module == module && p.IsAllowed && p.RevokedAt == null))
          select membershipId).AnyAsync(ct);
 
     public static async Task EnsureDefaultsAsync(AppDbContext db, Guid membershipId, Guid actorUserId, CancellationToken ct)

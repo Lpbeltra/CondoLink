@@ -53,6 +53,7 @@ public sealed class ProductionDataResetServiceTests
         var request = new CondoLink.Domain.Entities.Request(condominium.Id, resident.Id,
             unit.Id, category.Id, "Leak", "There is a leak");
         var message = new RequestMessage(request.Id, resident.Id, "Details");
+        db.Add(new RequestInternalNote(request.Id, admin.Id, "Internal detail"));
         var attachment = new RequestAttachment(request.Id, resident.Id, "photo.jpg",
             "requests/photo.jpg", "image/jpeg", 10, message.Id);
         var notification = new Notification(resident.Id, condominium.Id,
@@ -79,6 +80,7 @@ public sealed class ProductionDataResetServiceTests
         Assert.Equal(1, dryRun.Counts["users"]);
         Assert.Equal(1, dryRun.Counts["condominiums"]);
         Assert.Equal(1, dryRun.Counts["request_messages"]);
+        Assert.Equal(1, dryRun.Counts["request_internal_notes"]);
         Assert.Equal(1, dryRun.Counts["whatsapp_outbound_messages"]);
         Assert.Equal(2, await db.Set<ApplicationUser>().CountAsync());
 
@@ -86,6 +88,7 @@ public sealed class ProductionDataResetServiceTests
         var result = await service.RunAsync("admin@example.com", execute: true);
         Assert.True(result.Executed);
         db.ChangeTracker.Clear();
+        Assert.Empty(await db.RequestInternalNotes.ToArrayAsync());
 
         var preserved = await db.Set<ApplicationUser>().SingleAsync();
         Assert.Equal(admin.Id, preserved.Id);

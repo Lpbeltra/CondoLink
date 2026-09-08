@@ -298,6 +298,7 @@ public sealed class EndpointAuthorizationCoverageTests
 
         app.MapCreateRequestMessage();
         app.MapListRequestMessages();
+        app.MapRequestInternalNotes();
         app.MapRequestAttachments();
         app.MapManagementCompanyRequests();
         app.MapAdministratorRequests();

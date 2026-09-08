@@ -1,3 +1,4 @@
+using CondoLink.Api.Features.RequestMessages;
 using System.Net;
 using System.Net.Http.Json;
 using CondoLink.Api.Features.Requests;
@@ -31,6 +32,7 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
         _host = await CoreEndpointTestHost.StartAsync(application =>
         {
             application.MapGetRequestById();
+            application.MapListRequestMessages();
             application.MapUpdateRequestStatus();
             application.MapListCondominiumRequests();
         });
@@ -88,7 +90,109 @@ public sealed class GetRequestByIdEndpointTests : IAsyncLifetime
         });
     }
 
+    [Fact]
+    public async Task Timeline_and_messages_expose_only_the_correlated_resident_outbound_status()
+    {
+        var expected = new Dictionary<Guid, string>();
+        var histories = new Dictionary<Guid, string>();
+        await _host.WithDbAsync(async db =>
+        {
+            var request = await db.Requests.SingleAsync(x => x.Id == _requestId);
+            foreach (var status in Enum.GetValues<WhatsAppOutboundStatus>())
+            {
+                var message = new RequestMessage(_requestId, _managerId, status.ToString());
+                var history = new RequestStatusHistory(_requestId, RequestStatus.Open,
+                    RequestStatus.InProgress, _managerId, status.ToString(), DateTime.UtcNow);
+                db.AddRange(message, history);
+                db.Add(new WhatsAppOutboundMessage(_requestId, message.Id, _authorId,
+                    request.CondominiumId, "5511999990001", WhatsAppNotificationType.AdministrationMessage,
+                    WhatsAppSendMode.SessionText, Guid.NewGuid().ToString(), "content", null, null,
+                    DateTime.UtcNow, status, requestStatusHistoryId: history.Id));
+                // A newer outbound for a different recipient must not replace resident delivery.
+                db.Add(new WhatsAppOutboundMessage(_requestId, message.Id, _managerId,
+                    request.CondominiumId, "5511999990002", WhatsAppNotificationType.ManagerNewRequest,
+                    WhatsAppSendMode.SessionText, Guid.NewGuid().ToString(), "internal", null, null,
+                    DateTime.UtcNow.AddMinutes(1), WhatsAppOutboundStatus.Read,
+                    requestStatusHistoryId: history.Id));
+                expected[message.Id] = status.ToString();
+                histories[history.Id] = status.ToString();
+            }
+            db.Add(new RequestStatusHistory(_requestId, null, RequestStatus.Open,
+                _authorId, null, DateTime.UtcNow));
+            await db.SaveChangesAsync();
+        });
+        var client = _host.ClientFor(_managerId);
+        var messages = (await client.GetFromJsonAsync<ListRequestMessages.Response[]>(
+            $"/requests/{_requestId}/messages"))!;
+        Assert.Equal(expected.Count, messages.Count(x => x.WhatsAppDelivery is not null));
+        foreach (var message in messages)
+            Assert.Equal(expected.GetValueOrDefault(message.Id), message.WhatsAppDelivery?.Status);
+        Assert.Contains(messages, x => x.WhatsAppDelivery is null);
+        var details = (await client.GetFromJsonAsync<GetRequestById.Response>($"/requests/{_requestId}"))!;
+        Assert.Equal(histories.Count, details.StatusHistory.Count(x => x.WhatsAppDelivery is not null));
+        foreach (var history in details.StatusHistory)
+            Assert.Equal(histories.GetValueOrDefault(history.Id), history.WhatsAppDelivery?.Status);
+        Assert.Contains(details.StatusHistory, x => x.WhatsAppDelivery is null);
+
+        await _host.WithDbAsync(async db =>
+        {
+            var outbound = await db.WhatsAppOutboundMessages.SingleAsync(x =>
+                x.UserId == _authorId && x.Status == WhatsAppOutboundStatus.Sent);
+            outbound.ApplyProviderStatus("delivered", DateTime.UtcNow, null, null);
+            await db.SaveChangesAsync();
+        });
+        var refreshed = (await client.GetFromJsonAsync<ListRequestMessages.Response[]>(
+            $"/requests/{_requestId}/messages"))!;
+        var sentId = expected.Single(x => x.Value == "Sent").Key;
+        Assert.Equal("Delivered", refreshed.Single(x => x.Id == sentId).WhatsAppDelivery?.Status);
+    }
+
+    [Fact]
+    public async Task Message_dto_marks_status_generated_messages_as_administrative_events()
+    {
+        Guid eventMessageId = default, communicationId = default;
+        await _host.WithDbAsync(async db =>
+        {
+            var reason = "Status communicated to resident.";
+            var history = new RequestStatusHistory(_requestId, RequestStatus.Open,
+                RequestStatus.WaitingForResidentClosure, _managerId, reason, DateTime.UtcNow);
+            var eventMessage = new RequestMessage(_requestId, _managerId, reason);
+            var communication = new RequestMessage(_requestId, _managerId, "Independent reply.");
+            db.AddRange(history, eventMessage, communication);
+            await db.SaveChangesAsync();
+            eventMessageId = eventMessage.Id;
+            communicationId = communication.Id;
+        });
+        var rows = (await _host.ClientFor(_managerId)
+            .GetFromJsonAsync<ListRequestMessages.Response[]>($"/requests/{_requestId}/messages"))!;
+        Assert.True(rows.Single(x => x.Id == eventMessageId).IsAdministrativeEvent);
+        Assert.False(rows.Single(x => x.Id == communicationId).IsAdministrativeEvent);
+    }
+
     public async Task DisposeAsync() => await _host.DisposeAsync();
+
+    [Theory]
+    [InlineData("Current contextual summary")]
+    [InlineData(null)]
+    [InlineData("   ")]
+    public async Task Main_description_prefers_valid_ai_without_changing_original_report(string? summary)
+    {
+        var original = await _host.WithDbAsync(async db =>
+        {
+            if (summary is null) await db.RequestAiAnalyses.Where(x => x.RequestId == _requestId).ExecuteDeleteAsync();
+            else await db.RequestAiAnalyses.Where(x => x.RequestId == _requestId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.GeneratedDescription, summary));
+            return await db.Requests.Where(x => x.Id == _requestId).Select(x => x.Description).SingleAsync();
+        });
+        var manager = await _host.ClientFor(_managerId).GetFromJsonAsync<System.Text.Json.JsonElement>($"/requests/{_requestId}");
+        Assert.Equal(string.IsNullOrWhiteSpace(summary) ? original : summary,
+            manager.GetProperty("mainDescription").GetString());
+        Assert.Equal(original, manager.GetProperty("description").GetString());
+        Assert.NotEqual(System.Text.Json.JsonValueKind.Null, manager.GetProperty("originalReport").ValueKind);
+        var resident = await _host.ClientFor(_authorId).GetFromJsonAsync<System.Text.Json.JsonElement>($"/requests/{_requestId}");
+        Assert.Equal(original, resident.GetProperty("mainDescription").GetString());
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, resident.GetProperty("aiAnalysis").ValueKind);
+    }
 
     [Fact]
     public async Task Author_can_read_their_own_request()
