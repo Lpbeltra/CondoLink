@@ -130,6 +130,7 @@ export interface ManagementCondominium {
 
 export interface ManagementContextResponse {
   hasEligibleManagementCompany?: boolean;
+  managementRoles?: string[];
   subManagerPermissions?: string[];
   activeManagementCondominiumId: string | null;
   usesConsolidatedManagementScope: boolean;

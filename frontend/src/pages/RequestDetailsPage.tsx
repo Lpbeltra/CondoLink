@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
-import { Alert, Box, Button, Card, CardContent, Divider, Grid, Skeleton, Stack, Typography } from '@mui/material'
+import { Alert, Button, Card, CardContent, Divider, Grid, Skeleton, Stack, Typography } from '@mui/material'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { PageContainer } from '../components/PageContainer'
 import { useCondominium } from '../condominiums/CondominiumContext'
@@ -20,6 +20,7 @@ import { ResidentClosurePanel } from '../requests/components/ResidentClosurePane
 import { ResidentUpdateAcknowledgement } from '../requests/components/ResidentUpdateAcknowledgement'
 import { useVisiblePolling } from '../hooks/useVisiblePolling'
 import { ResidentSummaryCard } from '../requests/components/ResidentSummaryCard'
+import { RequestServiceProviderCard } from '../requests/components/RequestServiceProviderCard'
 
 interface RequestDetailsPageProps {
   managementCondominiumId?: string | null
@@ -91,6 +92,7 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
           {managementMode && details.residentSummary
             && <ResidentSummaryCard resident={details.residentSummary} />}
           {canViewInternal && <RequestManagementActions requestId={details.id} status={details.status} priority={details.priority} agendaReminder={details.agendaReminder} onUpdated={load} />}
+          {managementMode && canViewInternal && <RequestServiceProviderCard requestId={details.id} current={details.serviceProvider} history={details.serviceProviderHistory ?? []} onUpdated={()=>void load()} />}
           {!managementMode && details.residentClosureProposal && <ResidentClosurePanel requestId={details.id} proposal={details.residentClosureProposal} onUpdated={async feedback => { if (feedback) setActionFeedback(feedback); await load() }} />}
           <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}><Typography variant="h2" mb={.5}>Atualizações</Typography><Typography color="text.secondary" mb={3}>{residentReadOnly ? 'Consulte o histórico de mensagens do atendimento.' : 'Registre novas informações e acompanhe o atendimento.'}</Typography><RequestConversation requestId={details.id} status={details.status} messages={messages} residentSummary={details.aiAnalysis?.description} readOnly={residentReadOnly || residentClosurePending || (!managementMode && Boolean(details.residentReplyRequirement))} onMessageCreated={(message) => setMessages((current) => [...current, message])} /></CardContent></Card>
           {canViewInternal && <RequestAiAssistant analysis={details.aiAnalysis} />}
@@ -98,7 +100,7 @@ export function RequestDetailsPage({ managementCondominiumId, managementMode = f
           {!managementMode && details.residentReplyRequirement && <ResidentReplyPanel requestId={details.id} requirement={details.residentReplyRequirement} onSent={load} />}
           <RequestAttachments requestId={details.id} readOnly={residentReadOnly || residentClosurePending || Boolean(!managementMode && details.residentReplyRequirement)} />
         </Grid>
-        <Grid size={{ xs: 12, lg: 4 }}><Card elevation={0}><CardContent sx={{ p: { xs: 2.5, sm: 3 } }}><Typography variant="h2" mb={3}>Timeline</Typography><RequestTimeline history={details.statusHistory} messages={messages} /></CardContent></Card></Grid>
+        <Grid size={{ xs: 12, lg: 4 }}><Card elevation={0}><CardContent sx={{ p: { xs: 2.5, sm: 3 } }}><Typography variant="h2" mb={3}>Timeline</Typography><RequestTimeline history={details.statusHistory} messages={messages} serviceProviderHistory={managementMode ? (details.serviceProviderHistory ?? []) : []} /></CardContent></Card></Grid>
       </Grid>
     </PageContainer>
   )

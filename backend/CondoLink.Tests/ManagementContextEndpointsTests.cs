@@ -247,6 +247,42 @@ public sealed class ManagementContextEndpointsTests : IAsyncLifetime
         Assert.Equal("Permitido", condominium.Name);
     }
 
+    [Fact]
+    public async Task Submanager_consolidated_context_unions_permissions_without_granting_denied_condominium()
+    {
+        Guid deniedId;
+        await using (var scope = _application!.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var allowed = new Condominium("Permissão A", null, null);
+            var denied = new Condominium("Permissão B", null, null);
+            var membershipA = new CondominiumMembership(_userId, allowed.Id);
+            var membershipB = new CondominiumMembership(_userId, denied.Id);
+            var roleA = new CondominiumMembershipRole(membershipA.Id, CondominiumRole.SubManager);
+            var roleB = new CondominiumMembershipRole(membershipB.Id, CondominiumRole.SubManager);
+            var attendanceA = new SubManagerModulePermission(membershipA.Id, SubManagerModule.Attendance, _userId);
+            var documentsA = new SubManagerModulePermission(membershipA.Id, SubManagerModule.Documents, _userId);
+            var attendanceB = new SubManagerModulePermission(membershipB.Id, SubManagerModule.Attendance, _userId);
+            var documentsB = new SubManagerModulePermission(membershipB.Id, SubManagerModule.Documents, _userId);
+            documentsB.SetAllowed(false, _userId);
+            db.AddRange(allowed, denied, membershipA, membershipB, roleA, roleB, attendanceA, documentsA, attendanceB, documentsB);
+            await db.SaveChangesAsync();
+            deniedId = denied.Id;
+        }
+
+        var consolidated = await GetContextAsync();
+        Assert.Contains("Attendance", consolidated.SubManagerPermissions!);
+        Assert.Contains("Documents", consolidated.SubManagerPermissions!);
+        Assert.Equal(new[] { "SubManager" }, consolidated.ManagementRoles);
+
+        var selected = await (await _client.PutAsJsonAsync(
+            "/management/context", new { condominiumId = deniedId }))
+            .Content.ReadFromJsonAsync<ContextResponse>();
+        Assert.Contains("Attendance", selected!.SubManagerPermissions!);
+        Assert.DoesNotContain("Documents", selected.SubManagerPermissions!);
+        Assert.Equal(deniedId, selected.ActiveManagementCondominiumId);
+    }
+
     private async Task<ContextResponse> GetContextAsync()
         => (await _client.GetFromJsonAsync<ContextResponse>(
             "/management/context"))!;
@@ -283,7 +319,9 @@ public sealed class ManagementContextEndpointsTests : IAsyncLifetime
         int CondominiumCount,
         CondominiumResponse? ActiveCondominium,
         IReadOnlyList<CondominiumResponse> AvailableCondominiums,
-        bool HasEligibleManagementCompany);
+        bool HasEligibleManagementCompany,
+        string[]? ManagementRoles = null,
+        string[]? SubManagerPermissions = null);
     private sealed record RequestItemResponse(
         Guid Id,
         Guid CondominiumId,

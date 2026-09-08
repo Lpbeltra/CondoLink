@@ -11,7 +11,6 @@ import {
 import { EmptyState } from '../components/EmptyState'
 import { PageContainer } from '../components/PageContainer'
 import { useGuardedLoad } from '../components/useGuardedLoad'
-import { ManagementCondominiumSwitcher } from '../management/components/ManagementCondominiumSwitcher'
 import { useManagementContext } from '../management/ManagementContext'
 import { getRequestReport } from '../reports/api'
 import {
@@ -49,8 +48,6 @@ export function ManagementReportsPage() {
           ? `Olá, ${user?.fullName.split(' ')[0] ?? ''}. Aqui está um resumo dos seus condomínios.`
           : `Olá, ${user?.fullName.split(' ')[0] ?? ''}. Aqui está o resumo de ${activeCondominium?.name ?? 'seu condomínio'}.`}
       </Typography>
-
-      <Box mt={2} maxWidth={520}><ManagementCondominiumSwitcher /></Box>
 
       <Tabs
         value={days}

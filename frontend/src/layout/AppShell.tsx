@@ -20,7 +20,7 @@ export function AppShell() {
     useCondominium();
   const { user } = useAuth();
   const location = useLocation();
-  const { condominiumCount, isLoading: isManagementLoading, isSwitching, subManagerPermissions } =
+  const { condominiumCount, isLoading: isManagementLoading, isSwitching, subManagerPermissions, managementRoles } =
     useManagementContext();
   const hasManagementContext = condominiumCount > 0;
   const { value: administrator, loading: administratorLoading } =
@@ -31,8 +31,9 @@ export function AppShell() {
     Boolean(administrator);
   const showNavigation = hasContext || hasPlatformAdminAccess(user);
   const routeItem = getNavigationItemForPath(location.pathname);
-  const isRestricted = Boolean(currentCondominium && routeItem && !canAccessNavigationItem(
-    routeItem, currentCondominium.roles, user?.roles ?? [], subManagerPermissions,
+  const routeRoles = (managementRoles ?? []).length ? managementRoles : currentCondominium?.roles ?? [];
+  const isRestricted = Boolean(routeItem && (managementRoles?.length || currentCondominium) && !canAccessNavigationItem(
+    routeItem, routeRoles as never, user?.roles ?? [], subManagerPermissions,
   ));
   // The administrator portal context (/administrator/context) is irrelevant
   // to residents, managers and submanagers — most of them will get an

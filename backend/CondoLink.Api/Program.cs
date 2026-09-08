@@ -28,6 +28,7 @@ using CondoLink.Api.Features.Observability;
 using CondoLink.Api.Features.OperationalMessages;
 using CondoLink.Api.Features.Agenda;
 using CondoLink.Api.Features.ManagementCompanyRequests;
+using CondoLink.Api.Features.ServiceProviders;
 using Microsoft.AspNetCore.SignalR;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -94,6 +95,12 @@ builder.Services.AddHttpClient<IRequestDraftAiService, RequestDraftAiService>((s
     client.BaseAddress = new Uri(settings.BaseUrl);
 }).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "RequestDraft"))
 .AddOpenAiResilience("openai-request-draft");
+builder.Services.AddHttpClient<IProviderContactAiService, ProviderContactAiService>((services, client) =>
+{
+    var settings = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<RequestDraftAiOptions>>().Value;
+    client.BaseAddress = new Uri(settings.BaseUrl);
+}).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "ProviderContact"))
+.AddOpenAiResilience("openai-provider-contact");
 builder.Services.AddHttpClient<IAdministrativeResidentExtractionService,
     AdministrativeResidentExtractionService>((services, client) =>
 {
@@ -372,11 +379,14 @@ app.MapGetRequestById();
 app.MapListMyRequests();
 app.MapListCondominiumRequests();
 app.MapUpdateRequestStatus();
+app.MapRequestServiceProviderEndpoints();
+app.MapPrepareProviderContactMessage();
 app.MapSuggestRequestStatusMessage();
 app.MapUpdateRequestPriority();
 app.MapCreateResidentReply();
 app.MapManageResidentClosure();
 app.MapAgendaEndpoints();
+app.MapServiceProviderEndpoints();
 
 // Reports
 app.MapGetRequestReport();

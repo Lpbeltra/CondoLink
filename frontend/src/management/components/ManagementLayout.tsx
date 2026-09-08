@@ -4,7 +4,6 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { PageContainer } from '../../components/PageContainer'
 import { useManagementContext } from '../ManagementContext'
-import { ManagementCondominiumSwitcher } from './ManagementCondominiumSwitcher'
 
 export function ManagementLayout() {
   const {
@@ -25,6 +24,7 @@ export function ManagementLayout() {
     || location.pathname.startsWith('/management/assistant')
     || location.pathname.startsWith('/management/documents')
     || location.pathname.startsWith('/management/agenda')
+    || location.pathname.startsWith('/management/service-providers')
     || location.pathname.startsWith('/management/administrator')
 
   if (isLoading) {
@@ -69,10 +69,6 @@ export function ManagementLayout() {
         <Typography variant="h1">
           Gestão
         </Typography>
-
-        <Box mt={2} mb={2}>
-          <ManagementCondominiumSwitcher />
-        </Box>
 
         <Tabs
           value={value}

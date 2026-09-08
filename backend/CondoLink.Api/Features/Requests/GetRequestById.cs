@@ -88,6 +88,7 @@ public static class GetRequestById
                     item.request.CreatedAt,
                     item.request.UpdatedAt,
                     item.request.ResolvedAt
+                    ,item.request.ServiceProviderId
                 })
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -188,6 +189,21 @@ public static class GetRequestById
                     answerMessageId);
             })
             .ToArray();
+
+        ServiceProviderResponse? serviceProvider = null;
+        IReadOnlyList<ServiceProviderHistoryResponse> serviceProviderHistory = [];
+        if (isCondominiumManager)
+        {
+            serviceProvider = request.ServiceProviderId is Guid providerId
+                ? await dbContext.ServiceProviders.AsNoTracking().Where(x => x.Id == providerId)
+                    .Select(x => new ServiceProviderResponse(x.Id, x.Name, x.CompanyName, x.Specialty, x.Phone, x.IsActive))
+                    .SingleOrDefaultAsync(cancellationToken)
+                : null;
+            serviceProviderHistory = await (from item in dbContext.RequestServiceProviderHistories.AsNoTracking()
+                join user in dbContext.Users.AsNoTracking() on item.ChangedByUserId equals user.Id
+                where item.RequestId == id orderby item.CreatedAt descending, item.Id descending
+                select new ServiceProviderHistoryResponse(item.Id, item.EventType, item.PreviousName, item.PreviousSpecialty, item.ProviderName, item.ProviderSpecialty, user.FullName, item.CreatedAt)).ToArrayAsync(cancellationToken);
+        }
 
         RequestAiAnalysisResponse? aiAnalysis = null;
         OriginalReportResponse? originalReport = null;
@@ -307,7 +323,9 @@ public static class GetRequestById
             residentSummary,
             agendaReminder,
             hasUnreadResidentReply,
-            hasUnreadResidentUpdate);
+            hasUnreadResidentUpdate,
+            serviceProvider,
+            serviceProviderHistory);
 
         return Results.Ok(response);
     }
@@ -380,6 +398,9 @@ public static class GetRequestById
         DateTime CreatedAt,
         Guid? AnswerMessageId);
 
+    public sealed record ServiceProviderResponse(Guid Id, string Name, string? CompanyName, string Specialty, string Phone, bool IsActive);
+    public sealed record ServiceProviderHistoryResponse(Guid Id, string EventType, string? PreviousName, string? PreviousSpecialty, string? ProviderName, string? ProviderSpecialty, string ChangedByFullName, DateTime CreatedAt);
+
     public sealed record Response(
         Guid Id,
         Guid CondominiumId,
@@ -401,7 +422,9 @@ public static class GetRequestById
         ResidentSummaryResponse? ResidentSummary,
         AgendaReminderSummaryResponse? AgendaReminder,
         bool HasUnreadResidentReply,
-        bool HasUnreadResidentUpdate)
+        bool HasUnreadResidentUpdate,
+        ServiceProviderResponse? ServiceProvider,
+        IReadOnlyList<ServiceProviderHistoryResponse> ServiceProviderHistory)
     {
         public string Protocol => RequestProtocol.From(Id);
     }

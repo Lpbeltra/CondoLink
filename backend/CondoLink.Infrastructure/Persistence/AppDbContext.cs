@@ -76,6 +76,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
         Set<AgendaReminderRequest>();
     public DbSet<AgendaReminderOccurrence> AgendaReminderOccurrences =>
         Set<AgendaReminderOccurrence>();
+    public DbSet<RequestServiceProviderHistory> RequestServiceProviderHistories => Set<RequestServiceProviderHistory>();
+    public DbSet<ServiceProvider> ServiceProviders => Set<ServiceProvider>();
+    public DbSet<ServiceProviderUserLink> ServiceProviderUserLinks => Set<ServiceProviderUserLink>();
+    public DbSet<ServiceProviderCondominiumLink> ServiceProviderCondominiumLinks => Set<ServiceProviderCondominiumLink>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

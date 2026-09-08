@@ -24,6 +24,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { shouldShowGeneralCondominiumSwitcher } from "./navigation";
 import { useOptionalManagementContext } from "../management/ManagementContext";
 import { useAdministrator } from "../administrator/AdministratorContext";
+import { ManagementCondominiumSwitcher } from "../management/components/ManagementCondominiumSwitcher";
 
 export function AppHeader() {
   const { user, logout } = useAuth();
@@ -35,6 +36,10 @@ export function AppHeader() {
   const showSwitcher = shouldShowGeneralCondominiumSwitcher(
     location.pathname,
     condominiums,
+  );
+  const showManagementSwitcher = Boolean(
+    managementContext && location.pathname.startsWith("/management") &&
+    managementContext.condominiumCount > 0,
   );
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const brandPath = location.pathname.startsWith("/overwatch")
@@ -86,7 +91,7 @@ export function AppHeader() {
           <Brand />
         </ButtonBase>
         <Box minWidth={0} flex="1 1 auto" overflow="hidden">
-          {showSwitcher && <CondominiumSwitcher />}
+          {showManagementSwitcher ? <ManagementCondominiumSwitcher /> : showSwitcher ? <CondominiumSwitcher /> : null}
         </Box>
         <Typography
           color="text.secondary"

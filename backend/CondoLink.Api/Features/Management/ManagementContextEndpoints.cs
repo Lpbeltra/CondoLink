@@ -100,18 +100,26 @@ public static class ManagementContextEndpoints
         var has=await db.CondominiumManagementCompanyLinks.AsNoTracking().AnyAsync(x=>x.IsActive&&ids.Contains(x.CondominiumId),ct);
         var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var permissions = new List<string>();
-        if (Guid.TryParse(value, out var userId) && context.ActiveManagementCondominiumId is Guid condominiumId)
+        var managementRoles = new List<string>();
+        if (Guid.TryParse(value, out var userId) && ids.Length > 0)
         {
-            var membershipId = await db.CondominiumMemberships.AsNoTracking().Where(x => x.UserId == userId && x.CondominiumId == condominiumId && x.IsActive && x.EndedAt == null)
-                .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x => x.Role == CondominiumRole.SubManager && x.IsActive && x.RevokedAt == null), x => x.Id, x => x.CondominiumMembershipId, (x, _) => x.Id).SingleOrDefaultAsync(ct);
-            if (membershipId != Guid.Empty)
+            var memberships = await db.CondominiumMemberships.AsNoTracking()
+                .Where(x => x.UserId == userId && ids.Contains(x.CondominiumId) && x.IsActive && x.EndedAt == null)
+                .Join(db.CondominiumMembershipRoles.AsNoTracking().Where(x => x.IsActive && x.RevokedAt == null && (x.Role == CondominiumRole.Manager || x.Role == CondominiumRole.SubManager)), x => x.Id, x => x.CondominiumMembershipId, (membership, role) => new { membership.Id, role.Role })
+                .ToListAsync(ct);
+            if (memberships.Any(x => x.Role == CondominiumRole.Manager)) managementRoles.Add(nameof(CondominiumRole.Manager));
+            if (memberships.Any(x => x.Role == CondominiumRole.SubManager)) managementRoles.Add(nameof(CondominiumRole.SubManager));
+            var subManagerMembershipIds = memberships.Where(x => x.Role == CondominiumRole.SubManager).Select(x => x.Id).Distinct().ToArray();
+            foreach (var membershipId in subManagerMembershipIds)
             {
                 await SubManagerAccess.EnsureDefaultsAsync(db, membershipId, userId, ct);
-                if (db.ChangeTracker.HasChanges()) await db.SaveChangesAsync(ct);
-                permissions = await db.SubManagerModulePermissions.AsNoTracking().Where(x => x.CondominiumMembershipId == membershipId && x.IsAllowed && x.RevokedAt == null).Select(x => x.Module.ToString()).ToListAsync(ct);
             }
+            if (db.ChangeTracker.HasChanges()) await db.SaveChangesAsync(ct);
+            permissions = await db.SubManagerModulePermissions.AsNoTracking()
+                .Where(x => subManagerMembershipIds.Contains(x.CondominiumMembershipId) && x.IsAllowed && x.RevokedAt == null)
+                .Select(x => x.Module.ToString()).Distinct().ToListAsync(ct);
         }
-        return new{context.ActiveManagementCondominiumId,context.UsesConsolidatedManagementScope,context.CondominiumCount,context.ActiveCondominium,context.AvailableCondominiums,HasEligibleManagementCompany=has,SubManagerPermissions=permissions};
+        return new{context.ActiveManagementCondominiumId,context.UsesConsolidatedManagementScope,context.CondominiumCount,context.ActiveCondominium,context.AvailableCondominiums,HasEligibleManagementCompany=has,ManagementRoles=managementRoles,SubManagerPermissions=permissions};
     }
 
     public sealed record ManagementContextRequest(Guid? CondominiumId);

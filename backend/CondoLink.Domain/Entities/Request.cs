@@ -77,6 +77,10 @@ public sealed class Request
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
     public DateTime? ResolvedAt { get; private set; }
+    public Guid? ServiceProviderId { get; private set; }
+
+    public void SetServiceProvider(Guid? serviceProviderId, DateTime changedAt)
+    { ServiceProviderId = serviceProviderId; UpdatedAt = changedAt; }
 
     public void ChangeStatus(RequestStatus newStatus, DateTime changedAt)
     {

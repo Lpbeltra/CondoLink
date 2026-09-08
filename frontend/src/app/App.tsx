@@ -73,6 +73,7 @@ const ManagementAgendaPage = lazyPage(
   () => import("../pages/ManagementAgendaPage"),
   "ManagementAgendaPage",
 );
+const ServiceProvidersPage = lazyPage(() => import("../serviceProviders/ServiceProvidersPage"), "ServiceProvidersPage");
 const ManagementBlocksPage = lazyPage(
   () => import("../pages/ManagementBlocksPage"),
   "ManagementBlocksPage",
@@ -216,6 +217,7 @@ export function App() {
                       element={<ManagementRequestDetailsPage />}
                     />
                     <Route path="agenda" element={<ManagementAgendaPage />} />
+                    <Route path="service-providers" element={<ServiceProvidersPage />} />
                     <Route
                       path="administrator"
                       element={<ManagementCompanyRequestsPage />}

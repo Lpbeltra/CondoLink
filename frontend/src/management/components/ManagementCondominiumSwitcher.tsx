@@ -17,7 +17,7 @@ import { useManagementContext } from '../ManagementContext'
 
 export function ManagementCondominiumSwitcher() {
   const {
-    condominiums,
+    condominiums = [],
     activeCondominiumId,
     isLoading,
     isSwitching,

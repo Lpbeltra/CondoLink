@@ -7,7 +7,6 @@ import { useSearchParams } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
 import { PageContainer } from '../components/PageContainer'
 import { useManagementContext } from '../management/ManagementContext'
-import { ManagementCondominiumSwitcher } from '../management/components/ManagementCondominiumSwitcher'
 import { listManagementRequests } from '../requests/api'
 import { ManagementRequestCard } from '../requests/components/ManagementRequestCard'
 import { applySummaryFilter, selectManagementRequests, sortManagementRequests } from '../requests/managementRequests'
@@ -121,10 +120,6 @@ export function ManagementRequestsPage() {
         ? 'Acompanhe solicitações de todos os condomínios administrados.'
         : `Acompanhe e organize as solicitações de ${activeCondominium?.name ?? 'seu condomínio'}.`}
     </Typography>
-    {/* This page bypasses ManagementLayout, so it carries its own switcher. */}
-    <Box mt={2} maxWidth={360}>
-      <ManagementCondominiumSwitcher />
-    </Box>
     {isLoading ? <Skeleton variant="rounded" height={120} sx={{ mt: 3 }} /> : data && <Box display="grid" gridTemplateColumns="repeat(auto-fit, minmax(132px, 1fr))" gap={1.5} mt={3}>{summaries.map(([label, key, summaryStatus]) => <Card key={key} elevation={0} sx={{ minWidth: 0, boxShadow: 'none', border: '1px solid', borderColor: status === summaryStatus ? 'primary.main' : 'divider', bgcolor: status === summaryStatus ? 'rgba(31,94,255,.045)' : 'background.paper' }}><CardActionArea onClick={() => selectSummary(summaryStatus)} aria-label={`Filtrar por ${label}`} sx={{ height: '100%', borderRadius: 'inherit', '&:focus-visible': { outline: '3px solid', outlineColor: 'primary.light', outlineOffset: -3 } }}><CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}><Typography color="text.secondary" fontSize=".75rem" fontWeight={700}>{label}</Typography><Typography variant="h2" mt={.5}>{data.counts[key]}</Typography></CardContent></CardActionArea></Card>)}</Box>}
     <Box display="grid" gridTemplateColumns={{ xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))', xl: 'repeat(6, minmax(0, 1fr))' }} gap={1.5} my={3} alignItems="center">
       <TextField size="small" label="Buscar" value={search} onChange={(event) => setFilter('search',event.target.value)} placeholder="Título, morador, categoria ou unidade" sx={{ minWidth: 0, gridColumn: { sm: 'span 2', lg: 'span 2', xl: 'span 1' } }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon /></InputAdornment> }} />

@@ -233,6 +233,7 @@ export function CondominiumAssistantPage() {
     fresh();
     await loadHistory();
   };
+  if (!activeCondominiumId) return <PageContainer><Alert severity="info"><Typography fontWeight={800}>Selecione um condomínio</Typography>Este módulo trabalha com um condomínio por vez. Escolha um condomínio no seletor acima para continuar.</Alert></PageContainer>;
   const history = (
     <Stack
       sx={{

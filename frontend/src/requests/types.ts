@@ -44,7 +44,11 @@ export interface RequestDetails extends RequestListItem {
   agendaReminder?: AgendaReminderSummary | null
   hasUnreadResidentReply?: boolean
   hasUnreadResidentUpdate?: boolean
+  serviceProvider?: ServiceProvider | null
+  serviceProviderHistory?: ServiceProviderHistoryItem[]
 }
+export interface ServiceProvider { id:string; name:string; companyName:string|null; specialty:string; phone:string; isActive:boolean }
+export interface ServiceProviderHistoryItem { id:string; eventType:'Linked'|'Changed'|'Removed'; previousName?:string|null; previousSpecialty?:string|null; providerName?:string|null; providerSpecialty?:string|null; changedByFullName:string; createdAt:string }
 
 export interface AgendaReminderSummary { id: string; title: string; nextOccurrenceAtUtc: string | null; recurrenceType: 'None' | 'Weekly' | 'Monthly'; isActive: boolean; completedAt: string | null }
 

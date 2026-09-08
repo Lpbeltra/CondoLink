@@ -11,23 +11,29 @@ describe("role-based navigation", () => {
   });
 
   it("gives Manager the complete catalog", () => {
-    expect(getNavigationItems(["Manager", "Resident"]).map(item => item.label)).toEqual(["Dashboard", "Atendimento", "Administradora", "Agenda", "Assistente", "Documentos", "Gestão"]);
+    expect(getNavigationItems(["Manager", "Resident"]).map(item => item.label)).toEqual(["Dashboard", "Atendimento", "Administradora", "Agenda", "Prestadores", "Assistente", "Documentos", "Gestão"]);
     expect(getMobileNavigationItems(["Manager"]).map(item => item.label)).toEqual(["Dashboard", "Assistente", "Atendimento", "Mais"]);
   });
 
   it("maps six configurable SubManager permissions, including Assistant", () => {
     expect(getNavigationItems(["SubManager"], [], allPermissions).map(item => item.path)).toEqual([
-      "/management/requests", "/management/administrator", "/management/agenda", "/management/assistant", "/management/documents", "/management/units",
+      "/management/requests", "/management/administrator", "/management/agenda", "/management/service-providers", "/management/assistant", "/management/documents", "/management/units",
     ]);
     expect(getNavigationItems(["SubManager"], [], ["Assistant"]).map(item => item.label)).toEqual(["Assistente"]);
     expect(getNavigationItems(["SubManager"], [], []).map(item => item.label)).toEqual([]);
   });
 
+  it("uses union permissions for consolidated SubManager navigation", () => {
+    const union = [...new Set(["Attendance", "Documents"])]
+    expect(getNavigationItems(["SubManager"], [], union).map(item => item.label))
+      .toEqual(["Atendimento", "Documentos"])
+  });
+
   it("partitions authorized modules without loss or duplication", () => {
     const parts = getMobileNavigationParts(["SubManager"], [], allPermissions);
-    expect(parts.allowed.map(item => item.label)).toEqual(["Atendimento", "Administradora", "Agenda", "Assistente", "Documentos", "Gestão"]);
+    expect(parts.allowed.map(item => item.label)).toEqual(["Atendimento", "Administradora", "Agenda", "Prestadores", "Assistente", "Documentos", "Gestão"]);
     expect(parts.bottom.map(item => item.label)).toEqual(["Assistente", "Atendimento", "Agenda"]);
-    expect(parts.more.map(item => item.label)).toEqual(["Administradora", "Documentos", "Gestão"]);
+    expect(parts.more.map(item => item.label)).toEqual(["Administradora", "Prestadores", "Documentos", "Gestão"]);
     expect(new Set([...parts.bottom, ...parts.more]).size).toBe(parts.allowed.length);
     expect(getMoreNavigationItems(["SubManager"], [], allPermissions)).toEqual(parts.more);
   });

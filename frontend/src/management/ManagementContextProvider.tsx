@@ -33,6 +33,7 @@ export function ManagementContextProvider({
   const [usesConsolidatedManagementScope, setUsesConsolidatedManagementScope] =
     useState(false)
   const [hasEligibleManagementCompany,setHasEligibleManagementCompany]=useState(false)
+  const [managementRoles, setManagementRoles] = useState<string[]>([])
   const [subManagerPermissions, setSubManagerPermissions] = useState<string[] | undefined>(undefined)
 
   // Apenas para o carregamento inicial do contexto
@@ -52,6 +53,7 @@ export function ManagementContextProvider({
     setActiveCondominiumId(null)
     setUsesConsolidatedManagementScope(false)
     setHasEligibleManagementCompany(false)
+    setManagementRoles([])
     setSubManagerPermissions(undefined)
 
     setIsLoading(false)
@@ -74,6 +76,7 @@ export function ManagementContextProvider({
     setActiveCondominiumId(null)
     setUsesConsolidatedManagementScope(false)
     setHasEligibleManagementCompany(false)
+    setManagementRoles([])
     setSubManagerPermissions(undefined)
 
     try {
@@ -87,6 +90,7 @@ export function ManagementContextProvider({
         context.usesConsolidatedManagementScope,
       )
       setHasEligibleManagementCompany(Boolean(context.hasEligibleManagementCompany))
+      setManagementRoles(context.managementRoles ?? [])
       setSubManagerPermissions(context.subManagerPermissions)
     } catch (requestError) {
       if (!isCurrentManagementRequest(version, requestVersion.current)) return
@@ -115,11 +119,15 @@ export function ManagementContextProvider({
       const version = ++requestVersion.current
       const previousCondominiumId = activeCondominiumId
       const previousConsolidatedScope = usesConsolidatedManagementScope
+      const previousManagementRoles = managementRoles
+      const previousSubManagerPermissions = subManagerPermissions
+      const previousManagementCompanyEligibility = hasEligibleManagementCompany
       setIsSwitching(true)
       setError(null)
       setActiveCondominiumId(null)
       setUsesConsolidatedManagementScope(false)
       setHasEligibleManagementCompany(false)
+      setManagementRoles([])
       setSubManagerPermissions(undefined)
 
       try {
@@ -133,11 +141,15 @@ export function ManagementContextProvider({
           context.usesConsolidatedManagementScope,
         )
         setHasEligibleManagementCompany(Boolean(context.hasEligibleManagementCompany))
+        setManagementRoles(context.managementRoles ?? [])
         setSubManagerPermissions(context.subManagerPermissions)
       } catch (requestError) {
         if (!isCurrentManagementRequest(version, requestVersion.current)) return
         setActiveCondominiumId(previousCondominiumId)
         setUsesConsolidatedManagementScope(previousConsolidatedScope)
+        setManagementRoles(previousManagementRoles)
+        setSubManagerPermissions(previousSubManagerPermissions)
+        setHasEligibleManagementCompany(previousManagementCompanyEligibility)
         setError(getErrorMessage(requestError))
       } finally {
         if (isCurrentManagementRequest(version, requestVersion.current)) {
@@ -145,7 +157,7 @@ export function ManagementContextProvider({
         }
       }
     },
-    [activeCondominiumId, usesConsolidatedManagementScope]
+    [activeCondominiumId, hasEligibleManagementCompany, managementRoles, subManagerPermissions, usesConsolidatedManagementScope]
   )
 
   const value = useMemo<ManagementContextValue>(
@@ -160,6 +172,7 @@ export function ManagementContextProvider({
         condominiumCount: condominiums.length,
         usesConsolidatedManagementScope,
         hasEligibleManagementCompany,
+        managementRoles,
         subManagerPermissions,
         isLoading,
         isSwitching,
@@ -178,6 +191,7 @@ export function ManagementContextProvider({
       selectCondominium,
       usesConsolidatedManagementScope,
       hasEligibleManagementCompany,
+      managementRoles,
       subManagerPermissions,
     ]
   )
