@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
+
 namespace CondoLink.Domain.Enums;
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum ServiceProviderPixKeyType
 {
     Cpf = 1,

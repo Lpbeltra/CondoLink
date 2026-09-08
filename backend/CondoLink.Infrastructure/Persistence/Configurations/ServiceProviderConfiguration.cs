@@ -50,3 +50,9 @@ public sealed class ServiceProviderCondominiumLinkConfiguration : IEntityTypeCon
         b.HasOne<Condominium>().WithMany().HasForeignKey(x => x.CondominiumId).OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+public sealed class ServiceProviderSpecialtyConfiguration : IEntityTypeConfiguration<ServiceProviderSpecialty>
+{
+    public void Configure(EntityTypeBuilder<ServiceProviderSpecialty> b)
+    { b.ToTable("service_provider_specialties"); b.HasKey(x => x.Id); b.Property(x => x.Id).HasColumnName("id"); b.Property(x => x.ServiceProviderId).HasColumnName("service_provider_id"); b.Property(x => x.Name).HasColumnName("name").HasMaxLength(120).IsRequired(); b.Property(x => x.NormalizedName).HasColumnName("normalized_name").HasMaxLength(120).IsRequired(); b.HasIndex(x => new { x.ServiceProviderId, x.NormalizedName }).IsUnique(); b.HasIndex(x => x.NormalizedName); b.HasOne<ServiceProvider>().WithMany().HasForeignKey(x => x.ServiceProviderId).OnDelete(DeleteBehavior.Cascade); }
+}

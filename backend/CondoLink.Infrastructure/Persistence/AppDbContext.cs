@@ -81,6 +81,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<ServiceProvider> ServiceProviders => Set<ServiceProvider>();
     public DbSet<ServiceProviderUserLink> ServiceProviderUserLinks => Set<ServiceProviderUserLink>();
     public DbSet<ServiceProviderCondominiumLink> ServiceProviderCondominiumLinks => Set<ServiceProviderCondominiumLink>();
+    public DbSet<ServiceProviderSpecialty> ServiceProviderSpecialties => Set<ServiceProviderSpecialty>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

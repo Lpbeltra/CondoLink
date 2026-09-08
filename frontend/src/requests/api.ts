@@ -79,7 +79,7 @@ export async function suggestRequestStatusMessage(requestId: string, status: Req
 export const listRequestServiceProviders = async (requestId:string) => (await api.get<ServiceProviderOption[]>(`/requests/${requestId}/service-providers`)).data
 export const setRequestServiceProvider = async (requestId:string, serviceProviderId:string|null) => api.patch(`/requests/${requestId}/service-provider`, { serviceProviderId })
 export const prepareProviderContactMessage = async (requestId:string) => (await api.post<{message:string}>(`/requests/${requestId}/provider-contact-message`)).data
-export interface ServiceProviderOption { id:string; name:string; companyName:string|null; specialty:string; phone:string; isMine:boolean; isCondominium:boolean }
+export interface ServiceProviderOption { id:string; name:string; companyName:string|null; specialty:string; specialties?:string[]; phone:string; isMine:boolean; isCondominium:boolean }
 
 export async function createAdministrativeRequestUpdate(requestId: string, content: string) {
   return (await api.post(`/management/requests/${requestId}/updates`, { content })).data

@@ -23,7 +23,9 @@ public static class RequestServiceProviderEndpoints
         var access = await RequestAccessAsync(requestId, principal, db, ct); if (access is null) return Results.NotFound(new { error="Request not found." }); if (!access.Value.Value) return Results.Forbid();
         var userId = UserId(principal); var query = db.ServiceProviders.AsNoTracking().Where(p => p.IsActive && (db.ServiceProviderUserLinks.Any(l=>l.ServiceProviderId==p.Id && l.UserId==userId) || db.ServiceProviderCondominiumLinks.Any(l=>l.ServiceProviderId==p.Id && l.CondominiumId==access.Value.CondominiumId)));
         var rows = await query.OrderBy(p=>p.Name).Select(p=>new { p.Id,p.Name,p.CompanyName,p.Specialty, p.Phone, IsMine=db.ServiceProviderUserLinks.Any(l=>l.ServiceProviderId==p.Id&&l.UserId==userId), IsCondominium=db.ServiceProviderCondominiumLinks.Any(l=>l.ServiceProviderId==p.Id&&l.CondominiumId==access.Value.CondominiumId) }).ToArrayAsync(ct);
-        return Results.Ok(rows);
+        var ids = rows.Select(x => x.Id).ToArray();
+        var specialties = await db.ServiceProviderSpecialties.AsNoTracking().Where(x => ids.Contains(x.ServiceProviderId)).OrderBy(x => x.Name).ToArrayAsync(ct);
+        return Results.Ok(rows.Select(x => new { x.Id, x.Name, x.CompanyName, x.Specialty, Specialties = specialties.Where(s => s.ServiceProviderId == x.Id).Select(s => s.Name).ToArray(), x.Phone, x.IsMine, x.IsCondominium }));
     }
 
     private static async Task<IResult> LinkAsync(Guid requestId, LinkRequest input, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)

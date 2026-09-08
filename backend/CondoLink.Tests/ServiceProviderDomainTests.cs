@@ -1,5 +1,6 @@
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
+using System.Text.Json;
 
 namespace CondoLink.Tests;
 
@@ -22,5 +23,22 @@ public sealed class ServiceProviderDomainTests
     public void Requires_pix_type_when_pix_key_is_present()
     {
         Assert.Throws<ArgumentException>(() => new ServiceProvider("A", null, "Elétrica", null, "5511999999999", null, "key", null, null, DateTime.UtcNow));
+    }
+
+    [Fact]
+    public void Accepts_the_string_pix_contract_used_by_the_management_form()
+    {
+        var pixType = JsonSerializer.Deserialize<ServiceProviderPixKeyType>("\"Cpf\"");
+
+        Assert.Equal(ServiceProviderPixKeyType.Cpf, pixType);
+    }
+
+    [Fact]
+    public void Specialty_normalizes_comparison_without_changing_the_display_name()
+    {
+        var specialty = new ServiceProviderSpecialty(Guid.NewGuid(), "  HidrÃ¡ulica  ");
+
+        Assert.Equal("HidrÃ¡ulica", specialty.Name);
+        Assert.Equal(specialty.Name.ToUpperInvariant(), specialty.NormalizedName);
     }
 }
