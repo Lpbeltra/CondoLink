@@ -204,10 +204,7 @@ export function CondominiumAssistantPage() {
             }
             upsertAnswer(
               result.answer,
-              result.sources.map((source) => ({
-                source,
-                documentCurrentlyActive: true,
-              })),
+              result.sources,
             );
             void loadHistory();
           },
@@ -404,12 +401,8 @@ export function CondominiumAssistantPage() {
                             Fontes
                           </Typography>
                           {message.sources.map(
-                            ({
-                              source,
-                              documentExists = true,
-                              documentCurrentlyActive,
-                            }) =>
-                              documentExists ? (
+                            (source) =>
+                              source.documentExists !== false ? (
                                 <Chip
                                   key={`${message.id}-${source.marker}`}
                                   clickable
@@ -425,7 +418,7 @@ export function CondominiumAssistantPage() {
                                       setError(getErrorMessage(downloadError));
                                     }
                                   }}
-                                  label={`${source.documentName}${source.pageNumber ? ` — pág. ${source.pageNumber}` : ""}${documentCurrentlyActive ? "" : " · documento atualmente inativo"}`}
+                                  label={`${source.documentName}${source.pageNumber ? ` — pág. ${source.pageNumber}` : ""}${source.documentCurrentlyActive === false ? " · documento atualmente inativo" : ""}`}
                                 />
                               ) : (
                                 <Chip

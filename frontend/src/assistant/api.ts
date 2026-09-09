@@ -29,6 +29,8 @@ export interface AssistantSource {
   sectionTitle: string | null;
   excerpt: string;
   marker: string;
+  documentExists?: boolean;
+  documentCurrentlyActive?: boolean;
 }
 export interface AssistantConversation {
   id: string;
@@ -43,11 +45,7 @@ export interface AssistantMessage {
   role: "User" | "Assistant";
   content: string;
   createdAt: string;
-  sources: {
-    source: AssistantSource;
-    documentExists?: boolean;
-    documentCurrentlyActive: boolean;
-  }[];
+  sources: AssistantSource[];
 }
 export interface ConversationDetails {
   conversation: AssistantConversation;

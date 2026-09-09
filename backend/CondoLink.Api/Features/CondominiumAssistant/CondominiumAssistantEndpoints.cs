@@ -246,9 +246,12 @@ public static class CondominiumAssistantEndpoints
         var availableDocuments = await db.CondominiumDocuments.AsNoTracking()
             .Where(x => x.CondominiumId == condominiumId && sourceIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, x => x.IsActive, ct);
+        // Same flat source contract as JSON and SSE answer responses. Reopening a
+        // conversation must not turn persisted sources into a nested shape.
         var messages = messageRows.Select(x => new { x.Id, Role = x.Role.ToString(), x.Content, x.CreatedAt,
             Sources = ParseSources(x.SourcesJson).Select(source => new
-            { Source = source, DocumentExists = availableDocuments.ContainsKey(source.DocumentId),
+            { source.DocumentId, source.DocumentName, source.PageNumber, source.SectionTitle, source.Excerpt, source.Marker,
+                DocumentExists = availableDocuments.ContainsKey(source.DocumentId),
                 DocumentCurrentlyActive = availableDocuments.GetValueOrDefault(source.DocumentId) }).ToArray() }).ToArray();
         object? requestContext = null; var contextUnavailable = false;
         if (conversation.RequestId is Guid requestId)

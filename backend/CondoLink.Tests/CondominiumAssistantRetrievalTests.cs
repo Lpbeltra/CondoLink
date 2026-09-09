@@ -230,6 +230,42 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
             JsonSerializer.Serialize(Vector(topic)), page, null, "semantic-test-v1"));
     }
 
+    [Fact]
+    public async Task Enumerative_minutes_query_preserves_document_coverage_including_later_years()
+    {
+        var ids = new List<Guid>();
+        foreach (var date in new[] { "17/07/2024", "29/10/2024", "19/08/2025", "15/03/2026", "20/08/2026" })
+        {
+            var document = Document($"Ata de assembleia {date}", CondominiumDocumentType.Minutes);
+            ids.Add(document.Id); db.Add(document);
+            db.Add(new CondominiumDocumentChunk(document.Id, condominiumId, 0,
+                $"Ata de assembleia realizada em {date}.", JsonSerializer.Serialize(Vector(5)), 1, null, "semantic-test-v1"));
+        }
+        await db.SaveChangesAsync();
+        var results = await Service().RetrieveAsync(condominiumId,
+            "Relacione as datas de todas as atas de assembleia.", null, default);
+        Assert.True(CondominiumAssistantService.IsEnumerationQuestion("Liste todas as atas"));
+        Assert.True(ids.All(id => results.Any(item => item.DocumentId == id)));
+        Assert.Contains(results, item => item.Content.Contains("2026"));
+    }
+
+    [Fact]
+    public void Friendly_source_name_never_exposes_storage_key_when_original_exists()
+    {
+        Assert.Equal("Regimento Interno Monticello.pdf",
+            CondominiumAssistantService.DisplayDocumentName("s3-68f8e30b94f3b", "Regimento Interno Monticello.pdf"));
+        Assert.Equal("Regimento Interno",
+            CondominiumAssistantService.DisplayDocumentName("Regimento Interno", "arquivo.pdf"));
+    }
+
+    [Fact]
+    public void Grounding_prompt_makes_history_non_evidence_and_absence_non_existence()
+    {
+        Assert.Contains("HISTÓRICO é apenas contexto conversacional", CondominiumAssistantService.SystemPrompt);
+        Assert.Contains("Ausência de trecho recuperado nunca prova inexistência", CondominiumAssistantService.SystemPrompt);
+        Assert.Contains("trecho documental recuperado", CondominiumAssistantService.SystemPrompt);
+    }
+
     private CondominiumDocument AddInvestigative(Guid targetCondominium,
         string name, string content, float[] vector)
     {
