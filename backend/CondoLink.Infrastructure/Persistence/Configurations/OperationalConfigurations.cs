@@ -19,3 +19,14 @@ public sealed class OperationalEventConfiguration : IEntityTypeConfiguration<Ope
     public void Configure(EntityTypeBuilder<OperationalEvent> b)
     { b.ToTable("operational_events"); b.HasKey(x => x.Id); b.Property(x => x.Component).HasMaxLength(50); b.Property(x => x.Category).HasMaxLength(100); b.Property(x => x.Severity).HasMaxLength(20); b.Property(x => x.ReasonCode).HasMaxLength(100); b.Property(x => x.CorrelationId).HasMaxLength(100); b.HasIndex(x => x.Timestamp); }
 }
+public sealed class AssistantExecutionMetricConfiguration : IEntityTypeConfiguration<AssistantExecutionMetric>
+{
+    public void Configure(EntityTypeBuilder<AssistantExecutionMetric> b)
+    {
+        b.ToTable("assistant_execution_metrics"); b.HasKey(x => x.Id);
+        b.Property(x => x.EmbeddingModel).HasMaxLength(100); b.Property(x => x.ChatModel).HasMaxLength(100);
+        b.Property(x => x.ErrorCategory).HasMaxLength(100); b.Property(x => x.ErrorCode).HasMaxLength(100);
+        b.HasIndex(x => x.AssistantExecutionId).IsUnique(); b.HasIndex(x => x.StartedAt);
+        b.HasIndex(x => new { x.CondominiumId, x.StartedAt }); b.HasIndex(x => new { x.Success, x.StartedAt });
+    }
+}

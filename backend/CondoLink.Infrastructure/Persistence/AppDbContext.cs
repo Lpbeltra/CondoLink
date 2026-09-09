@@ -69,6 +69,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<CondominiumAssistantMessage> CondominiumAssistantMessages => Set<CondominiumAssistantMessage>();
     public DbSet<WorkerHeartbeat> WorkerHeartbeats => Set<WorkerHeartbeat>();
     public DbSet<AiOperationMetric> AiOperationMetrics => Set<AiOperationMetric>();
+    public DbSet<AssistantExecutionMetric> AssistantExecutionMetrics => Set<AssistantExecutionMetric>();
     public DbSet<OperationalEvent> OperationalEvents => Set<OperationalEvent>();
     public DbSet<OperationalMessageTemplate> OperationalMessageTemplates =>
         Set<OperationalMessageTemplate>();

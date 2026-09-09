@@ -133,6 +133,7 @@ export function CondominiumAssistantPage() {
     if (!activeCondominiumId || !question.trim() || sending) return;
     const value = question.trim();
     const answerId = `answer-${Date.now()}`;
+    let receivedToken = false;
     setQuestion("");
     setSending(true);
     setSearching(true);
@@ -177,7 +178,8 @@ export function CondominiumAssistantPage() {
         body,
         {
           onSources: () => setSearching(false),
-          onToken: (delta) =>
+          onToken: (delta) => {
+            receivedToken = true;
             setMessages((x) =>
               x.some((m) => m.id === answerId)
                 ? x.map((m) =>
@@ -193,7 +195,8 @@ export function CondominiumAssistantPage() {
                       sources: [],
                     },
                   ],
-            ),
+            );
+          },
           onDone: (result) => {
             if (!conversation && result.conversation) {
               setConversation(result.conversation);
@@ -209,8 +212,8 @@ export function CondominiumAssistantPage() {
             void loadHistory();
           },
           onError: (message) => {
-            setMessages((x) => x.filter((m) => m.id !== answerId));
-            setError(message);
+            if (!receivedToken) setMessages((x) => x.filter((m) => m.id !== answerId));
+            setError(receivedToken ? `${message} A resposta parcial permanece disponível.` : message);
           },
         },
         controller.signal,
@@ -440,7 +443,7 @@ export function CondominiumAssistantPage() {
                   <Stack direction="row" gap={1}>
                     <CircularProgress size={18} />
                     <Typography color="text.secondary">
-                      Consultando documentos…
+                      Consultando informações…
                     </Typography>
                   </Stack>
                 )}

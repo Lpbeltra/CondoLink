@@ -150,6 +150,10 @@ const OverwatchSystemPage = lazyPage(
   () => import("../overwatch/pages/OverwatchSystemPage"),
   "OverwatchSystemPage",
 );
+const OverwatchAssistantPerformancePage = lazyPage(
+  () => import("../overwatch/pages/OverwatchAssistantPerformancePage"),
+  "OverwatchAssistantPerformancePage",
+);
 const OverwatchManagementCompanyRequestsPage = lazyPage(
   () => import("../overwatch/pages/OverwatchManagementCompanyRequestsPage"),
   "OverwatchManagementCompanyRequestsPage",
@@ -303,6 +307,7 @@ export function App() {
                       element={<OverwatchManagerDetailsPage />}
                     />
                     <Route path="system" element={<OverwatchSystemPage />} />
+                    <Route path="assistant-performance" element={<OverwatchAssistantPerformancePage />} />
                     <Route path="management-company-requests" element={<OverwatchManagementCompanyRequestsPage />} />
                     <Route
                       path="messages"

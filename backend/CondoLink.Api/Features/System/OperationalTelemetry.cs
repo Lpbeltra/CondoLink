@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using CondoLink.Domain.Entities;
 using CondoLink.Infrastructure.Persistence;
+using CondoLink.Api.Features.CondominiumAssistant;
 using Microsoft.EntityFrameworkCore;
 
 namespace CondoLink.Api.Features.Observability;
@@ -79,6 +80,7 @@ public sealed class OpenAiTelemetryHandler(IServiceScopeFactory scopes, TimeProv
                 await using var scope = scopes.CreateAsyncScope(); var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 db.AiOperationMetrics.Add(new AiOperationMetric(operation, model, clock.GetUtcNow().UtcDateTime,
                     (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, error is null && response?.IsSuccessStatusCode == true, input, output, total, error));
+                scope.ServiceProvider.GetRequiredService<ILogger<OpenAiTelemetryHandler>>().LogInformation("OpenAI operation completed. AssistantExecutionId: {AssistantExecutionId}; Operation: {Operation}; Model: {Model}; DurationMs: {DurationMs}; Succeeded: {Succeeded}; InputTokens: {InputTokens}; OutputTokens: {OutputTokens}; TotalTokens: {TotalTokens}; Error: {Error}.", AssistantExecutionContext.ExecutionId, operation, model, (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, error is null && response?.IsSuccessStatusCode == true, input, output, total, error);
                 if (error is not null) db.OperationalEvents.Add(new OperationalEvent(clock.GetUtcNow().UtcDateTime, "OpenAI", operation, "Error", error));
                 await db.SaveChangesAsync(CancellationToken.None);
             }
@@ -143,7 +145,7 @@ public sealed class OperationalRetentionWorker(IServiceScopeFactory scopes, Oper
     {
         while (!ct.IsCancellationRequested)
         {
-            try { await telemetry.RecordWorkerAsync(nameof(OperationalRetentionWorker), true, Interval, "started", ct: ct); await using var s = scopes.CreateAsyncScope(); var db = s.ServiceProvider.GetRequiredService<AppDbContext>(); var now = DateTime.UtcNow; var cutoff = now.AddDays(-30); var count = await db.AiOperationMetrics.Where(x => x.Timestamp < cutoff).ExecuteDeleteAsync(ct) + await db.OperationalEvents.Where(x => x.Timestamp < cutoff).ExecuteDeleteAsync(ct); count += await DeleteExpiredHeartbeatsAsync(db, now, ct); await telemetry.RecordWorkerAsync(nameof(OperationalRetentionWorker), true, Interval, "completed", true, count, ct: ct); }
+            try { await telemetry.RecordWorkerAsync(nameof(OperationalRetentionWorker), true, Interval, "started", ct: ct); await using var s = scopes.CreateAsyncScope(); var db = s.ServiceProvider.GetRequiredService<AppDbContext>(); var now = DateTime.UtcNow; var cutoff = now.AddDays(-30); var assistantCutoff = now.AddDays(-90); var count = await db.AiOperationMetrics.Where(x => x.Timestamp < cutoff).ExecuteDeleteAsync(ct) + await db.OperationalEvents.Where(x => x.Timestamp < cutoff).ExecuteDeleteAsync(ct) + await db.AssistantExecutionMetrics.Where(x => x.StartedAt < assistantCutoff).ExecuteDeleteAsync(ct); count += await DeleteExpiredHeartbeatsAsync(db, now, ct); await telemetry.RecordWorkerAsync(nameof(OperationalRetentionWorker), true, Interval, "completed", true, count, ct: ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex) { logger.LogError(ex, "Operational retention failed."); await telemetry.EventAsync("Workers", "Retention", "Error", "retention_failed", ct: CancellationToken.None); }
             await Task.Delay(Interval, ct);

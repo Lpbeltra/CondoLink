@@ -26,6 +26,7 @@ public static class MapOverwatch
 
             endpoints.MapGetOverwatchDashboard();
             endpoints.MapGetSystemStatus();
+            endpoints.MapAssistantPerformanceEndpoints();
             endpoints.MapListOverwatchCondominiums();
             endpoints.MapGetOverwatchCondominium();
             endpoints.MapCreateOverwatchCondominium();

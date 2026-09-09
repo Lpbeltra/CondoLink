@@ -17,6 +17,19 @@ using UglyToad.PdfPig.DocumentLayoutAnalysis.TextExtractor;
 
 namespace CondoLink.Api.Features.CondominiumAssistant;
 
+/// <summary>Async-flow correlation shared by assistant calls and OpenAI telemetry.</summary>
+public static class AssistantExecutionContext
+{
+    private static readonly AsyncLocal<Guid?> CurrentExecution = new();
+    public static Guid? ExecutionId => CurrentExecution.Value;
+    public static IDisposable Begin(Guid executionId)
+    {
+        var previous = CurrentExecution.Value; CurrentExecution.Value = executionId;
+        return new Scope(() => CurrentExecution.Value = previous);
+    }
+    private sealed class Scope(Action dispose) : IDisposable { public void Dispose() => dispose(); }
+}
+
 public sealed class CondominiumAssistantOptions
 {
     public const string SectionName = "CondominiumAssistant";
@@ -411,24 +424,29 @@ internal sealed record RerankDecision(Guid ChunkId, double Relevance);
 
 public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingService embeddings,
     HttpClient http, IOptions<RequestDraftAiOptions> aiOptions,
-    IOptions<CondominiumAssistantOptions> options, ILogger<CondominiumAssistantService> logger)
+    IOptions<CondominiumAssistantOptions> options, AssistantExecutionMetricWriter metricWriter,
+    ILogger<CondominiumAssistantService> logger)
 {
     public async Task<AssistantAnswer> AskAsync(CondominiumAssistantConversation conversation,
-        string question, CancellationToken cancellationToken)
+        string question, CancellationToken cancellationToken, Guid? executionId = null)
     {
-        var started = DateTime.UtcNow;
-        var catalogAnswer = await TryAnswerCatalog(conversation.CondominiumId, question, cancellationToken);
-        if (catalogAnswer is not null) return new(catalogAnswer, [], "structured-catalog");
-        var prepared = await PrepareAnswerContextAsync(conversation, question, cancellationToken);
-        var answer = await Chat(question, prepared.Context, prepared.RequestContextPrompt,
-            prepared.History, prepared.NoEvidence, cancellationToken);
-        answer = await AppendUnprocessedDocumentsHintAsync(
-            conversation.CondominiumId, answer, prepared.NoEvidence, cancellationToken);
-        logger.LogInformation("Condominium assistant completed. CondominiumId: {CondominiumId}; ConversationId: {ConversationId}; RequestId: {RequestId}; Chunks: {Chunks}; Model: {Model}; DurationMs: {DurationMs}; Success: true.",
-            conversation.CondominiumId, conversation.Id, conversation.RequestId, prepared.Sources.Count,
-            aiOptions.Value.Model, (DateTime.UtcNow - started).TotalMilliseconds);
-        var cited = prepared.Sources.Where(source => answer.Contains($"[{source.Marker}]", StringComparison.Ordinal)).ToArray();
-        return new(answer, cited, aiOptions.Value.Model);
+        using var execution = AssistantExecutionContext.Begin(executionId ?? Guid.NewGuid());
+        using var scope = logger.BeginScope(new Dictionary<string, object?> { ["AssistantExecutionId"] = AssistantExecutionContext.ExecutionId });
+        var measurement = new AssistantExecutionMeasurement(AssistantExecutionContext.ExecutionId!.Value, conversation.CondominiumId, DateTime.UtcNow) { EmbeddingModel = embeddings.Model, ChatModel = aiOptions.Value.Model };
+        try
+        {
+            var catalogAnswer = await TryAnswerCatalog(conversation.CondominiumId, question, cancellationToken);
+            if (catalogAnswer is not null) { await metricWriter.WriteAsync(measurement, true); return new(catalogAnswer, [], "structured-catalog"); }
+            var prepared = await PrepareAnswerContextAsync(conversation, question, cancellationToken, measurement);
+            var chat = System.Diagnostics.Stopwatch.StartNew();
+            var answer = await Chat(question, prepared.Context, prepared.RequestContextPrompt, prepared.History, prepared.NoEvidence, cancellationToken);
+            chat.Stop(); measurement.ChatDurationMs = measurement.GenerationDurationMs = chat.ElapsedMilliseconds;
+            answer = await AppendUnprocessedDocumentsHintAsync(conversation.CondominiumId, answer, prepared.NoEvidence, cancellationToken);
+            logger.LogInformation("Condominium assistant completed. CondominiumId: {CondominiumId}; ConversationId: {ConversationId}; Chunks: {Chunks}; Success: true.", conversation.CondominiumId, conversation.Id, prepared.Sources.Count);
+            var cited = prepared.Sources.Where(source => answer.Contains($"[{source.Marker}]", StringComparison.Ordinal)).ToArray();
+            await metricWriter.WriteAsync(measurement, true); return new(answer, cited, aiOptions.Value.Model);
+        }
+        catch (Exception exception) { await metricWriter.WriteAsync(measurement, false, exception); throw; }
     }
 
     /// <summary>
@@ -467,28 +485,24 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
     /// </summary>
     public async Task<AssistantAnswer> AskStreamAsync(CondominiumAssistantConversation conversation,
         string question, Func<IReadOnlyList<AssistantSource>, CancellationToken, Task> onSources,
-        Func<string, CancellationToken, Task> onToken, CancellationToken cancellationToken)
+        Func<string, CancellationToken, Task> onToken, CancellationToken cancellationToken, Guid? executionId = null)
     {
-        var catalogAnswer = await TryAnswerCatalog(conversation.CondominiumId, question, cancellationToken);
-        if (catalogAnswer is not null)
+        using var execution = AssistantExecutionContext.Begin(executionId ?? Guid.NewGuid());
+        using var scope = logger.BeginScope(new Dictionary<string, object?> { ["AssistantExecutionId"] = AssistantExecutionContext.ExecutionId });
+        var measurement = new AssistantExecutionMeasurement(AssistantExecutionContext.ExecutionId!.Value, conversation.CondominiumId, DateTime.UtcNow) { EmbeddingModel = embeddings.Model, ChatModel = aiOptions.Value.Model };
+        try
         {
-            await onSources([], cancellationToken);
-            await onToken(catalogAnswer, cancellationToken);
-            return new(catalogAnswer, [], "structured-catalog");
+            var catalogAnswer = await TryAnswerCatalog(conversation.CondominiumId, question, cancellationToken);
+            if (catalogAnswer is not null) { await onSources([], cancellationToken); await onToken(catalogAnswer, cancellationToken); await metricWriter.WriteAsync(measurement, true); return new(catalogAnswer, [], "structured-catalog"); }
+            var prepared = await PrepareAnswerContextAsync(conversation, question, cancellationToken, measurement);
+            await onSources(prepared.Sources, cancellationToken);
+            var answer = await ChatStreamAsync(question, prepared.Context, prepared.RequestContextPrompt, prepared.History, prepared.NoEvidence, onToken, cancellationToken, measurement);
+            var hinted = await AppendUnprocessedDocumentsHintAsync(conversation.CondominiumId, answer, prepared.NoEvidence, cancellationToken);
+            if (hinted != answer) { await onToken(hinted[answer.Length..], cancellationToken); answer = hinted; }
+            var cited = prepared.Sources.Where(source => answer.Contains($"[{source.Marker}]", StringComparison.Ordinal)).ToArray();
+            await metricWriter.WriteAsync(measurement, true); return new(answer, cited, aiOptions.Value.Model);
         }
-        var prepared = await PrepareAnswerContextAsync(conversation, question, cancellationToken);
-        await onSources(prepared.Sources, cancellationToken);
-        var answer = await ChatStreamAsync(question, prepared.Context, prepared.RequestContextPrompt,
-            prepared.History, prepared.NoEvidence, onToken, cancellationToken);
-        var hinted = await AppendUnprocessedDocumentsHintAsync(
-            conversation.CondominiumId, answer, prepared.NoEvidence, cancellationToken);
-        if (hinted != answer)
-        {
-            await onToken(hinted[answer.Length..], cancellationToken);
-            answer = hinted;
-        }
-        var cited = prepared.Sources.Where(source => answer.Contains($"[{source.Marker}]", StringComparison.Ordinal)).ToArray();
-        return new(answer, cited, aiOptions.Value.Model);
+        catch (Exception exception) { await metricWriter.WriteAsync(measurement, false, exception); throw; }
     }
 
     private sealed record PreparedAnswerContext(
@@ -496,15 +510,16 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         string? RequestContextPrompt, string[] History, bool NoEvidence);
 
     private async Task<PreparedAnswerContext> PrepareAnswerContextAsync(
-        CondominiumAssistantConversation conversation, string question, CancellationToken cancellationToken)
+        CondominiumAssistantConversation conversation, string question, CancellationToken cancellationToken, AssistantExecutionMeasurement? measurement = null)
     {
         var started = DateTime.UtcNow;
         var requestContext = conversation.RequestId is Guid requestId
             ? await RequestContext(requestId, conversation.CondominiumId, cancellationToken) : null;
         var currentUserName = await db.Users.AsNoTracking().Where(x => x.Id == conversation.CreatedByUserId)
             .Select(x => x.FullName).SingleOrDefaultAsync(cancellationToken);
+        var contextStarted = System.Diagnostics.Stopwatch.StartNew();
         var retrieval = await RetrieveCoreAsync(conversation.CondominiumId, question,
-            requestContext?.RetrievalHint, currentUserName, cancellationToken);
+            requestContext?.RetrievalHint, currentUserName, cancellationToken, measurement);
         var ranked = retrieval.Chunks;
         var sources = ranked.Select((item, index) => new AssistantSource(item.DocumentId,
             item.DocumentName, item.PageNumber, item.SectionTitle,
@@ -533,6 +548,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         var history = effectiveHistory.Select(x => $"{x.Role}: {x.Content[..Math.Min(x.Content.Length, 2000)]}")
             .Aggregate(new List<string>(), (items, item) =>
             { if (items.Sum(x => x.Length) + item.Length <= 12000) items.Add(item); return items; }).ToArray();
+        contextStarted.Stop(); if (measurement is not null) { measurement.ContextPreparationDurationMs = contextStarted.ElapsedMilliseconds; measurement.FinalChunks = ranked.Count; measurement.ContextCharacters = context.Length; }
         return new(sources, context, requestContext?.Prompt, history, ranked.Count == 0);
     }
 
@@ -545,7 +561,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         (await RetrieveCoreAsync(condominiumId, question, requestHint, currentUserName, cancellationToken)).Chunks;
 
     private async Task<RetrievalResult> RetrieveCoreAsync(Guid condominiumId,
-        string question, string? requestHint, string? currentUserName, CancellationToken cancellationToken)
+        string question, string? requestHint, string? currentUserName, CancellationToken cancellationToken, AssistantExecutionMeasurement? measurement = null)
     {
         var totalStarted = System.Diagnostics.Stopwatch.StartNew();
         var settings = options.Value;
@@ -591,12 +607,15 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             logger.LogWarning("Assistant corpus safety limit applied. CondominiumId: {CondominiumId}; EligibleChunks: {EligibleChunks}; Limit: {Limit}.",
                 condominiumId, eligibleCount, corpusLimit);
         corpusStarted.Stop();
+        var deserializationStarted = System.Diagnostics.Stopwatch.StartNew();
         var candidates = loaded.Select(item => new { item.Chunk, item.Document,
                 Vector = TryVector(item.Chunk.Embedding, queryVectors[0].Length) })
             .Where(item => item.Vector is not null).ToArray();
+        deserializationStarted.Stop();
         var termsByQuery = queries.Select(Terms).ToArray();
         var exactTerms = ExactTerms(question);
         var rankingStarted = System.Diagnostics.Stopwatch.StartNew();
+        var similarityStarted = System.Diagnostics.Stopwatch.StartNew();
         var scored = candidates.Select(item =>
         {
             var semantic = queryVectors.Max(query => Cosine(query, item.Vector!));
@@ -609,6 +628,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
                 semantic, lexical, semantic * .72 + lexical * .45 + exactBoost + knowledgeBoost,
                 0, item.Chunk.ChunkIndex);
         }).OrderByDescending(item => item.CombinedScore).ToArray();
+        similarityStarted.Stop();
         rankingStarted.Stop();
         var firstPassConfidence = scored.FirstOrDefault()?.CombinedScore ?? 0;
         var firstCandidates = scored.Where(x => x.SemanticScore >= settings.MinimumRelevanceScore
@@ -632,6 +652,17 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         rerankStarted.Stop();
         selected = ExpandNeighbors(selected, scored, settings);
         totalStarted.Stop();
+        if (measurement is not null)
+        {
+            measurement.RetrievalDurationMs = totalStarted.ElapsedMilliseconds; measurement.ExpansionDurationMs = expansionStarted.ElapsedMilliseconds;
+            measurement.EmbeddingDurationMs = embeddingStarted.ElapsedMilliseconds; measurement.DatabaseMaterializationDurationMs = corpusStarted.ElapsedMilliseconds;
+            measurement.EmbeddingDeserializationDurationMs = deserializationStarted.ElapsedMilliseconds; measurement.VectorScoringDurationMs = similarityStarted.ElapsedMilliseconds;
+            measurement.LexicalScoringDurationMs = similarityStarted.ElapsedMilliseconds; measurement.RerankDurationMs = rerankStarted.ElapsedMilliseconds;
+            measurement.RerankFallbackDurationMs = secondPass ? rerankStarted.ElapsedMilliseconds : null; measurement.RerankFallbackUsed = secondPass;
+            measurement.EligibleDocuments = documentCoverage.Count(x => x.IsActive && x.ProcessingStatus == CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Ready && x.Compatible);
+            measurement.EligibleChunks = eligibleCount; measurement.LoadedChunks = loaded.Count; measurement.DeserializedEmbeddings = candidates.Length;
+            measurement.ExpandedQueries = queries.Length; measurement.CandidatesBeforeRerank = firstCandidates.Length; measurement.CandidatesAfterRerank = selected.Count; measurement.FinalChunks = selected.Count; measurement.ContextCharacters = selected.Sum(x => x.Content.Length);
+        }
         var candidatesByQuery = queries.Select((queryText, index) => new
         {
             Query = DiagnosticQuery(queryText),
@@ -640,13 +671,14 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
                 || LexicalScore($"{item.Document.Name} {item.Document.DocumentType} {item.Chunk.SectionTitle} {item.Chunk.Content}",
                     termsByQuery[index]) > 0)
         }).ToArray();
-        logger.LogInformation("Assistant investigative retrieval. CondominiumId: {CondominiumId}; EligibleChunks: {EligibleChunks}; Queries: {@Queries}; ModelExpanded: {ModelExpanded}; CandidatesByQuery: {@CandidatesByQuery}; UniqueCandidates: {UniqueCandidates}; FirstPassCandidates: {FirstPassCandidates}; FallbackUsed: {FallbackUsed}; RerankCandidates: {RerankCandidates}; FinalChunks: {@FinalChunks}; ExpansionMs: {ExpansionMs}; EmbeddingMs: {EmbeddingMs}; CorpusMs: {CorpusMs}; RankingMs: {RankingMs}; RerankMs: {RerankMs}; TotalMs: {TotalMs}.",
-            condominiumId, eligibleCount, queries.Select(DiagnosticQuery).ToArray(), strategy.ModelExpanded,
+        logger.LogInformation("Assistant investigative retrieval. AssistantExecutionId: {AssistantExecutionId}; CondominiumId: {CondominiumId}; EligibleChunks: {EligibleChunks}; LoadedChunks: {LoadedChunks}; DeserializedEmbeddings: {DeserializedEmbeddings}; Queries: {QueryCount}; ModelExpanded: {ModelExpanded}; CandidatesByQuery: {@CandidatesByQuery}; UniqueCandidates: {UniqueCandidates}; FirstPassCandidates: {FirstPassCandidates}; FallbackUsed: {FallbackUsed}; RerankCandidates: {RerankCandidates}; FinalChunks: {@FinalChunks}; ContextCharacters: {ContextCharacters}; EmbeddingModel: {EmbeddingModel}; ExpansionMs: {ExpansionMs}; EmbeddingMs: {EmbeddingMs}; PostgreSqlMaterializationMs: {PostgreSqlMaterializationMs}; EmbeddingDeserializationMs: {EmbeddingDeserializationMs}; SimilarityAndLexicalMs: {SimilarityAndLexicalMs}; RerankMs: {RerankMs}; TotalMs: {TotalMs}.",
+            AssistantExecutionContext.ExecutionId, condominiumId, eligibleCount, loaded.Count, candidates.Length, queries.Length, strategy.ModelExpanded,
             candidatesByQuery,
             scored.Length, firstCandidates.Length, secondPass, Math.Min(scored.Length, Math.Clamp(settings.RerankCandidates, 10, 40)),
             selected.Select(x => new { x.ChunkId, x.DocumentId, x.PageNumber, x.SemanticScore, x.LexicalScore, x.RerankScore }).ToArray(),
+            selected.Sum(x => x.Content.Length), embeddings.Model,
             expansionStarted.ElapsedMilliseconds, embeddingStarted.ElapsedMilliseconds, corpusStarted.ElapsedMilliseconds,
-            rankingStarted.ElapsedMilliseconds, rerankStarted.ElapsedMilliseconds, totalStarted.ElapsedMilliseconds);
+            deserializationStarted.ElapsedMilliseconds, similarityStarted.ElapsedMilliseconds, rerankStarted.ElapsedMilliseconds, totalStarted.ElapsedMilliseconds);
         return new(selected, eligibleCount, candidates.Select(x => x.Document.Id).Distinct().Count(),
             scored.Length, documentCoverage.Count(x => x.IsActive),
             documentCoverage.Count(x => x.IsActive && x.ProcessingStatus == CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Ready),
@@ -881,8 +913,10 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
     /// </summary>
     private async Task<string> ChatStreamAsync(string question, string documents, string? requestContext,
         string[] history, bool exhaustiveSearchWithoutEvidence,
-        Func<string, CancellationToken, Task> onToken, CancellationToken cancellationToken)
+        Func<string, CancellationToken, Task> onToken, CancellationToken cancellationToken, AssistantExecutionMeasurement? measurement = null)
     {
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        long? firstTokenMs = null;
         var settings = aiOptions.Value;
         if (!settings.Enabled || string.IsNullOrWhiteSpace(settings.ApiKey))
             throw new InvalidOperationException("O assistente está temporariamente indisponível.");
@@ -915,10 +949,13 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             }
             catch (JsonException) { continue; }
             if (string.IsNullOrEmpty(token)) continue;
+            firstTokenMs ??= started.ElapsedMilliseconds;
             builder.Append(token);
             await onToken(token, cancellationToken);
         }
         var text = builder.ToString().Trim();
+        logger.LogInformation("Assistant streaming generation completed. AssistantExecutionId: {AssistantExecutionId}; TimeToFirstTokenMs: {TimeToFirstTokenMs}; GenerationMs: {GenerationMs}; Characters: {Characters}.", AssistantExecutionContext.ExecutionId, firstTokenMs, started.ElapsedMilliseconds, text.Length);
+        if (measurement is not null) { measurement.TimeToFirstTokenMs = firstTokenMs; measurement.ChatDurationMs = measurement.GenerationDurationMs = started.ElapsedMilliseconds; }
         return text.Length == 0 ? "Não encontrei base suficiente para responder." : text;
     }
 

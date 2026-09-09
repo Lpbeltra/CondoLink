@@ -12,6 +12,7 @@ export const overwatchNavigationItems = [
   { label: 'Administradoras', path: '/overwatch/management-companies', icon: BusinessRoundedIcon },
   { label: 'Subsíndicos', path: '/overwatch/submanagers', icon: SupervisorAccountRoundedIcon },
   { label: 'Sistema', path: '/overwatch/system', icon: MonitorHeartRoundedIcon },
+  { label: 'Assistente', path: '/overwatch/assistant-performance', icon: MonitorHeartRoundedIcon },
   { label: 'Síndicos', path: '/overwatch/managers', icon: SupervisorAccountRoundedIcon },
   { label: 'Mensagens', path: '/overwatch/messages', icon: MessageRoundedIcon },
   { label: 'Solicitações ADM', path: '/overwatch/management-company-requests', icon: MessageRoundedIcon },

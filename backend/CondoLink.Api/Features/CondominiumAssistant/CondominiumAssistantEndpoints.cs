@@ -264,6 +264,7 @@ public static class CondominiumAssistantEndpoints
         bool? stream, ClaimsPrincipal principal, AppDbContext db, CondominiumAssistantService assistant,
         IOptions<CondominiumAssistantOptions> options, HttpResponse response, CancellationToken ct)
     {
+        var executionId = Guid.NewGuid(); response.Headers["X-Assistant-Execution-Id"] = executionId.ToString();
         var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
         var conversation = await OwnConversation(condominiumId, conversationId, access.UserId, db, ct); if (conversation is null) return Results.NotFound();
         var question = body.Question?.Trim(); if (string.IsNullOrWhiteSpace(question) || question.Length > options.Value.MaximumQuestionCharacters) return Results.BadRequest(new { error = "Informe uma pergunta de até 2.000 caracteres." });
@@ -275,7 +276,7 @@ public static class CondominiumAssistantEndpoints
             db.CondominiumAssistantMessages.Add(new(conversationId, CondominiumAssistantRole.User, question));
             conversation.Touch();
             await db.SaveChangesAsync(ct);
-            return await StreamAnswerAsync(response, db, assistant, conversation, question, isNewConversation: false, ct);
+            return await StreamAnswerAsync(response, db, assistant, conversation, question, isNewConversation: false, executionId, ct);
         }
 
         try
@@ -283,7 +284,7 @@ public static class CondominiumAssistantEndpoints
             db.CondominiumAssistantMessages.Add(new(conversationId, CondominiumAssistantRole.User, question));
             conversation.Touch();
             await db.SaveChangesAsync(ct);
-            var result = await assistant.AskAsync(conversation, question, ct);
+            var result = await assistant.AskAsync(conversation, question, ct, executionId);
             db.CondominiumAssistantMessages.Add(new(conversationId, CondominiumAssistantRole.Assistant, result.Answer, JsonSerializer.Serialize(result.Sources)));
             await db.SaveChangesAsync(ct); return Results.Ok(result);
         }
@@ -295,6 +296,7 @@ public static class CondominiumAssistantEndpoints
         bool? stream, ClaimsPrincipal principal, AppDbContext db, CondominiumAssistantService assistant,
         IOptions<CondominiumAssistantOptions> options, HttpResponse response, CancellationToken ct)
     {
+        var executionId = Guid.NewGuid(); response.Headers["X-Assistant-Execution-Id"] = executionId.ToString();
         var access = await Access(condominiumId, principal, db, ct); if (access.Error is not null) return access.Error;
         var question = body.Question?.Trim();
         if (string.IsNullOrWhiteSpace(question) || question.Length > options.Value.MaximumQuestionCharacters)
@@ -309,11 +311,11 @@ public static class CondominiumAssistantEndpoints
         await db.SaveChangesAsync(ct);
 
         if (stream == true && options.Value.StreamingEnabled)
-            return await StreamAnswerAsync(response, db, assistant, conversation, question, isNewConversation: true, ct);
+            return await StreamAnswerAsync(response, db, assistant, conversation, question, isNewConversation: true, executionId, ct);
 
         try
         {
-            var result = await assistant.AskAsync(conversation, question, ct);
+            var result = await assistant.AskAsync(conversation, question, ct, executionId);
             db.CondominiumAssistantMessages.Add(new(conversation.Id,
                 CondominiumAssistantRole.Assistant, result.Answer,
                 JsonSerializer.Serialize(result.Sources)));
@@ -339,7 +341,7 @@ public static class CondominiumAssistantEndpoints
     /// </summary>
     private static async Task<IResult> StreamAnswerAsync(HttpResponse response, AppDbContext db,
         CondominiumAssistantService assistant, CondominiumAssistantConversation conversation,
-        string question, bool isNewConversation, CancellationToken ct)
+        string question, bool isNewConversation, Guid executionId, CancellationToken ct)
     {
         response.Headers.ContentType = "text/event-stream";
         response.Headers.CacheControl = "no-cache";
@@ -356,7 +358,7 @@ public static class CondominiumAssistantEndpoints
             var result = await assistant.AskStreamAsync(conversation, question,
                 (sources, token) => WriteEventAsync("sources", new { sources }),
                 (delta, token) => WriteEventAsync("token", new { delta }),
-                ct);
+                ct, executionId);
 
             db.CondominiumAssistantMessages.Add(new(conversation.Id, CondominiumAssistantRole.Assistant,
                 result.Answer, JsonSerializer.Serialize(result.Sources)));

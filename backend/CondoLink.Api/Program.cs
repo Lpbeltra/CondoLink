@@ -71,6 +71,7 @@ builder.Services.AddHttpClient<IDocumentOcrService, OpenAiDocumentOcrService>((s
 }).AddHttpMessageHandler(sp => new OpenAiTelemetryHandler(sp.GetRequiredService<IServiceScopeFactory>(), sp.GetRequiredService<TimeProvider>(), "DocumentOcr"))
 .AddOpenAiResilience("openai-document-ocr");
 builder.Services.AddScoped<CondominiumDocumentProcessor>();
+builder.Services.AddSingleton<AssistantExecutionMetricWriter>();
 builder.Services.AddHttpClient<CondominiumAssistantService>((services, client) =>
 {
     var settings = services.GetRequiredService<
