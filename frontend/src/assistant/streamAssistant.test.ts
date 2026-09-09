@@ -43,7 +43,7 @@ describe("streamAssistant", () => {
 
   it("parses sources, token and done events, including across chunk boundaries", async () => {
     fetchMock.mockResolvedValue(sseResponse([
-      'event: sources\ndata: {"sources":[{"marker":"S1"}]}\n\nevent: tok',
+      'event: sources\ndata: {"sources":[{"documentId":"d1","documentName":"Regimento","pageNumber":1,"sectionTitle":null,"excerpt":"Trecho","marker":"S1"}]}\n\nevent: tok',
       'en\ndata: {"delta":"Olá "}\n\nevent: token\ndata: {"delta":"mundo"}\n\n',
       'event: done\ndata: {"answer":"Olá mundo","sources":[],"conversation":{"id":"c1"}}\n\n',
     ]));
@@ -53,7 +53,7 @@ describe("streamAssistant", () => {
 
     await streamAssistant("/path", {}, { onSources, onToken, onDone }, new AbortController().signal);
 
-    expect(onSources).toHaveBeenCalledWith([{ marker: "S1" }]);
+    expect(onSources).toHaveBeenCalledWith([expect.objectContaining({ documentId: "d1", documentName: "Regimento", marker: "S1" })]);
     expect(onToken).toHaveBeenNthCalledWith(1, "Olá ");
     expect(onToken).toHaveBeenNthCalledWith(2, "mundo");
     expect(onDone).toHaveBeenCalledWith({
@@ -73,6 +73,15 @@ describe("streamAssistant", () => {
 
     expect(onToken).toHaveBeenCalledTimes(1);
     expect(onToken).toHaveBeenCalledWith("ok");
+  });
+
+  it("rejects non-canonical PascalCase or incomplete sources instead of rendering undefined", async () => {
+    fetchMock.mockResolvedValue(sseResponse([
+      'event: sources\ndata: {"sources":[{"DocumentId":"d1","DocumentName":"Legacy","Marker":"S1"},{"documentId":"d2","marker":"S2"}]}\n\n',
+    ]));
+    const onSources = vi.fn();
+    await streamAssistant("/path", {}, { onSources }, new AbortController().signal);
+    expect(onSources).toHaveBeenCalledWith([]);
   });
 
   it("falls back to a plain JSON response when the backend does not stream", async () => {

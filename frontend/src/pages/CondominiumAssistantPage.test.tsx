@@ -452,6 +452,13 @@ describe("CondominiumAssistantPage", () => {
       "/condominiums/condo-1/assistant/conversations/chat-1/messages", { question: "E em 2026?" }, expect.anything(), expect.anything()));
     expect(await screen.findByText(/Ata 2026.*pág. 4/)).toBeInTheDocument();
     expect(screen.getByText(/Ata 2025.*pág. 3/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Enviar" })).toBeEnabled());
+    await user.type(screen.getByRole("textbox", { name: "Pergunte ao assistente" }), "Detalhe mais{enter}");
+    await waitFor(() => expect(streamAssistantMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Enviar" })).toBeEnabled());
+    await user.type(screen.getByRole("textbox", { name: "Pergunte ao assistente" }), "Última dúvida{enter}");
+    await waitFor(() => expect(streamAssistantMock).toHaveBeenCalledTimes(3));
+    expect(streamAssistantMock.mock.calls.slice(0, 3).every(call => call[0].includes("conversations/chat-1/messages"))).toBe(true);
   });
 
   it("releases sending after each streamed answer so a conversation accepts consecutive messages", async () => {
@@ -465,6 +472,10 @@ describe("CondominiumAssistantPage", () => {
     await user.type(input, "Segunda{enter}");
     await waitFor(() => expect(streamAssistantMock).toHaveBeenCalledTimes(2));
     expect(streamAssistantMock.mock.calls[1][0]).toContain("conversations/chat-1/messages");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Enviar" })).toBeEnabled());
+    await user.type(input, "Terceira{enter}");
+    await waitFor(() => expect(streamAssistantMock).toHaveBeenCalledTimes(3));
+    expect(streamAssistantMock.mock.calls[2][0]).toContain("conversations/chat-1/messages");
   });
 
   it("uses independent scroll containers on desktop", async () => {
@@ -472,5 +483,21 @@ describe("CondominiumAssistantPage", () => {
     await screen.findByText("Nenhuma conversa anterior.");
     expect(screen.getByTestId("assistant-history")).toHaveStyle({ overflowY: "auto" });
     expect(screen.getByTestId("assistant-chat")).toHaveStyle({ overflow: "auto" });
+  });
+
+  it("clears an execution error when the following stream succeeds", async () => {
+    const user = userEvent.setup(); let call = 0;
+    streamAssistantMock.mockImplementation(async (_path, _body, handlers) => {
+      call += 1;
+      if (call === 1) handlers.onError("O conteúdo solicitado não foi encontrado.");
+      else handlers.onDone({ answer: "Resposta válida", sources: [], conversation: { id: "chat-1", requestId: null } });
+    });
+    render(<MemoryRouter><CondominiumAssistantPage /></MemoryRouter>);
+    const input = await screen.findByRole("textbox", { name: "Pergunte ao assistente" });
+    await user.type(input, "Primeira{enter}");
+    expect(await screen.findByText("O conteúdo solicitado não foi encontrado.")).toBeInTheDocument();
+    await user.type(input, "Segunda{enter}");
+    expect(await screen.findByText("Resposta válida")).toBeInTheDocument();
+    expect(screen.queryByText("O conteúdo solicitado não foi encontrado.")).not.toBeInTheDocument();
   });
 });

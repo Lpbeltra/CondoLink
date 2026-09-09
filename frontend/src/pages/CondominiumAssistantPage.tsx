@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { streamAssistant } from "../assistant/streamAssistant";
 import {
   Alert,
@@ -66,10 +66,10 @@ export function CondominiumAssistantPage() {
   const endRef = useRef<HTMLDivElement>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
   useEffect(() => () => streamAbortRef.current?.abort(), []);
-  const loadHistory = async (
+  const loadHistory = useCallback(async (
     page = 1,
     append = false,
-    search = historySearch,
+    search = "",
   ) => {
     if (!activeCondominiumId) return;
     setHistoryLoading(true);
@@ -86,13 +86,13 @@ export function CondominiumAssistantPage() {
     } finally {
       setHistoryLoading(false);
     }
-  };
+  }, [activeCondominiumId]);
   useEffect(() => {
     setConversation(null);
     setMessages([]);
     setPendingRequestId(initialRequestId);
     void loadHistory();
-  }, [activeCondominiumId, initialRequestId]);
+  }, [activeCondominiumId, initialRequestId, loadHistory]);
   useEffect(() => {
     if (typeof endRef.current?.scrollIntoView === "function")
       endRef.current.scrollIntoView({ behavior: "smooth" });
@@ -206,7 +206,7 @@ export function CondominiumAssistantPage() {
               result.answer,
               result.sources,
             );
-            void loadHistory();
+            void loadHistory(1, false, historySearch);
           },
           onError: (message) => {
             if (!receivedToken) setMessages((x) => x.filter((m) => m.id !== answerId));
@@ -231,7 +231,7 @@ export function CondominiumAssistantPage() {
     await deleteConversation(activeCondominiumId, conversation.id);
     setDeleteOpen(false);
     fresh();
-    await loadHistory();
+    await loadHistory(1, false, historySearch);
   };
   if (!activeCondominiumId) return <PageContainer><Alert severity="info"><Typography fontWeight={800}>Selecione um condomínio</Typography>Este módulo trabalha com um condomínio por vez. Escolha um condomínio no seletor acima para continuar.</Alert></PageContainer>;
   const history = (
@@ -292,7 +292,7 @@ export function CondominiumAssistantPage() {
       {hasMore && (
         <Button
           disabled={historyLoading}
-          onClick={() => void loadHistory(historyPage + 1, true)}
+          onClick={() => void loadHistory(historyPage + 1, true, historySearch)}
         >
           Carregar mais
         </Button>

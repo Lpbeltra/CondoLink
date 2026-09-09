@@ -14,6 +14,7 @@ namespace CondoLink.Api.Features.CondominiumAssistant;
 
 public static class CondominiumAssistantEndpoints
 {
+    internal static readonly JsonSerializerOptions AssistantJsonOptions = new(JsonSerializerDefaults.Web);
     public static IEndpointRouteBuilder MapCondominiumAssistant(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/condominiums/{condominiumId:guid}").RequireAuthorization();
@@ -288,7 +289,7 @@ public static class CondominiumAssistantEndpoints
             conversation.Touch();
             await db.SaveChangesAsync(ct);
             var result = await assistant.AskAsync(conversation, question, ct, executionId);
-            db.CondominiumAssistantMessages.Add(new(conversationId, CondominiumAssistantRole.Assistant, result.Answer, JsonSerializer.Serialize(result.Sources)));
+            db.CondominiumAssistantMessages.Add(new(conversationId, CondominiumAssistantRole.Assistant, result.Answer, JsonSerializer.Serialize(result.Sources, AssistantJsonOptions)));
             await db.SaveChangesAsync(ct); return Results.Ok(result);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -321,7 +322,7 @@ public static class CondominiumAssistantEndpoints
             var result = await assistant.AskAsync(conversation, question, ct, executionId);
             db.CondominiumAssistantMessages.Add(new(conversation.Id,
                 CondominiumAssistantRole.Assistant, result.Answer,
-                JsonSerializer.Serialize(result.Sources)));
+                JsonSerializer.Serialize(result.Sources, AssistantJsonOptions)));
             conversation.Touch(); await db.SaveChangesAsync(ct);
             return Results.Ok(new { conversation, result.Answer, result.Sources });
         }
@@ -352,7 +353,7 @@ public static class CondominiumAssistantEndpoints
 
         async Task WriteEventAsync(string eventName, object payload)
         {
-            await response.WriteAsync($"event: {eventName}\ndata: {JsonSerializer.Serialize(payload)}\n\n", ct);
+            await response.WriteAsync(SseEvent(eventName, payload), ct);
             await response.Body.FlushAsync(ct);
         }
 
@@ -364,7 +365,7 @@ public static class CondominiumAssistantEndpoints
                 ct, executionId);
 
             db.CondominiumAssistantMessages.Add(new(conversation.Id, CondominiumAssistantRole.Assistant,
-                result.Answer, JsonSerializer.Serialize(result.Sources)));
+                result.Answer, JsonSerializer.Serialize(result.Sources, AssistantJsonOptions)));
             conversation.Touch();
             await db.SaveChangesAsync(ct);
 
@@ -387,6 +388,9 @@ public static class CondominiumAssistantEndpoints
 
         return Results.Empty;
     }
+
+    internal static string SseEvent(string eventName, object payload) =>
+        $"event: {eventName}\ndata: {JsonSerializer.Serialize(payload, AssistantJsonOptions)}\n\n";
 
     private static async Task<IResult> DeleteConversation(Guid condominiumId, Guid conversationId,
         ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
@@ -446,9 +450,11 @@ public static class CondominiumAssistantEndpoints
         if (Property(item, "source") is JsonElement nested && nested.ValueKind == JsonValueKind.Object) item = nested;
         var id = String(item, "documentId");
         var name = String(item, "documentName") ?? String(item, "name");
-        if (!Guid.TryParse(id, out var documentId) || string.IsNullOrWhiteSpace(name)) return null;
+        var marker = String(item, "marker");
+        if (!Guid.TryParse(id, out var documentId) || string.IsNullOrWhiteSpace(name)
+            || string.IsNullOrWhiteSpace(marker) || !System.Text.RegularExpressions.Regex.IsMatch(marker, @"^S\d+$")) return null;
         return new AssistantSource(documentId, name, Integer(item, "pageNumber") ?? Integer(item, "page"),
-            String(item, "sectionTitle"), String(item, "excerpt") ?? "", String(item, "marker") ?? "");
+            String(item, "sectionTitle"), String(item, "excerpt") ?? "", marker);
     }
     private static JsonElement? Property(JsonElement item, string name) => item.EnumerateObject()
         .FirstOrDefault(property => string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)).Value;

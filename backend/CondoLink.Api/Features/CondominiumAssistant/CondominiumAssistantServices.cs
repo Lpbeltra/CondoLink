@@ -441,9 +441,10 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             var chat = System.Diagnostics.Stopwatch.StartNew();
             var answer = await Chat(question, prepared.Context, prepared.RequestContextPrompt, prepared.History, prepared.NoEvidence, cancellationToken);
             chat.Stop(); measurement.ChatDurationMs = measurement.GenerationDurationMs = chat.ElapsedMilliseconds;
+            answer = EnforceGrounding(answer, prepared.Evidence);
             answer = await AppendUnprocessedDocumentsHintAsync(conversation.CondominiumId, answer, prepared.NoEvidence, cancellationToken);
             logger.LogInformation("Condominium assistant completed. CondominiumId: {CondominiumId}; ConversationId: {ConversationId}; Chunks: {Chunks}; Success: true.", conversation.CondominiumId, conversation.Id, prepared.Sources.Count);
-            var cited = prepared.Sources.Where(source => answer.Contains($"[{source.Marker}]", StringComparison.Ordinal)).ToArray();
+            var cited = SourcesForAnswer(answer, prepared.Sources);
             if (metricWriter is not null) await metricWriter.WriteAsync(measurement, true); return new(answer, cited, aiOptions.Value.Model);
         }
         catch (Exception exception) { if (metricWriter is not null) await metricWriter.WriteAsync(measurement, false, exception); throw; }
@@ -497,9 +498,10 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             var prepared = await PrepareAnswerContextAsync(conversation, question, cancellationToken, measurement);
             await onSources(prepared.Sources, cancellationToken);
             var answer = await ChatStreamAsync(question, prepared.Context, prepared.RequestContextPrompt, prepared.History, prepared.NoEvidence, onToken, cancellationToken, measurement);
+            answer = EnforceGrounding(answer, prepared.Evidence);
             var hinted = await AppendUnprocessedDocumentsHintAsync(conversation.CondominiumId, answer, prepared.NoEvidence, cancellationToken);
             if (hinted != answer) { await onToken(hinted[answer.Length..], cancellationToken); answer = hinted; }
-            var cited = prepared.Sources.Where(source => answer.Contains($"[{source.Marker}]", StringComparison.Ordinal)).ToArray();
+            var cited = SourcesForAnswer(answer, prepared.Sources);
             if (metricWriter is not null) await metricWriter.WriteAsync(measurement, true); return new(answer, cited, aiOptions.Value.Model);
         }
         catch (Exception exception) { if (metricWriter is not null) await metricWriter.WriteAsync(measurement, false, exception); throw; }
@@ -507,7 +509,8 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
 
     private sealed record PreparedAnswerContext(
         IReadOnlyList<AssistantSource> Sources, string Context,
-        string? RequestContextPrompt, string[] History, bool NoEvidence);
+        string? RequestContextPrompt, string[] History, bool NoEvidence,
+        IReadOnlyDictionary<string, string> Evidence);
 
     private async Task<PreparedAnswerContext> PrepareAnswerContextAsync(
         CondominiumAssistantConversation conversation, string question, CancellationToken cancellationToken, AssistantExecutionMeasurement? measurement = null)
@@ -549,7 +552,9 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             .Aggregate(new List<string>(), (items, item) =>
             { if (items.Sum(x => x.Length) + item.Length <= 12000) items.Add(item); return items; }).ToArray();
         contextStarted.Stop(); if (measurement is not null) { measurement.ContextPreparationDurationMs = contextStarted.ElapsedMilliseconds; measurement.FinalChunks = ranked.Count; measurement.ContextCharacters = context.Length; }
-        return new(sources, context, requestContext?.Prompt, history, ranked.Count == 0);
+        return new(sources, context, requestContext?.Prompt, history, ranked.Count == 0,
+            ranked.Select((item, index) => new { Marker = $"S{index + 1}", item.Content })
+                .ToDictionary(item => item.Marker, item => item.Content));
     }
 
     public async Task<IReadOnlyList<RankedChunk>> RetrieveAsync(Guid condominiumId,
@@ -873,6 +878,45 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
     internal static string DisplayDocumentName(string name, string originalFileName) =>
         !string.IsNullOrWhiteSpace(name) && !Regex.IsMatch(name, @"^(s3-|[0-9a-f]{16,})", RegexOptions.IgnoreCase)
             ? name : !string.IsNullOrWhiteSpace(originalFileName) ? originalFileName : name;
+
+    internal static string EnforceGrounding(string answer, IReadOnlyDictionary<string, string> evidence)
+    {
+        const string insufficient = "Não encontrei essa informação nos documentos disponíveis.";
+        if (IsUncertaintyAnswer(answer)) return answer;
+        var markers = Regex.Matches(answer, @"\[S(?<number>\d+)\]")
+            .Select(match => $"S{match.Groups["number"].Value}").Distinct().ToArray();
+        if (markers.Length == 0 || markers.Any(marker => !evidence.ContainsKey(marker))) return insufficient;
+        foreach (var sentence in Regex.Split(answer, @"(?<=[.!?])\s+"))
+        {
+            var sentenceMarkers = Regex.Matches(sentence, @"\[S(?<number>\d+)\]")
+                .Select(match => $"S{match.Groups["number"].Value}").Distinct().ToArray();
+            if (sentenceMarkers.Length == 0) continue;
+            var support = NormalizeLexical(string.Join(' ', sentenceMarkers.Select(marker => evidence[marker])));
+            if (VerifiableLiterals(sentence).Any(literal => !support.Contains(literal, StringComparison.Ordinal)))
+                return insufficient;
+        }
+        return answer;
+    }
+
+    internal static AssistantSource[] SourcesForAnswer(string answer, IReadOnlyList<AssistantSource> sources)
+    {
+        var numbers = Regex.Matches(answer, @"\[S(?<number>\d+)\]")
+            .Select(match => int.Parse(match.Groups["number"].Value, CultureInfo.InvariantCulture)).ToArray();
+        if (numbers.Length == 0 || numbers.Any(number => number < 1 || number > sources.Count)) return [];
+        return sources.Take(numbers.Max()).ToArray();
+    }
+
+    private static bool IsUncertaintyAnswer(string answer) => Regex.IsMatch(NormalizeLexical(answer),
+        @"\b(nao encontrei|nao foi possivel confirmar|nao permitem confirmar|sem informacao suficiente|sem base suficiente)\b");
+
+    private static string[] VerifiableLiterals(string sentence)
+    {
+        var normalized = NormalizeLexical(sentence);
+        const string colors = @"\b(branc[oa]s?|pret[oa]s?|negr[oa]s?|azul|azuis|verd(?:e|es)|vermelh[oa]s?|amarel[oa]s?|cinza|cinzas|bege|marrom|transparentes?)\b";
+        return Regex.Matches(normalized, $@"(?:\b\d[\d./:-]*\b|{colors})")
+            .Select(match => match.Value).Where(value => !Regex.IsMatch(value, @"^s\d+$"))
+            .Distinct().ToArray();
+    }
 
     private static double HeuristicRelevance(RankedChunk item)
     {

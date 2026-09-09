@@ -106,11 +106,11 @@ public sealed class CondominiumAssistantUnprocessedDocumentsHintTests : IAsyncLi
         await db.SaveChangesAsync();
         var conversation = new CondominiumAssistantConversation(condominiumId, Guid.NewGuid(), null, "Barulho");
 
-        var answer = await Service(new NoOpChatHandler("O regimento proíbe barulho após as 22h."),
+        var answer = await Service(new NoOpChatHandler("O regimento exige respeito ao sossego [S1]."),
             new SemanticTestEmbeddingService()).AskAsync(
             conversation, "O que o regimento diz sobre barulho?", default);
 
-        Assert.Equal("O regimento proíbe barulho após as 22h.", answer.Answer);
+        Assert.Equal("O regimento exige respeito ao sossego [S1].", answer.Answer);
     }
 
     [Fact]

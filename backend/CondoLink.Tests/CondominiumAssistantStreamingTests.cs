@@ -99,8 +99,8 @@ public sealed class CondominiumAssistantStreamingTests : IAsyncLifetime
 
         Assert.True(sourcesSeen);
         Assert.True(sourcesReceivedBeforeFirstToken);
-        Assert.Equal("Olá mundo!", string.Concat(tokens));
-        Assert.Equal("Olá mundo!", answer.Answer);
+        Assert.Equal("O sossego deve ser respeitado [S1].", string.Concat(tokens));
+        Assert.Equal("O sossego deve ser respeitado [S1].", answer.Answer);
         Assert.Equal("test-chat", answer.Model);
     }
 
@@ -135,11 +135,11 @@ public sealed class CondominiumAssistantStreamingTests : IAsyncLifetime
                 return new HttpResponseMessage(HttpStatusCode.InternalServerError);
 
             const string sse = """
-                data: {"choices":[{"delta":{"content":"Olá "}}]}
+                data: {"choices":[{"delta":{"content":"O sossego deve "}}]}
 
                 data: {"choices":[{"delta":{}}]}
 
-                data: {"choices":[{"delta":{"content":"mundo!"}}]}
+                data: {"choices":[{"delta":{"content":"ser respeitado [S1]."}}]}
 
                 data: [DONE]
 

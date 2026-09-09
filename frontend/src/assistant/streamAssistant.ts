@@ -65,8 +65,9 @@ export async function streamAssistant(
       sources: AssistantSource[]
       conversation?: AssistantConversation
     }
-    handlers.onSources?.(data.sources)
-    handlers.onDone?.(data)
+    const sources = canonicalSources(data.sources)
+    handlers.onSources?.(sources)
+    handlers.onDone?.({ ...data, sources })
   } catch {
     if (!signal.aborted) handlers.onError?.(getErrorMessageForStatus(undefined))
   }
@@ -116,15 +117,27 @@ function processFrame(frame: string, handlers: AssistantStreamHandlers) {
     return
   }
   const record = payload as Record<string, unknown>
-  if (eventName === 'sources') handlers.onSources?.((record.sources as AssistantSource[]) ?? [])
+  if (eventName === 'sources') handlers.onSources?.(canonicalSources(record.sources))
   else if (eventName === 'token') handlers.onToken?.((record.delta as string) ?? '')
   else if (eventName === 'done') {
     handlers.onDone?.({
       answer: (record.answer as string) ?? '',
-      sources: (record.sources as AssistantSource[]) ?? [],
+      sources: canonicalSources(record.sources),
       conversation: record.conversation as AssistantConversation | undefined,
     })
   } else if (eventName === 'error') {
     handlers.onError?.((record.message as string) ?? getErrorMessageForStatus(undefined))
   }
+}
+
+export function canonicalSources(value: unknown): AssistantSource[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((source): source is AssistantSource => {
+    if (!source || typeof source !== 'object') return false
+    const item = source as Record<string, unknown>
+    return typeof item.documentId === 'string' && item.documentId.length > 0
+      && typeof item.documentName === 'string' && item.documentName.trim().length > 0
+      && typeof item.marker === 'string' && /^S\d+$/.test(item.marker)
+      && typeof item.excerpt === 'string'
+  })
 }

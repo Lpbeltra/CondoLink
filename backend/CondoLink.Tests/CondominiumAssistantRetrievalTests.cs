@@ -277,6 +277,40 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
         Assert.Empty(CondominiumAssistantEndpoints.ParseSources("[{\"source\":{}}]"));
     }
 
+    [Fact]
+    public void Canonical_source_serialization_is_camel_case_for_storage_and_sse()
+    {
+        var source = new AssistantSource(Guid.NewGuid(), "Regimento", 7, null, "Trecho", "S1");
+        var stored = JsonSerializer.Serialize(new[] { source }, CondominiumAssistantEndpoints.AssistantJsonOptions);
+        var frame = CondominiumAssistantEndpoints.SseEvent("done", new { answer = "Fato [S1].", sources = new[] { source }, conversation = new { id = Guid.NewGuid() } });
+        Assert.Contains("\"documentName\":\"Regimento\"", stored);
+        Assert.DoesNotContain("\"DocumentName\"", stored);
+        Assert.Contains("\"documentId\"", frame); Assert.Contains("\"conversation\":{\"id\"", frame);
+        Assert.DoesNotContain("\"DocumentId\"", frame);
+    }
+
+    [Fact]
+    public void Grounding_rejects_unsupported_literal_and_orphan_marker()
+    {
+        var evidence = new Dictionary<string, string> { ["S1"] = "A rede de proteção deve possuir cor preta." };
+        Assert.Equal("Não encontrei essa informação nos documentos disponíveis.",
+            CondominiumAssistantService.EnforceGrounding("A cor padrão é branca [S1].", evidence));
+        Assert.Equal("Não encontrei essa informação nos documentos disponíveis.",
+            CondominiumAssistantService.EnforceGrounding("A cor é preta [S2].", evidence));
+        Assert.Equal("A cor padrão é preta [S1].",
+            CondominiumAssistantService.EnforceGrounding("A cor padrão é preta [S1].", evidence));
+    }
+
+    [Fact]
+    public void Highest_cited_marker_returns_contiguous_matching_sources()
+    {
+        var sources = Enumerable.Range(1, 4).Select(number => new AssistantSource(
+            Guid.NewGuid(), $"Documento {number}", number, null, "Trecho", $"S{number}")).ToArray();
+        var returned = CondominiumAssistantService.SourcesForAnswer("Resumo [S1] e conclusão [S4].", sources);
+        Assert.Equal(new[] { "S1", "S2", "S3", "S4" }, returned.Select(source => source.Marker));
+        Assert.Empty(CondominiumAssistantService.SourcesForAnswer("Inválido [S5].", sources));
+    }
+
     private CondominiumDocument AddInvestigative(Guid targetCondominium,
         string name, string content, float[] vector)
     {
