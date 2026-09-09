@@ -6,7 +6,6 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -25,6 +24,7 @@ import { useSearchParams } from "react-router-dom";
 import { PageContainer } from "../components/PageContainer";
 import { useManagementContext } from "../management/ManagementContext";
 import { getErrorMessage } from "../services/api";
+import { AssistantSources } from "../assistant/AssistantSources";
 import {
   deleteConversation,
   downloadDocument,
@@ -400,38 +400,14 @@ export function CondominiumAssistantPage() {
                         {message.content}
                       </Typography>
                       {message.sources.length > 0 && (
-                        <Stack mt={1} gap={0.5} maxWidth="85%">
-                          <Typography variant="caption" fontWeight={800}>
-                            Fontes
-                          </Typography>
-                          {message.sources.map(
-                            (source) =>
-                              source.documentExists !== false ? (
-                                <Chip
-                                  key={`${message.id}-${source.marker}`}
-                                  clickable
-                                  onClick={async () => {
-                                    setError("");
-                                    try {
-                                      await downloadDocument(
-                                        activeCondominiumId!,
-                                        source.documentId,
-                                        source.documentName,
-                                      );
-                                    } catch (downloadError) {
-                                      setError(getErrorMessage(downloadError));
-                                    }
-                                  }}
-                                  label={`${source.documentName}${source.pageNumber ? ` — pág. ${source.pageNumber}` : ""}${source.documentCurrentlyActive === false ? " · documento atualmente inativo" : ""}`}
-                                />
-                              ) : (
-                                <Chip
-                                  key={`${message.id}-${source.marker}`}
-                                  label={`${source.documentName}${source.pageNumber ? ` — pág. ${source.pageNumber}` : ""} · documento removido`}
-                                />
-                              ),
-                          )}
-                        </Stack>
+                        <AssistantSources sources={message.sources} onDownload={async (documentId, documentName) => {
+                          setError("");
+                          try {
+                            await downloadDocument(activeCondominiumId!, documentId, documentName);
+                          } catch (downloadError) {
+                            setError(getErrorMessage(downloadError));
+                          }
+                        }} />
                       )}
                     </Stack>
                   ))

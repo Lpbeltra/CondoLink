@@ -361,6 +361,14 @@ describe("CondominiumAssistantPage", () => {
               marker: "S1",
               documentCurrentlyActive: false,
             },
+            {
+              documentId: "doc-1", documentName: "Regimento", pageNumber: 13,
+              sectionTitle: null, excerpt: "...", marker: "S2", documentCurrentlyActive: false,
+            },
+            {
+              documentId: "doc-1", documentName: "Regimento", pageNumber: 14,
+              sectionTitle: null, excerpt: "...", marker: "S3", documentCurrentlyActive: false,
+            },
           ],
         },
       ],
@@ -377,6 +385,7 @@ describe("CondominiumAssistantPage", () => {
     expect(
       screen.getByText(/documento atualmente inativo/),
     ).toBeInTheDocument();
+    expect(screen.getByText(/págs\. 12–14/)).toBeInTheDocument();
     await waitFor(() =>
       expect(assistant.getConversation).toHaveBeenCalledWith(
         "condo-1",

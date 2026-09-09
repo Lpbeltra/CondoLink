@@ -87,7 +87,8 @@ public sealed class LocalEmbeddingService : IEmbeddingService
 
 public static class CondominiumDocumentText
 {
-    public sealed record ExtractedPage(int? PageNumber, string Text, IReadOnlyList<byte[]> Images);
+    public sealed record ExtractedPage(int? PageNumber, string Text, IReadOnlyList<byte[]> Images,
+        bool HasPageSizedImage = false);
     public sealed record TextChunk(string Content, int? PageNumber);
 
     public static IReadOnlyList<ExtractedPage> ExtractPages(Stream stream, string extension)
@@ -111,9 +112,7 @@ public static class CondominiumDocumentText
         if (extension == ".pdf")
         {
             using var document = PdfDocument.Open(stream);
-            return document.GetPages()
-                .Select(page => new ExtractedPage(page.Number, ContentOrderTextExtractor.GetText(page), PageImages(page)))
-                .ToArray();
+            return document.GetPages().Select(PdfPage).ToArray();
         }
         throw new NotSupportedException("Formato não suportado. Use PDF com texto, DOCX ou TXT.");
     }
@@ -123,15 +122,17 @@ public static class CondominiumDocumentText
     // raster image. Pulling those images out (instead of rendering the page)
     // avoids a second, heavier PDF-rendering dependency — PdfPig already parses
     // the document structure we need.
-    private static IReadOnlyList<byte[]> PageImages(UglyToad.PdfPig.Content.Page page)
+    private static ExtractedPage PdfPage(UglyToad.PdfPig.Content.Page page)
     {
         var images = new List<byte[]>();
+        var hasPageSizedImage = false;
         foreach (var image in page.GetImages())
         {
+            hasPageSizedImage |= image.BoundingBox.Width * image.BoundingBox.Height >= page.Width * page.Height * .5;
             if (image.TryGetPng(out var png)) images.Add(png);
             else { var raw = image.RawBytes; if (raw.Length > 0) images.Add(raw.ToArray()); }
         }
-        return images;
+        return new(page.Number, ContentOrderTextExtractor.GetText(page), images, hasPageSizedImage);
     }
 
     public static string Extract(Stream stream, string extension) =>
@@ -350,11 +351,19 @@ public sealed class CondominiumDocumentProcessor(AppDbContext db, IEmbeddingServ
     {
         var normalized = pages.Select(page => page with { Text = CondominiumDocumentText.Normalize(page.Text) }).ToArray();
         if (!ocr.Enabled) return normalized;
+        var repeatedOverlaySignatures = normalized
+            .Where(page => page.Images.Count > 0 && page.Text.Length >= 100)
+            .GroupBy(page => OverlaySignature(page.Text))
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key).ToHashSet(StringComparer.Ordinal);
         var budget = Math.Clamp(ocrOptions.Value.MaximumPagesPerDocument, 1, 200);
         var result = new List<CondominiumDocumentText.ExtractedPage>(normalized.Length);
         foreach (var page in normalized)
         {
-            if (page.Text.Length >= 20 || page.Images.Count == 0 || budget <= 0)
+            var needsOcr = page.Text.Length < 20
+                || page.HasPageSizedImage
+                && repeatedOverlaySignatures.Contains(OverlaySignature(page.Text));
+            if (!needsOcr || page.Images.Count == 0 || budget <= 0)
             {
                 result.Add(page);
                 continue;
@@ -363,13 +372,23 @@ public sealed class CondominiumDocumentProcessor(AppDbContext db, IEmbeddingServ
             foreach (var image in page.Images.Take(3))
             {
                 var text = await ocr.ExtractTextAsync(image, cancellationToken);
-                if (!string.IsNullOrWhiteSpace(text)) texts.Add(text.Trim());
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    var trimmed = text.Trim();
+                    texts.Add(trimmed[..Math.Min(trimmed.Length, 20_000)]);
+                }
             }
             budget--;
-            result.Add(texts.Count == 0 ? page : page with { Text = CondominiumDocumentText.Normalize(string.Join("\n", texts)) });
+            result.Add(texts.Count == 0 ? page : page with
+            {
+                Text = CondominiumDocumentText.Normalize(string.Join("\n", texts.Append(page.Text)))
+            });
         }
         return result;
     }
+
+    private static string OverlaySignature(string text) => Regex.Replace(
+        Regex.Replace(CondominiumDocumentText.Normalize(text).ToLowerInvariant(), @"\d+", "#"), @"\s+", " ");
 }
 
 internal static class DocumentKnowledgeBuilder
@@ -406,7 +425,8 @@ internal static class DocumentKnowledgeBuilder
 }
 
 public sealed record AssistantSource(Guid DocumentId, string DocumentName, int? PageNumber,
-    string? SectionTitle, string Excerpt, string Marker);
+    string? SectionTitle, string Excerpt, string Marker, Guid? ChunkId = null,
+    string? OriginalFileName = null);
 public sealed record AssistantAnswer(string Answer, IReadOnlyList<AssistantSource> Sources,
     string Model);
 public sealed record RankedChunk(Guid ChunkId, Guid DocumentId, string DocumentName,
@@ -526,7 +546,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         var ranked = retrieval.Chunks;
         var sources = ranked.Select((item, index) => new AssistantSource(item.DocumentId,
             item.DocumentName, item.PageNumber, item.SectionTitle,
-            item.Content[..Math.Min(280, item.Content.Length)], $"S{index + 1}")).ToArray();
+            item.Content[..Math.Min(280, item.Content.Length)], $"S{index + 1}", item.ChunkId)).ToArray();
         var context = string.Join("\n\n", ranked.Select((item, index) =>
             $"[S{index + 1}] Documento: {item.DocumentName}\n{item.Content}"));
         logger.LogInformation("Assistant retrieval completed. CondominiumId: {CondominiumId}; ConversationId: {ConversationId}; RequestId: {RequestId}; EmbeddingModel: {EmbeddingModel}; QueryStrategy: {QueryStrategy}; CandidateDocumentIds: {@CandidateDocumentIds}; InitialChunks: {Candidates}; FirstPassConfidence: {FirstPassConfidence}; SecondPassUsed: {SecondPassUsed}; FinalChunks: {@FinalChunks}; DurationMs: {DurationMs}.",
@@ -647,8 +667,14 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
                 .GroupBy(item => item.DocumentId).Select(group => group.First()).Take(12);
             firstCandidates = firstCandidates.Concat(coverage).DistinctBy(item => item.ChunkId).ToArray();
         }
+        var temporalCandidates = LatestAssemblyCandidates(scored, question);
+        if (temporalCandidates.Count > 0)
+            firstCandidates = temporalCandidates.Concat(firstCandidates)
+                .DistinctBy(item => item.ChunkId)
+                .Take(Math.Clamp(settings.RerankCandidates, 10, 40)).ToArray();
         var rerankStarted = System.Diagnostics.Stopwatch.StartNew();
         var reranked = await RerankAsync(question, requestHint, firstCandidates, cancellationToken);
+        var rerankPasses = new List<IReadOnlyList<RankedChunk>> { reranked };
         var selected = SelectReranked(reranked, settings, .38);
         if (enumerative) selected = EnsureEnumerationCoverage(selected, reranked, question, settings);
         var secondPass = selected.Count == 0 || firstPassConfidence < Math.Max(.35, settings.MinimumRelevanceScore + .08)
@@ -658,25 +684,41 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             var broadCandidates = scored.Where(x => x.SemanticScore >= Math.Max(.05, settings.MinimumRelevanceScore * .35)
                     || x.LexicalScore > 0 || x.CombinedScore >= .12)
                 .Take(Math.Clamp(settings.RerankCandidates, 10, 40)).ToArray();
-            var fallback = SelectReranked(
-                await RerankAsync(question, requestHint, broadCandidates, cancellationToken),
-                settings, .26);
-            if (fallback.Count > 0) selected = fallback;
+            var fallbackReranked = await RerankAsync(question, requestHint, broadCandidates, cancellationToken);
+            rerankPasses.Add(fallbackReranked);
+            var fallback = SelectReranked(fallbackReranked, settings, .26);
+            if (fallback.Count > 0) selected = selected.Concat(fallback)
+                .DistinctBy(item => item.ChunkId)
+                .OrderByDescending(item => item.RerankScore).ThenByDescending(item => item.CombinedScore)
+                .Take(Math.Clamp(settings.TopChunks, 8, 12)).ToList();
         }
+        var selectedByRerank = selected.ToArray();
+        var allReranked = rerankPasses.SelectMany(pass => pass)
+            .GroupBy(item => item.ChunkId).Select(group => group.MaxBy(item => item.RerankScore)!).ToArray();
+        selected = EnsureLatestAssemblyEvidence(selected, temporalCandidates, allReranked, settings);
+        var temporalPreserved = selected.Where(item => temporalCandidates.Any(candidate => candidate.ChunkId == item.ChunkId)
+            && selectedByRerank.All(rerankedItem => rerankedItem.ChunkId != item.ChunkId)).ToArray();
         rerankStarted.Stop();
         selected = ExpandNeighbors(selected, scored, settings);
         totalStarted.Stop();
         logger.LogInformation("Assistant enumeration coverage. AssistantExecutionId: {AssistantExecutionId}; Enumerative: {Enumerative}; EligibleDocumentsBeforeRerank: {EligibleDocumentsBeforeRerank}; DocumentsAfterRerank: {DocumentsAfterRerank}; DocumentsInFinalContext: {DocumentsInFinalContext}; CoverageChunksAdded: {CoverageChunksAdded}.",
             AssistantExecutionContext.ExecutionId, enumerative, firstCandidates.Select(x => x.DocumentId).Distinct().Count(),
-            reranked.Select(x => x.DocumentId).Distinct().Count(), selected.Select(x => x.DocumentId).Distinct().Count(),
+            selectedByRerank.Select(x => x.DocumentId).Distinct().Count(), selected.Select(x => x.DocumentId).Distinct().Count(),
             enumerative ? Math.Max(0, firstCandidates.Length - Math.Clamp(settings.RerankCandidates, 10, 40)) : 0);
         logger.LogInformation("Assistant document ranking diagnostic. AssistantExecutionId: {AssistantExecutionId}; Documents: {@Documents}.",
             AssistantExecutionContext.ExecutionId, scored.GroupBy(item => item.DocumentId).Select(group => new
             {
                 DocumentId = group.Key, LoadedChunks = group.Count(), BeforeRerank = firstCandidates.Any(item => item.DocumentId == group.Key),
-                AfterRerank = reranked.Any(item => item.DocumentId == group.Key), FinalContext = selected.Any(item => item.DocumentId == group.Key),
-                BestCombinedScore = group.Max(item => item.CombinedScore), BestRerankScore = reranked.Where(item => item.DocumentId == group.Key).Select(item => (double?)item.RerankScore).Max()
+                AfterRerank = selectedByRerank.Any(item => item.DocumentId == group.Key), FinalContext = selected.Any(item => item.DocumentId == group.Key),
+                BestCombinedScore = group.Max(item => item.CombinedScore), BestRerankScore = allReranked.Where(item => item.DocumentId == group.Key).Select(item => (double?)item.RerankScore).Max()
             }).ToArray());
+        logger.LogInformation("Assistant chunk ranking diagnostic. AssistantExecutionId: {AssistantExecutionId}; BeforeRerank: {@BeforeRerank}; RerankResults: {@RerankResults}; AfterRerankThreshold: {@AfterRerankThreshold}; TemporalPreserved: {@TemporalPreserved}; FinalContext: {@FinalContext}.",
+            AssistantExecutionContext.ExecutionId,
+            firstCandidates.Select((item, index) => new { Position = index + 1, item.ChunkId, item.DocumentId, item.PageNumber, item.SemanticScore, item.LexicalScore, item.CombinedScore }).ToArray(),
+            rerankPasses.SelectMany((pass, passIndex) => pass.Select((item, index) => new { Pass = passIndex + 1, Position = index + 1, item.ChunkId, item.DocumentId, item.PageNumber, item.CombinedScore, item.RerankScore })).ToArray(),
+            selectedByRerank.Select((item, index) => new { Position = index + 1, item.ChunkId, item.DocumentId, item.PageNumber, item.CombinedScore, item.RerankScore }).ToArray(),
+            temporalPreserved.Select(item => new { item.ChunkId, item.DocumentId, item.PageNumber, item.CombinedScore, item.RerankScore }).ToArray(),
+            selected.Select((item, index) => new { Position = index + 1, item.ChunkId, item.DocumentId, item.PageNumber, item.CombinedScore, item.RerankScore }).ToArray());
         if (measurement is not null)
         {
             measurement.RetrievalDurationMs = totalStarted.ElapsedMilliseconds; measurement.ExpansionDurationMs = expansionStarted.ElapsedMilliseconds;
@@ -686,11 +728,11 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             measurement.RerankFallbackDurationMs = secondPass ? rerankStarted.ElapsedMilliseconds : null; measurement.RerankFallbackUsed = secondPass;
             measurement.EligibleDocuments = documentCoverage.Count(x => x.IsActive && x.ProcessingStatus == CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Ready && x.Compatible);
             measurement.EligibleChunks = eligibleCount; measurement.LoadedChunks = loaded.Count; measurement.DeserializedEmbeddings = candidates.Length;
-            measurement.ExpandedQueries = queries.Length; measurement.CandidatesBeforeRerank = firstCandidates.Length; measurement.CandidatesAfterRerank = selected.Count; measurement.FinalChunks = selected.Count; measurement.ContextCharacters = selected.Sum(x => x.Content.Length);
+            measurement.ExpandedQueries = queries.Length; measurement.CandidatesBeforeRerank = firstCandidates.Length; measurement.CandidatesAfterRerank = selectedByRerank.Length; measurement.FinalChunks = selected.Count; measurement.ContextCharacters = selected.Sum(x => x.Content.Length);
         }
         var candidatesByQuery = queries.Select((queryText, index) => new
         {
-            Query = DiagnosticQuery(queryText),
+            QueryIndex = index + 1,
             Candidates = candidates.Count(item =>
                 Cosine(queryVectors[index], item.Vector!) >= settings.MinimumRelevanceScore
                 || LexicalScore($"{item.Document.Name} {item.Document.DocumentType} {item.Chunk.SectionTitle} {item.Chunk.Content}",
@@ -875,8 +917,70 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         return selected;
     }
 
+    internal static IReadOnlyList<RankedChunk> LatestAssemblyCandidates(
+        IReadOnlyList<RankedChunk> ranked, string question)
+    {
+        if (!Regex.IsMatch(NormalizeLexical(question), @"\b(ultima|mais recente)\b")
+            || !Regex.IsMatch(NormalizeLexical(question), @"\b(ata|assembleia|ago|age)\b")) return [];
+        var normalizedQuestion = NormalizeLexical(question);
+        var extraordinary = Regex.IsMatch(normalizedQuestion, @"\b(extraordinaria|age)\b");
+        var ordinary = !extraordinary && Regex.IsMatch(normalizedQuestion, @"\b(ordinaria|ago)\b");
+        return ranked.Select(item => new { Item = item, Date = AssemblyDate(item, ordinary, extraordinary) })
+            .Where(item => item.Date is not null)
+            .OrderByDescending(item => item.Date).ThenByDescending(item => item.Item.CombinedScore)
+            .GroupBy(item => item.Item.DocumentId).Select(group => group.First().Item)
+            .Take(1).ToArray();
+    }
+
+    private static DateTime? AssemblyDate(RankedChunk item, bool ordinary, bool extraordinary)
+    {
+        var text = $"{item.DocumentName}\n{item.Content}";
+        var normalized = NormalizeLexical(text);
+        if (!Regex.IsMatch(normalized, @"\b(ata|assembleia)\b")) return null;
+        if (extraordinary && !Regex.IsMatch(normalized, @"\b(extraordinaria|age)\b")) return null;
+        if (ordinary && !Regex.IsMatch(normalized, @"\b(ordinaria|ago)\b")) return null;
+        const string datePattern = @"(?:\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{1,2}\s+de\s+[\p{L}]+\s+de\s+\d{4})";
+        var eventDates = Regex.Matches(text,
+                $@"\b(?:ata\s+de\s+)?assembleia\b.{{0,180}}?\b(?:realizad[ao]|ocorrid[ao]|aconteceu)\s+(?:em\s+)?(?<date>{datePattern})",
+                RegexOptions.IgnoreCase | RegexOptions.Singleline)
+            .Select(match => ParseBrazilianDate(match.Groups["date"].Value))
+            .Concat(Regex.Matches(text,
+                    @"\b(?:ata\s+de\s+)?assembleia\b.{0,180}?\baos?\s+(?<day>\d{1,2})\s+dias?\s+do\s+m[eê]s\s+de\s+(?<month>[\p{L}]+)\s+de\s+(?<year>\d{4})",
+                    RegexOptions.IgnoreCase | RegexOptions.Singleline)
+                .Select(match => ParseBrazilianDate($"{match.Groups["day"].Value} de {match.Groups["month"].Value} de {match.Groups["year"].Value}")))
+            .Where(date => date is not null)
+            .Select(date => date!.Value).ToArray();
+        if (eventDates.Length > 0) return eventDates.Max();
+        if (!Regex.IsMatch(NormalizeLexical(item.DocumentName), @"\b(ata|assembleia|ago|age)\b")) return null;
+        var documentNameDates = Regex.Matches(item.DocumentName, $@"\b{datePattern}\b", RegexOptions.IgnoreCase)
+            .Select(match => ParseBrazilianDate(match.Value)).Where(date => date is not null).ToArray();
+        return documentNameDates.Length == 0 ? null : documentNameDates.Max();
+    }
+
+    private static DateTime? ParseBrazilianDate(string value)
+    {
+        string[] formats = ["d/M/yyyy", "dd/MM/yyyy", "d-M-yyyy", "dd-MM-yyyy", "d 'de' MMMM 'de' yyyy", "dd 'de' MMMM 'de' yyyy"];
+        return DateTime.TryParseExact(value.Trim(), formats, CultureInfo.GetCultureInfo("pt-BR"),
+            DateTimeStyles.AllowWhiteSpaces, out var date) ? date.Date : null;
+    }
+
+    private static List<RankedChunk> EnsureLatestAssemblyEvidence(List<RankedChunk> selected,
+        IReadOnlyList<RankedChunk> temporalCandidates, IReadOnlyList<RankedChunk> reranked,
+        CondominiumAssistantOptions settings)
+    {
+        if (temporalCandidates.Count == 0) return selected;
+        var newestCandidate = temporalCandidates[0];
+        var newest = reranked.FirstOrDefault(item => item.ChunkId == newestCandidate.ChunkId)
+            ?? newestCandidate;
+        var result = selected.Where(item => item.ChunkId != newest.ChunkId).ToList();
+        result.Insert(0, newest);
+        return result.Take(Math.Clamp(settings.TopChunks, 8, 12)).ToList();
+    }
+
     internal static string DisplayDocumentName(string name, string originalFileName) =>
-        !string.IsNullOrWhiteSpace(name) && !Regex.IsMatch(name, @"^(s3-|[0-9a-f]{16,})", RegexOptions.IgnoreCase)
+        !string.IsNullOrWhiteSpace(name) && !Regex.IsMatch(name,
+            @"^(?:s3[-_/]|[0-9a-f]{16,}(?:\.[a-z0-9]+)?$|[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?:\.[a-z0-9]+)?$)",
+            RegexOptions.IgnoreCase)
             ? name : !string.IsNullOrWhiteSpace(originalFileName) ? originalFileName : name;
 
     internal static string EnforceGrounding(string answer, IReadOnlyDictionary<string, string> evidence)
@@ -939,13 +1043,6 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         var end = content.LastIndexOf('}');
         if (start < 0 || end < start) throw new JsonException("Structured JSON was not returned.");
         return content[start..(end + 1)];
-    }
-
-    private static string DiagnosticQuery(string query)
-    {
-        var safe = Regex.Replace(query, @"[\w.+-]+@[\w.-]+", "[email]");
-        safe = Regex.Replace(safe, @"\d{6,}", "[number]");
-        return safe[..Math.Min(120, safe.Length)].Replace('\n', ' ');
     }
 
     private static double LexicalScore(string value, string[] terms)

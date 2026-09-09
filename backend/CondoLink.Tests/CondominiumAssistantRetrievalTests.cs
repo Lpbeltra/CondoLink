@@ -250,10 +250,58 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Latest_assembly_query_keeps_newest_explicit_event_date_first()
+    {
+        foreach (var date in new[] { "17/07/2024", "19/08/2025", "09/04/2026" })
+        {
+            var document = Document($"Ata de assembleia {date}", CondominiumDocumentType.Minutes);
+            db.Add(document);
+            db.Add(new CondominiumDocumentChunk(document.Id, condominiumId, 0,
+                $"ATA DE ASSEMBLEIA GERAL ORDINÁRIA realizada em {date}."
+                    + (date.Contains("2025") ? " Contrato com vencimento em 10/05/2027." : ""),
+                JsonSerializer.Serialize(Vector(5)), 1, null, "semantic-test-v1"));
+        }
+        await db.SaveChangesAsync();
+
+        var results = await Service().RetrieveAsync(condominiumId,
+            "Qual foi a última assembleia?", null, default);
+
+        Assert.NotEmpty(results);
+        Assert.Contains("09/04/2026", results[0].Content);
+    }
+
+    [Fact]
+    public async Task Garden_standard_chunk_survives_candidate_selection_and_rerank()
+    {
+        for (var year = 2024; year <= 2025; year++)
+        {
+            var old = Document($"Ata AGO {year}", CondominiumDocumentType.Minutes);
+            db.Add(old);
+            db.Add(new CondominiumDocumentChunk(old.Id, condominiumId, 0,
+                $"Ata de assembleia ordinária realizada em 10/04/{year}. Prestação de contas aprovada.",
+                JsonSerializer.Serialize(Vector(5)), 1, null, "semantic-test-v1"));
+        }
+        var garden = Document("Ata AGO 09-04-2026", CondominiumDocumentType.Minutes);
+        db.Add(garden);
+        db.Add(new CondominiumDocumentChunk(garden.Id, condominiumId, 0,
+            "PADRONIZAÇÃO DE COBERTURA PARA ÁREA GARDEN. Aprovada proposta retrátil com estrutura metálica e policarbonato.",
+            JsonSerializer.Serialize(Vector(5)), 4, null, "semantic-test-v1"));
+        await db.SaveChangesAsync();
+
+        var results = await Service().RetrieveAsync(condominiumId,
+            "Qual a data da assembleia que estabeleceu o padrão para cobertura das áreas garden?", null, default);
+
+        Assert.Contains(results, item => item.DocumentId == garden.Id
+            && item.Content.Contains("policarbonato", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Friendly_source_name_never_exposes_storage_key_when_original_exists()
     {
         Assert.Equal("Regimento Interno Monticello.pdf",
             CondominiumAssistantService.DisplayDocumentName("s3-68f8e30b94f3b", "Regimento Interno Monticello.pdf"));
+        Assert.Equal("Ata.pdf", CondominiumAssistantService.DisplayDocumentName(
+            "9f7b9510-19f2-4bcc-8e75-649572ec9312.pdf", "Ata.pdf"));
         Assert.Equal("Regimento Interno",
             CondominiumAssistantService.DisplayDocumentName("Regimento Interno", "arquivo.pdf"));
     }
@@ -280,10 +328,11 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
     [Fact]
     public void Canonical_source_serialization_is_camel_case_for_storage_and_sse()
     {
-        var source = new AssistantSource(Guid.NewGuid(), "Regimento", 7, null, "Trecho", "S1");
+        var source = new AssistantSource(Guid.NewGuid(), "Regimento", 7, null, "Trecho", "S1", Guid.NewGuid());
         var stored = JsonSerializer.Serialize(new[] { source }, CondominiumAssistantEndpoints.AssistantJsonOptions);
         var frame = CondominiumAssistantEndpoints.SseEvent("done", new { answer = "Fato [S1].", sources = new[] { source }, conversation = new { id = Guid.NewGuid() } });
         Assert.Contains("\"documentName\":\"Regimento\"", stored);
+        Assert.Contains("\"chunkId\"", stored);
         Assert.DoesNotContain("\"DocumentName\"", stored);
         Assert.Contains("\"documentId\"", frame); Assert.Contains("\"conversation\":{\"id\"", frame);
         Assert.DoesNotContain("\"DocumentId\"", frame);

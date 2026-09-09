@@ -29,6 +29,8 @@ export interface AssistantSource {
   sectionTitle: string | null;
   excerpt: string;
   marker: string;
+  chunkId?: string | null;
+  originalFileName?: string | null;
   documentExists?: boolean;
   documentCurrentlyActive?: boolean;
 }

@@ -246,14 +246,23 @@ public static class CondominiumAssistantEndpoints
         var sourceIds = messageRows.SelectMany(x => ParseSources(x.SourcesJson)).Select(x => x.DocumentId).Distinct().ToArray();
         var availableDocuments = await db.CondominiumDocuments.AsNoTracking()
             .Where(x => x.CondominiumId == condominiumId && sourceIds.Contains(x.Id))
-            .ToDictionaryAsync(x => x.Id, x => x.IsActive, ct);
+            .Select(x => new { x.Id, x.IsActive, x.Name, x.OriginalFileName })
+            .ToDictionaryAsync(x => x.Id, ct);
         // Same flat source contract as JSON and SSE answer responses. Reopening a
         // conversation must not turn persisted sources into a nested shape.
         var messages = messageRows.Select(x => new { x.Id, Role = x.Role.ToString(), x.Content, x.CreatedAt,
-            Sources = ParseSources(x.SourcesJson).Select(source => new
-            { source.DocumentId, source.DocumentName, source.PageNumber, source.SectionTitle, source.Excerpt, source.Marker,
-                DocumentExists = availableDocuments.ContainsKey(source.DocumentId),
-                DocumentCurrentlyActive = availableDocuments.GetValueOrDefault(source.DocumentId) }).ToArray() }).ToArray();
+            Sources = ParseSources(x.SourcesJson).Select(source =>
+            {
+                availableDocuments.TryGetValue(source.DocumentId, out var current);
+                return new
+                { source.DocumentId,
+                    DocumentName = current is null ? source.DocumentName
+                        : CondominiumAssistantService.DisplayDocumentName(current.Name, current.OriginalFileName),
+                    OriginalFileName = current?.OriginalFileName ?? source.OriginalFileName,
+                    source.PageNumber, source.SectionTitle, source.Excerpt, source.Marker, source.ChunkId,
+                    DocumentExists = current is not null,
+                    DocumentCurrentlyActive = current?.IsActive ?? false };
+            }).ToArray() }).ToArray();
         object? requestContext = null; var contextUnavailable = false;
         if (conversation.RequestId is Guid requestId)
         {
@@ -454,7 +463,9 @@ public static class CondominiumAssistantEndpoints
         if (!Guid.TryParse(id, out var documentId) || string.IsNullOrWhiteSpace(name)
             || string.IsNullOrWhiteSpace(marker) || !System.Text.RegularExpressions.Regex.IsMatch(marker, @"^S\d+$")) return null;
         return new AssistantSource(documentId, name, Integer(item, "pageNumber") ?? Integer(item, "page"),
-            String(item, "sectionTitle"), String(item, "excerpt") ?? "", marker);
+            String(item, "sectionTitle"), String(item, "excerpt") ?? "", marker,
+            Guid.TryParse(String(item, "chunkId"), out var chunkId) ? chunkId : null,
+            String(item, "originalFileName"));
     }
     private static JsonElement? Property(JsonElement item, string name) => item.EnumerateObject()
         .FirstOrDefault(property => string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)).Value;

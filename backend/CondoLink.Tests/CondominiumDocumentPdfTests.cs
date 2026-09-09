@@ -101,6 +101,39 @@ public sealed class CondominiumDocumentPdfTests
         Assert.Empty(await scope.Db.CondominiumDocumentChunks.ToArrayAsync());
     }
 
+    [Fact]
+    public async Task Repeated_text_overlay_on_scanned_pages_uses_ocr()
+    {
+        var ocr = new RecordingOcrService("ATA DE ASSEMBLEIA GERAL ORDINÁRIA realizada em 09 de abril de 2026.");
+        await using var scope = await ProcessorScope.Create(ocr: ocr);
+        var overlay = "Registro Nº 574.755. Documento registrado eletronicamente para fins de publicidade e eficácia em relação a terceiros.";
+        var pages = new[]
+        {
+            new CondominiumDocumentText.ExtractedPage(2, overlay + " Página 000001/000007", [new byte[100]], true),
+            new CondominiumDocumentText.ExtractedPage(3, overlay + " Página 000002/000007", [new byte[100]], true)
+        };
+
+        var result = await scope.Processor.OcrMissingPagesAsync(pages, default);
+
+        Assert.Equal(2, ocr.Calls);
+        Assert.All(result, page => Assert.Contains("09 de abril de 2026", page.Text));
+        Assert.All(result, page => Assert.Contains("Registro Nº", page.Text));
+    }
+
+    [Fact]
+    public async Task Genuine_text_page_with_image_does_not_use_ocr()
+    {
+        var ocr = new RecordingOcrService("não deveria ser usado");
+        await using var scope = await ProcessorScope.Create(ocr: ocr);
+        var page = new CondominiumDocumentText.ExtractedPage(1,
+            "Convenção com conteúdo textual próprio e suficiente para consulta.", [new byte[100]]);
+
+        var result = await scope.Processor.OcrMissingPagesAsync([page], default);
+
+        Assert.Equal(0, ocr.Calls);
+        Assert.Equal(page.Text, result[0].Text);
+    }
+
     private static MemoryStream Pdf(params string?[] pageTexts)
     {
         var builder = new PdfDocumentBuilder();
@@ -128,6 +161,14 @@ public sealed class CondominiumDocumentPdfTests
             throw new InvalidOperationException("OCR must not run when disabled.");
     }
 
+    private sealed class RecordingOcrService(string text) : IDocumentOcrService
+    {
+        public int Calls { get; private set; }
+        public bool Enabled => true;
+        public Task<string?> ExtractTextAsync(byte[] imageBytes, CancellationToken cancellationToken)
+        { Calls++; return Task.FromResult<string?>(text); }
+    }
+
     private sealed class ProcessorScope : IAsyncDisposable
     {
         private readonly SqliteConnection connection;
@@ -136,14 +177,15 @@ public sealed class CondominiumDocumentPdfTests
         public CondominiumDocumentProcessor Processor { get; }
 
         private ProcessorScope(SqliteConnection connection, AppDbContext db,
-            CondominiumDocument document, IEmbeddingService embeddings)
+            CondominiumDocument document, IEmbeddingService embeddings, IDocumentOcrService ocr)
         {
             this.connection = connection; Db = db; Document = document;
-            Processor = new(db, embeddings, new DisabledOcrService(), Options.Create(new CondominiumAssistantOptions()),
+            Processor = new(db, embeddings, ocr, Options.Create(new CondominiumAssistantOptions()),
                 Options.Create(new DocumentOcrOptions()), NullLogger<CondominiumDocumentProcessor>.Instance);
         }
 
-        public static async Task<ProcessorScope> Create(IEmbeddingService? embeddings = null)
+        public static async Task<ProcessorScope> Create(IEmbeddingService? embeddings = null,
+            IDocumentOcrService? ocr = null)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -156,7 +198,8 @@ public sealed class CondominiumDocumentPdfTests
                 "application/pdf", 1, null, Guid.NewGuid());
             db.CondominiumDocuments.Add(document);
             await db.SaveChangesAsync();
-            return new(connection, db, document, embeddings ?? new LocalEmbeddingService());
+            return new(connection, db, document, embeddings ?? new LocalEmbeddingService(),
+                ocr ?? new DisabledOcrService());
         }
 
         public async ValueTask DisposeAsync()
