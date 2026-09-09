@@ -20,6 +20,11 @@ public sealed class AssistantExecutionMeasurement(Guid executionId, Guid condomi
     public int? DeserializedEmbeddings { get; set; } public int? ExpandedQueries { get; set; } public int? CandidatesBeforeRerank { get; set; }
     public int? CandidatesAfterRerank { get; set; } public int? FinalChunks { get; set; } public int? ContextCharacters { get; set; }
     public string? EmbeddingModel { get; set; } public string? ChatModel { get; set; }
+    public string? RerankModel { get; set; } public int? RetryCount { get; set; }
+    public bool RerankAttempted { get; set; } public bool RerankSucceeded { get; set; }
+    public bool RerankTimedOut { get; set; } public bool RerankFastPathUsed { get; set; }
+    public int? RerankCandidatesSent { get; set; } public int? RerankPayloadBytes { get; set; }
+    public int? RerankInputTokensApprox { get; set; }
     public bool RerankFallbackUsed { get; set; }
     public AssistantExecutionMetricValues Values(bool success, string? errorCategory) => new()
     {
@@ -34,7 +39,12 @@ public sealed class AssistantExecutionMeasurement(Guid executionId, Guid condomi
         DeserializedEmbeddings = DeserializedEmbeddings, ExpandedQueries = ExpandedQueries,
         CandidatesBeforeRerank = CandidatesBeforeRerank, CandidatesAfterRerank = CandidatesAfterRerank,
         FinalChunks = FinalChunks, ContextCharacters = ContextCharacters, EmbeddingModel = EmbeddingModel,
-        ChatModel = ChatModel, RerankFallbackUsed = RerankFallbackUsed, ErrorCategory = errorCategory,
+        ChatModel = ChatModel, RerankModel = RerankModel, RetryCount = RetryCount,
+        RerankAttempted = RerankAttempted, RerankSucceeded = RerankSucceeded,
+        RerankTimedOut = RerankTimedOut, RerankFastPathUsed = RerankFastPathUsed,
+        RerankCandidatesSent = RerankCandidatesSent, RerankPayloadBytes = RerankPayloadBytes,
+        RerankInputTokensApprox = RerankInputTokensApprox,
+        RerankFallbackUsed = RerankFallbackUsed, ErrorCategory = errorCategory,
         ErrorCode = errorCategory
     };
 }

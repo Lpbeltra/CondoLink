@@ -47,9 +47,13 @@ public sealed class OpenAiTelemetryHandler(IServiceScopeFactory scopes, TimeProv
 {
     public static readonly HttpRequestOptionsKey<CancellationToken> CallerCancellationToken =
         new("CondoLink.OpenAI.CallerCancellationToken");
+    public static readonly HttpRequestOptionsKey<string> OperationOverride =
+        new("CondoLink.OpenAI.OperationOverride");
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
+        var effectiveOperation = request.Options.TryGetValue(OperationOverride, out var overrideName)
+            ? overrideName : operation;
         var started = Stopwatch.GetTimestamp(); HttpResponseMessage? response = null; string? error = null;
         try { response = await base.SendAsync(request, ct); if (!response.IsSuccessStatusCode) error = $"http_{(int)response.StatusCode}"; return response; }
         catch (OperationCanceledException)
@@ -78,10 +82,10 @@ public sealed class OpenAiTelemetryHandler(IServiceScopeFactory scopes, TimeProv
                     } } catch (JsonException) { }
                 }
                 await using var scope = scopes.CreateAsyncScope(); var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                db.AiOperationMetrics.Add(new AiOperationMetric(operation, model, clock.GetUtcNow().UtcDateTime,
+                db.AiOperationMetrics.Add(new AiOperationMetric(effectiveOperation, model, clock.GetUtcNow().UtcDateTime,
                     (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, error is null && response?.IsSuccessStatusCode == true, input, output, total, error));
-                scope.ServiceProvider.GetRequiredService<ILogger<OpenAiTelemetryHandler>>().LogInformation("OpenAI operation completed. AssistantExecutionId: {AssistantExecutionId}; Operation: {Operation}; Model: {Model}; DurationMs: {DurationMs}; Succeeded: {Succeeded}; InputTokens: {InputTokens}; OutputTokens: {OutputTokens}; TotalTokens: {TotalTokens}; Error: {Error}.", AssistantExecutionContext.ExecutionId, operation, model, (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, error is null && response?.IsSuccessStatusCode == true, input, output, total, error);
-                if (error is not null) db.OperationalEvents.Add(new OperationalEvent(clock.GetUtcNow().UtcDateTime, "OpenAI", operation, "Error", error));
+                scope.ServiceProvider.GetRequiredService<ILogger<OpenAiTelemetryHandler>>().LogInformation("OpenAI operation completed. AssistantExecutionId: {AssistantExecutionId}; Operation: {Operation}; Model: {Model}; DurationMs: {DurationMs}; Succeeded: {Succeeded}; InputTokens: {InputTokens}; OutputTokens: {OutputTokens}; TotalTokens: {TotalTokens}; Error: {Error}.", AssistantExecutionContext.ExecutionId, effectiveOperation, model, (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, error is null && response?.IsSuccessStatusCode == true, input, output, total, error);
+                if (error is not null) db.OperationalEvents.Add(new OperationalEvent(clock.GetUtcNow().UtcDateTime, "OpenAI", effectiveOperation, "Error", error));
                 await db.SaveChangesAsync(CancellationToken.None);
             }
             catch { /* telemetry must never break the product path */ }
