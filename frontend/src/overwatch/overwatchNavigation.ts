@@ -4,6 +4,7 @@ import BusinessRoundedIcon from '@mui/icons-material/BusinessRounded'
 import SupervisorAccountRoundedIcon from '@mui/icons-material/SupervisorAccountRounded'
 import MonitorHeartRoundedIcon from '@mui/icons-material/MonitorHeartRounded'
 import MessageRoundedIcon from '@mui/icons-material/MessageRounded'
+import BuildRoundedIcon from '@mui/icons-material/BuildRounded'
 
 export const overwatchNavigationItems = [
   { label: 'Dashboard', path: '/overwatch', icon: DashboardRoundedIcon },
@@ -14,6 +15,7 @@ export const overwatchNavigationItems = [
   { label: 'Síndicos', path: '/overwatch/managers', icon: SupervisorAccountRoundedIcon },
   { label: 'Mensagens', path: '/overwatch/messages', icon: MessageRoundedIcon },
   { label: 'Solicitações ADM', path: '/overwatch/management-company-requests', icon: MessageRoundedIcon },
+  { label: 'Ferramentas', path: '/overwatch/tools', icon: BuildRoundedIcon },
 ]
 
 export function getOverwatchSelectedPath(pathname: string) {

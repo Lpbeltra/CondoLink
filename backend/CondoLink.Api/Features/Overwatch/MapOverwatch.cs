@@ -7,6 +7,7 @@ using CondoLink.Api.Features.Overwatch.ManagementCompanyRequestCategories;
 using CondoLink.Api.Features.Overwatch.OperationalMessages;
 using CondoLink.Api.Features.Overwatch.SubManagers;
 using CondoLink.Api.Features.Overwatch.ManagementCompanyRequests;
+using CondoLink.Api.Features.Overwatch.ServiceProviders;
 
 
 namespace CondoLink.Api.Features.Overwatch;
@@ -62,6 +63,7 @@ public static class MapOverwatch
             endpoints.MapUpdateManagementCompanyRequestCategory();
             endpoints.MapUpdateManagementCompanyRequestCategoryStatus();
             endpoints.MapOperationalMessageEndpoints();
+            endpoints.MapOverwatchServiceProviderEndpoints();
 
         return endpoints;
     }

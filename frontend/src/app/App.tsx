@@ -158,6 +158,14 @@ const OverwatchMessagesPage = lazyPage(
   () => import("../overwatch/pages/OverwatchMessagesPage"),
   "OverwatchMessagesPage",
 );
+const OverwatchToolsPage = lazyPage(
+  () => import("../overwatch/pages/OverwatchToolsPage"),
+  "OverwatchToolsPage",
+);
+const OverwatchServiceProvidersPage = lazyPage(
+  () => import("../overwatch/pages/OverwatchServiceProvidersPage"),
+  "OverwatchServiceProvidersPage",
+);
 
 function ProtectedRoute() {
   const { user, isInitializing } = useAuth();
@@ -300,6 +308,8 @@ export function App() {
                       path="messages"
                       element={<OverwatchMessagesPage />}
                     />
+                    <Route path="tools" element={<OverwatchToolsPage />} />
+                    <Route path="tools/service-providers" element={<OverwatchServiceProvidersPage />} />
                   </Route>
                 </Route>
               </Route>
