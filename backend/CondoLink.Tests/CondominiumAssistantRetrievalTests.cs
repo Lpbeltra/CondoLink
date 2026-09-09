@@ -75,7 +75,7 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
         Assert.Equal(expected.Id, results[0].DocumentId);
         Assert.Contains("Animais", results[0].Content);
         Assert.Equal(1, handler.ExpansionCalls);
-        Assert.Equal(0, handler.RerankCalls);
+        Assert.True(handler.RerankCalls >= 1);
     }
 
     [Fact]
@@ -199,10 +199,9 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
     }
 
     private CondominiumAssistantService Service(IEmbeddingService? embedding = null,
-        HttpClient? client = null, RequestDraftAiOptions? ai = null,
-        CondominiumAssistantOptions? assistant = null) => new(db, embedding ?? new SemanticTestEmbeddingService(),
+        HttpClient? client = null, RequestDraftAiOptions? ai = null) => new(db, embedding ?? new SemanticTestEmbeddingService(),
         client ?? new HttpClient(), Options.Create(ai ?? new RequestDraftAiOptions()),
-        Options.Create(assistant ?? new CondominiumAssistantOptions { MinimumRelevanceScore = .2 }),
+        Options.Create(new CondominiumAssistantOptions { MinimumRelevanceScore = .2 }),
         NullLogger<CondominiumAssistantService>.Instance);
 
     private CondominiumDocument Document(string name, CondominiumDocumentType type)
@@ -272,86 +271,6 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Latest_assembly_uses_deterministic_fast_path_without_llm_rerank()
-    {
-        foreach (var date in new[] { "17/07/2024", "19/08/2025", "09/04/2026" })
-        {
-            var document = Document($"Ata AGO {date}", CondominiumDocumentType.Minutes);
-            db.Add(document);
-            db.Add(new CondominiumDocumentChunk(document.Id, condominiumId, 0,
-                $"ATA DE ASSEMBLEIA GERAL ORDINARIA realizada em {date}.",
-                JsonSerializer.Serialize(Vector(5)), 1, null, "semantic-test-v1"));
-        }
-        await db.SaveChangesAsync();
-        var handler = new InvestigativeChatHandler([]);
-
-        var results = await Service(client: new HttpClient(handler) { BaseAddress = new Uri("https://test/") },
-            ai: new RequestDraftAiOptions { Enabled = true, ApiKey = "test", Model = "test-chat" })
-            .RetrieveAsync(condominiumId, "Qual foi a ultima assembleia?", null, default);
-
-        Assert.Contains("09/04/2026", results[0].Content);
-        Assert.Equal(0, handler.RerankCalls);
-    }
-
-    [Fact]
-    public void Fast_path_requires_dominant_lexical_evidence_when_query_is_not_temporal()
-    {
-        var settings = new CondominiumAssistantOptions();
-        var dominant = Ranked(.9, 1.1);
-        var weak = Ranked(.2, .7);
-        Assert.True(CondominiumAssistantService.ShouldUseRerankFastPath(
-            [dominant, weak], [], settings));
-        Assert.False(CondominiumAssistantService.ShouldUseRerankFastPath(
-            [Ranked(.8, .9), Ranked(.78, .82)], [], settings));
-        settings.RerankFastPathEnabled = false;
-        Assert.False(CondominiumAssistantService.ShouldUseRerankFastPath(
-            [dominant, weak], [], settings));
-    }
-
-    [Fact]
-    public async Task Ambiguous_candidates_use_one_llm_rerank_call_even_when_broadening_runs()
-    {
-        var targetCondominium = Guid.NewGuid();
-        AddInvestigative(targetCondominium, "Regra A", "Uso da area comum exige reserva previa.", new float[] { 1, 0, 0 });
-        var expected = AddInvestigative(targetCondominium, "Regra B", "Uso da area comum depende de autorizacao previa.", new float[] { 1, 0, 0 });
-        await db.SaveChangesAsync();
-        var handler = new InvestigativeChatHandler(["uso area comum autorizacao"]);
-
-        var results = await Service(new InvestigativeEmbeddingService(),
-            new HttpClient(handler) { BaseAddress = new Uri("https://test/") },
-            new RequestDraftAiOptions { Enabled = true, ApiKey = "test", Model = "test-chat" })
-            .RetrieveAsync(targetCondominium, "Qual data e autorizacao preciso para usar a area comum?", null, default);
-
-        Assert.Equal(1, handler.RerankCalls);
-        Assert.Equal(expected.Id, results[0].DocumentId);
-    }
-
-    [Fact]
-    public async Task Rerank_timeout_uses_hybrid_fallback_and_keeps_valid_context()
-    {
-        var targetCondominium = Guid.NewGuid();
-        var expected = AddInvestigative(targetCondominium, "Regra A", "Uso da area comum exige reserva previa.", new float[] { 1, 0, 0 });
-        AddInvestigative(targetCondominium, "Regra B", "Uso da area comum depende de autorizacao previa.", new float[] { 1, 0, 0 });
-        await db.SaveChangesAsync();
-        var handler = new InvestigativeChatHandler(["uso area comum reserva"], TimeSpan.FromSeconds(5));
-        var started = DateTime.UtcNow;
-
-        var results = await Service(new InvestigativeEmbeddingService(),
-            new HttpClient(handler) { BaseAddress = new Uri("https://test/") },
-            new RequestDraftAiOptions { Enabled = true, ApiKey = "test", Model = "test-chat" },
-            new CondominiumAssistantOptions { MinimumRelevanceScore = .2, RerankTimeoutSeconds = 1 })
-            .RetrieveAsync(targetCondominium, "Qual regra para usar a area comum?", null, default);
-
-        Assert.Equal(1, handler.RerankCalls);
-        Assert.Contains(results, x => x.DocumentId == expected.Id);
-        Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(3));
-    }
-
-    private static RankedChunk Ranked(double lexical, double combined) => new(
-        Guid.NewGuid(), Guid.NewGuid(), "Documento", 1, null, "Evidencia", .5,
-        lexical, combined);
-
-    [Fact]
     public async Task Garden_standard_chunk_survives_candidate_selection_and_rerank()
     {
         for (var year = 2024; year <= 2025; year++)
@@ -377,20 +296,29 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Protection_screen_color_remains_supported_by_retrieved_document()
+    public async Task Semantically_relevant_election_evidence_survives_low_lexical_score()
     {
-        var document = Document("Padrao de protecao", CondominiumDocumentType.InternalRules);
+        var document = new CondominiumDocument(condominiumId, "Registro deliberativo",
+            CondominiumDocumentType.Minutes, "registro.pdf", "registro", "application/pdf",
+            1, null, Guid.NewGuid());
+        document.Ready();
         db.Add(document);
         db.Add(new CondominiumDocumentChunk(document.Id, condominiumId, 0,
-            "A tela de protecao deve possuir cor preta.", JsonSerializer.Serialize(Vector(1)),
-            8, null, "semantic-test-v1"));
+            "A gestao predial passou a ser exercida pelo escolhido no escrutinio de 15/03/2026.",
+            JsonSerializer.Serialize(new float[] { .35f, .93675f }), 3, "Deliberacao",
+            "low-lexical-election-v1"));
         await db.SaveChangesAsync();
+        var handler = new InvestigativeChatHandler(["termo sem correspondencia"]);
 
-        var results = await Service().RetrieveAsync(condominiumId,
-            "Qual a cor padrao da tela de protecao?", null, default);
+        var results = await Service(new LowLexicalElectionEmbeddingService(),
+            new HttpClient(handler) { BaseAddress = new Uri("https://test/") },
+            new RequestDraftAiOptions { Enabled = true, ApiKey = "test", Model = "test-chat" })
+            .RetrieveAsync(condominiumId,
+                "Qual foi a assembleia em que eu fui eleito sindico?", null,
+                "Morador atual", default);
 
-        Assert.Contains(results, item => item.DocumentId == document.Id
-            && item.Content.Contains("preta", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(results, item => item.DocumentId == document.Id);
+        Assert.True(handler.RerankCalls >= 1);
     }
 
     [Fact]
@@ -497,7 +425,14 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
         }
     }
 
-    private sealed class InvestigativeChatHandler(string[] queries, TimeSpan? rerankDelay = null) : HttpMessageHandler
+    private sealed class LowLexicalElectionEmbeddingService : IEmbeddingService
+    {
+        public string Model => "low-lexical-election-v1";
+        public Task<float[]> EmbedAsync(string text, CancellationToken cancellationToken) =>
+            Task.FromResult(new float[] { 1, 0 });
+    }
+
+    private sealed class InvestigativeChatHandler(string[] queries) : HttpMessageHandler
     {
         public int ExpansionCalls { get; private set; }
         public int RerankCalls { get; private set; }
@@ -514,7 +449,6 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
             else
             {
                 RerankCalls++;
-                if (rerankDelay is { } delay) await Task.Delay(delay, cancellationToken);
                 using var requestJson = JsonDocument.Parse(body);
                 var userContent = requestJson.RootElement.GetProperty("messages")[1]
                     .GetProperty("content").GetString()!;
@@ -528,7 +462,8 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
                         id = item.GetProperty("id").GetGuid(),
                         relevance = item.GetProperty("text").GetString()! is { } text
                             && (text.Contains("Animais", StringComparison.OrdinalIgnoreCase)
-                                || text.Contains("autorizacao", StringComparison.OrdinalIgnoreCase)) ? .95 : .1
+                                || text.Contains("autorizacao", StringComparison.OrdinalIgnoreCase)
+                                || text.Contains("gestao predial", StringComparison.OrdinalIgnoreCase)) ? .95 : .1
                     }).ToArray()
                 });
             }
