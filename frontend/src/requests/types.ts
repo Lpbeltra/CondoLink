@@ -51,10 +51,12 @@ export interface RequestDetails extends RequestListItem {
   hasUnreadResidentUpdate?: boolean
   serviceProvider?: ServiceProvider | null
   serviceProviderHistory?: ServiceProviderHistoryItem[]
+  providerPaymentRequests?: ProviderPaymentRequestItem[]
   internalNotes?: RequestInternalNoteSummary[] | null
 }
-export interface ServiceProvider { id:string; name:string; companyName:string|null; specialty:string; specialties?:string[]; phone:string; isActive:boolean }
+export interface ServiceProvider { id:string; name:string; companyName:string|null; specialty:string; specialties?:string[]; phone:string; isActive:boolean; pixKeyType?: 'Cpf'|'Cnpj'|'Email'|'Phone'|'Random'|null; pixKey?:string|null }
 export interface ServiceProviderHistoryItem { id:string; eventType:'Linked'|'Changed'|'Removed'; previousName?:string|null; previousSpecialty?:string|null; providerName?:string|null; providerSpecialty?:string|null; changedByFullName:string; createdAt:string }
+export interface ProviderPaymentRequestItem { id:string; friendlyIdentifier:string; providerName:string; value:number; createdByFullName:string; createdAt:string }
 
 export interface AgendaReminderSummary { id: string; title: string; nextOccurrenceAtUtc: string | null; recurrenceType: 'None' | 'Weekly' | 'Monthly'; isActive: boolean; completedAt: string | null }
 

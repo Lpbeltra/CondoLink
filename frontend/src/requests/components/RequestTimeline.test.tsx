@@ -28,6 +28,15 @@ describe('RequestTimeline', () => {
     expect(screen.getByText('Prestador vinculado')).toBeVisible(); expect(screen.getAllByText('Cesar — Plumbing')).toHaveLength(2); expect(screen.getByText('Prestador removido')).toBeVisible()
   })
 
+  it('shows each persisted provider payment without exposing PIX', () => {
+    render(<RequestTimeline history={[]} providerPaymentRequests={[{ id: 'payment-1', friendlyIdentifier: 'ADM-001', providerName: 'César', value: 200, createdByFullName: 'Lisandro', createdAt: '2026-09-08T17:00:00Z' }, { id: 'payment-2', friendlyIdentifier: 'ADM-002', providerName: 'César', value: 150, createdByFullName: 'Lisandro', createdAt: '2026-09-08T19:30:00Z' }]} />)
+    expect(screen.getAllByText('Pagamento solicitado à administradora')).toHaveLength(2)
+    expect(screen.getByText(/César.*R\$\s?200,00/)).toBeVisible()
+    expect(screen.getByText(/César.*R\$\s?150,00/)).toBeVisible()
+    expect(screen.getByText(/ADM-001/)).toBeVisible()
+    expect(screen.queryByText(/chave-secreta/i)).not.toBeInTheDocument()
+  })
+
   it('renders private internal notes in the same timeline', () => {
     render(<RequestTimeline history={[]} internalNotes={[{ id: 'note', content: 'Conferir câmera antes de encerrar.', author: { id: 'manager', fullName: 'Ana', isManager: true }, createdAt: '2026-08-17T12:40:00Z', updatedAt: '2026-08-17T12:45:00Z' }]} />)
     expect(screen.getByText('🔒 Nota interna')).toBeVisible(); expect(screen.getByText('Conferir câmera antes de encerrar.')).toBeVisible(); expect(screen.getByText(/Editada/)).toBeVisible()

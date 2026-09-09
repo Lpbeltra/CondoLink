@@ -204,17 +204,24 @@ public static class GetRequestById
 
         ServiceProviderResponse? serviceProvider = null;
         IReadOnlyList<ServiceProviderHistoryResponse> serviceProviderHistory = [];
+        IReadOnlyList<ProviderPaymentRequestResponse> providerPaymentRequests = [];
         if (isCondominiumManager)
         {
             serviceProvider = request.ServiceProviderId is Guid providerId
                 ? await dbContext.ServiceProviders.AsNoTracking().Where(x => x.Id == providerId)
-                    .Select(x => new ServiceProviderResponse(x.Id, x.Name, x.CompanyName, x.Specialty, x.Phone, x.IsActive))
+                    .Select(x => new ServiceProviderResponse(x.Id, x.Name, x.CompanyName, x.Specialty, x.Phone, x.IsActive, x.PixKeyType, x.PixKey))
                     .SingleOrDefaultAsync(cancellationToken)
                 : null;
             serviceProviderHistory = await (from item in dbContext.RequestServiceProviderHistories.AsNoTracking()
                 join user in dbContext.Users.AsNoTracking() on item.ChangedByUserId equals user.Id
                 where item.RequestId == id orderby item.CreatedAt descending, item.Id descending
                 select new ServiceProviderHistoryResponse(item.Id, item.EventType, item.PreviousName, item.PreviousSpecialty, item.ProviderName, item.ProviderSpecialty, user.FullName, item.CreatedAt)).ToArrayAsync(cancellationToken);
+            providerPaymentRequests = await (from administrative in dbContext.ManagementCompanyRequests.AsNoTracking()
+                                             join payment in dbContext.ManagementCompanyPaymentRequests.AsNoTracking() on administrative.Id equals payment.RequestId
+                                             join author in dbContext.Users.AsNoTracking() on administrative.CreatedByUserId equals author.Id
+                                             where administrative.RequestId == id
+                                             orderby administrative.CreatedAt descending
+                                             select new ProviderPaymentRequestResponse(administrative.Id, administrative.FriendlyIdentifier, payment.ThirdPartyIdentification ?? "Prestador", payment.Value, author.FullName, administrative.CreatedAt)).ToArrayAsync(cancellationToken);
         }
 
         RequestAiAnalysisResponse? aiAnalysis = null;
@@ -347,7 +354,7 @@ public static class GetRequestById
             isCondominiumManager,
             internalNotes,
             serviceProvider,
-            serviceProviderHistory);
+            serviceProviderHistory, providerPaymentRequests);
 
         return Results.Ok(response);
     }
@@ -423,8 +430,9 @@ public static class GetRequestById
         Guid? AnswerMessageId,
         WhatsAppDeliveryResponse? WhatsAppDelivery = null);
 
-    public sealed record ServiceProviderResponse(Guid Id, string Name, string? CompanyName, string Specialty, string Phone, bool IsActive);
+    public sealed record ServiceProviderResponse(Guid Id, string Name, string? CompanyName, string Specialty, string Phone, bool IsActive, ServiceProviderPixKeyType? PixKeyType, string? PixKey);
     public sealed record ServiceProviderHistoryResponse(Guid Id, string EventType, string? PreviousName, string? PreviousSpecialty, string? ProviderName, string? ProviderSpecialty, string ChangedByFullName, DateTime CreatedAt);
+    public sealed record ProviderPaymentRequestResponse(Guid Id, string FriendlyIdentifier, string ProviderName, decimal Value, string CreatedByFullName, DateTime CreatedAt);
 
     public sealed record Response(
         Guid Id,
@@ -452,7 +460,8 @@ public static class GetRequestById
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         IReadOnlyList<InternalNoteResponse>? InternalNotes = null,
         ServiceProviderResponse? ServiceProvider = null,
-        IReadOnlyList<ServiceProviderHistoryResponse>? ServiceProviderHistory = null)
+        IReadOnlyList<ServiceProviderHistoryResponse>? ServiceProviderHistory = null,
+        IReadOnlyList<ProviderPaymentRequestResponse>? ProviderPaymentRequests = null)
     {
         public string Protocol => RequestProtocol.From(Id);
         public string MainDescription => string.IsNullOrWhiteSpace(AiAnalysis?.Description)

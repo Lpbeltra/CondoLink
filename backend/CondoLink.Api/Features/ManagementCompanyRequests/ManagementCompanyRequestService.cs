@@ -84,6 +84,35 @@ public sealed class ManagementCompanyRequestService(AppDbContext db, ManagementC
         }, null, files, ManagementCompanyRequestAttachmentPurpose.Request, ct, boletoFiles);
     }
 
+    public async Task<ManagementCompanyRequest> CreateProviderPaymentAsync(ClaimsPrincipal principal, Guid sourceRequestId, CreateProviderPaymentCommand command, CancellationToken ct, IReadOnlyList<IFormFile>? files = null)
+    {
+        var source = await db.Requests.AsNoTracking().Where(x => x.Id == sourceRequestId)
+            .Select(x => new { x.Id, x.CondominiumId, x.ServiceProviderId }).SingleOrDefaultAsync(ct)
+            ?? throw new NotFoundAppException("Atendimento não encontrado.");
+        var actor = await access.RequireManagementAsync(principal, source.CondominiumId, ct);
+        if (source.ServiceProviderId is not Guid providerId)
+            throw new ValidationAppException("Este atendimento não possui um prestador vinculado.");
+        var provider = await db.ServiceProviders.AsNoTracking().Where(x => x.Id == providerId)
+            .Select(x => new { x.Id, x.Name }).SingleOrDefaultAsync(ct)
+            ?? throw new ValidationAppException("O prestador vinculado não está mais disponível.");
+        var categoryId = await db.ManagementCompanyRequestCategories.AsNoTracking()
+            .Where(x => x.IsActive && x.FormType == ManagementCompanyRequestFormType.SupplierPayment
+                && db.CondominiumManagementCompanyLinks.Any(link => link.CondominiumId == source.CondominiumId && link.IsActive && link.ManagementCompanyId == x.ManagementCompanyId))
+            .Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+        if (categoryId is null) throw new ConflictAppException("A administradora não possui uma categoria de pagamento de prestador disponível para este condomínio.");
+        if (command.DueDate is null) throw new ValidationAppException("A data de vencimento é obrigatória.");
+        if (string.IsNullOrWhiteSpace(command.PixKey)) throw new ValidationAppException("A chave PIX é obrigatória.");
+        if (command.PixKeyType is null) throw new ValidationAppException("O tipo da chave PIX é obrigatório.");
+        return await Create(source.CondominiumId, categoryId.Value, actor, ManagementCompanyRequestType.Payment, r =>
+        {
+            r.SetSourceRequest(source.Id);
+            db.ManagementCompanyPaymentRequests.Add(new(r.Id, command.Nature, command.Value, command.EventDate, command.DueDate,
+                false, command.Notes, null, null, null, null, provider.Name, ManagementCompanyPaymentThirdPartyForm.Pix,
+                command.PixKey, null, null, null, provider.Id, command.PixKeyType));
+            return Task.CompletedTask;
+        }, null, files, ManagementCompanyRequestAttachmentPurpose.Request, ct);
+    }
+
     public async Task<ManagementCompanyRequest> CreateQuestionAsync(ClaimsPrincipal p, CreateQuestionCommand c, CancellationToken ct, IReadOnlyList<IFormFile>? files = null)
     {
         var a = await access.RequireManagementAsync(p, c.CondominiumId, ct);
@@ -353,6 +382,7 @@ public sealed class ManagementCompanyRequestService(AppDbContext db, ManagementC
 
 public sealed record CreateFineCommand(Guid CondominiumId, Guid CategoryId, Guid UnitId, string Nature, string Description, DateOnly OccurrenceDate, decimal? Value, bool ValueNotDefined);
 public sealed record CreatePaymentCommand(Guid CondominiumId, Guid CategoryId, string Nature, decimal Value, DateOnly EventDate, DateOnly? DueDate, bool IsReimbursement, Guid? BeneficiaryUserId, string? Notes, string? ThirdPartyIdentification, ManagementCompanyPaymentThirdPartyForm? ThirdPartyForm, string? ThirdPartyPixKey, string? ThirdPartyBank, string? ThirdPartyAgency, string? ThirdPartyAccount);
+public sealed record CreateProviderPaymentCommand(string Nature, decimal Value, DateOnly EventDate, DateOnly? DueDate, string? Notes, PixKeyType? PixKeyType, string? PixKey);
 public sealed record CreateQuestionCommand(Guid CondominiumId, Guid CategoryId, string Theme, string Message);
 public sealed record UpdateRequestCommand(UpdateFineCommand? Fine, UpdatePaymentCommand? Payment, UpdateQuestionCommand? Question);
 public sealed record UpdateFineCommand(Guid UnitId, string Nature, string Description, DateOnly OccurrenceDate, decimal? Value, bool ValueNotDefined);

@@ -78,6 +78,10 @@ export async function suggestRequestStatusMessage(requestId: string, status: Req
 }
 export const listRequestServiceProviders = async (requestId:string) => (await api.get<ServiceProviderOption[]>(`/requests/${requestId}/service-providers`)).data
 export const setRequestServiceProvider = async (requestId:string, serviceProviderId:string|null) => api.patch(`/requests/${requestId}/service-provider`, { serviceProviderId })
+export async function createProviderPaymentRequest(requestId: string, payload: unknown, files: File[]) {
+  const form = new FormData(); form.append('payload', JSON.stringify(payload)); files.forEach(file => form.append('files', file))
+  return (await api.post<{ id: string; friendlyIdentifier: string }>(`/requests/${requestId}/provider-payment-request`, form, { timeout: 5 * 60 * 1000 })).data
+}
 export const prepareProviderContactMessage = async (requestId:string) => (await api.post<{message:string}>(`/requests/${requestId}/provider-contact-message`)).data
 export interface ServiceProviderOption { id:string; name:string; companyName:string|null; specialty:string; specialties?:string[]; phone:string; isMine:boolean; isCondominium:boolean }
 

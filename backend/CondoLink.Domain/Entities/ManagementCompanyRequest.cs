@@ -26,6 +26,8 @@ public sealed class ManagementCompanyRequest
     public Guid CondominiumId { get; private set; }
     public Guid ManagementCompanyId { get; private set; }
     public Guid CategoryId { get; private set; }
+    /// <summary>Optional originating resident attendance. It never grants access to that attendance.</summary>
+    public Guid? RequestId { get; private set; }
     public Guid CreatedByUserId { get; private set; }
     public ManagementCompanyRequestType Type { get; private set; }
     public ManagementCompanyRequestStatus Status { get; private set; }
@@ -40,6 +42,12 @@ public sealed class ManagementCompanyRequest
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
     public bool IsTerminal => Status is ManagementCompanyRequestStatus.Completed or ManagementCompanyRequestStatus.Cancelled;
+
+    public void SetSourceRequest(Guid requestId)
+    {
+        if (requestId == Guid.Empty) throw new ArgumentException("Source request is required.", nameof(requestId));
+        RequestId = requestId;
+    }
 
     public ManagementCompanyRequestStatus Acknowledge(Guid userId, DateTime at)
     {

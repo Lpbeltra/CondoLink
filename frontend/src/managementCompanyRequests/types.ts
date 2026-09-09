@@ -76,6 +76,7 @@ export function hasAttachmentPurpose(attachment: Attachment, purpose: keyof type
   return attachment.purpose === purpose || attachment.purpose === attachmentPurposeValues[purpose];
 }
 export interface RequestDetail extends RequestItem {
+  requestId?: string | null;
   categoryId: string;
   cancellationReason: string | null;
   cancellationOrigin?: "ManagementCompany" | "Manager" | "SubManager" | null;
@@ -108,9 +109,11 @@ export interface RequestDetail extends RequestItem {
     thirdPartyIdentification: string | null;
     thirdPartyForm: "Pix" | "Boleto" | "DepositAccount" | null;
     thirdPartyPixKey: string | null;
+    thirdPartyPixKeyType?: string | null;
     thirdPartyBank: string | null;
     thirdPartyAgency: string | null;
     thirdPartyAccount: string | null;
+    serviceProviderId?: string | null;
   };
   question?: { theme: string };
   messages: {

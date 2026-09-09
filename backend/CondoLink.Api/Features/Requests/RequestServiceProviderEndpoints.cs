@@ -1,11 +1,14 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CondoLink.Api.Features.Management;
+using CondoLink.Api.Features.ManagementCompanyRequests;
+using CondoLink.Api.Common;
 using ServiceProviderEntity = CondoLink.Domain.Entities.ServiceProvider;
 using ServiceProvider = CondoLink.Domain.Entities.ServiceProvider;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace CondoLink.Api.Features.Requests;
 
@@ -15,7 +18,25 @@ public static class RequestServiceProviderEndpoints
     {
         app.MapGet("/requests/{requestId:guid}/service-providers", OptionsAsync).RequireAuthorization();
         app.MapPatch("/requests/{requestId:guid}/service-provider", LinkAsync).RequireAuthorization();
+        app.MapPost("/requests/{requestId:guid}/provider-payment-request", CreateProviderPaymentAsync).DisableAntiforgery().RequireAuthorization();
         return app;
+    }
+
+    private static async Task<IResult> CreateProviderPaymentAsync(Guid requestId, HttpRequest http, ClaimsPrincipal principal, AppDbContext db, ManagementCompanyRequestService payments, ManagementCompanyRequestNotificationService notifications, ManagementCompanyRequestRealtimeService realtime, ILogger<ManagementCompanyRequestNotificationService> logger, CancellationToken ct)
+    {
+        var access = await RequestAccessAsync(requestId, principal, db, ct);
+        if (access is null) return Results.NotFound(new { error = "Atendimento não encontrado." });
+        if (!access.Value.Value) return Results.Forbid();
+        if (!http.HasFormContentType) throw new ValidationAppException("Envie os dados usando multipart/form-data.");
+        var form = await http.ReadFormAsync(ct);
+        CreateProviderPaymentCommand? body;
+        try { body = JsonSerializer.Deserialize<CreateProviderPaymentCommand>(form["payload"].ToString(), new JsonSerializerOptions(JsonSerializerDefaults.Web)); }
+        catch (JsonException) { throw new ValidationAppException("Os dados de pagamento são inválidos."); }
+        if (body is null) throw new ValidationAppException("Os dados de pagamento são obrigatórios.");
+        var created = await payments.CreateProviderPaymentAsync(principal, requestId, body, ct, form.Files.GetFiles("files"));
+        try { await notifications.NotifyCreatedAsync(created, ct); await realtime.BroadcastUpdatedAsync(created, ct); }
+        catch (Exception exception) { logger.LogWarning(exception, "Provider payment {RequestId} was created but its notification could not be sent.", created.Id); }
+        return Results.Created($"/management-company-requests/{created.Id}", new { created.Id, created.FriendlyIdentifier });
     }
 
     private static async Task<IResult> OptionsAsync(Guid requestId, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)

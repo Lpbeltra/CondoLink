@@ -29,7 +29,8 @@ public sealed class ManagementCompanyPaymentRequest
     public ManagementCompanyPaymentRequest(Guid requestId, string nature, decimal value, DateOnly eventDate,
         DateOnly? dueDate, bool isReimbursement, string? notes, Guid? beneficiaryUserId, string? beneficiaryName, PixKeyType? pixKeyType, string? pixKey,
         string? thirdPartyIdentification, ManagementCompanyPaymentThirdPartyForm? thirdPartyForm, string? thirdPartyPixKey,
-        string? thirdPartyBank, string? thirdPartyAgency, string? thirdPartyAccount)
+        string? thirdPartyBank, string? thirdPartyAgency, string? thirdPartyAccount,
+        Guid? serviceProviderId = null, PixKeyType? thirdPartyPixKeyType = null)
     {
         if (requestId==Guid.Empty) throw new ArgumentException("Request is required.");
         if (string.IsNullOrWhiteSpace(nature) || nature.Trim().Length>500) throw new ArgumentException("Payment nature is required and must not exceed 500 characters.");
@@ -63,12 +64,15 @@ public sealed class ManagementCompanyPaymentRequest
         }
         RequestId=requestId; Nature=nature.Trim(); Value=value; EventDate=eventDate; DueDate=dueDate; IsReimbursement=isReimbursement;
         Notes=Normalize(notes); BeneficiaryUserId=beneficiaryUserId; BeneficiaryName=Normalize(beneficiaryName); PixKeyType=pixKeyType; PixKey=Normalize(pixKey);
-        ThirdPartyIdentification=Normalize(thirdPartyIdentification); ThirdPartyForm=thirdPartyForm; ThirdPartyPixKey=Normalize(thirdPartyPixKey); ThirdPartyBank=Normalize(thirdPartyBank); ThirdPartyAgency=Normalize(thirdPartyAgency); ThirdPartyAccount=Normalize(thirdPartyAccount);
+        ThirdPartyIdentification=Normalize(thirdPartyIdentification); ThirdPartyForm=thirdPartyForm; ThirdPartyPixKey=Normalize(thirdPartyPixKey); ThirdPartyBank=Normalize(thirdPartyBank); ThirdPartyAgency=Normalize(thirdPartyAgency); ThirdPartyAccount=Normalize(thirdPartyAccount); ServiceProviderId=serviceProviderId; ThirdPartyPixKeyType=thirdPartyPixKeyType;
     }
     public Guid RequestId { get;private set;} public string Nature {get;private set;}=null!; public decimal Value {get;private set;}
     public DateOnly EventDate {get;private set;} public DateOnly? DueDate {get;private set;} public bool IsReimbursement {get;private set;} public string? Notes {get;private set;}
     public Guid? BeneficiaryUserId {get;private set;} public string? BeneficiaryName {get;private set;} public PixKeyType? PixKeyType {get;private set;} public string? PixKey {get;private set;}
     public string? ThirdPartyIdentification {get;private set;} public ManagementCompanyPaymentThirdPartyForm? ThirdPartyForm {get;private set;} public string? ThirdPartyPixKey {get;private set;} public string? ThirdPartyBank {get;private set;} public string? ThirdPartyAgency {get;private set;} public string? ThirdPartyAccount {get;private set;}
+    /// <summary>Optional source provider reference; identification and PIX above are immutable snapshots.</summary>
+    public Guid? ServiceProviderId { get; private set; }
+    public PixKeyType? ThirdPartyPixKeyType { get; private set; }
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value)?null:value.Trim();
     public void Update(string nature, decimal value, DateOnly eventDate, DateOnly? dueDate, bool isReimbursement, string? notes, Guid? beneficiaryUserId, string? beneficiaryName, PixKeyType? pixKeyType, string? pixKey, string? thirdPartyIdentification, ManagementCompanyPaymentThirdPartyForm? thirdPartyForm, string? thirdPartyPixKey, string? thirdPartyBank, string? thirdPartyAgency, string? thirdPartyAccount)
     {
