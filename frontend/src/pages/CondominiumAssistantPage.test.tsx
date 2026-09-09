@@ -453,4 +453,24 @@ describe("CondominiumAssistantPage", () => {
     expect(await screen.findByText(/Ata 2026.*pág. 4/)).toBeInTheDocument();
     expect(screen.getByText(/Ata 2025.*pág. 3/)).toBeInTheDocument();
   });
+
+  it("releases sending after each streamed answer so a conversation accepts consecutive messages", async () => {
+    const user = userEvent.setup();
+    streamAssistantMock.mockImplementation(async (_path, _body, handlers) => handlers.onDone({ answer: "ok", sources: [], conversation: { id: "chat-1", requestId: null } }));
+    render(<MemoryRouter><CondominiumAssistantPage /></MemoryRouter>);
+    const input = await screen.findByRole("textbox", { name: "Pergunte ao assistente" });
+    await user.type(input, "Primeira{enter}");
+    await screen.findByText("ok");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Enviar" })).toBeEnabled());
+    await user.type(input, "Segunda{enter}");
+    await waitFor(() => expect(streamAssistantMock).toHaveBeenCalledTimes(2));
+    expect(streamAssistantMock.mock.calls[1][0]).toContain("conversations/chat-1/messages");
+  });
+
+  it("uses independent scroll containers on desktop", async () => {
+    render(<MemoryRouter><CondominiumAssistantPage /></MemoryRouter>);
+    await screen.findByText("Nenhuma conversa anterior.");
+    expect(screen.getByTestId("assistant-history")).toHaveStyle({ overflowY: "auto" });
+    expect(screen.getByTestId("assistant-chat")).toHaveStyle({ overflow: "auto" });
+  });
 });

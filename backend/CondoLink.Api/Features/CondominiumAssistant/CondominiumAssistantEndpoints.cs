@@ -424,12 +424,38 @@ public static class CondominiumAssistantEndpoints
     public sealed record AskRequest(string? Question);
     public sealed record StartConversationRequest(string? Question, Guid? RequestId);
 
-    private static AssistantSource[] ParseSources(string? json)
+    // SourcesJson existed briefly as { source: {...}, documentExists: ... }.
+    // Normalize on read, keeping stored conversations usable without rewriting
+    // sensitive historical JSON. Output is always the canonical flat source.
+    internal static AssistantSource[] ParseSources(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return [];
-        try { return JsonSerializer.Deserialize<AssistantSource[]>(json) ?? []; }
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Array) return [];
+            return document.RootElement.EnumerateArray().Select(NormalizeSource)
+                .Where(source => source is not null).Cast<AssistantSource>().ToArray();
+        }
         catch (JsonException) { return []; }
     }
+
+    private static AssistantSource? NormalizeSource(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object) return null;
+        if (Property(item, "source") is JsonElement nested && nested.ValueKind == JsonValueKind.Object) item = nested;
+        var id = String(item, "documentId");
+        var name = String(item, "documentName") ?? String(item, "name");
+        if (!Guid.TryParse(id, out var documentId) || string.IsNullOrWhiteSpace(name)) return null;
+        return new AssistantSource(documentId, name, Integer(item, "pageNumber") ?? Integer(item, "page"),
+            String(item, "sectionTitle"), String(item, "excerpt") ?? "", String(item, "marker") ?? "");
+    }
+    private static JsonElement? Property(JsonElement item, string name) => item.EnumerateObject()
+        .FirstOrDefault(property => string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)).Value;
+    private static string? String(JsonElement item, string name) => Property(item, name) is JsonElement value
+        && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    private static int? Integer(JsonElement item, string name) => Property(item, name) is JsonElement value
+        && value.TryGetInt32(out var number) ? number : null;
 
     internal static string AutomaticTitle(string question)
     {

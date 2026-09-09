@@ -236,11 +236,13 @@ export function CondominiumAssistantPage() {
   if (!activeCondominiumId) return <PageContainer><Alert severity="info"><Typography fontWeight={800}>Selecione um condomínio</Typography>Este módulo trabalha com um condomínio por vez. Escolha um condomínio no seletor acima para continuar.</Alert></PageContainer>;
   const history = (
     <Stack
+      data-testid="assistant-history"
       sx={{
         width: { xs: 300, md: 280 },
         p: 2,
         height: "100%",
-        overflow: "auto",
+        minHeight: 0,
+        overflowY: "auto",
       }}
       gap={1}
     >
@@ -331,12 +333,14 @@ export function CondominiumAssistantPage() {
             display: "grid",
             gridTemplateColumns: { xs: "1fr", md: "280px minmax(0, 1fr)" },
             gap: 2,
-            alignItems: "start",
+            alignItems: "stretch",
+            height: { md: "calc(100dvh - 12rem)" },
+            minHeight: { md: 0 },
           }}
         >
-          <Card sx={{ display: { xs: "none", md: "block" } }}>{history}</Card>
-          <Card sx={{ minWidth: 0 }}>
-            <CardContent sx={{ minWidth: 0 }}>
+          <Card sx={{ display: { xs: "none", md: "flex" }, minHeight: 0, overflow: "hidden" }}>{history}</Card>
+          <Card sx={{ minWidth: 0, minHeight: 0, overflow: "hidden", display: "flex" }}>
+            <CardContent sx={{ minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", flex: 1 }}>
               {(conversation?.requestId || pendingRequestId) && (
                 <Alert
                   severity="info"
@@ -359,7 +363,7 @@ export function CondominiumAssistantPage() {
                   {error}
                 </Alert>
               )}
-              <Stack gap={2} minHeight={360} maxHeight="60vh" overflow="auto" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>
+              <Stack data-testid="assistant-chat" gap={2} minHeight={0} overflow="auto" sx={{ minWidth: 0, overflowWrap: "anywhere", flex: 1 }}>
                 {opening ? (
                   <Skeleton height={240} />
                 ) : messages.length === 0 ? (

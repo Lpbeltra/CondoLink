@@ -665,6 +665,13 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             AssistantExecutionContext.ExecutionId, enumerative, firstCandidates.Select(x => x.DocumentId).Distinct().Count(),
             reranked.Select(x => x.DocumentId).Distinct().Count(), selected.Select(x => x.DocumentId).Distinct().Count(),
             enumerative ? Math.Max(0, firstCandidates.Length - Math.Clamp(settings.RerankCandidates, 10, 40)) : 0);
+        logger.LogInformation("Assistant document ranking diagnostic. AssistantExecutionId: {AssistantExecutionId}; Documents: {@Documents}.",
+            AssistantExecutionContext.ExecutionId, scored.GroupBy(item => item.DocumentId).Select(group => new
+            {
+                DocumentId = group.Key, LoadedChunks = group.Count(), BeforeRerank = firstCandidates.Any(item => item.DocumentId == group.Key),
+                AfterRerank = reranked.Any(item => item.DocumentId == group.Key), FinalContext = selected.Any(item => item.DocumentId == group.Key),
+                BestCombinedScore = group.Max(item => item.CombinedScore), BestRerankScore = reranked.Where(item => item.DocumentId == group.Key).Select(item => (double?)item.RerankScore).Max()
+            }).ToArray());
         if (measurement is not null)
         {
             measurement.RetrievalDurationMs = totalStarted.ElapsedMilliseconds; measurement.ExpansionDurationMs = expansionStarted.ElapsedMilliseconds;
@@ -1011,6 +1018,17 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         var rows = await db.CondominiumDocuments.AsNoTracking()
             .Where(x => x.CondominiumId == condominiumId && (includeInactive ? !x.IsActive : x.IsActive))
             .OrderBy(x => x.Name).Select(x => new { x.Name, x.DocumentType, x.ProcessingStatus }).ToArrayAsync(ct);
+        var inventoryIntent = Regex.IsMatch(normalized, @"\b(quantos?|quais|liste|listar?)\b.*\b(documentos?|acervo)\b");
+        if (inventoryIntent)
+        {
+            var ready = rows.Count(x => x.ProcessingStatus == CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Ready);
+            var unavailable = rows.Count(x => x.ProcessingStatus is CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Failed
+                or CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Unsupported);
+            if (Regex.IsMatch(normalized, @"\bquantos?\b"))
+                return $"Há {rows.Length} documento{(rows.Length == 1 ? "" : "s")} ativo{(rows.Length == 1 ? "" : "s")} cadastrado{(rows.Length == 1 ? "" : "s")}: {ready} pronto{(ready == 1 ? "" : "s")} para consulta{(unavailable == 0 ? "." : $"; {unavailable} não pôde ser processado.")}";
+            return rows.Length == 0 ? "Não há documentos ativos cadastrados." :
+                $"Documentos ativos cadastrados ({rows.Length}; {ready} prontos para consulta):\n\n{string.Join("\n", rows.Select(x => $"- {x.Name}"))}";
+        }
         if (normalized.Contains("ata") || normalized.Contains("assembleia"))
             rows = rows.Where(x => x.DocumentType == CondoLink.Domain.Enums.CondominiumDocumentType.Minutes).ToArray();
         else if (normalized.Contains("convencao"))

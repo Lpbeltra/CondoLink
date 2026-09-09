@@ -266,6 +266,17 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
         Assert.Contains("trecho documental recuperado", CondominiumAssistantService.SystemPrompt);
     }
 
+    [Fact]
+    public void Legacy_nested_sources_json_is_normalized_to_the_canonical_flat_source()
+    {
+        var id = Guid.NewGuid();
+        var legacy = $$"""[{"source":{"documentId":"{{id}}","documentName":"Ata 2026","pageNumber":4,"sectionTitle":"Assembleia","excerpt":"Data","marker":"S1"},"documentExists":true}]""";
+        var source = Assert.Single(CondominiumAssistantEndpoints.ParseSources(legacy));
+        Assert.Equal(id, source.DocumentId); Assert.Equal("Ata 2026", source.DocumentName);
+        Assert.Equal(4, source.PageNumber); Assert.Equal("S1", source.Marker);
+        Assert.Empty(CondominiumAssistantEndpoints.ParseSources("[{\"source\":{}}]"));
+    }
+
     private CondominiumDocument AddInvestigative(Guid targetCondominium,
         string name, string content, float[] vector)
     {
