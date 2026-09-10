@@ -7,6 +7,10 @@ using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using CondoLink.Api.Features.WhatsApp;
 
 namespace CondoLink.Tests;
 
@@ -14,6 +18,7 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
 {
     private CoreEndpointTestHost _host = null!;
     private readonly FakeTelegramBotClient _bot = new();
+    private readonly RecordingLogger<TelegramAssistantWorker> _workerLogger = new();
     private Guid _managerId;
     private Guid _residentId;
     private Guid _allowedSubManagerId;
@@ -24,6 +29,14 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
         {
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<ITelegramBotClient>(_bot);
+            builder.Services.AddSingleton<ILogger<TelegramAssistantWorker>>(_workerLogger);
+            builder.Services.AddSingleton<IEmbeddingService, NoOpEmbeddingService>();
+            builder.Services.AddScoped(services => new CondominiumAssistantService(
+                services.GetRequiredService<CondoLink.Infrastructure.Persistence.AppDbContext>(),
+                services.GetRequiredService<IEmbeddingService>(), new HttpClient(),
+                Options.Create(new RequestDraftAiOptions()),
+                Options.Create(new CondominiumAssistantOptions()),
+                NullLogger<CondominiumAssistantService>.Instance));
             builder.Services.Configure<TelegramAssistantOptions>(x =>
             { x.Enabled = true; x.BotToken = "test-token"; x.WebhookSecret = "test-secret"; x.BotUsername = "comvy_test_bot"; });
         });
@@ -124,6 +137,22 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Linked_user_receives_structured_assistant_response()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            db.Add(new TelegramUserLink(_managerId, 608, 608, DateTime.UtcNow));
+            await db.SaveChangesAsync();
+        });
+
+        await ProcessTextAsync(69, 608, "Quais documentos estão cadastrados?");
+
+        Assert.Contains("Não há documentos ativos cadastrados", Assert.Single(_bot.Messages));
+        await _host.WithDbAsync(async db => Assert.Equal(TelegramInboundStatus.Completed,
+            (await db.TelegramInboundUpdates.SingleAsync(x => x.UpdateId == 69)).Status));
+    }
+
+    [Fact]
     public async Task Invalid_and_expired_codes_do_not_link()
     {
         await _host.WithDbAsync(async db =>
@@ -184,6 +213,33 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
         { var update = await db.TelegramInboundUpdates.SingleAsync(x => x.UpdateId == 68);
           Assert.Equal(TelegramInboundStatus.Failed, update.Status); Assert.Equal(4, update.Attempts);
           Assert.NotNull(update.ResponseText); Assert.Equal("telegram_api", update.LastError); });
+    }
+
+    [Fact]
+    public async Task Telegram_delivery_logs_safe_api_diagnostics_without_secrets_or_content()
+    {
+        const string privateContent = "PRIVATE_ASSISTANT_CONTENT_DO_NOT_LOG";
+        _bot.Failure = TelegramBotApiException.ApiResponse("sendMessage", HttpStatusCode.Forbidden,
+            403, "Forbidden: bot was blocked by the user", "http_error");
+        await _host.WithDbAsync(async db =>
+        {
+            var update = new TelegramInboundUpdate(70, 609, 609, "PRIVATE_USER_TEXT_DO_NOT_LOG", DateTime.UtcNow);
+            update.PrepareResponse(privateContent);
+            db.Add(update);
+            await db.SaveChangesAsync();
+        });
+
+        await ProcessPendingAsync();
+
+        var logs = string.Join('\n', _workerLogger.Entries);
+        Assert.Contains("Operation: sendMessage", logs);
+        Assert.Contains("HTTPStatus: 403", logs);
+        Assert.Contains("TelegramErrorCode: 403", logs);
+        Assert.Contains("Forbidden: bot was blocked by the user", logs);
+        Assert.DoesNotContain(privateContent, logs);
+        Assert.DoesNotContain("PRIVATE_USER_TEXT_DO_NOT_LOG", logs);
+        Assert.DoesNotContain("test-token", logs);
+        Assert.DoesNotContain("test-secret", logs);
     }
 
     [Fact]
@@ -263,8 +319,26 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
     {
         public List<string> Messages { get; } = [];
         public bool FailSends { get; set; }
+        public Exception? Failure { get; set; }
         public Task SendMessageAsync(long chatId, string text, CancellationToken ct)
-        { if (FailSends) throw new HttpRequestException("failed"); Messages.Add(text); return Task.CompletedTask; }
+        { if (Failure is not null) throw Failure; if (FailSends) throw new HttpRequestException("failed"); Messages.Add(text); return Task.CompletedTask; }
         public Task SendTypingAsync(long chatId, CancellationToken ct) => Task.CompletedTask;
+    }
+
+    private sealed class NoOpEmbeddingService : IEmbeddingService
+    {
+        public string Model => "telegram-test";
+        public Task<float[]> EmbedAsync(string text, CancellationToken cancellationToken) =>
+            Task.FromResult(Array.Empty<float>());
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<string> Entries { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Entries.Add(formatter(state, exception));
     }
 }

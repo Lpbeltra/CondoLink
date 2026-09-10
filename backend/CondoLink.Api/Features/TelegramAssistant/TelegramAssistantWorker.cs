@@ -80,9 +80,7 @@ public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
                 TimeSpan.FromSeconds(5 * Math.Pow(2, Math.Min(update.Attempts - 1, 5))),
                 error, Math.Clamp(options.Value.MaximumAttempts, 1, 8));
             await db.SaveChangesAsync(CancellationToken.None);
-            logger.LogWarning("Telegram update failed. UpdateId: {UpdateId}; ChatId: {ChatId}; Stage: {Stage}; Attempt: {Attempt}; Error: {Error}; Terminal: {Terminal}.",
-                update.UpdateId, update.ChatId, stage, update.Attempts, error,
-                update.Status == TelegramInboundStatus.Failed);
+            LogFailure(update, stage, error, exception);
             if (update.Status == TelegramInboundStatus.Failed && update.ResponseText is null)
                 await TrySendTerminalFailureAsync(update, db, scope.ServiceProvider, ct);
         }
@@ -223,8 +221,29 @@ public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
     { while (!ct.IsCancellationRequested) { try { await client.SendTypingAsync(chatId, ct); await Task.Delay(4000, ct); }
       catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; } catch { await Task.Delay(4000, ct); } } }
     private static string SafeError(Exception exception) => exception switch
-    { HttpRequestException http when http.StatusCode.HasValue => $"telegram_http_{(int)http.StatusCode.Value}",
+    { TelegramBotApiException telegram when telegram.Category == "http_error" && telegram.HttpStatus.HasValue => $"telegram_http_{(int)telegram.HttpStatus.Value}",
+      TelegramBotApiException telegram => $"telegram_{telegram.Category}",
+      HttpRequestException http when http.StatusCode.HasValue => $"telegram_http_{(int)http.StatusCode.Value}",
       HttpRequestException => "telegram_api", TimeoutException => "timeout", _ => "processing_failed" };
+
+    private void LogFailure(TelegramInboundUpdate update, string stage, string error, Exception exception)
+    {
+        var terminal = update.Status == TelegramInboundStatus.Failed;
+        if (stage == "telegram_delivery" && exception is TelegramBotApiException telegram)
+        {
+            logger.LogWarning("Telegram delivery failed. Stage: telegram_delivery; Operation: {Operation}; UpdateId: {UpdateId}; ChatId: {ChatId}; Attempt: {Attempt}; HTTPStatus: {HTTPStatus}; TelegramErrorCode: {TelegramErrorCode}; TelegramDescription: {TelegramDescription}; ExceptionCategory: {ExceptionCategory}; ExceptionType: {ExceptionType}; Error: {Error}; Terminal: {Terminal}.",
+                telegram.Operation, update.UpdateId, update.ChatId, update.Attempts,
+                telegram.HttpStatus.HasValue ? (int)telegram.HttpStatus.Value : null,
+                telegram.TelegramErrorCode, telegram.TelegramDescription,
+                telegram.Category, telegram.ExceptionType, error, terminal);
+            return;
+        }
+
+        logger.LogWarning("Telegram update failed. UpdateId: {UpdateId}; ChatId: {ChatId}; Stage: {Stage}; Attempt: {Attempt}; ExceptionCategory: {ExceptionCategory}; Error: {Error}; Terminal: {Terminal}.",
+            update.UpdateId, update.ChatId, stage, update.Attempts,
+            exception is HttpRequestException ? "network" : exception.GetType().Name,
+            error, terminal);
+    }
 
     internal static (string? Name, string? Argument) ParseCommand(string text)
     {
