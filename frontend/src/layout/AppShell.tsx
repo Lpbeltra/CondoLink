@@ -11,7 +11,6 @@ import { useAuth } from "../auth/AuthContext";
 import { hasPlatformAdminAccess } from "../auth/permissions";
 import { useManagementContext } from "../management/ManagementContext";
 import { PwaInstallBanner } from "../pwa/PwaInstallBanner";
-import { PwaUpdatePrompt } from "../pwa/PwaUpdatePrompt";
 import { useAdministrator } from "../administrator/AdministratorContext";
 import { canAccessNavigationItem, getNavigationItemForPath } from "./navigation";
 
@@ -112,7 +111,6 @@ export function AppShell() {
           sx={{ minHeight: { xs: "64px !important", md: "72px !important" } }}
         />
         <PwaInstallBanner />
-        <PwaUpdatePrompt />
         {content}
       </Box>
       {showNavigation && <MobileBottomNavigation />}

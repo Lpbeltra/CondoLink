@@ -23,6 +23,7 @@ import { OverwatchLayout } from "../overwatch/OverwatchLayout";
 import { getProtectedRouteAccess } from "../auth/routeAccess";
 import { lazyPage } from "./lazyPage";
 import { AdministratorProvider } from "../administrator/AdministratorProvider";
+import { PwaUpdatePrompt } from "../pwa/PwaUpdatePrompt";
 
 const MyRequestsPage = lazyPage(
   () => import("../pages/MyRequestsPage"),
@@ -190,6 +191,7 @@ function ProtectedRoute() {
 export function App() {
   return (
     <AppThemeProvider>
+      <PwaUpdatePrompt />
       <BrowserRouter>
         <AuthProvider>
           <CondominiumProvider>
