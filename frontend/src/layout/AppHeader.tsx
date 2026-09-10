@@ -1,5 +1,6 @@
 import { useState } from "react";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
+import NotificationsActiveRoundedIcon from "@mui/icons-material/NotificationsActiveRounded";
 import {
   AppBar,
   Avatar,
@@ -25,6 +26,7 @@ import { shouldShowGeneralCondominiumSwitcher } from "./navigation";
 import { useOptionalManagementContext } from "../management/ManagementContext";
 import { useAdministrator } from "../administrator/AdministratorContext";
 import { ManagementCondominiumSwitcher } from "../management/components/ManagementCondominiumSwitcher";
+import { PushNotificationSettings } from "../pwa/PushNotificationSettings";
 
 export function AppHeader() {
   const { user, logout } = useAuth();
@@ -42,6 +44,7 @@ export function AppHeader() {
     managementContext.condominiumCount > 0,
   );
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [pushSettingsOpen, setPushSettingsOpen] = useState(false);
   const brandPath = location.pathname.startsWith("/overwatch")
     ? "/overwatch"
     : (managementContext?.condominiumCount ?? 0) > 0
@@ -156,7 +159,19 @@ export function AppHeader() {
         <MenuItem
           onClick={() => {
             setAnchor(null);
-            logout();
+            setPushSettingsOpen(true);
+          }}
+          sx={{ minHeight: 44 }}
+        >
+          <ListItemIcon>
+            <NotificationsActiveRoundedIcon fontSize="small" />
+          </ListItemIcon>
+          Notificações
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setAnchor(null);
+            void logout();
           }}
           sx={{ minHeight: 44 }}
         >
@@ -166,6 +181,10 @@ export function AppHeader() {
           Sair
         </MenuItem>
       </Menu>
+      <PushNotificationSettings
+        open={pushSettingsOpen}
+        onClose={() => setPushSettingsOpen(false)}
+      />
     </AppBar>
   );
 }

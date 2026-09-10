@@ -53,6 +53,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<RequestClosureConfirmation> RequestClosureConfirmations =>
         Set<RequestClosureConfirmation>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<WebPushSubscription> WebPushSubscriptions => Set<WebPushSubscription>();
     public DbSet<WhatsAppInboundMessage> WhatsAppInboundMessages =>
         Set<WhatsAppInboundMessage>();
     public DbSet<WhatsAppSession> WhatsAppSessions => Set<WhatsAppSession>();

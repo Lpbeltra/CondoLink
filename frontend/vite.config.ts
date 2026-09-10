@@ -18,6 +18,7 @@ export default defineConfig({
       ],
       manifest: pwaManifest,
       workbox: {
+        importScripts: ['push-notifications.js'],
         navigateFallback: '/index.html',
         runtimeCaching: [
           {

@@ -1,5 +1,6 @@
 using CondoLink.Api.Features.Notifications;
 using CondoLink.Api.Features.WhatsApp;
+using CondoLink.Api.Features.WebPush;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
@@ -346,6 +347,67 @@ public sealed class NotificationServiceTests : IAsyncLifetime
             NotificationService.ManagerNewRequestContent(
                 "Residencial Monticello", "Tatiana Custódio", "1201", null,
                 "TAG da garagem"));
+    }
+
+    [Fact]
+    public async Task Creating_a_request_notifies_attendance_authorized_submanager()
+    {
+        var submanager = User("Subsíndico", "submanager@example.com");
+        _db.Add(submanager);
+        AddMembership(submanager.Id, CondominiumRole.SubManager);
+        await _db.SaveChangesAsync();
+
+        var request = await AddRequestAsync(_resident.Id);
+        await _service.NotifyRequestCreatedAsync(request, _category.Name, default);
+
+        Assert.Contains(submanager.Id, await RecipientsAsync());
+    }
+
+    [Fact]
+    public async Task Creating_a_request_skips_submanager_without_attendance_permission()
+    {
+        var submanager = User("Subsíndico bloqueado", "blocked.submanager@example.com");
+        _db.Add(submanager);
+        AddMembership(submanager.Id, CondominiumRole.SubManager);
+        await _db.SaveChangesAsync();
+        var membership = await _db.CondominiumMemberships.SingleAsync(x => x.UserId == submanager.Id);
+        var permission = new SubManagerModulePermission(membership.Id,
+            SubManagerModule.Attendance, _managerA.Id);
+        permission.SetAllowed(false, _managerA.Id);
+        _db.Add(permission);
+        await _db.SaveChangesAsync();
+
+        var request = await AddRequestAsync(_resident.Id);
+        await _service.NotifyRequestCreatedAsync(request, _category.Name, default);
+
+        Assert.DoesNotContain(submanager.Id, await RecipientsAsync());
+    }
+
+    [Fact]
+    public async Task Saved_notifications_are_enqueued_without_remote_delivery_in_request_path()
+    {
+        var queue = new FakePushQueue();
+        var service = new NotificationService(_db, webPushQueue: queue);
+        var request = await AddRequestAsync(_resident.Id);
+
+        await service.NotifyRequestCreatedAsync(request, _category.Name, default);
+
+        Assert.Equal(2, queue.NotificationIds.Count);
+        Assert.All(queue.NotificationIds, id => Assert.NotEqual(Guid.Empty, id));
+    }
+
+    [Fact]
+    public async Task Status_author_does_not_enqueue_push_for_own_action()
+    {
+        var queue = new FakePushQueue();
+        var service = new NotificationService(_db, webPushQueue: queue);
+        var request = await AddRequestAsync(_managerA.Id);
+        request.ChangeStatus(RequestStatus.WaitingForThirdParty, DateTime.UtcNow);
+
+        await service.NotifyStatusChangedAsync(request, RequestStatus.InProgress,
+            _managerA.Id, default, reason: "Aguardando terceiro");
+
+        Assert.Empty(queue.NotificationIds);
     }
 
     [Fact]
@@ -976,6 +1038,22 @@ public sealed class NotificationServiceTests : IAsyncLifetime
         {
             SynthesisCalls++;
             return Task.FromResult(synthesis);
+        }
+    }
+
+    private sealed class FakePushQueue : IWebPushQueue
+    {
+        public List<Guid> NotificationIds { get; } = [];
+        public bool TryEnqueue(Guid notificationId)
+        {
+            NotificationIds.Add(notificationId);
+            return true;
+        }
+        public async IAsyncEnumerable<Guid> ReadAllAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.CompletedTask;
+            yield break;
         }
     }
 }

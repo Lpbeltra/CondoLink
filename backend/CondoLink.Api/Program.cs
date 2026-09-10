@@ -30,6 +30,8 @@ using CondoLink.Api.Features.Agenda;
 using CondoLink.Api.Features.ManagementCompanyRequests;
 using CondoLink.Api.Features.ServiceProviders;
 using Microsoft.AspNetCore.SignalR;
+using CondoLink.Api.Features.WebPush;
+using Lib.Net.Http.WebPush;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -42,6 +44,19 @@ builder.Services.AddScoped<CondominiumMembershipService>();
 builder.Services.AddScoped<CondoLink.Api.Features.Categories.RequestCategoryResolver>();
 builder.Services.AddScoped<ManagerOnboardingService>();
 builder.Services.AddScoped<NotificationService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.Configure<WebPushOptions>(
+    builder.Configuration.GetSection(WebPushOptions.SectionName));
+builder.Services.AddSingleton<IWebPushQueue, WebPushQueue>();
+builder.Services.AddHttpClient("web-push", client => client.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddSingleton(services => new PushServiceClient(
+    services.GetRequiredService<IHttpClientFactory>().CreateClient("web-push"))
+{
+    MaxRetriesAfter = 2
+});
+builder.Services.AddScoped<IWebPushClient, StandardWebPushClient>();
+builder.Services.AddScoped<WebPushDispatcher>();
+builder.Services.AddHostedService<WebPushWorker>();
 builder.Services.AddScoped<OperationalMessageTemplateService>();
 builder.Services.AddScoped<RequestAiAnalysisRefresher>();
 builder.Services.AddScoped<ResidentReplyService>();
@@ -395,6 +410,7 @@ app.MapGetRequestReport();
 
 // Notifications
 app.MapNotifications();
+app.MapWebPush();
 
 // Request messages and attachments
 app.MapCreateRequestMessage();

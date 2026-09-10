@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using DomainRequest = CondoLink.Domain.Entities.Request;
 using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Api.Features.OperationalMessages;
+using CondoLink.Api.Features.WebPush;
 
 namespace CondoLink.Api.Features.Notifications;
 
@@ -18,7 +19,8 @@ public sealed class NotificationService(
     AppDbContext dbContext,
     WhatsAppNotificationDispatcher? whatsApp = null,
     ILogger<NotificationService>? logger = null,
-    OperationalMessageTemplateService? operationalMessages = null)
+    OperationalMessageTemplateService? operationalMessages = null,
+    IWebPushQueue? webPushQueue = null)
 {
     /// <summary>
     /// Notifies the managers of a condominium that a new request was opened.
@@ -29,10 +31,12 @@ public sealed class NotificationService(
         string categoryName,
         CancellationToken cancellationToken)
     {
+        var notificationRecipientIds = await AttendanceRecipientIdsAsync(
+            request.CondominiumId, request.AuthorUserId, cancellationToken);
         var managerIds = await ManagerIdsAsync(
             request.CondominiumId, request.AuthorUserId, cancellationToken);
 
-        AddRange(managerIds.Select(managerId => new Notification(
+        var createdNotifications = AddRange(notificationRecipientIds.Select(managerId => new Notification(
             managerId,
             request.CondominiumId,
             NotificationType.RequestCreated,
@@ -41,6 +45,7 @@ public sealed class NotificationService(
             request.Id)));
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        EnqueuePush(createdNotifications);
         if (managerIds.Length != 1)
         {
             logger?.LogInformation(
@@ -125,15 +130,18 @@ public sealed class NotificationService(
         var administrativeContent = AdministrativeContent(
             request.Title, previousStatus, request.Status, reason);
 
-        dbContext.Notifications.Add(new Notification(
+        var createdNotification = new Notification(
             request.AuthorUserId,
             request.CondominiumId,
             NotificationType.RequestStatusChanged,
             "Status atualizado",
             administrativeContent,
-            request.Id));
+            request.Id);
+        dbContext.Notifications.Add(createdNotification);
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        if (createdNotification.RecipientUserId != changedByUserId)
+            EnqueuePush([createdNotification]);
         var type = StatusNotificationType(previousStatus, request.Status);
         logger?.LogInformation(
             "WhatsApp notification flow. RequestId: {RequestId}; CondominiumId: {CondominiumId}; NotificationType: {NotificationType}; Decision: {Decision}; Reason: {Reason}",
@@ -208,13 +216,13 @@ public sealed class NotificationService(
         MessageChannel channel = MessageChannel.Portal)
     {
         Guid[] recipients = messageAuthorUserId == requestAuthorUserId
-            ? await ManagerIdsAsync(condominiumId, messageAuthorUserId, cancellationToken)
+            ? await AttendanceRecipientIdsAsync(condominiumId, messageAuthorUserId, cancellationToken)
             : [requestAuthorUserId];
 
         var isSpontaneousResidentUpdate =
             channel == MessageChannel.WhatsAppResidentUpdate;
 
-        AddRange(recipients
+        var createdNotifications = AddRange(recipients
             .Where(recipientId => recipientId != messageAuthorUserId)
             .Select(recipientId => new Notification(
                 recipientId,
@@ -229,6 +237,7 @@ public sealed class NotificationService(
                 requestId)));
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        EnqueuePush(createdNotifications);
         if (whatsApp is not null
             && requestMessageId.HasValue
             && messageAuthorUserId != requestAuthorUserId
@@ -246,8 +255,8 @@ public sealed class NotificationService(
         }
     }
 
-    /// <summary>Active managers of a condominium, excluding one user.</summary>
-    private Task<Guid[]> ManagerIdsAsync(
+    /// <summary>Active managers and attendance-authorized submanagers, excluding one user.</summary>
+    private Task<Guid[]> AttendanceRecipientIdsAsync(
         Guid condominiumId,
         Guid excludeUserId,
         CancellationToken cancellationToken)
@@ -262,12 +271,22 @@ public sealed class NotificationService(
                 dbContext.CondominiumMembershipRoles
                     .AsNoTracking()
                     .Where(role =>
-                        role.Role == CondominiumRole.Manager
+                        (role.Role == CondominiumRole.Manager
+                         || role.Role == CondominiumRole.SubManager)
                         && role.IsActive
                         && role.RevokedAt == null),
                 membership => membership.Id,
                 role => role.CondominiumMembershipId,
-                (membership, _) => membership.UserId)
+                (membership, role) => new { Membership = membership, role.Role })
+            .Where(x => x.Role == CondominiumRole.Manager
+                || !dbContext.SubManagerModulePermissions.Any(permission =>
+                    permission.CondominiumMembershipId == x.Membership.Id)
+                || dbContext.SubManagerModulePermissions.Any(permission =>
+                    permission.CondominiumMembershipId == x.Membership.Id
+                    && permission.Module == SubManagerModule.Attendance
+                    && permission.IsAllowed
+                    && permission.RevokedAt == null))
+            .Select(x => x.Membership.UserId)
             .Join(
                 dbContext.Set<CondoLink.Infrastructure.Identity.ApplicationUser>()
                     .AsNoTracking().Where(user => user.IsActive),
@@ -277,11 +296,40 @@ public sealed class NotificationService(
             .Distinct()
             .ToArrayAsync(cancellationToken);
 
-    private void AddRange(IEnumerable<Notification> notifications)
+    private Task<Guid[]> ManagerIdsAsync(Guid condominiumId, Guid excludeUserId,
+        CancellationToken cancellationToken) => dbContext.CondominiumMemberships
+        .AsNoTracking()
+        .Where(membership => membership.CondominiumId == condominiumId
+            && membership.IsActive && membership.EndedAt == null
+            && membership.UserId != excludeUserId)
+        .Join(dbContext.CondominiumMembershipRoles.AsNoTracking()
+                .Where(role => role.Role == CondominiumRole.Manager
+                    && role.IsActive && role.RevokedAt == null),
+            membership => membership.Id, role => role.CondominiumMembershipId,
+            (membership, _) => membership.UserId)
+        .Join(dbContext.Set<CondoLink.Infrastructure.Identity.ApplicationUser>()
+                .AsNoTracking().Where(user => user.IsActive),
+            userId => userId, user => user.Id, (userId, _) => userId)
+        .Distinct().ToArrayAsync(cancellationToken);
+
+    private Notification[] AddRange(IEnumerable<Notification> notifications)
     {
-        foreach (var notification in notifications)
+        var materialized = notifications.ToArray();
+        foreach (var notification in materialized)
         {
             dbContext.Notifications.Add(notification);
+        }
+        return materialized;
+    }
+
+    private void EnqueuePush(IEnumerable<Notification> notifications)
+    {
+        if (webPushQueue is null) return;
+        foreach (var notification in notifications)
+        {
+            if (!webPushQueue.TryEnqueue(notification.Id))
+                logger?.LogWarning(
+                    "Web Push queue full. NotificationId: {NotificationId}.", notification.Id);
         }
     }
 
@@ -440,11 +488,13 @@ public sealed class NotificationService(
         DomainRequest request, RequestMessage message,
         CancellationToken cancellationToken)
     {
-        dbContext.Notifications.Add(new Notification(request.AuthorUserId,
+        var createdNotification = new Notification(request.AuthorUserId,
             request.CondominiumId, NotificationType.RequestMessageReceived,
             "Atualização da administração", Shorten(message.Content, 160),
-            request.Id));
+            request.Id);
+        dbContext.Notifications.Add(createdNotification);
         await dbContext.SaveChangesAsync(cancellationToken);
+        EnqueuePush([createdNotification]);
         if (whatsApp is null) return;
 
         var resident = await dbContext

@@ -8,7 +8,7 @@ export interface AuthContextValue {
   user: User | null
   isInitializing: boolean
   login: (email: string, password: string) => Promise<LoginOutcome>
-  logout: () => void
+  logout: () => Promise<void>
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null)

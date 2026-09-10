@@ -10,6 +10,7 @@ import { getStoredToken } from './authStorage'
 import { hydrateSessionUser } from './session'
 import { isTokenExpired } from './tokenExpiry'
 import { refreshAccessToken, setAccessToken } from '../services/api'
+import { deactivateCurrentPushSubscription } from '../pwa/webPush'
 
 function setAuthorization(token: string | null) {
   setAccessToken(token)
@@ -23,13 +24,18 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setAuthorization(null)
     setUser(null)
   }, [])
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try {
+      await deactivateCurrentPushSubscription()
+    } catch (error) {
+      console.warn('[PWA] Não foi possível remover a subscription no logout.', error)
+    }
     void api.post('/auth/logout', undefined, { _refreshRetried: true } as never).catch(() => undefined)
     clearSession()
   }, [clearSession])
 
   useEffect(() => {
-    const handleUnauthorized = () => logout()
+    const handleUnauthorized = () => { void logout() }
     window.addEventListener('condolink:unauthorized', handleUnauthorized)
     return () => window.removeEventListener('condolink:unauthorized', handleUnauthorized)
   }, [logout])
@@ -62,6 +68,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [])
 
   const login = useCallback(async (email: string, password: string) => {
+    // If a different account is entered in the same browser, remove any
+    // subscription still associated with the previous authenticated session.
+    await deactivateCurrentPushSubscription().catch(error =>
+      console.warn('[PWA] Não foi possível limpar a subscription anterior.', error))
     clearSession()
     try {
       const { data } = await api.post<
