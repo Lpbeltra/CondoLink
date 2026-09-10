@@ -52,56 +52,71 @@ public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
                 .SetProperty(x => x.Attempts, x => x.Attempts + 1), ct);
         if (claimed == 0) return false;
         var update = await db.TelegramInboundUpdates.SingleAsync(x => x.ProcessingToken == token, ct);
+        var stage = "claimed";
+        logger.LogInformation("Telegram update claimed. UpdateId: {UpdateId}; ChatId: {ChatId}; Attempt: {Attempt}.",
+            update.UpdateId, update.ChatId, update.Attempts);
         try
         {
             if (update.ResponseText is null)
             {
+                stage = "processing";
                 var response = await HandleAsync(update, db, scope.ServiceProvider, ct);
                 if (response is null) { update.Ignore(now); await db.SaveChangesAsync(ct); return true; }
                 update.PrepareResponse(response); await db.SaveChangesAsync(ct);
             }
+            stage = "telegram_delivery";
             var client = scope.ServiceProvider.GetRequiredService<ITelegramBotClient>();
             var parts = SplitMessage(update.ResponseText!);
             for (var index = update.SentPartCount; index < parts.Count; index++)
             { await client.SendMessageAsync(update.ChatId, parts[index], ct); update.PartSent(); await db.SaveChangesAsync(ct); }
             update.Complete(time.GetUtcNow().UtcDateTime); await db.SaveChangesAsync(ct);
-            logger.LogInformation("Telegram update processed. UpdateId: {UpdateId}; ChatId: {ChatId}.", update.UpdateId, update.ChatId);
+            logger.LogInformation("Telegram update completed. UpdateId: {UpdateId}; ChatId: {ChatId}; Result: delivered.", update.UpdateId, update.ChatId);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception exception)
         {
+            var error = SafeError(exception);
             update.Retry(time.GetUtcNow().UtcDateTime,
                 TimeSpan.FromSeconds(5 * Math.Pow(2, Math.Min(update.Attempts - 1, 5))),
-                SafeError(exception), Math.Clamp(options.Value.MaximumAttempts, 1, 8));
+                error, Math.Clamp(options.Value.MaximumAttempts, 1, 8));
             await db.SaveChangesAsync(CancellationToken.None);
-            logger.LogWarning("Telegram update failed. UpdateId: {UpdateId}; Attempt: {Attempt}; Error: {Error}.",
-                update.UpdateId, update.Attempts, SafeError(exception));
+            logger.LogWarning("Telegram update failed. UpdateId: {UpdateId}; ChatId: {ChatId}; Stage: {Stage}; Attempt: {Attempt}; Error: {Error}; Terminal: {Terminal}.",
+                update.UpdateId, update.ChatId, stage, update.Attempts, error,
+                update.Status == TelegramInboundStatus.Failed);
+            if (update.Status == TelegramInboundStatus.Failed && update.ResponseText is null)
+                await TrySendTerminalFailureAsync(update, db, scope.ServiceProvider, ct);
         }
         return true;
     }
 
-    private static async Task<string?> HandleAsync(TelegramInboundUpdate update, AppDbContext db,
+    private async Task<string?> HandleAsync(TelegramInboundUpdate update, AppDbContext db,
         IServiceProvider services, CancellationToken ct)
     {
-        var command = update.Text.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        var command = ParseCommand(update.Text);
+        logger.LogInformation("Telegram command inspected. UpdateId: {UpdateId}; Command: {Command}; HasStartParameter: {HasStartParameter}.",
+            update.UpdateId, command.Name ?? "message",
+            command.Name == "/start" && !string.IsNullOrWhiteSpace(command.Argument));
         var link = await db.TelegramUserLinks.SingleOrDefaultAsync(x => x.TelegramUserId == update.TelegramUserId
             && x.TelegramChatId == update.ChatId && x.IsActive, ct);
-        if (command.Length == 2 && command[0].Equals("/start", StringComparison.OrdinalIgnoreCase))
-            return await LinkAsync(update, command[1], link, db, ct);
-        if (link is null) return "Telegram não vinculado. Gere um código na sua conta Comvy e envie /start CÓDIGO.";
-        if (command[0].Equals("/sair", StringComparison.OrdinalIgnoreCase)
-            || command[0].Equals("/desvincular", StringComparison.OrdinalIgnoreCase))
+        logger.LogInformation("Telegram link lookup. UpdateId: {UpdateId}; LinkFound: {LinkFound}; UserLinkId: {UserLinkId}.",
+            update.UpdateId, link is not null, link?.Id);
+        if (command.Name == "/start" && !string.IsNullOrWhiteSpace(command.Argument))
+            return await LinkAsync(update, command.Argument, link, db, ct);
+        if (link is null) return "Para usar o Assistente do Comvy, primeiro faça a vinculação pela sua conta no Comvy.";
+        if (command.Name is "/sair" or "/desvincular")
         { link.Deactivate(DateTime.UtcNow); await db.SaveChangesAsync(ct); return "Telegram desvinculado do Comvy."; }
 
         var condominiums = await TelegramAssistantAccess.CondominiumsAsync(db, link.UserId, ct);
+        logger.LogInformation("Telegram authorization checked. UpdateId: {UpdateId}; UserLinkId: {UserLinkId}; AuthorizedCondominiums: {Count}.",
+            update.UpdateId, link.Id, condominiums.Length);
         if (condominiums.Length == 0) return "Seu acesso ao Assistente não está disponível. Verifique suas permissões no Comvy.";
-        if (command[0].Equals("/ajuda", StringComparison.OrdinalIgnoreCase))
+        if (command.Name == "/ajuda")
             return "Envie perguntas sobre os documentos do condomínio. Use /condominio para consultar ou trocar o contexto e /sair para desvincular. O bot não executa alterações.";
-        if (command[0].Equals("/start", StringComparison.OrdinalIgnoreCase))
+        if (command.Name == "/start")
             return Status(link, condominiums);
-        if (command[0].Equals("/condominio", StringComparison.OrdinalIgnoreCase))
+        if (command.Name == "/condominio")
         {
-            if (command.Length == 2 && int.TryParse(command[1], out var selected)
+            if (int.TryParse(command.Argument, out var selected)
                 && selected >= 1 && selected <= condominiums.Length)
             { var item = condominiums[selected - 1]; link.SelectCondominium(item.Id, DateTime.UtcNow);
               await db.SaveChangesAsync(ct); return $"Contexto atual: {item.Name}."; }
@@ -111,7 +126,11 @@ public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
         if (active == default && condominiums.Length == 1)
         { active = condominiums[0]; link.SelectCondominium(active.Id, DateTime.UtcNow); await db.SaveChangesAsync(ct); }
         if (active == default)
-        { link.ClearCondominium(DateTime.UtcNow); await db.SaveChangesAsync(ct); return CondominiumChoices(condominiums); }
+        { link.ClearCondominium(DateTime.UtcNow); await db.SaveChangesAsync(ct);
+          logger.LogInformation("Telegram context required. UpdateId: {UpdateId}; UserLinkId: {UserLinkId}; Options: {Count}.", update.UpdateId, link.Id, condominiums.Length);
+          return CondominiumChoices(condominiums); }
+        logger.LogInformation("Telegram context resolved. UpdateId: {UpdateId}; UserLinkId: {UserLinkId}; CondominiumId: {CondominiumId}.",
+            update.UpdateId, link.Id, active.Id);
         var recent = await db.TelegramInboundUpdates.CountAsync(x => x.ChatId == update.ChatId
             && x.ReceivedAt > DateTime.UtcNow.AddMinutes(-1), ct);
         if (recent > 10) return "Você enviou várias mensagens em sequência. Aguarde um instante.";
@@ -135,23 +154,31 @@ public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
         try
         {
             var assistant = services.GetRequiredService<CondominiumAssistantService>();
-            var answer = await assistant.AskAsync(conversation, update.Text, ct, channel: CondominiumAssistantChannel.Telegram);
+            var executionId = Guid.NewGuid();
+            logger.LogInformation("Telegram assistant started. UpdateId: {UpdateId}; UserLinkId: {UserLinkId}; CondominiumId: {CondominiumId}; AssistantExecutionId: {AssistantExecutionId}.",
+                update.UpdateId, link.Id, active.Id, executionId);
+            var answer = await assistant.AskAsync(conversation, update.Text, ct,
+                executionId, CondominiumAssistantChannel.Telegram);
             var response = FormatAnswer(answer);
             db.CondominiumAssistantMessages.Add(new(conversation.Id, CondominiumAssistantRole.Assistant,
                 answer.Answer, JsonSerializer.Serialize(answer.Sources, CondominiumAssistantEndpoints.AssistantJsonOptions)));
             conversation.Touch(); update.PrepareResponse(response); await db.SaveChangesAsync(ct);
+            logger.LogInformation("Telegram assistant completed. UpdateId: {UpdateId}; AssistantExecutionId: {AssistantExecutionId}; SourceCount: {SourceCount}.",
+                update.UpdateId, executionId, answer.Sources.Count);
             return response;
         }
         finally { typing.Cancel(); try { await typingTask; } catch (OperationCanceledException) { } }
     }
 
-    private static async Task<string> LinkAsync(TelegramInboundUpdate update, string code,
+    private async Task<string> LinkAsync(TelegramInboundUpdate update, string code,
         TelegramUserLink? existing, AppDbContext db, CancellationToken ct)
     {
-        if (code.Length != 8 || code.Any(x => !char.IsAsciiLetterOrDigit(x))) return "Código de vinculação inválido ou expirado.";
+        if (code.Length != 8 || code.Any(x => !char.IsAsciiLetterOrDigit(x)))
+        { logger.LogInformation("Telegram link rejected. UpdateId: {UpdateId}; Result: invalid_format.", update.UpdateId); return "Código de vinculação inválido ou expirado."; }
         var now = DateTime.UtcNow; var hash = TelegramAssistantEndpoints.HashCode(code);
         var linkCode = await db.TelegramLinkCodes.SingleOrDefaultAsync(x => x.CodeHash == hash, ct);
-        if (linkCode is null || !linkCode.IsUsable(now)) return "Código de vinculação inválido ou expirado.";
+        if (linkCode is null || !linkCode.IsUsable(now))
+        { logger.LogInformation("Telegram link rejected. UpdateId: {UpdateId}; Result: invalid_expired_or_used.", update.UpdateId); return "Código de vinculação inválido ou expirado."; }
         var allowed = await TelegramAssistantAccess.CondominiumsAsync(db, linkCode.UserId, ct);
         if (allowed.Length == 0) return "Sua conta não possui acesso autorizado ao Assistente.";
         var occupied = await db.TelegramUserLinks.AnyAsync(x => x.TelegramUserId == update.TelegramUserId
@@ -163,6 +190,8 @@ public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
         linkCode.Use(now);
         if (allowed.Length == 1) userLink.SelectCondominium(allowed[0].Id, now); else userLink.ClearCondominium(now);
         await db.SaveChangesAsync(ct);
+        logger.LogInformation("Telegram link created. UpdateId: {UpdateId}; UserLinkId: {UserLinkId}; UserId: {UserId}; AuthorizedCondominiums: {Count}.",
+            update.UpdateId, userLink.Id, userLink.UserId, allowed.Length);
         return allowed.Length == 1
             ? $"Telegram vinculado ao Comvy. Contexto atual: {allowed[0].Name}.\n\nPode perguntar sobre as informações disponíveis desse condomínio."
             : "Telegram vinculado ao Comvy.\n\n" + CondominiumChoices(allowed);
@@ -194,5 +223,30 @@ public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
     { while (!ct.IsCancellationRequested) { try { await client.SendTypingAsync(chatId, ct); await Task.Delay(4000, ct); }
       catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; } catch { await Task.Delay(4000, ct); } } }
     private static string SafeError(Exception exception) => exception switch
-    { HttpRequestException => "telegram_api", TimeoutException => "timeout", _ => "processing_failed" };
+    { HttpRequestException http when http.StatusCode.HasValue => $"telegram_http_{(int)http.StatusCode.Value}",
+      HttpRequestException => "telegram_api", TimeoutException => "timeout", _ => "processing_failed" };
+
+    internal static (string? Name, string? Argument) ParseCommand(string text)
+    {
+        var parts = text.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0 || !parts[0].StartsWith('/')) return (null, null);
+        var name = parts[0].Split('@', 2)[0].ToLowerInvariant();
+        return (name, parts.Length == 2 ? parts[1].Trim() : null);
+    }
+
+    private async Task TrySendTerminalFailureAsync(TelegramInboundUpdate update, AppDbContext db,
+        IServiceProvider services, CancellationToken ct)
+    {
+        const string message = "Não consegui concluir essa consulta agora. Tente novamente em instantes.";
+        update.PrepareResponse(message); await db.SaveChangesAsync(CancellationToken.None);
+        try
+        {
+            await services.GetRequiredService<ITelegramBotClient>().SendMessageAsync(update.ChatId, message, ct);
+            update.PartSent(); update.Complete(time.GetUtcNow().UtcDateTime); await db.SaveChangesAsync(CancellationToken.None);
+            logger.LogInformation("Telegram terminal processing failure notified. UpdateId: {UpdateId}; ChatId: {ChatId}.", update.UpdateId, update.ChatId);
+        }
+        catch (Exception exception)
+        { logger.LogError("Telegram terminal failure could not be delivered. UpdateId: {UpdateId}; ChatId: {ChatId}; Error: {Error}.",
+            update.UpdateId, update.ChatId, SafeError(exception)); }
+    }
 }

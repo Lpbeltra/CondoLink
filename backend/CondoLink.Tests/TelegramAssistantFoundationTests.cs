@@ -89,11 +89,111 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
         var response = await _host.ClientFor(_managerId).PostAsync("/users/me/telegram/link-code", null);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<LinkCodeResponse>();
-        Assert.NotNull(body); Assert.Equal(8, body.Code.Length); Assert.Contains("t.me/comvy_test_bot", body.DeepLink);
+        Assert.NotNull(body); Assert.Equal(8, body.Code.Length);
+        Assert.Equal($"https://t.me/comvy_test_bot?start={body.Code}", body.DeepLink);
         await _host.WithDbAsync(async db =>
         { var stored = await db.TelegramLinkCodes.SingleAsync(); Assert.NotEqual(body.Code, stored.CodeHash);
           Assert.Equal(TelegramAssistantEndpoints.HashCode(body.Code), stored.CodeHash); Assert.True(stored.IsUsable(DateTime.UtcNow));
           stored.Use(DateTime.UtcNow); Assert.False(stored.IsUsable(DateTime.UtcNow)); });
+    }
+
+    [Fact]
+    public async Task Start_without_code_does_not_link_and_returns_guidance()
+    {
+        await ProcessTextAsync(60, 600, "/start");
+        Assert.Contains("primeiro faça a vinculação", Assert.Single(_bot.Messages));
+        await _host.WithDbAsync(async db => Assert.Empty(await db.TelegramUserLinks.ToArrayAsync()));
+    }
+
+    [Fact]
+    public async Task Valid_start_links_once_and_consumes_code()
+    {
+        const string code = "ABC234XY";
+        await _host.WithDbAsync(async db =>
+        { db.Add(new TelegramLinkCode(_managerId, TelegramAssistantEndpoints.HashCode(code),
+            DateTime.UtcNow, DateTime.UtcNow.AddMinutes(10))); await db.SaveChangesAsync(); });
+        await ProcessTextAsync(61, 601, $"/start {code}");
+        Assert.Contains("Telegram vinculado", Assert.Single(_bot.Messages));
+        await _host.WithDbAsync(async db =>
+        { Assert.True((await db.TelegramUserLinks.SingleAsync()).IsActive);
+          Assert.NotNull((await db.TelegramLinkCodes.SingleAsync()).UsedAt); });
+        _bot.Messages.Clear();
+        await ProcessTextAsync(62, 602, $"/start {code}");
+        Assert.Contains("inválido ou expirado", Assert.Single(_bot.Messages));
+        await _host.WithDbAsync(async db => Assert.Single(await db.TelegramUserLinks.ToArrayAsync()));
+    }
+
+    [Fact]
+    public async Task Invalid_and_expired_codes_do_not_link()
+    {
+        await _host.WithDbAsync(async db =>
+        { db.Add(new TelegramLinkCode(_managerId, TelegramAssistantEndpoints.HashCode("EXP234XY"),
+            DateTime.UtcNow.AddMinutes(-20), DateTime.UtcNow.AddMinutes(-10))); await db.SaveChangesAsync(); });
+        await ProcessTextAsync(63, 603, "/start BAD234XY");
+        await ProcessTextAsync(64, 604, "/start EXP234XY");
+        Assert.All(_bot.Messages, message => Assert.Contains("inválido ou expirado", message));
+        await _host.WithDbAsync(async db => Assert.Empty(await db.TelegramUserLinks.ToArrayAsync()));
+    }
+
+    [Fact]
+    public async Task Multiple_condominiums_require_selection_and_command_selects_context()
+    {
+        await _host.WithDbAsync(async db =>
+        { var other = new Condominium("Outro", null, null); db.Add(other);
+          CoreTestSeed.AddMember(db, _managerId, other.Id, CondominiumRole.Manager);
+          db.Add(new TelegramUserLink(_managerId, 605, 605, DateTime.UtcNow)); await db.SaveChangesAsync(); });
+        await ProcessTextAsync(65, 605, "Qual foi a última assembleia?");
+        Assert.Contains("Escolha primeiro", Assert.Single(_bot.Messages));
+        Assert.Contains("Monticello", _bot.Messages[0]); Assert.Contains("Outro", _bot.Messages[0]);
+        _bot.Messages.Clear(); await ProcessTextAsync(66, 605, "/condominio 1");
+        Assert.Contains("Contexto atual", Assert.Single(_bot.Messages));
+        await _host.WithDbAsync(async db => Assert.NotNull((await db.TelegramUserLinks.SingleAsync()).ActiveCondominiumId));
+    }
+
+    [Fact]
+    public async Task Assistant_failure_retries_then_returns_safe_feedback()
+    {
+        await _host.WithDbAsync(async db =>
+        { db.Add(new TelegramUserLink(_managerId, 606, 606, DateTime.UtcNow)); await db.SaveChangesAsync(); });
+        await ProcessTextAsync(67, 606, "Pergunta normal");
+        for (var attempt = 2; attempt <= 4; attempt++)
+        {
+            await _host.WithDbAsync(db => db.TelegramInboundUpdates.Where(x => x.UpdateId == 67)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.NextAttemptAt, DateTime.UtcNow.AddSeconds(-1))));
+            await ProcessPendingAsync();
+        }
+        Assert.Contains("Não consegui concluir", Assert.Single(_bot.Messages));
+        await _host.WithDbAsync(async db => Assert.Equal(TelegramInboundStatus.Completed,
+            (await db.TelegramInboundUpdates.SingleAsync(x => x.UpdateId == 67)).Status));
+    }
+
+    [Fact]
+    public async Task Telegram_delivery_failure_retries_without_losing_prepared_response()
+    {
+        _bot.FailSends = true;
+        await _host.WithDbAsync(async db =>
+        { db.Add(new TelegramUserLink(_managerId, 607, 607, DateTime.UtcNow)); await db.SaveChangesAsync(); });
+        await ProcessTextAsync(68, 607, "/ajuda");
+        for (var attempt = 2; attempt <= 4; attempt++)
+        {
+            await _host.WithDbAsync(db => db.TelegramInboundUpdates.Where(x => x.UpdateId == 68)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.NextAttemptAt, DateTime.UtcNow.AddSeconds(-1))));
+            await ProcessPendingAsync();
+        }
+        await _host.WithDbAsync(async db =>
+        { var update = await db.TelegramInboundUpdates.SingleAsync(x => x.UpdateId == 68);
+          Assert.Equal(TelegramInboundStatus.Failed, update.Status); Assert.Equal(4, update.Attempts);
+          Assert.NotNull(update.ResponseText); Assert.Equal("telegram_api", update.LastError); });
+    }
+
+    [Fact]
+    public void Parses_start_payload_without_logging_or_depending_on_bot_suffix()
+    {
+        Assert.Equal(("/start", "ABC234XY"), TelegramAssistantWorker.ParseCommand("/start ABC234XY"));
+        Assert.Equal(("/start", "ABC234XY"), TelegramAssistantWorker.ParseCommand("/start@comvy_bot ABC234XY"));
+        Assert.Equal(("/start", (string?)null), TelegramAssistantWorker.ParseCommand("/start"));
+        Assert.Equal("https://t.me/comvy_bot?start=ABC234XY",
+            TelegramAssistantEndpoints.BuildDeepLink("@comvy_bot", "ABC234XY"));
     }
 
     [Fact]
@@ -148,11 +248,23 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
     private static object Payload(long updateId, string type = "private") => new
     { update_id = updateId, message = new { from = new { id = 123L }, chat = new { id = 123L, type }, text = "Olá" } };
     private sealed record LinkCodeResponse(string Code, string? DeepLink, DateTime ExpiresAt);
+    private async Task ProcessTextAsync(long updateId, long telegramId, string text)
+    {
+        await _host.WithDbAsync(async db =>
+        { db.Add(new TelegramInboundUpdate(updateId, telegramId, telegramId, text, DateTime.UtcNow)); await db.SaveChangesAsync(); });
+        await ProcessPendingAsync();
+    }
+    private Task ProcessPendingAsync() => _host.WithServicesAsync(async services =>
+    {
+        var worker = ActivatorUtilities.CreateInstance<TelegramAssistantWorker>(services);
+        Assert.True(await worker.ProcessOneAsync(default));
+    });
     private sealed class FakeTelegramBotClient : ITelegramBotClient
     {
         public List<string> Messages { get; } = [];
+        public bool FailSends { get; set; }
         public Task SendMessageAsync(long chatId, string text, CancellationToken ct)
-        { Messages.Add(text); return Task.CompletedTask; }
+        { if (FailSends) throw new HttpRequestException("failed"); Messages.Add(text); return Task.CompletedTask; }
         public Task SendTypingAsync(long chatId, CancellationToken ct) => Task.CompletedTask;
     }
 }

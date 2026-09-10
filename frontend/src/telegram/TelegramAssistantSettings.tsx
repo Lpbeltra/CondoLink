@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, Link, Stack, Typography } from '@mui/material'
+  DialogTitle, Stack, Typography } from '@mui/material'
 import { getErrorMessage } from '../services/api'
 import { createTelegramLinkCode, getTelegramStatus, unlinkTelegram,
   type TelegramLinkCode, type TelegramStatus } from './api'
@@ -10,11 +10,21 @@ export function TelegramAssistantSettings({ open, onClose }: { open: boolean; on
   const [code, setCode] = useState<TelegramLinkCode | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const load = async () => {
+  const load = useCallback(async () => {
     setError(null)
-    try { setStatus(await getTelegramStatus()) } catch (reason) { setError(getErrorMessage(reason)) }
-  }
-  useEffect(() => { if (open) void load() }, [open])
+    try {
+      const current = await getTelegramStatus()
+      setStatus(current)
+      if (current.linked) setCode(null)
+    } catch (reason) { setError(getErrorMessage(reason)) }
+  }, [])
+  useEffect(() => {
+    if (!open) return
+    void load()
+    const refresh = () => { if (document.visibilityState === 'visible') void load() }
+    document.addEventListener('visibilitychange', refresh)
+    return () => document.removeEventListener('visibilitychange', refresh)
+  }, [load, open])
   const generate = async () => {
     setBusy(true); setError(null)
     try { setCode(await createTelegramLinkCode()) } catch (reason) { setError(getErrorMessage(reason)) }
@@ -33,6 +43,7 @@ export function TelegramAssistantSettings({ open, onClose }: { open: boolean; on
       {status && !status.enabled && <Alert severity="info">O Assistente no Telegram está desativado.</Alert>}
       {status?.linked ? <>
         <Alert severity="success">Telegram conectado</Alert>
+        {status.botUsername && <Typography variant="body2">Bot: <b>@{status.botUsername.replace(/^@/, '')}</b></Typography>}
         {status.activeCondominiumName && <Typography variant="body2">Condomínio atual: <b>{status.activeCondominiumName}</b></Typography>}
         {status.linkedAt && <Typography variant="caption" color="text.secondary">Vinculado em {new Date(status.linkedAt).toLocaleDateString('pt-BR')}.</Typography>}
       </> : status?.enabled && <>
@@ -40,13 +51,16 @@ export function TelegramAssistantSettings({ open, onClose }: { open: boolean; on
         {code && <Alert severity="info">
           Envie <b>/start {code.code}</b> ao bot. O código expira em 10 minutos e só pode ser usado uma vez.
         </Alert>}
-        {code?.deepLink && <Link href={code.deepLink} target="_blank" rel="noopener noreferrer">Abrir bot no Telegram</Link>}
       </>}
     </Stack></DialogContent>
     <DialogActions>
       <Button onClick={onClose} disabled={busy}>Fechar</Button>
+      {status?.linked && status.botUsername && <Button component="a" target="_blank" rel="noopener noreferrer"
+        href={`https://t.me/${status.botUsername.replace(/^@/, '')}`} variant="contained">Abrir Telegram</Button>}
       {status?.linked && <Button color="error" onClick={() => void unlink()} disabled={busy}>Desvincular</Button>}
-      {status?.enabled && !status.linked && <Button variant="contained" onClick={() => void generate()} disabled={busy}>
+      {code?.deepLink && !status?.linked && <Button component="a" target="_blank" rel="noopener noreferrer"
+        href={code.deepLink} variant="contained">Abrir Telegram</Button>}
+      {status?.enabled && !status.linked && !code && <Button variant="contained" onClick={() => void generate()} disabled={busy}>
         {busy ? 'Gerando…' : 'Vincular Telegram'}
       </Button>}
     </DialogActions>

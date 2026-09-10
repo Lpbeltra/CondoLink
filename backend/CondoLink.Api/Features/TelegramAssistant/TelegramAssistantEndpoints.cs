@@ -51,8 +51,7 @@ public static class TelegramAssistantEndpoints
         var expiresAt = now.AddMinutes(10);
         db.TelegramLinkCodes.Add(new(userId, HashCode(code), now, expiresAt));
         await db.SaveChangesAsync(ct);
-        var deepLink = string.IsNullOrWhiteSpace(options.Value.BotUsername) ? null
-            : $"https://t.me/{options.Value.BotUsername.TrimStart('@')}?start={code}";
+        var deepLink = BuildDeepLink(options.Value.BotUsername, code);
         return Results.Ok(new { code, deepLink, expiresAt });
     }
 
@@ -68,19 +67,26 @@ public static class TelegramAssistantEndpoints
     private static async Task<IResult> WebhookAsync(HttpRequest request, AppDbContext db,
         IOptions<TelegramAssistantOptions> options, TimeProvider time, CancellationToken ct)
     {
-        if (!options.Value.IsConfigured) return Results.NotFound();
+        var logger = request.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("TelegramWebhook");
+        if (!options.Value.IsConfigured) { logger.LogWarning("Telegram webhook rejected: integration_disabled."); return Results.NotFound(); }
         if (!request.Headers.TryGetValue(SecretHeader, out var secret)
-            || !FixedTimeEquals(secret.ToString(), options.Value.WebhookSecret!)) return Results.Unauthorized();
+            || !FixedTimeEquals(secret.ToString(), options.Value.WebhookSecret!))
+        { logger.LogWarning("Telegram webhook rejected: invalid_secret."); return Results.Unauthorized(); }
         if (request.ContentLength > MaximumBodyBytes) return Results.StatusCode(413);
         JsonDocument document;
         try { document = await JsonDocument.ParseAsync(request.Body, cancellationToken: ct); }
-        catch (JsonException) { return Results.BadRequest(); }
+        catch (JsonException)
+        { logger.LogInformation("Telegram webhook rejected: invalid_json."); return Results.BadRequest(); }
         using (document)
         {
             var root = document.RootElement;
-            if (!root.TryGetProperty("update_id", out var updateNode) || !updateNode.TryGetInt64(out var updateId)) return Results.Ok();
-            if (!TryPrivateText(root, out var telegramUserId, out var chatId, out var text)) return Results.Ok();
-            if (text.Length is 0 or > 4096) return Results.Ok();
+            if (!root.TryGetProperty("update_id", out var updateNode) || !updateNode.TryGetInt64(out var updateId))
+            { logger.LogInformation("Telegram webhook ignored: missing_update_id."); return Results.Ok(); }
+            if (!TryPrivateText(root, out var telegramUserId, out var chatId, out var text))
+            { logger.LogInformation("Telegram update ignored. UpdateId: {UpdateId}; Reason: unsupported_or_non_private.", updateId); return Results.Ok(); }
+            if (text.Length is 0 or > 4096)
+            { logger.LogInformation("Telegram update ignored. UpdateId: {UpdateId}; Reason: invalid_text_length.", updateId); return Results.Ok(); }
             var now = time.GetUtcNow().UtcDateTime;
             var inbound = new TelegramInboundUpdate(updateId, telegramUserId, chatId, text, now);
             var pending = await db.TelegramInboundUpdates.CountAsync(x => x.ChatId == chatId
@@ -88,8 +94,10 @@ public static class TelegramAssistantEndpoints
                     || x.Status == CondoLink.Domain.Enums.TelegramInboundStatus.Processing), ct);
             if (pending >= 20) inbound.Ignore(now);
             db.TelegramInboundUpdates.Add(inbound);
-            try { await db.SaveChangesAsync(ct); }
-            catch (DbUpdateException) { return Results.Ok(); }
+            try
+            { await db.SaveChangesAsync(ct); logger.LogInformation("Telegram update persisted. UpdateId: {UpdateId}; ChatId: {ChatId}; QueueLimited: {QueueLimited}.", updateId, chatId, pending >= 20); }
+            catch (DbUpdateException)
+            { logger.LogInformation("Telegram update deduplicated. UpdateId: {UpdateId}.", updateId); return Results.Ok(); }
         }
         return Results.Ok();
     }
@@ -108,6 +116,13 @@ public static class TelegramAssistantEndpoints
         return userId > 0 && chatId > 0;
     }
     internal static string HashCode(string code) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code.Trim().ToUpperInvariant())));
+    internal static string? BuildDeepLink(string? username, string code)
+    {
+        var normalized = username?.Trim().TrimStart('@');
+        if (string.IsNullOrWhiteSpace(normalized) || normalized.Length > 32
+            || normalized.Any(character => !char.IsAsciiLetterOrDigit(character) && character != '_')) return null;
+        return $"https://t.me/{normalized}?start={Uri.EscapeDataString(code)}";
+    }
     private static string CreateCode()
     { const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; Span<byte> bytes = stackalloc byte[8];
       RandomNumberGenerator.Fill(bytes); return string.Create(8, bytes.ToArray(), (chars, state) =>
