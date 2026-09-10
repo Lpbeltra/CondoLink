@@ -26,6 +26,7 @@ public sealed class AssistantExecutionMetricConfiguration : IEntityTypeConfigura
         b.ToTable("assistant_execution_metrics"); b.HasKey(x => x.Id);
         b.Property(x => x.EmbeddingModel).HasMaxLength(100); b.Property(x => x.ChatModel).HasMaxLength(100);
         b.Property(x => x.RerankModel).HasMaxLength(100);
+        b.Property(x => x.Channel).HasConversion<int>();
         b.Property(x => x.ErrorCategory).HasMaxLength(100); b.Property(x => x.ErrorCode).HasMaxLength(100);
         b.HasIndex(x => x.AssistantExecutionId).IsUnique(); b.HasIndex(x => x.StartedAt);
         b.HasIndex(x => new { x.CondominiumId, x.StartedAt }); b.HasIndex(x => new { x.Success, x.StartedAt });

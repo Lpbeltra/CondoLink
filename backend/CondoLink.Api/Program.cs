@@ -16,6 +16,7 @@ using CondoLink.Api.Features.UnitMemberships;
 using CondoLink.Api.Features.Units;
 using CondoLink.Api.Features.Users;
 using CondoLink.Api.Features.WhatsApp;
+using CondoLink.Api.Features.TelegramAssistant;
 using CondoLink.Api.Common;
 using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Persistence;
@@ -57,6 +58,14 @@ builder.Services.AddSingleton(services => new PushServiceClient(
 builder.Services.AddScoped<IWebPushClient, StandardWebPushClient>();
 builder.Services.AddScoped<WebPushDispatcher>();
 builder.Services.AddHostedService<WebPushWorker>();
+builder.Services.Configure<TelegramAssistantOptions>(
+    builder.Configuration.GetSection(TelegramAssistantOptions.SectionName));
+builder.Services.AddHttpClient<ITelegramBotClient, TelegramBotClient>(client =>
+{
+    client.BaseAddress = new Uri("https://api.telegram.org/");
+    client.Timeout = TimeSpan.FromSeconds(15);
+}).RemoveAllLoggers();
+builder.Services.AddHostedService<TelegramAssistantWorker>();
 builder.Services.AddScoped<OperationalMessageTemplateService>();
 builder.Services.AddScoped<RequestAiAnalysisRefresher>();
 builder.Services.AddScoped<ResidentReplyService>();
@@ -424,6 +433,7 @@ app.MapHub<ManagementCompanyRequestRealtimeHub>("/management-company-requests/re
 // External integrations
 app.MapWhatsAppWebhook();
 app.MapWhatsAppAdministration();
+app.MapTelegramAssistant();
 
 // Overwatch
 app.MapOverwatchEndpoints();

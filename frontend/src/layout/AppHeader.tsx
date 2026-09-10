@@ -1,6 +1,7 @@
 import { useState } from "react";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import NotificationsActiveRoundedIcon from "@mui/icons-material/NotificationsActiveRounded";
+import SmartToyRoundedIcon from "@mui/icons-material/SmartToyRounded";
 import {
   AppBar,
   Avatar,
@@ -27,6 +28,7 @@ import { useOptionalManagementContext } from "../management/ManagementContext";
 import { useAdministrator } from "../administrator/AdministratorContext";
 import { ManagementCondominiumSwitcher } from "../management/components/ManagementCondominiumSwitcher";
 import { PushNotificationSettings } from "../pwa/PushNotificationSettings";
+import { TelegramAssistantSettings } from "../telegram/TelegramAssistantSettings";
 
 export function AppHeader() {
   const { user, logout } = useAuth();
@@ -45,6 +47,7 @@ export function AppHeader() {
   );
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [pushSettingsOpen, setPushSettingsOpen] = useState(false);
+  const [telegramSettingsOpen, setTelegramSettingsOpen] = useState(false);
   const brandPath = location.pathname.startsWith("/overwatch")
     ? "/overwatch"
     : (managementContext?.condominiumCount ?? 0) > 0
@@ -168,6 +171,13 @@ export function AppHeader() {
           </ListItemIcon>
           Notificações
         </MenuItem>
+        {(managementContext?.condominiumCount ?? 0) > 0 && <MenuItem
+          onClick={() => { setAnchor(null); setTelegramSettingsOpen(true); }}
+          sx={{ minHeight: 44 }}
+        >
+          <ListItemIcon><SmartToyRoundedIcon fontSize="small" /></ListItemIcon>
+          Assistente no Telegram
+        </MenuItem>}
         <MenuItem
           onClick={() => {
             setAnchor(null);
@@ -185,6 +195,8 @@ export function AppHeader() {
         open={pushSettingsOpen}
         onClose={() => setPushSettingsOpen(false)}
       />
+      <TelegramAssistantSettings open={telegramSettingsOpen}
+        onClose={() => setTelegramSettingsOpen(false)} />
     </AppBar>
   );
 }

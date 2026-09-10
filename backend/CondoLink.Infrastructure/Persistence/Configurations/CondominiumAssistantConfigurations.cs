@@ -64,6 +64,7 @@ public sealed class CondominiumAssistantConversationConfiguration : IEntityTypeC
         b.Property(x => x.Id).HasColumnName("id"); b.Property(x => x.CondominiumId).HasColumnName("condominium_id");
         b.Property(x => x.CreatedByUserId).HasColumnName("created_by_user_id"); b.Property(x => x.RequestId).HasColumnName("request_id");
         b.Property(x => x.Title).HasColumnName("title").HasMaxLength(200); b.Property(x => x.CreatedAt).HasColumnName("created_at"); b.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+        b.Property(x => x.Channel).HasColumnName("channel").HasConversion<int>();
         b.HasIndex(x => new { x.CondominiumId, x.CreatedByUserId, x.UpdatedAt });
         b.HasOne<Condominium>().WithMany().HasForeignKey(x => x.CondominiumId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne<CondoLink.Infrastructure.Identity.ApplicationUser>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);

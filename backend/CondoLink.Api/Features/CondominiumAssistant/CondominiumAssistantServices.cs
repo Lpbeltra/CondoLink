@@ -11,6 +11,7 @@ using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Api.Features.Observability;
 using CondoLink.Api.Common;
 using CondoLink.Domain.Entities;
+using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -453,11 +454,13 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
     AssistantExecutionMetricWriter? metricWriter = null)
 {
     public async Task<AssistantAnswer> AskAsync(CondominiumAssistantConversation conversation,
-        string question, CancellationToken cancellationToken, Guid? executionId = null)
+        string question, CancellationToken cancellationToken, Guid? executionId = null,
+        CondominiumAssistantChannel channel = CondominiumAssistantChannel.Portal)
     {
         using var execution = AssistantExecutionContext.Begin(executionId ?? Guid.NewGuid());
         using var scope = logger.BeginScope(new Dictionary<string, object?> { ["AssistantExecutionId"] = AssistantExecutionContext.ExecutionId });
-        var measurement = new AssistantExecutionMeasurement(AssistantExecutionContext.ExecutionId!.Value, conversation.CondominiumId, DateTime.UtcNow) { EmbeddingModel = embeddings.Model, ChatModel = aiOptions.Value.Model };
+        var measurement = new AssistantExecutionMeasurement(AssistantExecutionContext.ExecutionId!.Value,
+            conversation.CondominiumId, DateTime.UtcNow, channel) { EmbeddingModel = embeddings.Model, ChatModel = aiOptions.Value.Model };
         try
         {
             var catalogAnswer = await TryAnswerCatalog(conversation.CondominiumId, question, cancellationToken);

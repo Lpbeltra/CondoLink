@@ -1,15 +1,18 @@
 using System.Diagnostics;
 using CondoLink.Domain.Entities;
+using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace CondoLink.Api.Features.CondominiumAssistant;
 
-public sealed class AssistantExecutionMeasurement(Guid executionId, Guid condominiumId, DateTime startedAt)
+public sealed class AssistantExecutionMeasurement(Guid executionId, Guid condominiumId, DateTime startedAt,
+    CondominiumAssistantChannel channel = CondominiumAssistantChannel.Portal)
 {
     public Guid ExecutionId { get; } = executionId;
     public Guid CondominiumId { get; } = condominiumId;
     public DateTime StartedAt { get; } = startedAt;
+    public CondominiumAssistantChannel Channel { get; } = channel;
     public long? RetrievalDurationMs { get; set; } public long? ExpansionDurationMs { get; set; }
     public long? EmbeddingDurationMs { get; set; } public long? DatabaseMaterializationDurationMs { get; set; }
     public long? EmbeddingDeserializationDurationMs { get; set; } public long? VectorScoringDurationMs { get; set; }
@@ -58,7 +61,8 @@ public sealed class AssistantExecutionMetricWriter(IServiceScopeFactory scopes, 
         {
             await using var scope = scopes.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var metric = new AssistantExecutionMetric(measurement.ExecutionId, measurement.CondominiumId, measurement.StartedAt);
+            var metric = new AssistantExecutionMetric(measurement.ExecutionId, measurement.CondominiumId,
+                measurement.StartedAt, measurement.Channel);
             metric.Complete(DateTime.UtcNow, success, measurement.Values(success, success ? null : SafeCategory(exception)));
             db.AssistantExecutionMetrics.Add(metric);
             await db.SaveChangesAsync(CancellationToken.None);

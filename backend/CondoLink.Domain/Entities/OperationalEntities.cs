@@ -1,3 +1,5 @@
+using CondoLink.Domain.Enums;
+
 namespace CondoLink.Domain.Entities;
 
 public sealed class WorkerHeartbeat
@@ -44,11 +46,13 @@ public sealed class AiOperationMetric
 public sealed class AssistantExecutionMetric
 {
     private AssistantExecutionMetric() { }
-    public AssistantExecutionMetric(Guid assistantExecutionId, Guid condominiumId, DateTime startedAt)
-    { AssistantExecutionId = assistantExecutionId; CondominiumId = condominiumId; StartedAt = startedAt; }
+    public AssistantExecutionMetric(Guid assistantExecutionId, Guid condominiumId, DateTime startedAt,
+        CondominiumAssistantChannel channel = CondominiumAssistantChannel.Portal)
+    { AssistantExecutionId = assistantExecutionId; CondominiumId = condominiumId; StartedAt = startedAt; Channel = channel; }
     public Guid Id { get; private set; } = Guid.NewGuid();
     public Guid AssistantExecutionId { get; private set; }
     public Guid CondominiumId { get; private set; }
+    public CondominiumAssistantChannel Channel { get; private set; }
     public DateTime StartedAt { get; private set; }
     public DateTime? CompletedAt { get; private set; }
     public bool Success { get; private set; }

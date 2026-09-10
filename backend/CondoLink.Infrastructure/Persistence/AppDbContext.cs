@@ -68,6 +68,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<CondominiumDocumentKnowledge> CondominiumDocumentKnowledge => Set<CondominiumDocumentKnowledge>();
     public DbSet<CondominiumAssistantConversation> CondominiumAssistantConversations => Set<CondominiumAssistantConversation>();
     public DbSet<CondominiumAssistantMessage> CondominiumAssistantMessages => Set<CondominiumAssistantMessage>();
+    public DbSet<TelegramUserLink> TelegramUserLinks => Set<TelegramUserLink>();
+    public DbSet<TelegramLinkCode> TelegramLinkCodes => Set<TelegramLinkCode>();
+    public DbSet<TelegramInboundUpdate> TelegramInboundUpdates => Set<TelegramInboundUpdate>();
     public DbSet<WorkerHeartbeat> WorkerHeartbeats => Set<WorkerHeartbeat>();
     public DbSet<AiOperationMetric> AiOperationMetrics => Set<AiOperationMetric>();
     public DbSet<AssistantExecutionMetric> AssistantExecutionMetrics => Set<AssistantExecutionMetric>();

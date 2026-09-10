@@ -85,14 +85,16 @@ public sealed class CondominiumDocumentKnowledge
 public sealed class CondominiumAssistantConversation
 {
     private CondominiumAssistantConversation() { }
-    public CondominiumAssistantConversation(Guid condominiumId, Guid userId, Guid? requestId, string title)
+    public CondominiumAssistantConversation(Guid condominiumId, Guid userId, Guid? requestId, string title,
+        CondominiumAssistantChannel channel = CondominiumAssistantChannel.Portal)
     { Id = Guid.NewGuid(); CondominiumId = condominiumId; CreatedByUserId = userId; RequestId = requestId;
-      Title = title.Trim(); CreatedAt = UpdatedAt = DateTime.UtcNow; }
+      Title = title.Trim(); Channel = channel; CreatedAt = UpdatedAt = DateTime.UtcNow; }
     public Guid Id { get; private set; }
     public Guid CondominiumId { get; private set; }
     public Guid CreatedByUserId { get; private set; }
     public Guid? RequestId { get; private set; }
     public string Title { get; private set; } = null!;
+    public CondominiumAssistantChannel Channel { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
     public void RemoveRequestContext() { RequestId = null; UpdatedAt = DateTime.UtcNow; }
