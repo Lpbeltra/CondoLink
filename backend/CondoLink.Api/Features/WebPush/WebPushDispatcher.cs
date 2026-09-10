@@ -40,10 +40,11 @@ public sealed class WebPushDispatcher(
         var url = residentTarget
             ? $"/requests/{notification.RequestId}"
             : $"/management/requests/{notification.RequestId}";
+        var content = SafeContent(notification.Type, residentTarget);
         var payload = JsonSerializer.Serialize(new
         {
-            title = "Comvy",
-            body = SafeBody(notification.Type),
+            title = content.Title,
+            body = content.Body,
             url,
             type = notification.Type.ToString(),
             entityId = notification.RequestId
@@ -83,12 +84,20 @@ public sealed class WebPushDispatcher(
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    internal static string SafeBody(NotificationType type) => type switch
+    internal static PushContent SafeContent(NotificationType type, bool residentTarget) => type switch
     {
-        NotificationType.RequestCreated => "Um novo atendimento foi aberto.",
-        NotificationType.ResidentRequestUpdated => "Um morador atualizou um atendimento.",
-        NotificationType.RequestMessageReceived => "Há uma nova mensagem em um atendimento.",
-        NotificationType.RequestStatusChanged => "Há uma atualização no seu atendimento.",
-        _ => "Há uma nova atualização no Comvy."
+        NotificationType.RequestCreated => new("Novo atendimento",
+            "Um novo atendimento foi aberto."),
+        NotificationType.ResidentRequestUpdated => new("Nova mensagem",
+            "Há uma nova mensagem em um atendimento."),
+        NotificationType.RequestMessageReceived when residentTarget => new("Nova resposta",
+            "Há uma nova resposta no seu atendimento."),
+        NotificationType.RequestMessageReceived => new("Nova mensagem",
+            "Há uma nova mensagem em um atendimento."),
+        NotificationType.RequestStatusChanged => new("Atendimento atualizado",
+            "O status do seu atendimento foi atualizado."),
+        _ => new("Atualização do Comvy", "Há uma nova atualização no Comvy.")
     };
+
+    internal sealed record PushContent(string Title, string Body);
 }

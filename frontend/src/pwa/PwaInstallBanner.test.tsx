@@ -53,11 +53,16 @@ describe('PwaInstallBanner', () => {
     expect(screen.getByRole('region', { name: 'Instalar Comvy' })).toBeVisible()
   })
 
-  it('appears on desktop when Chromium offers installation', () => {
+  it('uses native installation on desktop without showing Apple instructions', async () => {
     browser()
+    const event = installEvent()
     renderBanner()
-    fireEvent(window, installEvent())
+    fireEvent(window, event)
     expect(screen.getByRole('region', { name: 'Instalar Comvy' })).toBeVisible()
+    expect(screen.getByText('Instale o Comvy neste computador')).toBeVisible()
+    expect(screen.queryByText(/Compartilhar/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Instalar Comvy' }))
+    expect(event.prompt).toHaveBeenCalledOnce()
   })
 
   it('appears on a compatible Android tablet regardless of viewport width', () => {
@@ -65,6 +70,8 @@ describe('PwaInstallBanner', () => {
     renderBanner()
     fireEvent(window, installEvent())
     expect(screen.getByRole('region', { name: 'Instalar Comvy' })).toBeVisible()
+    expect(screen.getByText('Instale o Comvy')).toBeVisible()
+    expect(screen.queryByText(/Compartilhar/)).not.toBeInTheDocument()
   })
 
   it('does not appear when Chromium or iOS is already standalone', () => {
@@ -88,19 +95,26 @@ describe('PwaInstallBanner', () => {
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Instalar Comvy' })).not.toBeInTheDocument())
   })
 
-  it('shows browser-neutral iPhone installation instructions', async () => {
+  it('shows the complete iPhone installation tutorial without invoking a native prompt', () => {
     browser({ mobile: true, userAgent: 'Mozilla/5.0 (iPhone) CriOS/125.0 Mobile' })
     renderBanner()
-    await userEvent.click(screen.getByRole('button', { name: 'Instalar Comvy' }))
-    expect(screen.queryByText(/Safari/)).not.toBeInTheDocument()
-    expect(screen.getByText(/menu/)).toBeVisible()
-    expect(screen.getByText(/Adicionar à Tela de Início/)).toBeVisible()
+    const event = installEvent()
+    fireEvent(window, event)
+    expect(screen.getByText('Instale o Comvy no seu iPhone')).toBeVisible()
+    expect(screen.getByText(/No Safari, toque em •••/)).toBeVisible()
+    expect(screen.getByText(/Toque em Compartilhar/)).toBeVisible()
+    expect(screen.getByText(/Se necessário, toque em Ver Mais/)).toBeVisible()
+    expect(screen.getByText(/Escolha Adicionar à Tela de Início/)).toBeVisible()
+    expect(event.prompt).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Instalar Comvy' })).not.toBeInTheDocument()
   })
 
   it('detects modern iPadOS using desktop user agent', () => {
     browser({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/605.1.15 Safari/605.1.15', platform: 'MacIntel', maxTouchPoints: 5 })
     renderBanner()
     expect(screen.getByRole('region', { name: 'Instalar Comvy' })).toBeVisible()
+    expect(screen.getByText('Instale o Comvy no seu iPad')).toBeVisible()
+    expect(screen.getByText(/Adicionar à Tela de Início/)).toBeVisible()
   })
 
   it('hides an offered prompt after appinstalled', () => {

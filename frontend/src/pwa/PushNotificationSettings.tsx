@@ -3,6 +3,7 @@ import NotificationsActiveRoundedIcon from '@mui/icons-material/NotificationsAct
 import NotificationsOffRoundedIcon from '@mui/icons-material/NotificationsOffRounded'
 import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent,
   DialogTitle, Stack, Typography } from '@mui/material'
+import { AppleInstallInstructions } from './AppleInstallInstructions'
 import { usePwaDisplayMode } from './pwaDisplayMode'
 import { activateWebPush, currentPushSubscription, deactivateWebPush,
   getWebPushConfig, supportsWebPush, type WebPushConfig } from './webPush'
@@ -75,7 +76,9 @@ export function PushNotificationSettings({ open, onClose }: { open: boolean; onC
         </Typography>
         {state === 'loading' && <CircularProgress size={28} aria-label="Carregando notificações" />}
         {state === 'disabled' && <Alert severity="info">Notificações estão desativadas no servidor.</Alert>}
-        {state === 'install-ios' && <Alert severity="info">Para receber notificações no iPhone/iPad, adicione o Comvy à Tela de Início e abra o aplicativo instalado.</Alert>}
+        {state === 'install-ios' && <Alert severity="info" icon={false}>
+          <AppleInstallInstructions isIpad={mode.isIpad} />
+        </Alert>}
         {state === 'unsupported' && <Alert severity="info">Este navegador não oferece notificações Web Push.</Alert>}
         {state === 'denied' && <Alert severity="warning">As notificações estão bloqueadas neste navegador. Você pode liberá-las nas configurações do dispositivo.</Alert>}
         {state === 'error' && <Alert severity="error">Não foi possível concluir agora. Tente novamente.</Alert>}

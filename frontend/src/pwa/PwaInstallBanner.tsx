@@ -1,7 +1,7 @@
 import InstallMobileRoundedIcon from '@mui/icons-material/InstallMobileRounded'
-import IosShareRoundedIcon from '@mui/icons-material/IosShareRounded'
 import { Box, Button, Paper, Stack, Typography } from '@mui/material'
 import { useEffect, useState } from 'react'
+import { AppleInstallInstructions } from './AppleInstallInstructions'
 import { readPwaDisplayMode, usePwaDisplayMode } from './pwaDisplayMode'
 
 const dismissalKey = 'comvy.pwaInstallDismissedAt'
@@ -25,7 +25,6 @@ export function PwaInstallBanner() {
   const displayMode = usePwaDisplayMode()
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [hidden, setHidden] = useState(() => readPwaDisplayMode().isStandalone || recentlyDismissed())
-  const [showIosInstructions, setShowIosInstructions] = useState(false)
   const ios = displayMode.isIosInstallable
 
   useEffect(() => {
@@ -58,10 +57,6 @@ export function PwaInstallBanner() {
   }
 
   const install = async () => {
-    if (ios) {
-      setShowIosInstructions(true)
-      return
-    }
     if (!installPrompt) return
     await installPrompt.prompt()
     const choice = await installPrompt.userChoice
@@ -76,20 +71,18 @@ export function PwaInstallBanner() {
         <Stack direction="row" gap={1.5} alignItems="flex-start">
           <InstallMobileRoundedIcon color="primary" sx={{ mt: 0.25 }} />
           <Box flex={1} minWidth={0}>
-            <Typography fontWeight={750}>Instale o Comvy</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Acesse suas solicitações com apenas um toque.
-            </Typography>
-            {showIosInstructions && (
-              <Stack mt={1.5} gap={0.5} color="text.secondary">
-                <Typography variant="body2">
-                  Abra o menu <IosShareRoundedIcon aria-label="Compartilhar" sx={{ fontSize: 18, verticalAlign: 'text-bottom' }} /> Compartilhar.
-                </Typography>
-                <Typography variant="body2">Escolha “Adicionar à Tela de Início”.</Typography>
-              </Stack>
-            )}
+            {ios ? <AppleInstallInstructions isIpad={displayMode.isIpad} /> : <>
+              <Typography fontWeight={750}>
+                {displayMode.isAndroid ? 'Instale o Comvy' : 'Instale o Comvy neste computador'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {displayMode.isAndroid
+                  ? 'Tenha acesso mais rápido ao Comvy pela tela inicial do seu dispositivo.'
+                  : 'Abra o Comvy como aplicativo neste computador.'}
+              </Typography>
+            </>}
             <Stack direction="row" gap={1} mt={1.5} flexWrap="wrap">
-              <Button size="small" variant="contained" onClick={() => void install()}>Instalar Comvy</Button>
+              {!ios && <Button size="small" variant="contained" onClick={() => void install()}>Instalar Comvy</Button>}
               <Button size="small" color="inherit" onClick={dismiss}>Agora não</Button>
             </Stack>
           </Box>

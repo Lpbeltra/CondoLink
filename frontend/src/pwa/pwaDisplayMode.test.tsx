@@ -1,6 +1,7 @@
 import { act, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { isIosDevice, isIosInstallableBrowser, readPwaDisplayMode, usePwaDisplayMode } from './pwaDisplayMode'
+import { isAndroidDevice, isIosDevice, isIosInstallableBrowser, isIpadDevice,
+  readPwaDisplayMode, usePwaDisplayMode } from './pwaDisplayMode'
 
 function navigatorLike(values: Partial<Navigator> & { standalone?: boolean } = {}) {
   return {
@@ -25,8 +26,15 @@ describe('PWA display mode', () => {
     const ipad = navigatorLike({ userAgent: 'Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Safari/605.1.15', platform: 'MacIntel', maxTouchPoints: 5 })
     expect(readPwaDisplayMode(browserWindow, iphone)).toMatchObject({ isStandalone: true, isIosStandalone: true, isIos: true })
     expect(isIosDevice(ipad)).toBe(true)
+    expect(isIpadDevice(ipad)).toBe(true)
     expect(isIosInstallableBrowser(ipad)).toBe(true)
     expect(isIosInstallableBrowser(navigatorLike({ userAgent: 'Mozilla/5.0 (iPhone) Instagram' }))).toBe(false)
+  })
+
+  it('distinguishes Android, iPhone and iPad for installation copy', () => {
+    expect(isAndroidDevice(navigatorLike({ userAgent: 'Mozilla/5.0 (Linux; Android 14)' }))).toBe(true)
+    expect(isIpadDevice(navigatorLike({ userAgent: 'Mozilla/5.0 (iPhone)' }))).toBe(false)
+    expect(isIpadDevice(navigatorLike({ userAgent: 'Mozilla/5.0 (iPad)' }))).toBe(true)
   })
 
   it('reacts when display-mode changes', () => {

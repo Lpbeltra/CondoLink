@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using CondoLink.Api.Features.WebPush;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
@@ -52,7 +53,28 @@ public sealed class WebPushDispatcherTests : IAsyncLifetime
             Assert.Contains($"/requests/{_notification.RequestId}", payload);
             Assert.DoesNotContain("Conteúdo privado", payload);
             Assert.DoesNotContain("Assunto privado", payload);
+            using var document = JsonDocument.Parse(payload);
+            Assert.Equal("Nova resposta", document.RootElement.GetProperty("title").GetString());
+            Assert.Equal("Há uma nova resposta no seu atendimento.",
+                document.RootElement.GetProperty("body").GetString());
         });
+    }
+
+    [Theory]
+    [InlineData(NotificationType.RequestCreated, false, "Novo atendimento", "Um novo atendimento foi aberto.")]
+    [InlineData(NotificationType.ResidentRequestUpdated, false, "Nova mensagem", "Há uma nova mensagem em um atendimento.")]
+    [InlineData(NotificationType.RequestMessageReceived, false, "Nova mensagem", "Há uma nova mensagem em um atendimento.")]
+    [InlineData(NotificationType.RequestMessageReceived, true, "Nova resposta", "Há uma nova resposta no seu atendimento.")]
+    [InlineData(NotificationType.RequestStatusChanged, true, "Atendimento atualizado", "O status do seu atendimento foi atualizado.")]
+    public void Uses_contextual_private_content(NotificationType type, bool residentTarget,
+        string title, string body)
+    {
+        var content = WebPushDispatcher.SafeContent(type, residentTarget);
+        Assert.Equal(title, content.Title);
+        Assert.Equal(body, content.Body);
+        Assert.NotEqual("Comvy", content.Title);
+        Assert.DoesNotContain("Assunto privado", content.Body);
+        Assert.DoesNotContain("Conteúdo privado", content.Body);
     }
 
     [Theory]

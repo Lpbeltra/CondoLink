@@ -5,7 +5,7 @@ import { createAppTheme } from '../theme/createAppTheme'
 import { PushNotificationSettings } from './PushNotificationSettings'
 import * as webPush from './webPush'
 
-const displayMode = vi.hoisted(() => ({ isIos: false, isStandalone: false }))
+const displayMode = vi.hoisted(() => ({ isIos: false, isIpad: false, isStandalone: false }))
 vi.mock('./pwaDisplayMode', () => ({ usePwaDisplayMode: () => displayMode }))
 vi.mock('./webPush', async importOriginal => {
   const actual = await importOriginal<typeof import('./webPush')>()
@@ -27,7 +27,7 @@ function renderSettings() {
 
 describe('PushNotificationSettings', () => {
   beforeEach(() => {
-    displayMode.isIos = false; displayMode.isStandalone = false
+    displayMode.isIos = false; displayMode.isIpad = false; displayMode.isStandalone = false
     notification()
     vi.mocked(webPush.getWebPushConfig).mockResolvedValue({ enabled: true, vapidPublicKey: 'key' })
     vi.mocked(webPush.supportsWebPush).mockReturnValue(true)
@@ -65,13 +65,26 @@ describe('PushNotificationSettings', () => {
   })
 
   it('guides iOS browser but allows an installed Apple PWA', async () => {
+    const requestPermission = notification()
     displayMode.isIos = true
     const browser = renderSettings()
-    expect(await screen.findByText(/adicione o Comvy à Tela de Início/)).toBeInTheDocument()
+    expect(await screen.findByText('Instale o Comvy no seu iPhone')).toBeInTheDocument()
+    expect(screen.getByText(/No Safari, toque em •••/)).toBeInTheDocument()
+    expect(screen.getByText(/Compartilhar/)).toBeInTheDocument()
+    expect(screen.getByText(/Ver Mais/)).toBeInTheDocument()
+    expect(screen.getByText(/Adicionar à Tela de Início/)).toBeInTheDocument()
+    expect(requestPermission).not.toHaveBeenCalled()
     browser.unmount()
     displayMode.isStandalone = true
     renderSettings()
     expect(await screen.findByRole('button', { name: 'Ativar notificações' })).toBeInTheDocument()
+  })
+
+  it('uses the iPad title for iPadOS browser guidance', async () => {
+    displayMode.isIos = true
+    displayMode.isIpad = true
+    renderSettings()
+    expect(await screen.findByText('Instale o Comvy no seu iPad')).toBeInTheDocument()
   })
 
   it('shows and disables only the current device subscription', async () => {

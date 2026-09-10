@@ -9,6 +9,15 @@ export function isIosDevice(currentNavigator: Navigator = navigator) {
     || (currentNavigator.platform === 'MacIntel' && currentNavigator.maxTouchPoints > 1)
 }
 
+export function isIpadDevice(currentNavigator: Navigator = navigator) {
+  return /iPad/i.test(currentNavigator.userAgent)
+    || (currentNavigator.platform === 'MacIntel' && currentNavigator.maxTouchPoints > 1)
+}
+
+export function isAndroidDevice(currentNavigator: Navigator = navigator) {
+  return /Android/i.test(currentNavigator.userAgent)
+}
+
 export function isIosInstallableBrowser(currentNavigator: Navigator = navigator) {
   if (!isIosDevice(currentNavigator)) return false
   const userAgent = currentNavigator.userAgent
@@ -26,6 +35,8 @@ export function readPwaDisplayMode(
   return {
     isStandalone: standalone,
     isIos: isIosDevice(currentNavigator),
+    isIpad: isIpadDevice(currentNavigator),
+    isAndroid: isAndroidDevice(currentNavigator),
     isIosInstallable: isIosInstallableBrowser(currentNavigator),
     isIosStandalone: iosStandalone,
   }
