@@ -135,8 +135,10 @@ export function createAppTheme(mode: ThemeMode): Theme {
           paper: {
             '@media (max-width:600px)': {
               margin: 16,
+              marginTop: 'calc(16px + env(safe-area-inset-top))',
+              marginBottom: 'calc(16px + env(safe-area-inset-bottom))',
               width: 'calc(100% - 32px)',
-              maxHeight: 'calc(100% - 32px)',
+              maxHeight: 'calc(100% - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom))',
             },
           },
         },

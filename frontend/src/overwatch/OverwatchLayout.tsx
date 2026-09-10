@@ -15,10 +15,15 @@ export function OverwatchLayout() {
         component="main"
         flex={1}
         minWidth={0}
-        pb={{ xs: 9, md: 0 }}
-        sx={{ overflowX: 'hidden' }}
+        sx={{
+          overflowX: 'hidden',
+          pb: { xs: 'calc(72px + env(safe-area-inset-bottom))', md: 0 },
+        }}
       >
-        <Toolbar sx={{ minHeight: { xs: '64px !important', md: '72px !important' } }} />
+        <Toolbar sx={{ minHeight: {
+          xs: 'calc(64px + env(safe-area-inset-top)) !important',
+          md: 'calc(72px + env(safe-area-inset-top)) !important',
+        } }} />
         <PageContainerScope fullWidth>
           <Suspense fallback={<Skeleton variant="rounded" height={240} sx={{ m: 2 }} />}>
             <Outlet />

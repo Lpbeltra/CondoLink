@@ -1,28 +1,22 @@
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { defineConfig } from 'vitest/config'
+import { pwaManifest } from './src/pwa/manifest'
 
 export default defineConfig({
   plugins: [
     react(),
     VitePWA({
       registerType: 'prompt',
-      includeAssets: ['icon.svg', 'icon-maskable.svg'],
-      manifest: {
-        name: 'Comvy',
-        short_name: 'Comvy',
-        description: 'Comunicação clara entre moradores, síndicos e administradoras.',
-        theme_color: '#6682f4',
-        background_color: '#f6f8fc',
-        display: 'standalone',
-        start_url: '/',
-        scope: '/',
-        lang: 'pt-BR',
-        icons: [
-          { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
-          { src: '/icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
-        ],
-      },
+      includeAssets: [
+        'icon.svg',
+        'icon-maskable.svg',
+        'comvy-icon-192-v1.png',
+        'comvy-icon-512-v1.png',
+        'comvy-maskable-512-v1.png',
+        'apple-touch-icon-180-v1.png',
+      ],
+      manifest: pwaManifest,
       workbox: {
         navigateFallback: '/index.html',
         runtimeCaching: [

@@ -104,11 +104,23 @@ export function AppShell() {
         component="main"
         flex={1}
         minWidth={0}
-        pb={{ xs: showNavigation ? 9 : 2, md: 0 }}
-        sx={{ overflowX: "hidden" }}
+        sx={{
+          overflowX: "hidden",
+          pb: {
+            xs: showNavigation
+              ? "calc(72px + env(safe-area-inset-bottom))"
+              : "calc(16px + env(safe-area-inset-bottom))",
+            md: 0,
+          },
+        }}
       >
         <Toolbar
-          sx={{ minHeight: { xs: "64px !important", md: "72px !important" } }}
+          sx={{
+            minHeight: {
+              xs: "calc(64px + env(safe-area-inset-top)) !important",
+              md: "calc(72px + env(safe-area-inset-top)) !important",
+            },
+          }}
         />
         <PwaInstallBanner />
         {content}

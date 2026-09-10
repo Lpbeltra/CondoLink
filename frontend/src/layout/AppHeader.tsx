@@ -66,6 +66,7 @@ export function AppHeader() {
         borderColor: "divider",
         bgcolor: alpha(theme.palette.background.paper, 0.9),
         backdropFilter: "blur(16px)",
+        pt: "env(safe-area-inset-top)",
       })}
     >
       <Toolbar

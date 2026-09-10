@@ -55,7 +55,7 @@ export function Sidebar() {
         },
       }}
     >
-      <Toolbar sx={{ minHeight: "72px !important", px: 3 }}>
+      <Toolbar sx={{ minHeight: "calc(72px + env(safe-area-inset-top)) !important", px: 3, pt: "env(safe-area-inset-top)" }}>
         <Box
           component={NavLink}
           to={

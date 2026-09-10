@@ -2,6 +2,7 @@ import InstallMobileRoundedIcon from '@mui/icons-material/InstallMobileRounded'
 import IosShareRoundedIcon from '@mui/icons-material/IosShareRounded'
 import { Box, Button, Paper, Stack, Typography } from '@mui/material'
 import { useEffect, useState } from 'react'
+import { readPwaDisplayMode, usePwaDisplayMode } from './pwaDisplayMode'
 
 const dismissalKey = 'comvy.pwaInstallDismissedAt'
 const dismissalDurationMs = 30 * 24 * 60 * 60 * 1000
@@ -9,26 +10,6 @@ const dismissalDurationMs = 30 * 24 * 60 * 60 * 1000
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
-}
-
-function isStandalone() {
-  const navigatorWithStandalone = navigator as Navigator & { standalone?: boolean }
-  return window.matchMedia('(display-mode: standalone)').matches
-    || navigatorWithStandalone.standalone === true
-}
-
-function isMobile() {
-  return window.matchMedia('(max-width: 767px)').matches
-    && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-}
-
-function isIos() {
-  return /iPhone|iPad|iPod/i.test(navigator.userAgent)
-}
-
-function isSafari() {
-  return /Safari/i.test(navigator.userAgent)
-    && !/CriOS|FxiOS|EdgiOS|OPiOS/i.test(navigator.userAgent)
 }
 
 function recentlyDismissed() {
@@ -41,16 +22,21 @@ function recentlyDismissed() {
 }
 
 export function PwaInstallBanner() {
+  const displayMode = usePwaDisplayMode()
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
-  const [hidden, setHidden] = useState(() => !isMobile() || isStandalone() || recentlyDismissed())
+  const [hidden, setHidden] = useState(() => readPwaDisplayMode().isStandalone || recentlyDismissed())
   const [showIosInstructions, setShowIosInstructions] = useState(false)
-  const ios = isIos()
+  const ios = displayMode.isIosInstallable
+
+  useEffect(() => {
+    if (displayMode.isStandalone) setHidden(true)
+  }, [displayMode.isStandalone])
 
   useEffect(() => {
     const onBeforeInstallPrompt = (event: Event) => {
       event.preventDefault()
       setInstallPrompt(event as BeforeInstallPromptEvent)
-      if (isMobile() && !isStandalone() && !recentlyDismissed()) setHidden(false)
+      if (!readPwaDisplayMode().isStandalone && !recentlyDismissed()) setHidden(false)
     }
     const onInstalled = () => {
       setInstallPrompt(null)
@@ -86,21 +72,20 @@ export function PwaInstallBanner() {
 
   return (
     <Box px={{ xs: 2, sm: 3 }} pt={2} maxWidth={1440} mx="auto" width="100%">
-      <Paper variant="outlined" role="region" aria-label="Instalar Comvy" sx={{ p: 2 }}>
+      <Paper variant="outlined" role="region" aria-label="Instalar Comvy" sx={{ p: 2, maxWidth: { md: 680 } }}>
         <Stack direction="row" gap={1.5} alignItems="flex-start">
           <InstallMobileRoundedIcon color="primary" sx={{ mt: 0.25 }} />
           <Box flex={1} minWidth={0}>
-            <Typography fontWeight={750}>Instale o Comvy no seu celular</Typography>
+            <Typography fontWeight={750}>Instale o Comvy</Typography>
             <Typography variant="body2" color="text.secondary">
               Acesse suas solicitações com apenas um toque.
             </Typography>
             {showIosInstructions && (
               <Stack mt={1.5} gap={0.5} color="text.secondary">
-                {!isSafari() && <Typography variant="body2">Abra esta página no Safari.</Typography>}
                 <Typography variant="body2">
-                  1. Toque em <IosShareRoundedIcon aria-label="Compartilhar" sx={{ fontSize: 18, verticalAlign: 'text-bottom' }} /> Compartilhar.
+                  Abra o menu <IosShareRoundedIcon aria-label="Compartilhar" sx={{ fontSize: 18, verticalAlign: 'text-bottom' }} /> Compartilhar.
                 </Typography>
-                <Typography variant="body2">2. Escolha “Adicionar à Tela de Início”.</Typography>
+                <Typography variant="body2">Escolha “Adicionar à Tela de Início”.</Typography>
               </Stack>
             )}
             <Stack direction="row" gap={1} mt={1.5} flexWrap="wrap">
