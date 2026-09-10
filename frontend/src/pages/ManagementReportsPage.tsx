@@ -7,6 +7,7 @@ import TimerRoundedIcon from '@mui/icons-material/TimerRounded'
 import {
   Alert, Box, Card, CardContent, Chip, LinearProgress, Skeleton, Stack,
   Tab, Tabs, Tooltip, Typography, alpha,
+  useMediaQuery, useTheme,
 } from '@mui/material'
 import { EmptyState } from '../components/EmptyState'
 import { PageContainer } from '../components/PageContainer'
@@ -23,6 +24,8 @@ import { OverwatchMetricCard } from '../overwatch/components/OverwatchMetricCard
 import { useAuth } from '../auth/AuthContext'
 
 export function ManagementReportsPage() {
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'))
   const { user } = useAuth()
   const {
     activeCondominiumId,
@@ -82,38 +85,25 @@ export function ManagementReportsPage() {
         </Box>
       ) : report && (
         <>
-          <Box
-            display="grid"
-            gridTemplateColumns={{ xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(5, 1fr)' }}
-            gap={2}
-            mt={3}
-          >
-            <OverwatchMetricCard
-              label="Solicitações"
-              value={report.summary.total}
-              icon={<AssessmentRoundedIcon />}
-            />
-            <OverwatchMetricCard
-              label="Em aberto"
-              value={report.summary.open}
-              icon={<HourglassTopRoundedIcon />}
-            />
-            <OverwatchMetricCard
-              label="Sem resposta"
-              value={report.summary.awaitingFirstResponse}
-              icon={<MarkChatUnreadRoundedIcon />}
-            />
-            <OverwatchMetricCard
-              label="1ª resposta (média)"
-              value={formatHours(report.summary.averageFirstResponseHours)}
-              icon={<TimerRoundedIcon />}
-            />
-            <OverwatchMetricCard
-              label="Resolução (média)"
-              value={formatHours(report.summary.averageResolutionHours)}
-              icon={<TaskAltRoundedIcon />}
-            />
-          </Box>
+          {isMobile ? <>
+            <Typography variant="h2" mt={3}>Atenção agora</Typography>
+            <Box display="grid" gridTemplateColumns={{ xs: '1fr', sm: 'repeat(2, 1fr)' }} gap={2} mt={1.5}>
+              <OverwatchMetricCard label="Em aberto" value={report.summary.open} icon={<HourglassTopRoundedIcon />} />
+              <OverwatchMetricCard label="Sem resposta" value={report.summary.awaitingFirstResponse} icon={<MarkChatUnreadRoundedIcon />} />
+            </Box>
+            <Typography variant="h2" mt={3}>Resumo do período</Typography>
+            <Box display="grid" gridTemplateColumns={{ xs: '1fr', sm: 'repeat(3, 1fr)' }} gap={2} mt={1.5}>
+              <OverwatchMetricCard label="Solicitações" value={report.summary.total} icon={<AssessmentRoundedIcon />} />
+              <OverwatchMetricCard label="1ª resposta (média)" value={formatHours(report.summary.averageFirstResponseHours)} icon={<TimerRoundedIcon />} />
+              <OverwatchMetricCard label="Resolução (média)" value={formatHours(report.summary.averageResolutionHours)} icon={<TaskAltRoundedIcon />} />
+            </Box>
+          </> : <Box display="grid" gridTemplateColumns="repeat(5, 1fr)" gap={2} mt={3}>
+            <OverwatchMetricCard label="Solicitações" value={report.summary.total} icon={<AssessmentRoundedIcon />} />
+            <OverwatchMetricCard label="Em aberto" value={report.summary.open} icon={<HourglassTopRoundedIcon />} />
+            <OverwatchMetricCard label="Sem resposta" value={report.summary.awaitingFirstResponse} icon={<MarkChatUnreadRoundedIcon />} />
+            <OverwatchMetricCard label="1ª resposta (média)" value={formatHours(report.summary.averageFirstResponseHours)} icon={<TimerRoundedIcon />} />
+            <OverwatchMetricCard label="Resolução (média)" value={formatHours(report.summary.averageResolutionHours)} icon={<TaskAltRoundedIcon />} />
+          </Box>}
 
           <Box
             display="grid"

@@ -10,14 +10,21 @@ import {
   CardActionArea,
   CardContent,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   MenuItem,
   Pagination,
   Skeleton,
   Stack,
   TextField,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
+import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";
 import { PageContainer } from "../components/PageContainer";
 import { EmptyState } from "../components/EmptyState";
 import { useManagementContext } from "../management/ManagementContext";
@@ -33,6 +40,8 @@ import type {
 } from "../managementCompanyRequests/types";
 import { useManagementCompanyRequestRealtime } from "../managementCompanyRequests/realtime";
 export function ManagementCompanyRequestsPage() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const nav = useNavigate(),
     { activeCondominiumId, activeCondominium, condominiums } =
       useManagementContext();
@@ -47,6 +56,7 @@ export function ManagementCompanyRequestsPage() {
     [to, setTo] = useState(""),
     [includeCompleted, setIncludeCompleted] = useState(false),
     [includeCancelled, setIncludeCancelled] = useState(false),
+    [filtersOpen, setFiltersOpen] = useState(false),
     [page, setPage] = useState(1);
   const invalid = Boolean(from && to && from > to);
   const load = useCallback(async () => {
@@ -110,6 +120,28 @@ export function ManagementCompanyRequestsPage() {
     setIncludeCompleted(false);
     setIncludeCancelled(false);
   };
+  const advancedFilters = (
+    <Stack gap={1.5} sx={isMobile ? undefined : { display: "contents" }}>
+      {!activeCondominiumId && (
+        <TextField select label="Condomínio" size="small" value={condo} onChange={(e) => setCondo(e.target.value)} sx={{ minWidth: 210, order: 5 }}>
+          <MenuItem value="">Todos</MenuItem>
+          {condominiums.map((c) => <MenuItem value={c.id} key={c.id}>{c.name}</MenuItem>)}
+        </TextField>
+      )}
+      <TextField select label="Tipo" size="small" value={type} onChange={(e) => setType(e.target.value as Type | "")} sx={{ minWidth: 190, order: 2 }}>
+        <MenuItem value="">Todos</MenuItem>
+        {Object.entries(typeLabel).map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}
+      </TextField>
+      <TextField select label="Status" size="small" value={status} onChange={(e) => setStatus(e.target.value as Status | "")} sx={{ minWidth: 190, order: 3 }}>
+        <MenuItem value="">Todos</MenuItem>
+        {(["Submitted", "Acknowledged", "InProgress", "Completed", "Cancelled"] as Status[]).map((v) => <MenuItem key={v} value={v}>{statusLabel(v, "GeneralQuestion")}</MenuItem>)}
+      </TextField>
+      <TextField type="date" label="Data inicial" size="small" value={from} onChange={(e) => setFrom(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ minWidth: 160, order: 4 }} />
+      <TextField type="date" label="Data final" size="small" value={to} onChange={(e) => setTo(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ minWidth: 160, order: 4 }} />
+      <FormControlLabel sx={{ order: 6, flexBasis: isMobile ? 'auto' : '100%' }} control={<Checkbox checked={includeCompleted} onChange={e => { setIncludeCompleted(e.target.checked); setPage(1) }} />} label="Exibir solicitações processadas" />
+      <FormControlLabel sx={{ order: 6, flexBasis: isMobile ? 'auto' : '100%' }} control={<Checkbox checked={includeCancelled} onChange={e => { setIncludeCancelled(e.target.checked); setPage(1) }} />} label="Exibir solicitações canceladas" />
+    </Stack>
+  );
   return (
     <PageContainer maxWidth="none">
       <Stack spacing={2}>
@@ -144,103 +176,12 @@ export function ManagementCompanyRequestsPage() {
             A data inicial não pode ser posterior à data final.
           </Alert>
         )}
-        <Stack
-          direction={{ xs: "column", md: "row" }}
-          spacing={1.5}
-          flexWrap="wrap"
-          alignItems={{ xs: "stretch", md: "center" }}
-          sx={{
-            '& > .MuiFormControlLabel-root': {
-              order: 6,
-              flexBasis: { xs: 'auto', md: '100%' },
-            },
-            '& > .MuiButton-root': { order: 7 },
-          }}
-        >
-          {!activeCondominiumId && (
-            <TextField
-              select
-              label="Condomínio"
-              size="small"
-              value={condo}
-              onChange={(e) => setCondo(e.target.value)}
-              sx={{ minWidth: 210, order: 5 }}
-            >
-              <MenuItem value="">Todos</MenuItem>
-              {condominiums.map((c) => (
-                <MenuItem value={c.id} key={c.id}>
-                  {c.name}
-                </MenuItem>
-              ))}
-            </TextField>
-          )}
-          <TextField
-            label="Buscar"
-            size="small"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            sx={{ flex: "1 1 360px", minWidth: { xs: "100%", md: 300 }, order: 1 }}
-          />
-          <FormControlLabel control={<Checkbox checked={includeCompleted} onChange={e => { setIncludeCompleted(e.target.checked); setPage(1) }} />} label="Exibir solicitações processadas" />
-          <FormControlLabel control={<Checkbox checked={includeCancelled} onChange={e => { setIncludeCancelled(e.target.checked); setPage(1) }} />} label="Exibir solicitações canceladas" />
-          <TextField
-            select
-            label="Tipo"
-            size="small"
-            value={type}
-            onChange={(e) => setType(e.target.value as Type | "")}
-            sx={{ minWidth: { xs: "100%", md: 190 }, order: 2 }}
-          >
-            <MenuItem value="">Todos</MenuItem>
-            {Object.entries(typeLabel).map(([v, l]) => (
-              <MenuItem key={v} value={v}>
-                {l}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            select
-            label="Status"
-            size="small"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as Status | "")}
-            sx={{ minWidth: { xs: "100%", md: 190 }, order: 3 }}
-          >
-            <MenuItem value="">Todos</MenuItem>
-            {(
-              [
-                "Submitted",
-                "Acknowledged",
-                "InProgress",
-                "Completed",
-                "Cancelled",
-              ] as Status[]
-            ).map((v) => (
-              <MenuItem key={v} value={v}>
-                {statusLabel(v, "GeneralQuestion")}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            type="date"
-            label="Data inicial"
-            size="small"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            InputLabelProps={{ shrink: true }}
-            sx={{ minWidth: { xs: "100%", md: 160 }, order: 4 }}
-          />
-          <TextField
-            type="date"
-            label="Data final"
-            size="small"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            InputLabelProps={{ shrink: true }}
-            sx={{ minWidth: { xs: "100%", md: 160 }, order: 4 }}
-          />
-          {filtered && <Button onClick={clear}>Limpar filtros</Button>}
-        </Stack>
+        {!isMobile && <Stack direction="row" spacing={1.5} flexWrap="wrap" alignItems="center">
+          <TextField label="Buscar" size="small" value={search} onChange={(e) => setSearch(e.target.value)} sx={{ flex: "1 1 360px", minWidth: 300, order: 1 }} />
+          {advancedFilters}
+          {filtered && <Button onClick={clear} sx={{ order: 7 }}>Limpar filtros</Button>}
+        </Stack>}
+        <Box data-testid="management-company-request-list" sx={{ order: { xs: 3, md: "unset" } }}>
         {loading ? (
           <Skeleton variant="rounded" height={240} />
         ) : !data?.items.length ? (
@@ -308,6 +249,19 @@ export function ManagementCompanyRequestsPage() {
             />
           </Stack>
         )}
+        </Box>
+        {isMobile && <Stack direction="row" gap={1} sx={{ order: 4 }}>
+          <TextField fullWidth label="Buscar solicitações" size="small" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Button variant="outlined" startIcon={<FilterAltRoundedIcon />} onClick={() => setFiltersOpen(true)}>Filtrar</Button>
+        </Stack>}
+        <Dialog open={filtersOpen} onClose={() => setFiltersOpen(false)} fullWidth maxWidth="xs">
+          <DialogTitle>Filtrar solicitações</DialogTitle>
+          <DialogContent><Box pt={1}>{advancedFilters}</Box></DialogContent>
+          <DialogActions>
+            <Button onClick={clear} disabled={!filtered}>Limpar</Button>
+            <Button variant="contained" onClick={() => setFiltersOpen(false)}>Concluir</Button>
+          </DialogActions>
+        </Dialog>
       </Stack>
     </PageContainer>
   );

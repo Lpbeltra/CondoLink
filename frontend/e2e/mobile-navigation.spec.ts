@@ -16,14 +16,21 @@ test.describe('Navegação desktop/mobile e temas', () => {
     })
     await expect(navigation).toBeVisible()
     await expect(navigation.getByRole('button', { name: 'Dashboard' })).toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Atendimento' })).toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Assistente' })).toBeVisible()
     await expect(navigation.getByRole('button', { name: 'Mais' })).toBeVisible()
+    await expect(navigation.getByRole('button', { name: 'Overwatch' })).toHaveCount(0)
 
-    // 2. Abrir Mais e acessar Atendimento.
-    await navigation.getByRole('button', { name: 'Mais' }).click()
-    await expect(page.getByRole('heading', { name: 'Mais' })).toBeVisible()
-    await page.getByRole('button', { name: 'Atendimento' }).click()
+    // 2. Atendimento agora é destino principal.
+    await navigation.getByRole('button', { name: 'Atendimento' }).click()
     await expect(page).toHaveURL(/\/management\/requests/)
     await expect(page.getByRole('heading', { name: 'Atendimento' })).toBeVisible()
+
+    // 3. Mais concentra apenas módulos secundários.
+    await navigation.getByRole('button', { name: 'Mais' }).click()
+    await expect(page.getByRole('heading', { name: 'Mais' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Administradora' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Atendimento' })).toHaveCount(0)
     assertRuntimeIsClean()
   })
 })

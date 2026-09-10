@@ -12,7 +12,7 @@ describe("role-based navigation", () => {
 
   it("gives Manager the complete catalog", () => {
     expect(getNavigationItems(["Manager", "Resident"]).map(item => item.label)).toEqual(["Dashboard", "Atendimento", "Administradora", "Agenda", "Prestadores", "Assistente", "Documentos", "Gestão"]);
-    expect(getMobileNavigationItems(["Manager"]).map(item => item.label)).toEqual(["Dashboard", "Assistente", "Atendimento", "Mais"]);
+    expect(getMobileNavigationItems(["Manager"]).map(item => item.label)).toEqual(["Dashboard", "Atendimento", "Assistente", "Mais"]);
   });
 
   it("maps six configurable SubManager permissions, including Assistant", () => {
@@ -32,7 +32,7 @@ describe("role-based navigation", () => {
   it("partitions authorized modules without loss or duplication", () => {
     const parts = getMobileNavigationParts(["SubManager"], [], allPermissions);
     expect(parts.allowed.map(item => item.label)).toEqual(["Atendimento", "Administradora", "Agenda", "Prestadores", "Assistente", "Documentos", "Gestão"]);
-    expect(parts.bottom.map(item => item.label)).toEqual(["Assistente", "Atendimento", "Agenda"]);
+    expect(parts.bottom.map(item => item.label)).toEqual(["Atendimento", "Assistente", "Agenda"]);
     expect(parts.more.map(item => item.label)).toEqual(["Administradora", "Prestadores", "Documentos", "Gestão"]);
     expect(new Set([...parts.bottom, ...parts.more]).size).toBe(parts.allowed.length);
     expect(getMoreNavigationItems(["SubManager"], [], allPermissions)).toEqual(parts.more);
@@ -45,6 +45,10 @@ describe("role-based navigation", () => {
   it("shows Overwatch only to PlatformAdmin", () => {
     expect(getNavigationItems(["Resident"], ["PlatformAdmin"]).map(item => item.label)).toContain("Overwatch");
     expect(getNavigationItems(["Resident"]).map(item => item.label)).not.toContain("Overwatch");
+    expect(getMobileNavigationItems(["Manager"], ["PlatformAdmin"]).map(item => item.label))
+      .toEqual(["Dashboard", "Atendimento", "Assistente", "Mais"]);
+    expect(getMoreNavigationItems(["Manager"], ["PlatformAdmin"]).map(item => item.label))
+      .toContain("Overwatch");
   });
 
   it("marks the correct mobile destination for nested routes", () => {
@@ -52,7 +56,7 @@ describe("role-based navigation", () => {
     expect(getMobileSelectedPath("/management/people")).toBe("/more");
     expect(getMobileSelectedPath("/more")).toBe("/more");
     expect(getMobileSelectedPath("/")).toBe("/");
-    expect(getMobileSelectedPath("/overwatch/managers")).toBe("/overwatch");
+    expect(getMobileSelectedPath("/overwatch/managers")).toBe("/more");
     expect(getMobileSelectedPath("/management/reports")).toBe("/management/dashboard");
     expect(getMobileSelectedPath("/administrator/requests/abc")).toBe("/administrator/requests");
   });

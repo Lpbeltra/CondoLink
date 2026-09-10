@@ -36,14 +36,14 @@ export const managementEntryPath = "/management/dashboard";
 const commonItems: NavigationItem[] = [
   { label: "Dashboard", path: "/management/dashboard", icon: AssessmentRoundedIcon, requiredRole: "Manager", mobilePrimary: true, mobilePriority: 10 },
   { label: "Solicitações", path: "/requests", icon: ForumRoundedIcon, requiredRole: "Resident", residentAllowed: true },
-  { label: "Atendimento", path: "/management/requests", icon: SupportAgentRoundedIcon, requiredRole: "Manager", requiredModule: "Attendance", mobilePriority: 40 },
+  { label: "Atendimento", path: "/management/requests", icon: SupportAgentRoundedIcon, requiredRole: "Manager", requiredModule: "Attendance", mobilePrimary: true, mobilePriority: 20 },
   { label: "Administradora", path: "/management/administrator", icon: BusinessRoundedIcon, requiredRole: "Manager", requiredModule: "ManagementCompany", mobilePriority: 70 },
   { label: "Agenda", path: "/management/agenda", icon: EventNoteRoundedIcon, requiredRole: "Manager", requiredModule: "Agenda", mobilePriority: 50 },
   { label: "Prestadores", path: "/management/service-providers", icon: HandymanRoundedIcon, requiredRole: "Manager", requiredModule: "Management", mobilePriority: 55 },
   { label: "Assistente", path: "/management/assistant", icon: AutoAwesomeRoundedIcon, requiredRole: "Manager", requiredModule: "Assistant", mobilePrimary: true, mobilePriority: 30 },
   { label: "Documentos", path: "/management/documents", icon: DescriptionRoundedIcon, requiredRole: "Manager", requiredModule: "Documents", mobilePriority: 60 },
   { label: "Gestão", path: "/management/units", icon: ApartmentRoundedIcon, requiredRole: "Manager", requiredModule: "Management", mobilePriority: 80 },
-  { label: "Overwatch", path: "/overwatch", icon: AdminPanelSettingsRoundedIcon, platformAdminOnly: true, mobilePrimary: true, mobilePriority: 5 },
+  { label: "Overwatch", path: "/overwatch", icon: AdminPanelSettingsRoundedIcon, platformAdminOnly: true },
 ];
 
 export function canAccessNavigationItem(item: NavigationItem, roles: CondominiumRole[], userRoles: string[] = [], subManagerPermissions?: string[]) {
@@ -62,12 +62,16 @@ export function getNavigationItems(roles: CondominiumRole[], userRoles: string[]
 
 export function getMobileNavigationParts(roles: CondominiumRole[], userRoles: string[] = [], subManagerPermissions?: string[]): MobileNavigationParts {
   const allowed = getNavigationItems(roles, userRoles, subManagerPermissions);
-  if (!roles.includes("Manager") && !roles.includes("SubManager")) return { allowed, bottom: allowed, more: [] };
+  if (!roles.includes("Manager") && !roles.includes("SubManager")) {
+    const bottom = allowed.filter(item => !item.platformAdminOnly);
+    const more = allowed.filter(item => item.platformAdminOnly);
+    return { allowed, bottom, more };
+  }
   const candidates = allowed.filter(item => item.mobilePrimary || item.mobilePriority !== undefined)
     .sort((left, right) => (left.mobilePriority ?? Number.MAX_SAFE_INTEGER) - (right.mobilePriority ?? Number.MAX_SAFE_INTEGER));
   const bottom = candidates.slice(0, 3);
   const bottomSet = new Set(bottom);
-  const more = allowed.filter(item => !bottomSet.has(item) && !item.platformAdminOnly);
+  const more = allowed.filter(item => !bottomSet.has(item));
   return { allowed, bottom, more };
 }
 
@@ -88,7 +92,7 @@ export function getMobileNavigationItems(roles: CondominiumRole[], userRoles: st
 
 export function getMobileSelectedPath(pathname: string) {
   if (pathname.startsWith("/administrator")) return "/administrator/requests";
-  if (pathname.startsWith("/overwatch")) return "/overwatch";
+  if (pathname.startsWith("/overwatch")) return "/more";
   if (pathname.startsWith("/management/dashboard") || pathname.startsWith("/management/reports")) return "/management/dashboard";
   if (pathname === "/more" || pathname.startsWith("/management")) return "/more";
   if (pathname.startsWith("/requests")) return "/requests";
