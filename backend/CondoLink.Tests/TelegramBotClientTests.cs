@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using CondoLink.Api.Features.TelegramAssistant;
+using CondoLink.Domain.Enums;
 using Microsoft.Extensions.Options;
 
 namespace CondoLink.Tests;
@@ -26,6 +27,52 @@ public sealed class TelegramBotClientTests
         var body = JsonDocument.Parse(await captured.Content.ReadAsStringAsync()).RootElement;
         Assert.Equal(123456, body.GetProperty("chat_id").GetInt64());
         Assert.Equal("safe test message", body.GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public async Task SendMessage_requests_native_own_contact_keyboard_and_can_remove_it()
+    {
+        var bodies = new List<JsonElement>();
+        var client = Client(async (request, _) =>
+        {
+            bodies.Add(JsonDocument.Parse(await request.Content!.ReadAsStringAsync()).RootElement.Clone());
+            return Response(HttpStatusCode.OK, """{"ok":true,"result":{"message_id":1}}""");
+        });
+        await client.SendMessageAsync(1, "confirm", TelegramReplyMarkup.RequestContact, default);
+        await client.SendMessageAsync(1, "done", TelegramReplyMarkup.RemoveKeyboard, default);
+        Assert.True(bodies[0].GetProperty("reply_markup").GetProperty("keyboard")[0][0]
+            .GetProperty("request_contact").GetBoolean());
+        Assert.True(bodies[1].GetProperty("reply_markup").GetProperty("remove_keyboard").GetBoolean());
+    }
+
+    [Fact]
+    public async Task DownloadFile_calls_getFile_then_bounded_official_download_endpoint()
+    {
+        var paths = new List<string>();
+        var client = Client((request, _) =>
+        {
+            paths.Add(request.RequestUri!.AbsolutePath);
+            if (request.RequestUri.AbsolutePath.EndsWith("/getFile"))
+                return Task.FromResult(Response(HttpStatusCode.OK,
+                    """{"ok":true,"result":{"file_path":"voice/file_1.oga","file_size":3}}"""));
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            { Content = new ByteArrayContent(new byte[] { 1, 2, 3 }) });
+        });
+        Assert.Equal(new byte[] { 1, 2, 3 }, await client.DownloadFileAsync("file-id", 10, default));
+        Assert.Equal("/bot123456:TEST_TOKEN/getFile", paths[0]);
+        Assert.Equal("/file/bot123456:TEST_TOKEN/voice/file_1.oga", paths[1]);
+    }
+
+    [Fact]
+    public async Task DownloadFile_rejects_declared_oversize_before_download()
+    {
+        var calls = 0;
+        var client = Client((_, _) =>
+        { calls++; return Task.FromResult(Response(HttpStatusCode.OK,
+            """{"ok":true,"result":{"file_path":"voice/file.oga","file_size":11}}""")); });
+        var exception = await Assert.ThrowsAsync<TelegramFileException>(() =>
+            client.DownloadFileAsync("file-id", 10, default));
+        Assert.Equal("file_too_large", exception.Code); Assert.Equal(1, calls);
     }
 
     [Theory]

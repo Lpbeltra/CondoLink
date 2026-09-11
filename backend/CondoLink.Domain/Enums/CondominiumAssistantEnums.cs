@@ -5,3 +5,5 @@ public enum CondominiumDocumentProcessingStatus { Pending, Processing, Ready, Fa
 public enum CondominiumAssistantRole { User, Assistant }
 public enum CondominiumAssistantChannel { Portal, Telegram }
 public enum TelegramInboundStatus { Pending, Processing, Completed, Ignored, Failed }
+public enum TelegramInboundKind { Text, Contact, Voice, Audio }
+public enum TelegramReplyMarkup { None, RequestContact, RemoveKeyboard }

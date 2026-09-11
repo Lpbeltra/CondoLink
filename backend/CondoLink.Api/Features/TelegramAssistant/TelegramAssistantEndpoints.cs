@@ -83,19 +83,25 @@ public static class TelegramAssistantEndpoints
             var root = document.RootElement;
             if (!root.TryGetProperty("update_id", out var updateNode) || !updateNode.TryGetInt64(out var updateId))
             { logger.LogInformation("Telegram webhook ignored: missing_update_id."); return Results.Ok(); }
-            if (!TryPrivateText(root, out var telegramUserId, out var chatId, out var text))
+            if (!TryPrivateMessage(root, out var inboundMessage))
             { logger.LogInformation("Telegram update ignored. UpdateId: {UpdateId}; Reason: unsupported_or_non_private.", updateId); return Results.Ok(); }
-            if (text.Length is 0 or > 4096)
+            if (inboundMessage.Kind == CondoLink.Domain.Enums.TelegramInboundKind.Text
+                && inboundMessage.Text.Length is 0 or > 4096)
             { logger.LogInformation("Telegram update ignored. UpdateId: {UpdateId}; Reason: invalid_text_length.", updateId); return Results.Ok(); }
             var now = time.GetUtcNow().UtcDateTime;
-            var inbound = new TelegramInboundUpdate(updateId, telegramUserId, chatId, text, now);
-            var pending = await db.TelegramInboundUpdates.CountAsync(x => x.ChatId == chatId
+            var inbound = inboundMessage.Kind == CondoLink.Domain.Enums.TelegramInboundKind.Text
+                ? new TelegramInboundUpdate(updateId, inboundMessage.UserId, inboundMessage.ChatId, inboundMessage.Text, now)
+                : new TelegramInboundUpdate(updateId, inboundMessage.UserId, inboundMessage.ChatId,
+                    inboundMessage.Kind, now, inboundMessage.ContactPhoneNumber,
+                    inboundMessage.ContactUserId, inboundMessage.FileId, inboundMessage.FileSize,
+                    inboundMessage.DurationSeconds, inboundMessage.FileName, inboundMessage.MimeType);
+            var pending = await db.TelegramInboundUpdates.CountAsync(x => x.ChatId == inboundMessage.ChatId
                 && (x.Status == CondoLink.Domain.Enums.TelegramInboundStatus.Pending
                     || x.Status == CondoLink.Domain.Enums.TelegramInboundStatus.Processing), ct);
             if (pending >= 20) inbound.Ignore(now);
             db.TelegramInboundUpdates.Add(inbound);
             try
-            { await db.SaveChangesAsync(ct); logger.LogInformation("Telegram update persisted. UpdateId: {UpdateId}; ChatId: {ChatId}; QueueLimited: {QueueLimited}.", updateId, chatId, pending >= 20); }
+            { await db.SaveChangesAsync(ct); logger.LogInformation("Telegram update persisted. UpdateId: {UpdateId}; ChatId: {ChatId}; Kind: {Kind}; QueueLimited: {QueueLimited}.", updateId, inboundMessage.ChatId, inboundMessage.Kind, pending >= 20); }
             catch (DbUpdateException)
             { logger.LogInformation("Telegram update deduplicated. UpdateId: {UpdateId}.", updateId); return Results.Ok(); }
         }
@@ -104,17 +110,56 @@ public static class TelegramAssistantEndpoints
 
     internal static bool TryPrivateText(JsonElement root, out long userId, out long chatId, out string text)
     {
-        userId = chatId = 0; text = string.Empty;
+        if (TryPrivateMessage(root, out var message)
+            && message.Kind == CondoLink.Domain.Enums.TelegramInboundKind.Text)
+        { userId = message.UserId; chatId = message.ChatId; text = message.Text; return true; }
+        userId = chatId = 0; text = string.Empty; return false;
+    }
+
+    internal static bool TryPrivateMessage(JsonElement root, out TelegramInboundMessage result)
+    {
+        result = default;
         if (!root.TryGetProperty("message", out var message)
             || !message.TryGetProperty("chat", out var chat)
             || !chat.TryGetProperty("type", out var type) || type.GetString() != "private"
-            || !chat.TryGetProperty("id", out var chatNode) || !chatNode.TryGetInt64(out chatId)
+            || !chat.TryGetProperty("id", out var chatNode) || !chatNode.TryGetInt64(out var chatId)
             || !message.TryGetProperty("from", out var from)
-            || !from.TryGetProperty("id", out var userNode) || !userNode.TryGetInt64(out userId)
-            || !message.TryGetProperty("text", out var textNode)) return false;
-        text = textNode.GetString()?.Trim() ?? string.Empty;
-        return userId > 0 && chatId > 0;
+            || !from.TryGetProperty("id", out var userNode) || !userNode.TryGetInt64(out var userId)
+            || userId <= 0 || chatId <= 0) return false;
+        if (message.TryGetProperty("text", out var textNode))
+        { result = new(userId, chatId, CondoLink.Domain.Enums.TelegramInboundKind.Text,
+            textNode.GetString()?.Trim() ?? string.Empty); return true; }
+        if (message.TryGetProperty("contact", out var contact)
+            && contact.TryGetProperty("phone_number", out var phone))
+        {
+            var phoneNumber = phone.GetString();
+            if (string.IsNullOrWhiteSpace(phoneNumber) || phoneNumber.Length > 32) return false;
+            long? contactUserId = contact.TryGetProperty("user_id", out var contactUser)
+                && contactUser.TryGetInt64(out var value) ? value : null;
+            result = new(userId, chatId, CondoLink.Domain.Enums.TelegramInboundKind.Contact,
+                string.Empty, phoneNumber, contactUserId); return true;
+        }
+        var kind = message.TryGetProperty("voice", out var media)
+            ? CondoLink.Domain.Enums.TelegramInboundKind.Voice
+            : message.TryGetProperty("audio", out media)
+                ? CondoLink.Domain.Enums.TelegramInboundKind.Audio : (CondoLink.Domain.Enums.TelegramInboundKind?)null;
+        if (kind is null || !media.TryGetProperty("file_id", out var fileId)) return false;
+        var identifier = fileId.GetString();
+        var fileName = OptionalString(media, "file_name");
+        var mimeType = OptionalString(media, "mime_type");
+        if (string.IsNullOrWhiteSpace(identifier) || identifier.Length > 256
+            || fileName is { Length: > 255 } || mimeType is { Length: > 100 }) return false;
+        result = new(userId, chatId, kind.Value, string.Empty, null, null,
+            identifier, OptionalInt64(media, "file_size"), OptionalInt32(media, "duration"),
+            fileName, mimeType);
+        return true;
     }
+    private static string? OptionalString(JsonElement value, string name) =>
+        value.TryGetProperty(name, out var node) && node.ValueKind == JsonValueKind.String ? node.GetString() : null;
+    private static long? OptionalInt64(JsonElement value, string name) =>
+        value.TryGetProperty(name, out var node) && node.TryGetInt64(out var number) ? number : null;
+    private static int? OptionalInt32(JsonElement value, string name) =>
+        value.TryGetProperty(name, out var node) && node.TryGetInt32(out var number) ? number : null;
     internal static string HashCode(string code) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code.Trim().ToUpperInvariant())));
     internal static string? BuildDeepLink(string? username, string code)
     {
@@ -134,3 +179,9 @@ public static class TelegramAssistantEndpoints
     { var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
       return Guid.TryParse(value, out userId); }
 }
+
+internal readonly record struct TelegramInboundMessage(long UserId, long ChatId,
+    CondoLink.Domain.Enums.TelegramInboundKind Kind, string Text,
+    string? ContactPhoneNumber = null, long? ContactUserId = null,
+    string? FileId = null, long? FileSize = null, int? DurationSeconds = null,
+    string? FileName = null, string? MimeType = null);

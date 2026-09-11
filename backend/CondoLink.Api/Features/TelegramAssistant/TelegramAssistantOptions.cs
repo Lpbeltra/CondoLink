@@ -10,6 +10,8 @@ public sealed class TelegramAssistantOptions
     public string? BotUsername { get; set; }
     public int PollingSeconds { get; set; } = 2;
     public int MaximumAttempts { get; set; } = 4;
+    public long MaximumAudioBytes { get; set; } = 15 * 1024 * 1024;
+    public int MaximumAudioDurationSeconds { get; set; } = 600;
     public bool IsConfigured => Enabled && !string.IsNullOrWhiteSpace(BotToken)
         && !string.IsNullOrWhiteSpace(WebhookSecret);
 }

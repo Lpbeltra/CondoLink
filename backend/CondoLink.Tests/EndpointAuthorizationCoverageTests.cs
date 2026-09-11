@@ -24,6 +24,8 @@ using CondoLink.Api.Features.Observability;
 using CondoLink.Api.Features.Agenda;
 using CondoLink.Api.Features.ManagementCompanyRequests;
 using CondoLink.Api.Features.WebPush;
+using CondoLink.Api.Features.ServiceProviders;
+using CondoLink.Api.Features.TelegramAssistant;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -69,6 +71,8 @@ public sealed class EndpointAuthorizationCoverageTests
         // Meta verifies and delivers the webhook without a CondoLink JWT.
         // Authenticity of POST deliveries is enforced by HMAC-SHA256.
         "/webhooks/whatsapp",
+        // Telegram delivers without a CondoLink JWT; a fixed-time secret-header check authenticates it.
+        "/integrations/telegram/webhook",
     };
 
     [Fact]
@@ -188,6 +192,8 @@ public sealed class EndpointAuthorizationCoverageTests
         builder.Services.AddScoped<ManagementCompanyRequestAccessService>();
         builder.Services.AddScoped<ManagementCompanyRequestService>();
         builder.Services.AddScoped<ManagementCompanyRequestNotificationService>();
+        builder.Services.AddScoped<ManagementCompanyRequestRealtimeService>();
+        builder.Services.AddSignalR();
         builder.Services.AddSingleton<IEmailSender>(new NoOpEmailSender());
         builder.Services.Configure<FirstAccessOptions>(x => x.FrontendBaseUrl = "https://app.comvy.test");
         builder.Services.AddScoped<FirstAccessService>();
@@ -200,6 +206,8 @@ public sealed class EndpointAuthorizationCoverageTests
         builder.Services.Configure<WebPushOptions>(_ => { });
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddHttpClient<IRequestDraftAiService, RequestDraftAiService>();
+        builder.Services.AddHttpClient<IProviderContactAiService, ProviderContactAiService>();
+        builder.Services.Configure<TelegramAssistantOptions>(_ => { });
         builder.Services.AddAuthorization();
         builder.Services.AddSingleton<LocalFileStorage>();
         builder.Services.AddSingleton<ICondominiumDocumentStorage>(services =>
@@ -295,6 +303,8 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapCreateAdministrativeRequestUpdate();
         app.MapUpdateRequestPriority();
         app.MapAgendaEndpoints();
+        app.MapPrepareProviderContactMessage();
+        app.MapRequestServiceProviderEndpoints();
 
         app.MapGetRequestReport();
         app.MapNotifications();
@@ -308,6 +318,8 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapAdministratorRequests();
         app.MapWhatsAppWebhook();
         app.MapWhatsAppAdministration();
+        app.MapServiceProviderEndpoints();
+        app.MapTelegramAssistant();
 
         app.MapOverwatchEndpoints();
     }

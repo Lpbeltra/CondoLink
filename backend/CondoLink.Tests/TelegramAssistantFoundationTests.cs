@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using CondoLink.Api.Features.CondominiumAssistant;
 using CondoLink.Api.Features.TelegramAssistant;
 using CondoLink.Domain.Entities;
@@ -18,6 +19,7 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
 {
     private CoreEndpointTestHost _host = null!;
     private readonly FakeTelegramBotClient _bot = new();
+    private readonly FakeAudioTranscriptionService _transcription = new();
     private readonly RecordingLogger<TelegramAssistantWorker> _workerLogger = new();
     private Guid _managerId;
     private Guid _residentId;
@@ -29,6 +31,7 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
         {
             builder.Services.AddSingleton(TimeProvider.System);
             builder.Services.AddSingleton<ITelegramBotClient>(_bot);
+            builder.Services.AddSingleton<IWhatsAppAudioTranscriptionService>(_transcription);
             builder.Services.AddSingleton<ILogger<TelegramAssistantWorker>>(_workerLogger);
             builder.Services.AddSingleton<IEmbeddingService, NoOpEmbeddingService>();
             builder.Services.AddScoped(services => new CondominiumAssistantService(
@@ -43,6 +46,7 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
         await _host.WithDbAsync(async db =>
         {
             var manager = CoreTestSeed.User("Manager", "telegram.manager@example.com");
+            manager.Update("Manager", "+55 (44) 99999-9999");
             var resident = CoreTestSeed.User("Resident", "telegram.resident@example.com");
             var allowedSubManager = CoreTestSeed.User("Allowed", "telegram.allowed@example.com");
             var deniedSubManager = CoreTestSeed.User("Denied", "telegram.denied@example.com");
@@ -119,21 +123,194 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Valid_start_links_once_and_consumes_code()
+    public async Task Valid_start_waits_for_own_matching_contact_then_links_once()
     {
         const string code = "ABC234XY";
         await _host.WithDbAsync(async db =>
         { db.Add(new TelegramLinkCode(_managerId, TelegramAssistantEndpoints.HashCode(code),
             DateTime.UtcNow, DateTime.UtcNow.AddMinutes(10))); await db.SaveChangesAsync(); });
         await ProcessTextAsync(61, 601, $"/start {code}");
+        Assert.Contains("Confirmar meu telefone", Assert.Single(_bot.Messages));
+        Assert.Equal(TelegramReplyMarkup.RequestContact, Assert.Single(_bot.Markups));
+        await _host.WithDbAsync(async db =>
+        { Assert.Empty(await db.TelegramUserLinks.ToArrayAsync());
+          Assert.Null((await db.TelegramLinkCodes.SingleAsync()).UsedAt); });
+        _bot.Messages.Clear(); _bot.Markups.Clear();
+        await ProcessContactAsync(62, 601, "+55 44 99999-9999", 601);
         Assert.Contains("Telegram vinculado", Assert.Single(_bot.Messages));
+        Assert.Equal(TelegramReplyMarkup.RemoveKeyboard, Assert.Single(_bot.Markups));
         await _host.WithDbAsync(async db =>
         { Assert.True((await db.TelegramUserLinks.SingleAsync()).IsActive);
           Assert.NotNull((await db.TelegramLinkCodes.SingleAsync()).UsedAt); });
         _bot.Messages.Clear();
-        await ProcessTextAsync(62, 602, $"/start {code}");
+        await ProcessTextAsync(63, 602, $"/start {code}");
         Assert.Contains("inválido ou expirado", Assert.Single(_bot.Messages));
         await _host.WithDbAsync(async db => Assert.Single(await db.TelegramUserLinks.ToArrayAsync()));
+    }
+
+    [Fact]
+    public async Task Third_party_and_mismatched_contacts_never_create_link()
+    {
+        const string code = "OWN234XY";
+        await AddCodeAsync(_managerId, code);
+        await ProcessTextAsync(71, 701, $"/start {code}");
+        _bot.Messages.Clear(); _bot.Markups.Clear();
+
+        await ProcessTextAsync(711, 702, $"/start {code}");
+        Assert.Contains("inválido ou expirado", Assert.Single(_bot.Messages));
+        _bot.Messages.Clear(); _bot.Markups.Clear();
+
+        await ProcessContactAsync(72, 701, "+5544999999999", 999);
+        Assert.Contains("não pertence", Assert.Single(_bot.Messages));
+        await _host.WithDbAsync(async db => Assert.Empty(await db.TelegramUserLinks.ToArrayAsync()));
+
+        _bot.Messages.Clear(); _bot.Markups.Clear();
+        await ProcessContactAsync(73, 701, "+5544888888888", 701);
+        Assert.Contains("não corresponde", Assert.Single(_bot.Messages));
+        await _host.WithDbAsync(async db =>
+        { Assert.Empty(await db.TelegramUserLinks.ToArrayAsync()); Assert.Null((await db.TelegramLinkCodes.SingleAsync()).UsedAt); });
+    }
+
+    [Fact]
+    public async Task Account_without_phone_cannot_begin_phone_verification()
+    {
+        const string code = "NOP234XY";
+        await AddCodeAsync(_allowedSubManagerId, code);
+        await ProcessTextAsync(74, 704, $"/start {code}");
+        Assert.Contains("cadastre/atualize seu telefone", _bot.Messages.Last());
+        await _host.WithDbAsync(async db =>
+        { Assert.Empty(await db.TelegramUserLinks.ToArrayAsync()); Assert.Null((await db.TelegramLinkCodes.SingleAsync()).PendingTelegramUserId); });
+    }
+
+    [Fact]
+    public async Task Webhook_persists_contact_voice_and_audio_without_content_logging()
+    {
+        var client = _host.AnonymousClient();
+        client.DefaultRequestHeaders.Add("X-Telegram-Bot-Api-Secret-Token", "test-secret");
+        await client.PostAsJsonAsync("/integrations/telegram/webhook", new
+        { update_id = 801L, message = new { from = new { id = 801L }, chat = new { id = 801L, type = "private" }, contact = new { phone_number = "+5544999999999", user_id = 801L } } });
+        await client.PostAsJsonAsync("/integrations/telegram/webhook", new
+        { update_id = 802L, message = new { from = new { id = 801L }, chat = new { id = 801L, type = "private" }, voice = new { file_id = "voice-file", file_size = 100L, duration = 4 } } });
+        await client.PostAsJsonAsync("/integrations/telegram/webhook", new
+        { update_id = 803L, message = new { from = new { id = 801L }, chat = new { id = 801L, type = "private" }, audio = new { file_id = "audio-file", file_size = 200L, duration = 5, mime_type = "audio/mpeg", file_name = "question.mp3" } } });
+        await _host.WithDbAsync(async db => Assert.Equal(
+            [TelegramInboundKind.Contact, TelegramInboundKind.Voice, TelegramInboundKind.Audio],
+            await db.TelegramInboundUpdates.OrderBy(x => x.UpdateId).Select(x => x.Kind).ToArrayAsync()));
+    }
+
+    [Fact]
+    public async Task Voice_is_downloaded_transcribed_and_uses_text_pipeline_with_typing_and_metrics()
+    {
+        await _host.WithDbAsync(async db =>
+        { db.Add(new TelegramUserLink(_managerId, 805, 805, DateTime.UtcNow));
+          db.Add(new TelegramInboundUpdate(805, 805, 805, TelegramInboundKind.Voice,
+              DateTime.UtcNow, fileId: "voice-file", fileSize: 3, durationSeconds: 2)); await db.SaveChangesAsync(); });
+        await ProcessPendingAsync();
+        Assert.Equal(1, _bot.DownloadCount); Assert.Equal(1, _transcription.Calls); Assert.True(_bot.TypingCount >= 1);
+        await _host.WithDbAsync(async db =>
+        {
+            var update = await db.TelegramInboundUpdates.SingleAsync(x => x.UpdateId == 805);
+            Assert.Equal("Quais documentos estão cadastrados?", update.Text);
+            Assert.NotNull(update.AssistantExecutionId); Assert.NotNull(update.QueueDurationMs);
+            Assert.NotNull(update.AudioDownloadDurationMs); Assert.NotNull(update.TranscriptionDurationMs);
+            Assert.NotNull(update.AssistantDurationMs); Assert.NotNull(update.DeliveryDurationMs); Assert.NotNull(update.TotalDurationMs);
+            Assert.Contains(await db.CondominiumAssistantMessages.ToArrayAsync(),
+                x => x.Role == CondominiumAssistantRole.User && x.Content == update.Text);
+        });
+        await ProcessTextAsync(8051, 805, "Quais documentos estão cadastrados?");
+        await _host.WithDbAsync(async db =>
+        { Assert.Single(await db.CondominiumAssistantConversations.ToArrayAsync());
+          Assert.Equal(2, await db.CondominiumAssistantMessages.CountAsync(x => x.Role == CondominiumAssistantRole.User)); });
+    }
+
+    [Fact]
+    public async Task Audio_followup_after_text_reuses_same_conversation()
+    {
+        await _host.WithDbAsync(async db =>
+        { db.Add(new TelegramUserLink(_managerId, 809, 809, DateTime.UtcNow)); await db.SaveChangesAsync(); });
+        await ProcessTextAsync(8090, 809, "Quais documentos estão cadastrados?");
+        await _host.WithDbAsync(async db =>
+        { db.Add(new TelegramInboundUpdate(8091, 809, 809, TelegramInboundKind.Audio,
+              DateTime.UtcNow, fileId: "audio-file", fileSize: 3, durationSeconds: 2,
+              fileName: "question.mp3", mimeType: "audio/mpeg")); await db.SaveChangesAsync(); });
+        await ProcessPendingAsync();
+        Assert.Equal(1, _bot.DownloadCount); Assert.Equal(1, _transcription.Calls);
+        await _host.WithDbAsync(async db =>
+        { Assert.Single(await db.CondominiumAssistantConversations.ToArrayAsync());
+          Assert.Equal(2, await db.CondominiumAssistantMessages.CountAsync(x => x.Role == CondominiumAssistantRole.User)); });
+    }
+
+    [Fact]
+    public async Task Invalid_large_and_failed_audio_return_safe_feedback()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            db.Add(new TelegramUserLink(_managerId, 806, 806, DateTime.UtcNow));
+            db.Add(new TelegramInboundUpdate(806, 806, 806, TelegramInboundKind.Audio,
+                DateTime.UtcNow, fileId: "large", fileSize: 20 * 1024 * 1024, durationSeconds: 2,
+                mimeType: "audio/mpeg")); await db.SaveChangesAsync();
+        });
+        await ProcessPendingAsync();
+        Assert.Contains("Não consegui entender", _bot.Messages.Last()); Assert.Equal(0, _bot.DownloadCount);
+
+        _bot.Messages.Clear(); _transcription.Result = new(false, null, "provider_error");
+        await _host.WithDbAsync(async db =>
+        { db.Add(new TelegramInboundUpdate(807, 806, 806, TelegramInboundKind.Audio,
+              DateTime.UtcNow, fileId: "audio", fileSize: 3, durationSeconds: 2,
+              mimeType: "audio/mpeg")); await db.SaveChangesAsync(); });
+        await ProcessPendingAsync();
+        Assert.Contains("Não consegui entender", Assert.Single(_bot.Messages));
+
+        _bot.Messages.Clear(); _bot.DownloadFailure = new HttpRequestException("download failed");
+        await _host.WithDbAsync(async db =>
+        { db.Add(new TelegramInboundUpdate(8071, 806, 806, TelegramInboundKind.Voice,
+              DateTime.UtcNow, fileId: "voice", fileSize: 3, durationSeconds: 2)); await db.SaveChangesAsync(); });
+        await ProcessPendingAsync();
+        Assert.Contains("Não consegui entender", Assert.Single(_bot.Messages));
+    }
+
+    [Fact]
+    public async Task Source_question_uses_previous_persisted_sources_without_new_rag()
+    {
+        var source = new AssistantSource(Guid.NewGuid(), "Ata da AGO — 09/04/2026", 3,
+            null, "trecho", "[S1]", Guid.NewGuid(), "secret-storage-name.pdf");
+        await _host.WithDbAsync(async db =>
+        {
+            var link = new TelegramUserLink(_managerId, 808, 808, DateTime.UtcNow); db.Add(link);
+            var condominiumId = await db.Condominiums.Select(x => x.Id).SingleAsync(); link.SelectCondominium(condominiumId, DateTime.UtcNow);
+            var conversation = new CondominiumAssistantConversation(condominiumId, _managerId, null,
+                "Telegram", CondominiumAssistantChannel.Telegram); db.Add(conversation);
+            db.Add(new CondominiumAssistantMessage(conversation.Id, CondominiumAssistantRole.Assistant,
+                "Resposta anterior", JsonSerializer.Serialize(new[] { source }, CondominiumAssistantEndpoints.AssistantJsonOptions)));
+            await db.SaveChangesAsync();
+        });
+        await ProcessTextAsync(808, 808, "qual a fonte?");
+        var response = Assert.Single(_bot.Messages);
+        Assert.Contains("Ata da AGO", response); Assert.Contains("página 3", response);
+        Assert.DoesNotContain(source.DocumentId.ToString(), response); Assert.DoesNotContain(source.ChunkId!.Value.ToString(), response);
+        Assert.DoesNotContain("secret-storage", response);
+    }
+
+    [Fact]
+    public void Source_question_detection_and_empty_source_response_are_deterministic()
+    {
+        Assert.True(TelegramAssistantWorker.IsSourceQuestion("De onde você tirou isso?"));
+        Assert.True(TelegramAssistantWorker.IsSourceQuestion("Onde isso está escrito?"));
+        Assert.False(TelegramAssistantWorker.IsSourceQuestion("Qual foi a última assembleia?"));
+        Assert.Equal("Essa resposta não possui uma fonte documental associada.",
+            TelegramAssistantWorker.FormatSources([]));
+    }
+
+    [Fact]
+    public async Task Typing_renews_without_messages_and_stops_on_cancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var task = TelegramAssistantWorker.TypingAsync(_bot, 1, cancellation.Token,
+            TimeSpan.FromMilliseconds(10));
+        await Task.Delay(35); cancellation.Cancel(); await task;
+        var count = _bot.TypingCount;
+        Assert.InRange(count, 2, 5); Assert.Empty(_bot.Messages);
+        await Task.Delay(20); Assert.Equal(count, _bot.TypingCount);
     }
 
     [Fact]
@@ -277,11 +454,13 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
     public void Formats_compact_sources_and_splits_long_answers()
     {
         var documentId = Guid.NewGuid();
-        var answer = new AssistantAnswer("Resposta", [
+        var answer = new AssistantAnswer("Resposta [S1]", [
             new(documentId, "Ata AGO", 3, null, "x", "[F1]"),
             new(documentId, "Ata AGO", 4, null, "y", "[F2]")], "test");
         var formatted = TelegramAssistantWorker.FormatAnswer(answer);
-        Assert.Contains("• Ata AGO — pág. 3, 4", formatted); Assert.DoesNotContain("storage", formatted);
+        Assert.Equal("Resposta", formatted); Assert.DoesNotContain("Fontes:", formatted);
+        var sources = TelegramAssistantWorker.FormatSources(answer.Sources);
+        Assert.Contains("Ata AGO", sources); Assert.Contains("3, 4", sources); Assert.DoesNotContain(documentId.ToString(), sources);
         Assert.All(TelegramAssistantWorker.SplitMessage(new string('a', 9000)), part => Assert.InRange(part.Length, 1, 3800));
     }
 
@@ -310,6 +489,16 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
         { db.Add(new TelegramInboundUpdate(updateId, telegramId, telegramId, text, DateTime.UtcNow)); await db.SaveChangesAsync(); });
         await ProcessPendingAsync();
     }
+    private async Task ProcessContactAsync(long updateId, long telegramId, string phone, long? contactUserId)
+    {
+        await _host.WithDbAsync(async db =>
+        { db.Add(new TelegramInboundUpdate(updateId, telegramId, telegramId, TelegramInboundKind.Contact,
+              DateTime.UtcNow, phone, contactUserId)); await db.SaveChangesAsync(); });
+        await ProcessPendingAsync();
+    }
+    private Task AddCodeAsync(Guid userId, string code) => _host.WithDbAsync(async db =>
+    { db.Add(new TelegramLinkCode(userId, TelegramAssistantEndpoints.HashCode(code),
+          DateTime.UtcNow, DateTime.UtcNow.AddMinutes(10))); await db.SaveChangesAsync(); });
     private Task ProcessPendingAsync() => _host.WithServicesAsync(async services =>
     {
         var worker = ActivatorUtilities.CreateInstance<TelegramAssistantWorker>(services);
@@ -318,11 +507,30 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
     private sealed class FakeTelegramBotClient : ITelegramBotClient
     {
         public List<string> Messages { get; } = [];
+        public List<TelegramReplyMarkup> Markups { get; } = [];
+        public int TypingCount { get; private set; }
+        public int DownloadCount { get; private set; }
         public bool FailSends { get; set; }
         public Exception? Failure { get; set; }
+        public Exception? DownloadFailure { get; set; }
         public Task SendMessageAsync(long chatId, string text, CancellationToken ct)
-        { if (Failure is not null) throw Failure; if (FailSends) throw new HttpRequestException("failed"); Messages.Add(text); return Task.CompletedTask; }
-        public Task SendTypingAsync(long chatId, CancellationToken ct) => Task.CompletedTask;
+        { if (Failure is not null) throw Failure; if (FailSends) throw new HttpRequestException("failed"); Messages.Add(text); Markups.Add(TelegramReplyMarkup.None); return Task.CompletedTask; }
+        public Task SendMessageAsync(long chatId, string text, TelegramReplyMarkup markup, CancellationToken ct)
+        { if (Failure is not null) throw Failure; if (FailSends) throw new HttpRequestException("failed"); Messages.Add(text); Markups.Add(markup); return Task.CompletedTask; }
+        public Task SendTypingAsync(long chatId, CancellationToken ct) { TypingCount++; return Task.CompletedTask; }
+        public Task<byte[]> DownloadFileAsync(string fileId, long maximumBytes, CancellationToken ct)
+        { DownloadCount++; return DownloadFailure is null ? Task.FromResult(new byte[] { 1, 2, 3 })
+              : Task.FromException<byte[]>(DownloadFailure); }
+    }
+
+    private sealed class FakeAudioTranscriptionService : IWhatsAppAudioTranscriptionService
+    {
+        public AudioTranscriptionResult Result { get; set; } =
+            new(true, "Quais documentos estão cadastrados?", "succeeded");
+        public int Calls { get; private set; }
+        public Task<AudioTranscriptionResult> TranscribeAsync(ReadOnlyMemory<byte> audio,
+            string fileName, string contentType, CancellationToken cancellationToken)
+        { Calls++; return Task.FromResult(Result); }
     }
 
     private sealed class NoOpEmbeddingService : IEmbeddingService

@@ -17,6 +17,7 @@ public sealed class TelegramLinkCodeConfiguration : IEntityTypeConfiguration<Tel
     public void Configure(EntityTypeBuilder<TelegramLinkCode> b)
     { b.ToTable("telegram_link_codes"); b.HasKey(x => x.Id); b.Property(x => x.CodeHash).HasMaxLength(64);
       b.HasIndex(x => x.CodeHash).IsUnique(); b.HasIndex(x => new { x.UserId, x.ExpiresAt });
+      b.HasIndex(x => new { x.PendingTelegramUserId, x.PendingTelegramChatId, x.ExpiresAt });
       b.HasOne<CondoLink.Infrastructure.Identity.ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade); }
 }
 public sealed class TelegramInboundUpdateConfiguration : IEntityTypeConfiguration<TelegramInboundUpdate>
@@ -24,6 +25,9 @@ public sealed class TelegramInboundUpdateConfiguration : IEntityTypeConfiguratio
     public void Configure(EntityTypeBuilder<TelegramInboundUpdate> b)
     { b.ToTable("telegram_inbound_updates"); b.HasKey(x => x.Id); b.HasIndex(x => x.UpdateId).IsUnique();
       b.Property(x => x.Text).HasMaxLength(4096);
+      b.Property(x => x.Kind).HasConversion<int>(); b.Property(x => x.ReplyMarkup).HasConversion<int>();
+      b.Property(x => x.ContactPhoneNumber).HasMaxLength(32); b.Property(x => x.FileId).HasMaxLength(256);
+      b.Property(x => x.FileName).HasMaxLength(255); b.Property(x => x.MimeType).HasMaxLength(100);
       b.Property(x => x.LastError).HasMaxLength(100); b.Property(x => x.Status).HasConversion<int>();
       b.HasIndex(x => new { x.Status, x.NextAttemptAt }); b.HasIndex(x => new { x.ChatId, x.ReceivedAt }); }
 }
