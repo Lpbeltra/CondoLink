@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useCondominium } from "../condominiums/CondominiumContext";
 import { useManagementContext } from "../management/ManagementContext";
 import { useAdministrator } from "../administrator/AdministratorContext";
+import { useCondominiumModules } from "../modules/useCondominiumModules";
 
 vi.mock("../auth/AuthContext", () => ({ useAuth: vi.fn() }));
 vi.mock("../condominiums/CondominiumContext", () => ({
@@ -17,17 +18,22 @@ vi.mock("../management/ManagementContext", () => ({
 vi.mock("../administrator/AdministratorContext", () => ({
   useAdministrator: vi.fn(),
 }));
+vi.mock("../modules/useCondominiumModules", () => ({
+  useCondominiumModules: vi.fn(),
+}));
 
 function mockContexts({
   administrator = null,
   condominiumCount = 0,
   hasEligibleManagementCompany = false,
   currentCondominium = null,
+  isModuleEnabled = () => false,
 }: {
   administrator?: unknown;
   condominiumCount?: number;
   hasEligibleManagementCompany?: boolean;
   currentCondominium?: { roles: string[] } | null;
+  isModuleEnabled?: (module: string) => boolean;
 }) {
   vi.mocked(useAuth).mockReturnValue({ user: { roles: [] } } as never);
   vi.mocked(useCondominium).mockReturnValue({
@@ -40,6 +46,9 @@ function mockContexts({
   vi.mocked(useAdministrator).mockReturnValue({
     value: administrator,
     loading: false,
+  } as never);
+  vi.mocked(useCondominiumModules).mockReturnValue({
+    isModuleEnabled,
   } as never);
 }
 
@@ -83,5 +92,31 @@ describe("Sidebar multi-role navigation", () => {
     renderSidebar();
     expect(screen.getByText("Dashboard")).toBeInTheDocument();
     expect(document.querySelector('a[href="/administrator/requests"]')).not.toBeInTheDocument();
+  });
+
+  it("hides Funcionários when the EmployeeManagement module is disabled", () => {
+    mockContexts({
+      condominiumCount: 1,
+      currentCondominium: { roles: ["Manager"] },
+      isModuleEnabled: () => false,
+    });
+    renderSidebar();
+    expect(document.querySelector('a[href="/management/employees"]')).not.toBeInTheDocument();
+  });
+
+  it("shows Funcionários when the EmployeeManagement module is enabled", () => {
+    mockContexts({
+      condominiumCount: 1,
+      currentCondominium: { roles: ["Manager"] },
+      isModuleEnabled: (module) => module === "EmployeeManagement",
+    });
+    renderSidebar();
+    expect(document.querySelector('a[href="/management/employees"]')).toBeInTheDocument();
+  });
+
+  it("shows Funcionários for the administrator portal regardless of module entitlement", () => {
+    mockContexts({ administrator: { managementCompanyId: "mc1" } });
+    renderSidebar();
+    expect(document.querySelector('a[href="/administrator/employees"]')).toBeInTheDocument();
   });
 });

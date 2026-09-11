@@ -10,7 +10,7 @@ import { getErrorMessage } from '../../services/api'
 import { TransientFeedback } from '../../components/TransientFeedback'
 import { PermanentDeleteDialog } from '../components/PermanentDeleteDialog'
 
-const labels: Record<SubManagerModule, string> = { Attendance: 'Atendimento', ManagementCompany: 'Administradora', Agenda: 'Agenda', Assistant: 'Assistente', Documents: 'Documentos', Management: 'Gestão' }
+const labels: Record<SubManagerModule, string> = { Attendance: 'Atendimento', ManagementCompany: 'Administradora', Agenda: 'Agenda', Assistant: 'Assistente', Documents: 'Documentos', Management: 'Gestão', EmployeeManagement: 'Gestão de Funcionários' }
 const emptyForm = () => ({ fullName: '', email: '', phoneNumber: '', condominiumId: '', pixKeyType: '' as PixKeyType | '', pixKey: '' })
 
 export function OverwatchSubManagersPage() {

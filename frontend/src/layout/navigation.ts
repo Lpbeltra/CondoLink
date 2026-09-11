@@ -9,6 +9,7 @@ import DescriptionRoundedIcon from "@mui/icons-material/DescriptionRounded";
 import EventNoteRoundedIcon from "@mui/icons-material/EventNoteRounded";
 import BusinessRoundedIcon from "@mui/icons-material/BusinessRounded";
 import HandymanRoundedIcon from "@mui/icons-material/HandymanRounded";
+import BadgeRoundedIcon from "@mui/icons-material/BadgeRounded";
 import type { SvgIconComponent } from "@mui/icons-material";
 import type { CondominiumRole, CondominiumContext } from "../condominiums/types";
 import type { SubManagerModule } from "../overwatch/submanagers/api";
@@ -40,6 +41,7 @@ const commonItems: NavigationItem[] = [
   { label: "Administradora", path: "/management/administrator", icon: BusinessRoundedIcon, requiredRole: "Manager", requiredModule: "ManagementCompany", mobilePriority: 70 },
   { label: "Agenda", path: "/management/agenda", icon: EventNoteRoundedIcon, requiredRole: "Manager", requiredModule: "Agenda", mobilePriority: 50 },
   { label: "Prestadores", path: "/management/service-providers", icon: HandymanRoundedIcon, requiredRole: "Manager", requiredModule: "Management", mobilePriority: 55 },
+  { label: "Funcionários", path: "/management/employees", icon: BadgeRoundedIcon, requiredRole: "Manager", requiredModule: "EmployeeManagement", mobilePriority: 65 },
   { label: "Assistente", path: "/management/assistant", icon: AutoAwesomeRoundedIcon, requiredRole: "Manager", requiredModule: "Assistant", mobilePrimary: true, mobilePriority: 30 },
   { label: "Documentos", path: "/management/documents", icon: DescriptionRoundedIcon, requiredRole: "Manager", requiredModule: "Documents", mobilePriority: 60 },
   { label: "Gestão", path: "/management/units", icon: ApartmentRoundedIcon, requiredRole: "Manager", requiredModule: "Management", mobilePriority: 80 },

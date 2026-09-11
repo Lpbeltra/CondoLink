@@ -1094,6 +1094,114 @@ namespace CondoLink.Infrastructure.Migrations
                     b.ToTable("condominium_membership_roles", (string)null);
                 });
 
+            modelBuilder.Entity("CondoLink.Domain.Entities.CondominiumModule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CondominiumId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ManagementCompanyAccessEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Module")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CondominiumId", "Module")
+                        .IsUnique();
+
+                    b.ToTable("condominium_modules", (string)null);
+                });
+
+            modelBuilder.Entity("CondoLink.Domain.Entities.Employee", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateOnly?>("AdmissionDate")
+                        .HasColumnType("date")
+                        .HasColumnName("admission_date");
+
+                    b.Property<Guid>("CondominiumId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("condominium_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("email");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("full_name");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("JobTitle")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("job_title");
+
+                    b.Property<string>("NormalizedPhoneNumber")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("normalized_phone_number");
+
+                    b.Property<string>("NormalizedRegistrationNumber")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("normalized_registration_number");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("phone_number");
+
+                    b.Property<string>("RegistrationNumber")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("registration_number");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CondominiumId")
+                        .HasDatabaseName("ix_employees_condominium_id");
+
+                    b.HasIndex("CondominiumId", "NormalizedRegistrationNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ux_employees_condominium_id_registration_number")
+                        .HasFilter("normalized_registration_number IS NOT NULL");
+
+                    b.ToTable("employees", (string)null);
+                });
+
             modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompany", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1215,6 +1323,46 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasDatabaseName("ux_management_company_employees_user_id");
 
                     b.ToTable("management_company_employees", (string)null);
+                });
+
+            modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompanyEmployeeModulePermission", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("GrantedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("granted_at");
+
+                    b.Property<Guid>("GrantedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("granted_by_user_id");
+
+                    b.Property<bool>("IsAllowed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_allowed");
+
+                    b.Property<Guid>("ManagementCompanyEmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("management_company_employee_id");
+
+                    b.Property<int>("Module")
+                        .HasColumnType("integer")
+                        .HasColumnName("module");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ManagementCompanyEmployeeId", "Module")
+                        .IsUnique()
+                        .HasDatabaseName("ux_mc_employee_module_permissions_employee_module");
+
+                    b.ToTable("management_company_employee_module_permissions", (string)null);
                 });
 
             modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompanyFineRequest", b =>
@@ -4045,6 +4193,24 @@ namespace CondoLink.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("CondoLink.Domain.Entities.CondominiumModule", b =>
+                {
+                    b.HasOne("CondoLink.Domain.Entities.Condominium", null)
+                        .WithMany()
+                        .HasForeignKey("CondominiumId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CondoLink.Domain.Entities.Employee", b =>
+                {
+                    b.HasOne("CondoLink.Domain.Entities.Condominium", null)
+                        .WithMany()
+                        .HasForeignKey("CondominiumId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompanyEmployee", b =>
                 {
                     b.HasOne("CondoLink.Domain.Entities.ManagementCompany", "ManagementCompany")
@@ -4060,6 +4226,15 @@ namespace CondoLink.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("ManagementCompany");
+                });
+
+            modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompanyEmployeeModulePermission", b =>
+                {
+                    b.HasOne("CondoLink.Domain.Entities.ManagementCompanyEmployee", null)
+                        .WithMany()
+                        .HasForeignKey("ManagementCompanyEmployeeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompanyFineRequest", b =>

@@ -6,13 +6,13 @@ public sealed class SubManagerModulePermission
 {
     private SubManagerModulePermission() { }
 
-    public SubManagerModulePermission(Guid membershipId, SubManagerModule module, Guid grantedByUserId)
+    public SubManagerModulePermission(Guid membershipId, SubManagerModule module, Guid grantedByUserId, bool defaultAllowed = true)
     {
         if (membershipId == Guid.Empty || grantedByUserId == Guid.Empty) throw new ArgumentException("Permission context is required.");
         Id = Guid.NewGuid();
         CondominiumMembershipId = membershipId;
         Module = module;
-        IsAllowed = true;
+        IsAllowed = defaultAllowed;
         GrantedByUserId = grantedByUserId;
         GrantedAt = DateTime.UtcNow;
     }

@@ -11,7 +11,7 @@ describe("role-based navigation", () => {
   });
 
   it("gives Manager the complete catalog", () => {
-    expect(getNavigationItems(["Manager", "Resident"]).map(item => item.label)).toEqual(["Dashboard", "Atendimento", "Administradora", "Agenda", "Prestadores", "Assistente", "Documentos", "Gestão"]);
+    expect(getNavigationItems(["Manager", "Resident"]).map(item => item.label)).toEqual(["Dashboard", "Atendimento", "Administradora", "Agenda", "Prestadores", "Funcionários", "Assistente", "Documentos", "Gestão"]);
     expect(getMobileNavigationItems(["Manager"]).map(item => item.label)).toEqual(["Dashboard", "Atendimento", "Assistente", "Mais"]);
   });
 
@@ -21,6 +21,12 @@ describe("role-based navigation", () => {
     ]);
     expect(getNavigationItems(["SubManager"], [], ["Assistant"]).map(item => item.label)).toEqual(["Assistente"]);
     expect(getNavigationItems(["SubManager"], [], []).map(item => item.label)).toEqual([]);
+  });
+
+  it("gates Funcionários behind the EmployeeManagement SubManager permission", () => {
+    expect(getNavigationItems(["SubManager"], [], [...allPermissions, "EmployeeManagement"]).map(item => item.label)).toContain("Funcionários");
+    expect(getNavigationItems(["SubManager"], [], allPermissions).map(item => item.label)).not.toContain("Funcionários");
+    expect(getNavigationItems(["Manager"], [], []).map(item => item.label)).toContain("Funcionários");
   });
 
   it("uses union permissions for consolidated SubManager navigation", () => {

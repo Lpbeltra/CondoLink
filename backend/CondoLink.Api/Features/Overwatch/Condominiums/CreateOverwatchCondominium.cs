@@ -1,5 +1,6 @@
 using CondoLink.Domain;
 using CondoLink.Domain.Entities;
+using CondoLink.Api.Features.CondominiumModules;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -31,6 +32,7 @@ public static class CreateOverwatchCondominium
             request.IsRemoteDoorman, request.DoormanContact);
         item.ConfigureWhatsAppUpdates(request.WhatsAppUpdatesEnabled ?? true, null);
         db.Condominiums.Add(item);
+        CondominiumModuleService.AddDefaults(db, item.Id, DateTime.UtcNow);
         await db.SaveChangesAsync(cancellationToken);
         return Results.Created($"/overwatch/condominiums/{item.Id}", new { item.Id });
     }

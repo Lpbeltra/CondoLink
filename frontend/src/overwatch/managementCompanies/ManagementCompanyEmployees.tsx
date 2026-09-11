@@ -21,6 +21,7 @@ import {
   MenuItem,
   Skeleton,
   Stack,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -37,7 +38,9 @@ import { PermanentDeleteDialog } from '../components/PermanentDeleteDialog'
 import {
   createManagementCompanyEmployee,
   listManagementCompanyEmployees,
+  listManagementCompanyEmployeeModulePermissions,
   removeManagementCompanyEmployee,
+  setManagementCompanyEmployeeModulePermissions,
   updateManagementCompanyEmployeeStatus,
   resendManagementCompanyAccess,
   resetManagementCompanyAccessPassword,
@@ -84,11 +87,19 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
     anchorEl: HTMLElement
   } | null>(null)
 
+  const [employeeManagementAllowed, setEmployeeManagementAllowed] = useState<Record<string, boolean>>({})
+
   const load = useCallback(async () => {
     setIsLoading(true)
     setLoadError('')
     try {
-      setEmployees(await listManagementCompanyEmployees(managementCompanyId))
+      const list = await listManagementCompanyEmployees(managementCompanyId)
+      setEmployees(list)
+      const entries = await Promise.all(list.map(async (item) => {
+        const permissions = await listManagementCompanyEmployeeModulePermissions(item.id)
+        return [item.id, permissions.some((x) => x.module === 'EmployeeManagement' && x.allowed)] as const
+      }))
+      setEmployeeManagementAllowed(Object.fromEntries(entries))
     } catch (error) {
       setLoadError(employeeError(error))
     } finally {
@@ -99,6 +110,16 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
   useEffect(() => {
     void load()
   }, [load])
+
+  const toggleEmployeeManagement = async (employee: ManagementCompanyEmployee, allowed: boolean) => {
+    setEmployeeManagementAllowed((current) => ({ ...current, [employee.id]: allowed }))
+    try {
+      await setManagementCompanyEmployeeModulePermissions(employee.id, [{ module: 'EmployeeManagement', allowed }])
+    } catch (error) {
+      setEmployeeManagementAllowed((current) => ({ ...current, [employee.id]: !allowed }))
+      setLoadError(employeeError(error))
+    }
+  }
 
   const openForm = () => {
     setFullName('')
@@ -241,7 +262,7 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
           <Table sx={{ minWidth: 620 }}>
             <TableHead>
               <TableRow>
-                {['Nome', 'Tipo', 'Contato', 'Função', 'Ações'].map((column) => (
+                {['Nome', 'Tipo', 'Contato', 'Função', 'Gestão de Funcionários', 'Ações'].map((column) => (
                   <TableCell key={column} sx={{ fontWeight: 750 }}>{column}</TableCell>
                 ))}
               </TableRow>
@@ -253,6 +274,13 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
                   <TableCell>{employee.accessType === 'Department' ? 'Setor' : 'Pessoa'}</TableCell>
                   <TableCell>{employee.contact || 'Não informado'}</TableCell>
                   <TableCell sx={{ overflowWrap: 'anywhere' }}>{employee.jobTitle}</TableCell>
+                  <TableCell>
+                    <Switch
+                      checked={employeeManagementAllowed[employee.id] ?? false}
+                      onChange={(event) => void toggleEmployeeManagement(employee, event.target.checked)}
+                      inputProps={{ 'aria-label': `Permitir Gestão de Funcionários para ${employee.fullName}` }}
+                    />
+                  </TableCell>
                   <TableCell>
                     <Button
                         size="small"

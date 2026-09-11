@@ -8,6 +8,8 @@ using CondoLink.Api.Features.CondominiumMembers;
 using CondoLink.Api.Features.Condominiums;
 using CondoLink.Api.Features.CondominiumAssistant;
 using CondoLink.Api.Features.CondominiumSetup;
+using CondoLink.Api.Features.CondominiumModules;
+using CondoLink.Api.Features.EmployeeManagement;
 using CondoLink.Api.Features.Management;
 using CondoLink.Api.Features.Notifications;
 using CondoLink.Api.Features.Overwatch;
@@ -185,6 +187,8 @@ public sealed class EndpointAuthorizationCoverageTests
             .AddRoles<IdentityRole<Guid>>()
             .AddEntityFrameworkStores<AppDbContext>();
         builder.Services.AddScoped<CondominiumMembershipService>();
+        builder.Services.AddScoped<ICondominiumModuleService, CondominiumModuleService>();
+        builder.Services.AddScoped<EmployeeManagementAccessService>();
         builder.Services.AddScoped<ManagerOnboardingService>();
         builder.Services.AddScoped<NotificationService>();
         builder.Services.AddScoped<RequestClosureService>();
@@ -276,6 +280,7 @@ public sealed class EndpointAuthorizationCoverageTests
         app.MapCondominiumAssistant();
 
         app.MapManagementContext();
+        app.MapEmployeeManagementEndpoints();
         app.MapCondominiumBlocks();
 
         app.MapCreateUnit();

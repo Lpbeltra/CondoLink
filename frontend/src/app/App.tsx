@@ -75,6 +75,8 @@ const ManagementAgendaPage = lazyPage(
   "ManagementAgendaPage",
 );
 const ServiceProvidersPage = lazyPage(() => import("../serviceProviders/ServiceProvidersPage"), "ServiceProvidersPage");
+const ManagementEmployeesPage = lazyPage(() => import("../employees/ManagementEmployeesPage"), "ManagementEmployeesPage");
+const AdministratorEmployeeManagementPage = lazyPage(() => import("../administrator/employeeManagement/AdministratorEmployeeManagementPage"), "AdministratorEmployeeManagementPage");
 const ManagementBlocksPage = lazyPage(
   () => import("../pages/ManagementBlocksPage"),
   "ManagementBlocksPage",
@@ -217,6 +219,10 @@ export function App() {
                     path="administrator/requests/:id"
                     element={<AdministratorRequestDetailsPage />}
                   />
+                  <Route
+                    path="administrator/employees"
+                    element={<AdministratorEmployeeManagementPage />}
+                  />
                   <Route path="management" element={<ManagementLayout />}>
                     <Route
                       index
@@ -232,6 +238,7 @@ export function App() {
                     />
                     <Route path="agenda" element={<ManagementAgendaPage />} />
                     <Route path="service-providers" element={<ServiceProvidersPage />} />
+                    <Route path="employees" element={<ManagementEmployeesPage />} />
                     <Route
                       path="administrator"
                       element={<ManagementCompanyRequestsPage />}

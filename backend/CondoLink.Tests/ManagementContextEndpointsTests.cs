@@ -39,6 +39,8 @@ public sealed class ManagementContextEndpointsTests : IAsyncLifetime
             .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
                 TestAuthHandler.TestScheme, _ => { });
         builder.Services.AddAuthorization();
+        builder.Services.AddScoped<CondoLink.Api.Features.CondominiumModules.ICondominiumModuleService,
+            CondoLink.Api.Features.CondominiumModules.CondominiumModuleService>();
 
         _application = builder.Build();
         _application.UseAuthentication();

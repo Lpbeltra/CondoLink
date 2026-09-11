@@ -10,5 +10,8 @@ public enum SubManagerModule
     Agenda = 4,
     Assistant = 5,
     Documents = 6,
-    Management = 7
+    Management = 7,
+    // Denied by default when backfilled: unlike the other modules, this one must be
+    // explicitly granted by a Manager rather than inherited automatically.
+    EmployeeManagement = 8
 }

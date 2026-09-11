@@ -38,6 +38,7 @@ import {
 import { condominiumError } from '../condominiums/errors'
 import { CondominiumFormDialog } from '../condominiums/CondominiumFormDialog'
 import { CondominiumManagers } from '../condominiums/CondominiumManagers'
+import { CondominiumModulesCard } from '../condominiums/CondominiumModulesCard'
 import { condominiumDetailTabs } from '../condominiums/presentation'
 import type {
   CondominiumInput,
@@ -298,6 +299,7 @@ export function OverwatchCondominiumDetailsPage() {
           )}
         </CardContent>
       </Card>
+      <CondominiumModulesCard condominiumId={condominium.id} />
 
       <CondominiumFormDialog
         open={editOpen}

@@ -3,6 +3,7 @@ using System.Security.Claims;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using CondoLink.Domain.Enums;
+using CondoLink.Api.Features.CondominiumModules;
 using Microsoft.EntityFrameworkCore;
 
 namespace CondoLink.Api.Features.Management;
@@ -15,6 +16,8 @@ public static class ManagementContextEndpoints
         endpoints.MapGet("/management/context", HandleGetAsync)
             .RequireAuthorization();
         endpoints.MapPut("/management/context", HandlePutAsync)
+            .RequireAuthorization();
+        endpoints.MapGet("/management/modules", HandleModulesAsync)
             .RequireAuthorization();
         return endpoints;
     }
@@ -93,6 +96,19 @@ public static class ManagementContextEndpoints
         Results.Json(
             new { error = "Authenticated user was not found or is inactive." },
             statusCode: StatusCodes.Status401Unauthorized);
+
+    private static async Task<IResult> HandleModulesAsync(ClaimsPrincipal principal, AppDbContext dbContext,
+        ICondominiumModuleService modules, CancellationToken ct)
+    {
+        var user = await GetActiveUserAsync(principal, dbContext, ct);
+        if (user is null) return AuthenticationFailed();
+        var context = await ManagementContextReconciler.ReconcileAsync(user, dbContext, ct);
+        if (dbContext.ChangeTracker.HasChanges()) await dbContext.SaveChangesAsync(ct);
+        if (context.ActiveManagementCondominiumId is not Guid condominiumId)
+            return Results.Ok(new { modules = Array.Empty<object>() });
+        return Results.Ok(new { modules = (await modules.GetModulesAsync(condominiumId, ct)).Select(x => new
+        { module = x.Module.ToString(), enabled = x.IsEnabled }) });
+    }
 
     private static async Task<object> WithAdministratorEligibility(ManagementContextState context, AppDbContext db, ClaimsPrincipal principal, CancellationToken ct)
     {

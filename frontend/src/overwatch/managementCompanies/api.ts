@@ -81,6 +81,20 @@ export async function setManagementCompanyAccessCategories(accessId: string, cat
   await api.put(`/overwatch/management-company-accesses/${accessId}/categories`, { categoryIds })
 }
 
+export interface ManagementCompanyEmployeeModulePermission { module: string; allowed: boolean }
+
+export async function listManagementCompanyEmployeeModulePermissions(employeeId: string) {
+  return (await api.get<ManagementCompanyEmployeeModulePermission[]>(
+    `/overwatch/management-companies/employees/${employeeId}/module-permissions`,
+  )).data
+}
+
+export async function setManagementCompanyEmployeeModulePermissions(
+  employeeId: string, permissions: ManagementCompanyEmployeeModulePermission[],
+) {
+  await api.put(`/overwatch/management-companies/employees/${employeeId}/module-permissions`, { permissions })
+}
+
 export async function listManagementCompanyCategories(managementCompanyId: string) {
   return (await api.get<ManagementCompanyCategory[]>(
     `/overwatch/management-companies/${managementCompanyId}/request-categories`,

@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const api = vi.hoisted(() => ({
   listManagementCompanyEmployees: vi.fn(),
+  listManagementCompanyEmployeeModulePermissions: vi.fn(),
+  setManagementCompanyEmployeeModulePermissions: vi.fn(),
   hardDeleteManagementCompanyEmployeeEligibility: vi.fn(),
   hardDeleteManagementCompanyEmployee: vi.fn(),
   createManagementCompanyEmployee: vi.fn(),
@@ -29,6 +31,8 @@ describe('ManagementCompanyEmployees hard delete', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     api.listManagementCompanyEmployees.mockResolvedValue([employee])
+    api.listManagementCompanyEmployeeModulePermissions.mockResolvedValue([{ module: 'EmployeeManagement', allowed: false }])
+    api.setManagementCompanyEmployeeModulePermissions.mockResolvedValue(undefined)
     api.hardDeleteManagementCompanyEmployeeEligibility.mockResolvedValue({ canHardDelete: true, reason: null })
     api.hardDeleteManagementCompanyEmployee.mockResolvedValue(undefined)
     api.resendManagementCompanyAccess.mockResolvedValue({ sent: true })

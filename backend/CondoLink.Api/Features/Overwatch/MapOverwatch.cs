@@ -29,6 +29,7 @@ public static class MapOverwatch
             endpoints.MapAssistantPerformanceEndpoints();
             endpoints.MapListOverwatchCondominiums();
             endpoints.MapGetOverwatchCondominium();
+            endpoints.MapCondominiumModuleEndpoints();
             endpoints.MapCreateOverwatchCondominium();
             endpoints.MapUpdateOverwatchCondominium();
             endpoints.MapUpdateOverwatchCondominiumStatus();
@@ -55,6 +56,7 @@ public static class MapOverwatch
             endpoints.MapListManagementCompanyEmployees();
             endpoints.MapUpdateManagementCompanyEmployeeStatus();
             endpoints.MapDeleteManagementCompanyEmployee();
+            endpoints.MapManagementCompanyEmployeeModulePermissionEndpoints();
             endpoints.MapManagementCompanyAccessLifecycleEndpoints();
             endpoints.MapDeleteManagementCompanyRequest();
             endpoints.MapListManagementCompanyRequests();

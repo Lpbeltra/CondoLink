@@ -88,7 +88,7 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
         var response = await client.GetAsync($"/overwatch/submanagers/{_s1Id}/permissions");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var rows = await response.Content.ReadFromJsonAsync<List<PermissionRow>>();
-        Assert.Equal(6, rows!.Count);
+        Assert.Equal(7, rows!.Count);
         Assert.DoesNotContain(rows, row => row.Module == "Requests");
         Assert.Contains(rows, row => row.Module == "Attendance");
 
@@ -153,7 +153,7 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
                 .Select(x => x.Id).SingleAsync();
             Assert.Equal(1, await db.CondominiumMemberships.CountAsync(x => x.UserId == _residentId && x.CondominiumId == _condominiumId));
             Assert.Equal(1, await db.CondominiumMembershipRoles.CountAsync(x => x.CondominiumMembershipId == membershipId && x.Role == CondominiumRole.SubManager));
-            Assert.Equal(6, await db.SubManagerModulePermissions.CountAsync(x => x.CondominiumMembershipId == membershipId));
+            Assert.Equal(7, await db.SubManagerModulePermissions.CountAsync(x => x.CondominiumMembershipId == membershipId));
         });
         var listed = await client.GetFromJsonAsync<List<SubManagerEndpoints.Response>>("/overwatch/submanagers");
         Assert.Contains(listed!, item => item.Id == _s1Id && item.CondominiumId == _condominiumId && item.HasActiveLink);
@@ -248,7 +248,7 @@ public sealed class SubManagerEditEndpointTests : IAsyncLifetime
             Assert.Equal(PixKeyType.Email, users.Single(x => x.Id == firstCreated.Id).PixKeyType);
             Assert.Equal("submanager-pix@test.local", users.Single(x => x.Id == firstCreated.Id).PixKey);
             Assert.Null(users.Single(x => x.Id == secondCreated.Id).PixKeyType);
-            Assert.Equal(6, await db.SubManagerModulePermissions.CountAsync(x => x.CondominiumMembershipId ==
+            Assert.Equal(7, await db.SubManagerModulePermissions.CountAsync(x => x.CondominiumMembershipId ==
                 db.CondominiumMemberships.Where(m => m.UserId == firstCreated.Id).Select(m => m.Id).Single()));
             Assert.Equal(4, await (from m in db.CondominiumMemberships
                 join r in db.CondominiumMembershipRoles on m.Id equals r.CondominiumMembershipId

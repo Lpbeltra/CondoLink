@@ -14,7 +14,9 @@ import { getNavigationItems } from "./navigation";
 import { useAuth } from "../auth/AuthContext";
 import { useManagementContext } from "../management/ManagementContext";
 import { useAdministrator } from "../administrator/AdministratorContext";
+import { useCondominiumModules } from "../modules/useCondominiumModules";
 import BusinessRoundedIcon from "@mui/icons-material/BusinessRounded";
+import BadgeRoundedIcon from "@mui/icons-material/BadgeRounded";
 
 export const drawerWidth = 248;
 
@@ -24,6 +26,7 @@ export function Sidebar() {
   const { condominiumCount, hasEligibleManagementCompany, subManagerPermissions, managementRoles } =
     useManagementContext();
   const { value: administrator } = useAdministrator();
+  const { isModuleEnabled } = useCondominiumModules();
   const roles = ((managementRoles ?? []).length ? managementRoles : currentCondominium?.roles ?? []) as never;
   let navigationItems = getNavigationItems(
     roles,
@@ -31,16 +34,23 @@ export function Sidebar() {
     subManagerPermissions,
   ).filter(
     (item) =>
-      item.path !== "/management/administrator" || hasEligibleManagementCompany,
+      (item.path !== "/management/administrator" || hasEligibleManagementCompany) &&
+      (item.path !== "/management/employees" || isModuleEnabled("EmployeeManagement")),
   );
   if (administrator && condominiumCount === 0 && !currentCondominium)
     navigationItems = [];
-  if (administrator)
+  if (administrator) {
     navigationItems.push({
       label: "Solicitações",
       path: "/administrator/requests",
       icon: BusinessRoundedIcon,
     });
+    navigationItems.push({
+      label: "Funcionários",
+      path: "/administrator/employees",
+      icon: BadgeRoundedIcon,
+    });
+  }
   return (
     <Drawer
       variant="permanent"
