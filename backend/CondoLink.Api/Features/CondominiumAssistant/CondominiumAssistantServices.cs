@@ -23,11 +23,14 @@ namespace CondoLink.Api.Features.CondominiumAssistant;
 /// <summary>Async-flow correlation shared by assistant calls and OpenAI telemetry.</summary>
 public static class AssistantExecutionContext
 {
-    private static readonly AsyncLocal<Guid?> CurrentExecution = new();
-    public static Guid? ExecutionId => CurrentExecution.Value;
+    private sealed class State(Guid executionId) { public Guid ExecutionId { get; } = executionId; public int Ordinal; }
+    private static readonly AsyncLocal<State?> CurrentExecution = new();
+    public static Guid? ExecutionId => CurrentExecution.Value?.ExecutionId;
+    public static int NextExternalCallOrdinal() => CurrentExecution.Value is { } state
+        ? Interlocked.Increment(ref state.Ordinal) : 0;
     public static IDisposable Begin(Guid executionId)
     {
-        var previous = CurrentExecution.Value; CurrentExecution.Value = executionId;
+        var previous = CurrentExecution.Value; CurrentExecution.Value = new State(executionId);
         return new Scope(() => CurrentExecution.Value = previous);
     }
     private sealed class Scope(Action dispose) : IDisposable { public void Dispose() => dispose(); }
@@ -186,6 +189,7 @@ public sealed class OpenAiEmbeddingService(HttpClient http,
         if (!settings.Enabled || string.IsNullOrWhiteSpace(settings.ApiKey))
             throw new InvalidOperationException("OpenAI embeddings are not configured.");
         using var request = new HttpRequestMessage(HttpMethod.Post, "embeddings");
+        request.Options.Set(OpenAiTelemetryHandler.CallReason, "query_embedding");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
         request.Content = JsonContent.Create(new { model = Model, input = texts });
         using var response = await http.SendAsync(request, cancellationToken);
@@ -447,6 +451,18 @@ internal sealed record RerankDecision(Guid ChunkId, double Relevance);
 internal sealed record RerankResult(IReadOnlyList<RankedChunk> Chunks, bool Attempted,
     bool Succeeded, bool TimedOut, bool FallbackUsed, int CandidatesSent,
     int PayloadBytes, int RetryCount, string? Model, long DurationMs);
+internal sealed record BroadFallbackPlan(bool Considered, bool Execute, int NewCandidateCount)
+{
+    public bool SkippedNoNewCandidates => Considered && !Execute;
+    public static BroadFallbackPlan Create(bool considered, IReadOnlyList<RankedChunk> primary,
+        IReadOnlyList<RankedChunk> broad)
+    {
+        if (!considered) return new(false, false, 0);
+        var primaryIds = primary.Select(x => x.ChunkId).ToHashSet();
+        var newCandidateCount = broad.Count(x => !primaryIds.Contains(x.ChunkId));
+        return new(considered, considered && newCandidateCount > 0, newCandidateCount);
+    }
+}
 
 public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingService embeddings,
     HttpClient http, IOptions<RequestDraftAiOptions> aiOptions,
@@ -681,7 +697,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
                 .DistinctBy(item => item.ChunkId)
                 .Take(Math.Clamp(settings.RerankCandidates, 10, 40)).ToArray();
         var rerankStarted = System.Diagnostics.Stopwatch.StartNew();
-        var rerankResult = await RerankAsync(question, requestHint, firstCandidates, cancellationToken);
+        var rerankResult = await RerankAsync(question, requestHint, firstCandidates, "primary", cancellationToken);
         var reranked = rerankResult.Chunks;
         var rerankResults = new List<RerankResult> { rerankResult };
         var rerankPasses = new List<IReadOnlyList<RankedChunk>> { reranked };
@@ -689,12 +705,15 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         if (enumerative) selected = EnsureEnumerationCoverage(selected, reranked, question, settings);
         var secondPass = selected.Count == 0 || firstPassConfidence < Math.Max(.35, settings.MinimumRelevanceScore + .08)
             || IsSpecificFactQuestion(question) && selected.Count < 2;
-        if (secondPass)
-        {
-            var broadCandidates = scored.Where(x => x.SemanticScore >= Math.Max(.05, settings.MinimumRelevanceScore * .35)
+        var broadCandidates = secondPass
+            ? scored.Where(x => x.SemanticScore >= Math.Max(.05, settings.MinimumRelevanceScore * .35)
                     || x.LexicalScore > 0 || x.CombinedScore >= .12)
-                .Take(Math.Clamp(settings.RerankCandidates, 10, 40)).ToArray();
-            var fallbackResult = await RerankAsync(question, requestHint, broadCandidates, cancellationToken);
+                .Take(Math.Clamp(settings.RerankCandidates, 10, 40)).ToArray()
+            : [];
+        var broadPlan = BroadFallbackPlan.Create(secondPass, firstCandidates, broadCandidates);
+        if (broadPlan.Execute)
+        {
+            var fallbackResult = await RerankAsync(question, requestHint, broadCandidates, "broad_fallback", cancellationToken);
             rerankResults.Add(fallbackResult);
             var fallbackReranked = fallbackResult.Chunks;
             rerankPasses.Add(fallbackReranked);
@@ -756,6 +775,13 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             measurement.RerankInputTokensApprox = measurement.RerankPayloadBytes == 0 ? null : (int)Math.Ceiling(measurement.RerankPayloadBytes.Value / 4d);
             measurement.RerankModel = rerankResults.Select(x => x.Model).FirstOrDefault(x => x is not null);
             measurement.RetryCount = rerankResults.Sum(x => x.RetryCount);
+            measurement.SecondPassConsidered = broadPlan.Considered;
+            measurement.SecondPassExecuted = broadPlan.Execute;
+            measurement.SecondPassSkippedNoNewCandidates = broadPlan.SkippedNoNewCandidates;
+            measurement.NewCandidateCount = broadPlan.NewCandidateCount;
+            measurement.PrimaryTopCount = selectedByRerank.Length;
+            measurement.FinalTopCount = selected.Count;
+            measurement.ReusedPrimaryRanking = broadPlan.SkippedNoNewCandidates;
             measurement.EligibleDocuments = documentCoverage.Count(x => x.IsActive && x.ProcessingStatus == CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Ready && x.Compatible);
             measurement.EligibleChunks = eligibleCount; measurement.LoadedChunks = loaded.Count; measurement.DeserializedEmbeddings = candidates.Length;
             measurement.ExpandedQueries = queries.Length; measurement.CandidatesBeforeRerank = firstCandidates.Length; measurement.CandidatesAfterRerank = selectedByRerank.Length; measurement.FinalChunks = selected.Count; measurement.ContextCharacters = selected.Sum(x => x.Content.Length);
@@ -771,7 +797,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         logger.LogInformation("Assistant investigative retrieval. AssistantExecutionId: {AssistantExecutionId}; CondominiumId: {CondominiumId}; EligibleChunks: {EligibleChunks}; LoadedChunks: {LoadedChunks}; DeserializedEmbeddings: {DeserializedEmbeddings}; Queries: {QueryCount}; ModelExpanded: {ModelExpanded}; CandidatesByQuery: {@CandidatesByQuery}; UniqueCandidates: {UniqueCandidates}; FirstPassCandidates: {FirstPassCandidates}; FallbackUsed: {FallbackUsed}; RerankCandidates: {RerankCandidates}; FinalChunks: {@FinalChunks}; ContextCharacters: {ContextCharacters}; EmbeddingModel: {EmbeddingModel}; ExpansionMs: {ExpansionMs}; EmbeddingMs: {EmbeddingMs}; PostgreSqlMaterializationMs: {PostgreSqlMaterializationMs}; EmbeddingDeserializationMs: {EmbeddingDeserializationMs}; SimilarityAndLexicalMs: {SimilarityAndLexicalMs}; RerankMs: {RerankMs}; TotalMs: {TotalMs}.",
             AssistantExecutionContext.ExecutionId, condominiumId, eligibleCount, loaded.Count, candidates.Length, queries.Length, strategy.ModelExpanded,
             candidatesByQuery,
-            scored.Length, firstCandidates.Length, secondPass, Math.Min(scored.Length, Math.Clamp(settings.RerankCandidates, 10, 40)),
+            scored.Length, firstCandidates.Length, broadPlan.Execute, Math.Min(scored.Length, Math.Clamp(settings.RerankCandidates, 10, 40)),
             selected.Select(x => new { x.ChunkId, x.DocumentId, x.PageNumber, x.SemanticScore, x.LexicalScore, x.RerankScore }).ToArray(),
             selected.Sum(x => x.Content.Length), embeddings.Model,
             expansionStarted.ElapsedMilliseconds, embeddingStarted.ElapsedMilliseconds, corpusStarted.ElapsedMilliseconds,
@@ -781,7 +807,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             documentCoverage.Count(x => x.IsActive && x.ProcessingStatus == CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Ready),
             documentCoverage.Count(x => x.IsActive && x.ProcessingStatus == CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Ready && x.Compatible),
             candidates.GroupBy(x => x.Document.Id).ToDictionary(x => x.Key, x => x.Count()),
-            firstPassConfidence, secondPass, strategy.ModelExpanded ? "model-multi-query-hybrid-rerank" : "fallback-multi-query-hybrid-rerank",
+            firstPassConfidence, broadPlan.Execute, strategy.ModelExpanded ? "model-multi-query-hybrid-rerank" : "fallback-multi-query-hybrid-rerank",
             (candidateDocumentIds.Length > 0 ? candidateDocumentIds : candidates.Select(x => x.Document.Id).Distinct().Take(50).ToArray()));
     }
 
@@ -797,6 +823,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions");
             request.Options.Set(OpenAiTelemetryHandler.OperationOverride, "AssistantExpansion");
+            request.Options.Set(OpenAiTelemetryHandler.CallReason, "query_expansion");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
             request.Content = JsonContent.Create(new
             {
@@ -830,7 +857,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
     }
 
     private async Task<RerankResult> RerankAsync(string question,
-        string? requestHint, IReadOnlyList<RankedChunk> candidates, CancellationToken ct)
+        string? requestHint, IReadOnlyList<RankedChunk> candidates, string reason, CancellationToken ct)
     {
         if (candidates.Count == 0)
             return new([], false, false, false, false, 0, 0, 0, null, 0);
@@ -864,6 +891,9 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             payloadBytes = Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(payload));
             using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions");
             request.Options.Set(OpenAiTelemetryHandler.OperationOverride, "AssistantRerank");
+            request.Options.Set(OpenAiTelemetryHandler.CallReason, reason);
+            request.Options.Set(OpenAiTelemetryHandler.CandidateCount, candidates.Count);
+            request.Options.Set(OpenAiTelemetryHandler.PayloadBytes, payloadBytes);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
             request.Content = JsonContent.Create(payload);
             using var response = await http.SendAsync(request, ct);
@@ -1133,6 +1163,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             throw new InvalidOperationException("O assistente está temporariamente indisponível.");
         using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions");
         request.Options.Set(OpenAiTelemetryHandler.OperationOverride, "AssistantGeneration");
+        request.Options.Set(OpenAiTelemetryHandler.CallReason, "answer_generation");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
         request.Content = JsonContent.Create(new { model = settings.Model, temperature = 0,
             messages = new object[] { new { role = "system", content = SystemPrompt },
@@ -1160,6 +1191,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             throw new InvalidOperationException("O assistente está temporariamente indisponível.");
         using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions");
         request.Options.Set(OpenAiTelemetryHandler.OperationOverride, "AssistantGeneration");
+        request.Options.Set(OpenAiTelemetryHandler.CallReason, "answer_generation");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
         request.Content = JsonContent.Create(new { model = settings.Model, temperature = 0, stream = true,
             messages = new object[] { new { role = "system", content = SystemPrompt },

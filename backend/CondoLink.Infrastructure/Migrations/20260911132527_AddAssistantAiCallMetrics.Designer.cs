@@ -3,6 +3,7 @@ using System;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CondoLink.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260911132527_AddAssistantAiCallMetrics")]
+    partial class AddAssistantAiCallMetrics
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -407,9 +410,6 @@ namespace CondoLink.Infrastructure.Migrations
                     b.Property<int?>("FinalChunks")
                         .HasColumnType("integer");
 
-                    b.Property<int?>("FinalTopCount")
-                        .HasColumnType("integer");
-
                     b.Property<long?>("GenerationDurationMs")
                         .HasColumnType("bigint");
 
@@ -422,13 +422,7 @@ namespace CondoLink.Infrastructure.Migrations
                     b.Property<int?>("LoadedChunks")
                         .HasColumnType("integer");
 
-                    b.Property<int?>("NewCandidateCount")
-                        .HasColumnType("integer");
-
                     b.Property<int?>("OutputTokens")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("PrimaryTopCount")
                         .HasColumnType("integer");
 
                     b.Property<bool>("RerankAttempted")
@@ -470,18 +464,6 @@ namespace CondoLink.Infrastructure.Migrations
 
                     b.Property<int?>("RetryCount")
                         .HasColumnType("integer");
-
-                    b.Property<bool>("ReusedPrimaryRanking")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("SecondPassConsidered")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("SecondPassExecuted")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("SecondPassSkippedNoNewCandidates")
-                        .HasColumnType("boolean");
 
                     b.Property<DateTime>("StartedAt")
                         .HasColumnType("timestamp with time zone");

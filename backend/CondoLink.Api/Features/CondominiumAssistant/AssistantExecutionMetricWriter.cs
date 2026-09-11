@@ -29,6 +29,10 @@ public sealed class AssistantExecutionMeasurement(Guid executionId, Guid condomi
     public int? RerankCandidatesSent { get; set; } public int? RerankPayloadBytes { get; set; }
     public int? RerankInputTokensApprox { get; set; }
     public bool RerankFallbackUsed { get; set; }
+    public bool SecondPassConsidered { get; set; } public bool SecondPassExecuted { get; set; }
+    public bool SecondPassSkippedNoNewCandidates { get; set; } public int? NewCandidateCount { get; set; }
+    public int? PrimaryTopCount { get; set; } public int? FinalTopCount { get; set; }
+    public bool ReusedPrimaryRanking { get; set; }
     public AssistantExecutionMetricValues Values(bool success, string? errorCategory) => new()
     {
         TotalDurationMs = (long)(DateTime.UtcNow - StartedAt).TotalMilliseconds, RetrievalDurationMs = RetrievalDurationMs,
@@ -47,7 +51,10 @@ public sealed class AssistantExecutionMeasurement(Guid executionId, Guid condomi
         RerankTimedOut = RerankTimedOut, RerankFastPathUsed = RerankFastPathUsed,
         RerankCandidatesSent = RerankCandidatesSent, RerankPayloadBytes = RerankPayloadBytes,
         RerankInputTokensApprox = RerankInputTokensApprox,
-        RerankFallbackUsed = RerankFallbackUsed, ErrorCategory = errorCategory,
+        RerankFallbackUsed = RerankFallbackUsed, SecondPassConsidered = SecondPassConsidered,
+        SecondPassExecuted = SecondPassExecuted, SecondPassSkippedNoNewCandidates = SecondPassSkippedNoNewCandidates,
+        NewCandidateCount = NewCandidateCount, PrimaryTopCount = PrimaryTopCount, FinalTopCount = FinalTopCount,
+        ReusedPrimaryRanking = ReusedPrimaryRanking, ErrorCategory = errorCategory,
         ErrorCode = errorCategory
     };
 }

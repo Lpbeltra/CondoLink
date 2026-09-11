@@ -42,6 +42,38 @@ public sealed class AiOperationMetric
     public string? ErrorCategory { get; private set; }
 }
 
+/// <summary>Sanitized telemetry for one logical provider call within an assistant execution.</summary>
+public sealed class AssistantAiCallMetric
+{
+    private AssistantAiCallMetric() { }
+    public AssistantAiCallMetric(Guid assistantExecutionId, int ordinal, string operation, string reasonCode,
+        string? model, DateTime timestamp, long durationMs, bool succeeded, bool timedOut, int retryCount,
+        int? inputTokens, int? outputTokens, int? candidateCount, int? payloadBytes, string? errorCategory)
+    {
+        AssistantExecutionId = assistantExecutionId; Ordinal = ordinal; Operation = operation;
+        ReasonCode = reasonCode; Model = model; Timestamp = timestamp; DurationMs = durationMs;
+        Succeeded = succeeded; TimedOut = timedOut; RetryCount = retryCount; InputTokens = inputTokens;
+        OutputTokens = outputTokens; CandidateCount = candidateCount; PayloadBytes = payloadBytes;
+        ErrorCategory = errorCategory;
+    }
+    public Guid Id { get; private set; } = Guid.NewGuid();
+    public Guid AssistantExecutionId { get; private set; }
+    public int Ordinal { get; private set; }
+    public string Operation { get; private set; } = null!;
+    public string ReasonCode { get; private set; } = null!;
+    public string? Model { get; private set; }
+    public DateTime Timestamp { get; private set; }
+    public long DurationMs { get; private set; }
+    public bool Succeeded { get; private set; }
+    public bool TimedOut { get; private set; }
+    public int RetryCount { get; private set; }
+    public int? InputTokens { get; private set; }
+    public int? OutputTokens { get; private set; }
+    public int? CandidateCount { get; private set; }
+    public int? PayloadBytes { get; private set; }
+    public string? ErrorCategory { get; private set; }
+}
+
 /// <summary>Sanitized, one-row operational view of a complete assistant request.</summary>
 public sealed class AssistantExecutionMetric
 {
@@ -94,6 +126,13 @@ public sealed class AssistantExecutionMetric
     public int? RerankPayloadBytes { get; private set; }
     public int? RerankInputTokensApprox { get; private set; }
     public bool RerankFallbackUsed { get; private set; }
+    public bool SecondPassConsidered { get; private set; }
+    public bool SecondPassExecuted { get; private set; }
+    public bool SecondPassSkippedNoNewCandidates { get; private set; }
+    public int? NewCandidateCount { get; private set; }
+    public int? PrimaryTopCount { get; private set; }
+    public int? FinalTopCount { get; private set; }
+    public bool ReusedPrimaryRanking { get; private set; }
     public string? ErrorCategory { get; private set; }
     public string? ErrorCode { get; private set; }
     public void Complete(DateTime completedAt, bool success, AssistantExecutionMetricValues values)
@@ -117,6 +156,10 @@ public sealed class AssistantExecutionMetric
         RerankTimedOut = values.RerankTimedOut; RerankFastPathUsed = values.RerankFastPathUsed;
         RerankCandidatesSent = values.RerankCandidatesSent; RerankPayloadBytes = values.RerankPayloadBytes;
         RerankInputTokensApprox = values.RerankInputTokensApprox; RerankFallbackUsed = values.RerankFallbackUsed;
+        SecondPassConsidered = values.SecondPassConsidered; SecondPassExecuted = values.SecondPassExecuted;
+        SecondPassSkippedNoNewCandidates = values.SecondPassSkippedNoNewCandidates;
+        NewCandidateCount = values.NewCandidateCount; PrimaryTopCount = values.PrimaryTopCount;
+        FinalTopCount = values.FinalTopCount; ReusedPrimaryRanking = values.ReusedPrimaryRanking;
         ErrorCategory = values.ErrorCategory; ErrorCode = values.ErrorCode;
     }
 }
@@ -128,6 +171,10 @@ public sealed class AssistantExecutionMetricValues
     public string? EmbeddingModel { get; init; } public string? ChatModel { get; init; } public int? InputTokens { get; init; } public int? OutputTokens { get; init; } public int? RetryCount { get; init; }
     public string? RerankModel { get; init; } public bool RerankAttempted { get; init; } public bool RerankSucceeded { get; init; } public bool RerankTimedOut { get; init; } public bool RerankFastPathUsed { get; init; } public int? RerankCandidatesSent { get; init; } public int? RerankPayloadBytes { get; init; } public int? RerankInputTokensApprox { get; init; }
     public bool RerankFallbackUsed { get; init; } public string? ErrorCategory { get; init; } public string? ErrorCode { get; init; }
+    public bool SecondPassConsidered { get; init; } public bool SecondPassExecuted { get; init; }
+    public bool SecondPassSkippedNoNewCandidates { get; init; } public int? NewCandidateCount { get; init; }
+    public int? PrimaryTopCount { get; init; } public int? FinalTopCount { get; init; }
+    public bool ReusedPrimaryRanking { get; init; }
 }
 
 public sealed class OperationalEvent

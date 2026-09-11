@@ -73,6 +73,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<TelegramInboundUpdate> TelegramInboundUpdates => Set<TelegramInboundUpdate>();
     public DbSet<WorkerHeartbeat> WorkerHeartbeats => Set<WorkerHeartbeat>();
     public DbSet<AiOperationMetric> AiOperationMetrics => Set<AiOperationMetric>();
+    public DbSet<AssistantAiCallMetric> AssistantAiCallMetrics => Set<AssistantAiCallMetric>();
     public DbSet<AssistantExecutionMetric> AssistantExecutionMetrics => Set<AssistantExecutionMetric>();
     public DbSet<OperationalEvent> OperationalEvents => Set<OperationalEvent>();
     public DbSet<OperationalMessageTemplate> OperationalMessageTemplates =>

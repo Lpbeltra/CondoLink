@@ -19,6 +19,17 @@ public sealed class OperationalEventConfiguration : IEntityTypeConfiguration<Ope
     public void Configure(EntityTypeBuilder<OperationalEvent> b)
     { b.ToTable("operational_events"); b.HasKey(x => x.Id); b.Property(x => x.Component).HasMaxLength(50); b.Property(x => x.Category).HasMaxLength(100); b.Property(x => x.Severity).HasMaxLength(20); b.Property(x => x.ReasonCode).HasMaxLength(100); b.Property(x => x.CorrelationId).HasMaxLength(100); b.HasIndex(x => x.Timestamp); }
 }
+public sealed class AssistantAiCallMetricConfiguration : IEntityTypeConfiguration<AssistantAiCallMetric>
+{
+    public void Configure(EntityTypeBuilder<AssistantAiCallMetric> b)
+    {
+        b.ToTable("assistant_ai_call_metrics"); b.HasKey(x => x.Id);
+        b.Property(x => x.Operation).HasMaxLength(100); b.Property(x => x.ReasonCode).HasMaxLength(100);
+        b.Property(x => x.Model).HasMaxLength(100); b.Property(x => x.ErrorCategory).HasMaxLength(100);
+        b.HasIndex(x => new { x.AssistantExecutionId, x.Ordinal }).IsUnique();
+        b.HasIndex(x => new { x.Operation, x.Timestamp }); b.HasIndex(x => x.Timestamp);
+    }
+}
 public sealed class AssistantExecutionMetricConfiguration : IEntityTypeConfiguration<AssistantExecutionMetric>
 {
     public void Configure(EntityTypeBuilder<AssistantExecutionMetric> b)

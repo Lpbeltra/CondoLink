@@ -65,6 +65,7 @@ builder.Services.AddHttpClient<ITelegramBotClient, TelegramBotClient>(client =>
     client.BaseAddress = new Uri("https://api.telegram.org/");
     client.Timeout = TimeSpan.FromSeconds(15);
 }).RemoveAllLoggers();
+builder.Services.AddSingleton<TelegramInboundSignal>();
 builder.Services.AddHostedService<TelegramAssistantWorker>();
 builder.Services.AddScoped<OperationalMessageTemplateService>();
 builder.Services.AddScoped<RequestAiAnalysisRefresher>();

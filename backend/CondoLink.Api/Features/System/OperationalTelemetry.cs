@@ -3,6 +3,7 @@ using System.Text.Json;
 using CondoLink.Domain.Entities;
 using CondoLink.Infrastructure.Persistence;
 using CondoLink.Api.Features.CondominiumAssistant;
+using CondoLink.Api.Common;
 using Microsoft.EntityFrameworkCore;
 
 namespace CondoLink.Api.Features.Observability;
@@ -49,12 +50,19 @@ public sealed class OpenAiTelemetryHandler(IServiceScopeFactory scopes, TimeProv
         new("CondoLink.OpenAI.CallerCancellationToken");
     public static readonly HttpRequestOptionsKey<string> OperationOverride =
         new("CondoLink.OpenAI.OperationOverride");
+    public static readonly HttpRequestOptionsKey<string> CallReason =
+        new("CondoLink.OpenAI.CallReason");
+    public static readonly HttpRequestOptionsKey<int> CandidateCount =
+        new("CondoLink.OpenAI.CandidateCount");
+    public static readonly HttpRequestOptionsKey<int> PayloadBytes =
+        new("CondoLink.OpenAI.PayloadBytes");
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         var effectiveOperation = request.Options.TryGetValue(OperationOverride, out var overrideName)
             ? overrideName : operation;
         var started = Stopwatch.GetTimestamp(); HttpResponseMessage? response = null; string? error = null;
+        using var retryScope = OpenAiRetryTracker.Current is null ? OpenAiRetryTracker.Begin() : null;
         try { response = await base.SendAsync(request, ct); if (!response.IsSuccessStatusCode) error = $"http_{(int)response.StatusCode}"; return response; }
         catch (OperationCanceledException)
         {
@@ -84,6 +92,18 @@ public sealed class OpenAiTelemetryHandler(IServiceScopeFactory scopes, TimeProv
                 await using var scope = scopes.CreateAsyncScope(); var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 db.AiOperationMetrics.Add(new AiOperationMetric(effectiveOperation, model, clock.GetUtcNow().UtcDateTime,
                     (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, error is null && response?.IsSuccessStatusCode == true, input, output, total, error));
+                if (AssistantExecutionContext.ExecutionId is Guid executionId)
+                {
+                    var reason = request.Options.TryGetValue(CallReason, out var requestedReason)
+                        ? OperationalTelemetry.SafeCode(requestedReason) : DefaultReason(effectiveOperation);
+                    var candidates = request.Options.TryGetValue(CandidateCount, out var candidateCount) ? candidateCount : (int?)null;
+                    var payload = request.Options.TryGetValue(PayloadBytes, out var payloadBytes) ? payloadBytes : (int?)null;
+                    db.AssistantAiCallMetrics.Add(new AssistantAiCallMetric(executionId,
+                        AssistantExecutionContext.NextExternalCallOrdinal(), effectiveOperation, reason, model,
+                        clock.GetUtcNow().UtcDateTime, (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                        error is null && response?.IsSuccessStatusCode == true, error == "timeout",
+                        OpenAiRetryTracker.Current?.RetryCount ?? 0, input, output, candidates, payload, error));
+                }
                 scope.ServiceProvider.GetRequiredService<ILogger<OpenAiTelemetryHandler>>().LogInformation("OpenAI operation completed. AssistantExecutionId: {AssistantExecutionId}; Operation: {Operation}; Model: {Model}; DurationMs: {DurationMs}; Succeeded: {Succeeded}; InputTokens: {InputTokens}; OutputTokens: {OutputTokens}; TotalTokens: {TotalTokens}; Error: {Error}.", AssistantExecutionContext.ExecutionId, effectiveOperation, model, (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, error is null && response?.IsSuccessStatusCode == true, input, output, total, error);
                 if (error is not null) db.OperationalEvents.Add(new OperationalEvent(clock.GetUtcNow().UtcDateTime, "OpenAI", effectiveOperation, "Error", error));
                 await db.SaveChangesAsync(CancellationToken.None);
@@ -91,6 +111,14 @@ public sealed class OpenAiTelemetryHandler(IServiceScopeFactory scopes, TimeProv
             catch { /* telemetry must never break the product path */ }
         }
     }
+    private static string DefaultReason(string operation) => operation switch
+    {
+        "AssistantExpansion" => "query_expansion",
+        "AssistantEmbedding" => "query_embedding",
+        "AssistantRerank" => "primary",
+        "AssistantGeneration" => "answer_generation",
+        _ => "provider_call"
+    };
     private static int? Token(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.TryGetInt32(out var n) ? n : null;
 }
 
@@ -149,7 +177,7 @@ public sealed class OperationalRetentionWorker(IServiceScopeFactory scopes, Oper
     {
         while (!ct.IsCancellationRequested)
         {
-            try { await telemetry.RecordWorkerAsync(nameof(OperationalRetentionWorker), true, Interval, "started", ct: ct); await using var s = scopes.CreateAsyncScope(); var db = s.ServiceProvider.GetRequiredService<AppDbContext>(); var now = DateTime.UtcNow; var cutoff = now.AddDays(-30); var assistantCutoff = now.AddDays(-90); var count = await db.AiOperationMetrics.Where(x => x.Timestamp < cutoff).ExecuteDeleteAsync(ct) + await db.OperationalEvents.Where(x => x.Timestamp < cutoff).ExecuteDeleteAsync(ct) + await db.AssistantExecutionMetrics.Where(x => x.StartedAt < assistantCutoff).ExecuteDeleteAsync(ct); count += await DeleteExpiredHeartbeatsAsync(db, now, ct); await telemetry.RecordWorkerAsync(nameof(OperationalRetentionWorker), true, Interval, "completed", true, count, ct: ct); }
+            try { await telemetry.RecordWorkerAsync(nameof(OperationalRetentionWorker), true, Interval, "started", ct: ct); await using var s = scopes.CreateAsyncScope(); var db = s.ServiceProvider.GetRequiredService<AppDbContext>(); var now = DateTime.UtcNow; var cutoff = now.AddDays(-30); var assistantCutoff = now.AddDays(-90); var count = await db.AiOperationMetrics.Where(x => x.Timestamp < cutoff).ExecuteDeleteAsync(ct) + await db.OperationalEvents.Where(x => x.Timestamp < cutoff).ExecuteDeleteAsync(ct) + await db.AssistantExecutionMetrics.Where(x => x.StartedAt < assistantCutoff).ExecuteDeleteAsync(ct) + await db.AssistantAiCallMetrics.Where(x => x.Timestamp < assistantCutoff).ExecuteDeleteAsync(ct); count += await DeleteExpiredHeartbeatsAsync(db, now, ct); await telemetry.RecordWorkerAsync(nameof(OperationalRetentionWorker), true, Interval, "completed", true, count, ct: ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex) { logger.LogError(ex, "Operational retention failed."); await telemetry.EventAsync("Workers", "Retention", "Error", "retention_failed", ct: CancellationToken.None); }
             await Task.Delay(Interval, ct);

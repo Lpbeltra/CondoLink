@@ -101,7 +101,7 @@ public static class TelegramAssistantEndpoints
             if (pending >= 20) inbound.Ignore(now);
             db.TelegramInboundUpdates.Add(inbound);
             try
-            { await db.SaveChangesAsync(ct); logger.LogInformation("Telegram update persisted. UpdateId: {UpdateId}; ChatId: {ChatId}; Kind: {Kind}; QueueLimited: {QueueLimited}.", updateId, inboundMessage.ChatId, inboundMessage.Kind, pending >= 20); }
+            { await db.SaveChangesAsync(ct); request.HttpContext.RequestServices.GetService<TelegramInboundSignal>()?.Wake(); logger.LogInformation("Telegram update persisted. UpdateId: {UpdateId}; ChatId: {ChatId}; Kind: {Kind}; QueueLimited: {QueueLimited}.", updateId, inboundMessage.ChatId, inboundMessage.Kind, pending >= 20); }
             catch (DbUpdateException)
             { logger.LogInformation("Telegram update deduplicated. UpdateId: {UpdateId}.", updateId); return Results.Ok(); }
         }

@@ -18,7 +18,7 @@ namespace CondoLink.Api.Features.TelegramAssistant;
 
 public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
     IOptions<TelegramAssistantOptions> options, TimeProvider time,
-    ILogger<TelegramAssistantWorker> logger) : BackgroundService
+    ILogger<TelegramAssistantWorker> logger, TelegramInboundSignal? inboundSignal = null) : BackgroundService
 {
     private const string AudioFailure = "Não consegui entender esse áudio. Tente novamente ou envie sua pergunta em texto.";
 
@@ -28,11 +28,16 @@ public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
         {
             if (options.Value.IsConfigured)
             {
-                try { await ProcessOneAsync(stoppingToken); }
+                try
+                {
+                    while (await ProcessOneAsync(stoppingToken)) { }
+                }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
                 catch (Exception exception) { logger.LogError(exception, "Telegram assistant worker batch failed."); }
             }
-            await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(options.Value.PollingSeconds, 1, 30)), stoppingToken);
+            var interval = TimeSpan.FromSeconds(Math.Clamp(options.Value.PollingSeconds, 1, 30));
+            if (inboundSignal is null) await Task.Delay(interval, stoppingToken);
+            else await inboundSignal.WaitAsync(interval, stoppingToken);
         }
     }
 
