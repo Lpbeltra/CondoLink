@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using CondoLink.Api.Features.EmployeeDocuments;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -45,6 +46,7 @@ public static class WhatsAppWebhookEndpoints
         IOptions<WhatsAppOptions> options,
         WhatsAppConversationService conversations,
         AppDbContext dbContext,
+        EmployeeDocumentDistributionService employeeDocumentDistribution,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
@@ -178,6 +180,19 @@ public static class WhatsAppWebhookEndpoints
                     status.Status, status.OccurredAt,
                     status.ErrorCode, status.ErrorDescription);
                 await dbContext.SaveChangesAsync(cancellationToken);
+
+                // Reuses the existing webhook — no new endpoint. A payslip
+                // delivery reaching Sent/Delivered/Read/Failed here may be the
+                // last one this batch was waiting on.
+                if (outbound.EmployeeDocumentId is not null)
+                {
+                    var batchId = await dbContext.EmployeeDocumentDeliveries.AsNoTracking()
+                        .Where(x => x.OutboundMessageId == outbound.Id)
+                        .Select(x => (Guid?)x.BatchId)
+                        .SingleOrDefaultAsync(cancellationToken);
+                    if (batchId is Guid resolvedBatchId)
+                        await employeeDocumentDistribution.TryCompleteBatchAsync(resolvedBatchId, cancellationToken);
+                }
             }
         }
         logger.LogInformation("WhatsApp webhook processing completed.");

@@ -146,6 +146,12 @@ internal sealed class CoreEndpointTestHost : IAsyncDisposable
         await work(scope.ServiceProvider);
     }
 
+    public async Task<T> WithServicesAsync<T>(Func<IServiceProvider, Task<T>> work)
+    {
+        await using var scope = _application.Services.CreateAsyncScope();
+        return await work(scope.ServiceProvider);
+    }
+
     public async ValueTask DisposeAsync()
     {
         foreach (var client in _clients)

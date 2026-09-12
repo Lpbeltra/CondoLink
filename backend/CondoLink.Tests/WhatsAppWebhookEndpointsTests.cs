@@ -5,6 +5,8 @@ using System.Text.Json;
 using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Api.Features.Requests;
 using CondoLink.Api.Features.RequestAttachments;
+using CondoLink.Api.Features.CondominiumModules;
+using CondoLink.Api.Features.EmployeeDocuments;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure;
@@ -75,6 +77,8 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 builder.Services.AddScoped<AdministrativeUnitResolver>();
                 builder.Services.AddScoped<AdministrativeResidentMembershipMutationService>();
                 builder.Services.AddScoped<WhatsAppConversationService>();
+                builder.Services.AddScoped<ICondominiumModuleService, CondominiumModuleService>();
+                builder.Services.AddScoped<EmployeeDocumentDistributionService>();
             });
         await _host.WithDbAsync(async db =>
         {
@@ -94,6 +98,80 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     public async Task DisposeAsync() => await _host.DisposeAsync();
+
+    // Proves the completion wiring actually added to this real webhook endpoint
+    // (not just the isolated EmployeeDocumentDistributionService method): a
+    // status event for a payslip's outbound message is the one that finally
+    // flips its EmployeeDocumentBatch from Distributing to Completed. No new
+    // webhook was created — this reuses the exact endpoint every other test in
+    // this file exercises.
+    [Fact]
+    public async Task Payslip_status_webhook_completes_its_batch_once_it_was_the_last_pending_delivery()
+    {
+        const string externalMessageId = "wamid.completion-webhook-only-test";
+        Guid batchId = Guid.Empty;
+        await _host.WithDbAsync(async db =>
+        {
+            var condominium = new Condominium("Condo Holerites Webhook", null, null);
+            var operatorUser = CoreTestSeed.User("Operador Webhook", "operador-webhook@test.local");
+            var employee = new Employee(condominium.Id, "Funcionário Webhook", null, "11999998888", null, null, null);
+            db.AddRange(condominium, operatorUser, employee);
+            await db.SaveChangesAsync();
+
+            var batch = new EmployeeDocumentBatch(condominium.Id, EmployeeDocumentType.Payslip, 8, 2026, operatorUser.Id, DateTime.UtcNow);
+            batch.StartProcessing();
+            batch.MarkReadyForReview();
+            var document = new EmployeeDocument(condominium.Id, batch.Id, EmployeeDocumentType.Payslip, 8, 2026,
+                "pending", "folha.pdf", 1, 1, "hash", DateTime.UtcNow);
+            document.SetFileKey("employee-documents/webhook-test.pdf");
+            document.ApplyAutomaticIdentification(employee.Id, CondoLink.Domain.Enums.EmployeeDocumentIdentificationConfidence.High,
+                CondoLink.Domain.Enums.EmployeeDocumentIdentificationMethod.RegistrationNumber, DateTime.UtcNow);
+            document.Confirm(DateTime.UtcNow);
+            batch.Confirm(operatorUser.Id, DateTime.UtcNow);
+            batch.StartDistributing(); // this document is the batch's only, still-pending delivery.
+            db.AddRange(batch, document);
+            await db.SaveChangesAsync();
+
+            // Already Sent (as the outbound worker would have left it) with a
+            // known ExternalMessageId — the webhook is the only thing left that
+            // will ever report further on this specific message.
+            var outbound = new WhatsAppOutboundMessage(null, null, operatorUser.Id, condominium.Id, employee.NormalizedPhoneNumber!,
+                CondoLink.Domain.Enums.WhatsAppNotificationType.EmployeePayslipAvailable, WhatsAppSendMode.Template,
+                $"employee-document:{document.Id}:whatsapp:1", "Holerite disponível.", "holerite_disponivel", "pt_BR",
+                DateTime.UtcNow, employeeDocumentId: document.Id);
+            outbound.MarkSent(externalMessageId, DateTime.UtcNow);
+            db.Add(outbound);
+            db.Add(new EmployeeDocumentDelivery(document.Id, employee.Id, condominium.Id, batch.Id,
+                CondoLink.Domain.Enums.EmployeeDocumentDeliveryChannel.WhatsApp, outbound.Id, operatorUser.Id, DateTime.UtcNow));
+            await db.SaveChangesAsync();
+            batchId = batch.Id;
+        });
+
+        var beforeWebhook = await _host.WithDbAsync(db => db.EmployeeDocumentBatches.AsNoTracking().SingleAsync(x => x.Id == batchId));
+        Assert.Equal(CondoLink.Domain.Enums.EmployeeDocumentBatchStatus.Distributing, beforeWebhook.Status);
+
+        var body = JsonSerializer.Serialize(new
+        {
+            entry = new[] { new { changes = new[] { new { value = new { statuses = new[] { new
+            {
+                id = externalMessageId, status = "delivered",
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(),
+            } } } } } } },
+        });
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/webhooks/whatsapp")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add("X-Hub-Signature-256", Signature(body));
+        var response = await _host.AnonymousClient().SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var afterWebhook = await _host.WithDbAsync(db => db.EmployeeDocumentBatches.AsNoTracking().SingleAsync(x => x.Id == batchId));
+        Assert.Equal(CondoLink.Domain.Enums.EmployeeDocumentBatchStatus.Completed, afterWebhook.Status);
+        var deliveredOutbound = await _host.WithDbAsync(db => db.WhatsAppOutboundMessages.AsNoTracking()
+            .SingleAsync(x => x.ExternalMessageId == externalMessageId));
+        Assert.Equal(WhatsAppOutboundStatus.Delivered, deliveredOutbound.Status);
+    }
 
     [Fact]
     public async Task Verification_returns_challenge_only_for_the_correct_token()

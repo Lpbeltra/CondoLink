@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using CondoLink.Api.Features.Observability;
 using CondoLink.Api.Features.Auth;
+using CondoLink.Api.Features.EmployeeDocuments;
 using System.Text.Json;
 
 namespace CondoLink.Api.Features.WhatsApp;
@@ -111,7 +112,19 @@ public sealed class WhatsAppOutboundWorker(
                 IReadOnlyList<string> quickReplies = [];
                 IReadOnlyList<string> urlButtons = [];
                 string? bodyParameterName = null;
-                if (item.NotificationType == WhatsAppNotificationType.InformationRequested)
+                WhatsAppDocumentHeader? documentHeader = null;
+                WhatsAppSendResult? precomputedResult = null;
+                if (item.NotificationType == WhatsAppNotificationType.EmployeePayslipAvailable)
+                {
+                    (parameters, documentHeader, precomputedResult) =
+                        await PrepareEmployeePayslipSendAsync(item, db, client,
+                            scope.ServiceProvider.GetRequiredService<
+                                CondoLink.Api.Features.RequestAttachments.LocalFileStorage>(),
+                            scope.ServiceProvider.GetRequiredService<
+                                CondoLink.Api.Features.CondominiumModules.ICondominiumModuleService>(),
+                            ct);
+                }
+                else if (item.NotificationType == WhatsAppNotificationType.InformationRequested)
                 {
                     var fullName = await db.Set<ApplicationUser>().AsNoTracking()
                         .Where(x => x.Id == item.UserId)
@@ -171,9 +184,9 @@ public sealed class WhatsAppOutboundWorker(
                     parameters = [firstAccessPayload!.ResidentName, firstAccessPayload.CondominiumName];
                     urlButtons = [firstAccessPayload.ButtonParameter];
                 }
-                result = await client.SendTemplateAsync(item.DestinationPhone,
+                result = precomputedResult ?? await client.SendTemplateAsync(item.DestinationPhone,
                     item.TemplateName!, item.TemplateLanguage!, parameters,
-                    quickReplies, ct, bodyParameterName, urlButtons);
+                    quickReplies, ct, bodyParameterName, urlButtons, documentHeader);
             }
             result = EnsureFailureDiagnostic(result);
             logger.LogInformation(
@@ -222,8 +235,95 @@ public sealed class WhatsAppOutboundWorker(
                 "WhatsApp outbound {OutboundId} processed with status {Status}.",
                 item.Id,
                 item.Status);
+
+            // Covers the case a webhook will never cover: a payslip send that
+            // failed terminally (e.g. media upload/validation) before ever
+            // reaching Meta, so no ExternalMessageId ever exists for Meta to
+            // report status on. Harmless no-op for a scheduled retry (still
+            // Pending) or any non-payslip notification type.
+            if (item.EmployeeDocumentId is not null)
+            {
+                var batchId = await db.EmployeeDocumentDeliveries.AsNoTracking()
+                    .Where(x => x.OutboundMessageId == item.Id)
+                    .Select(x => (Guid?)x.BatchId)
+                    .SingleOrDefaultAsync(ct);
+                if (batchId is Guid resolvedBatchId)
+                    await scope.ServiceProvider.GetRequiredService<EmployeeDocumentDistributionService>()
+                        .TryCompleteBatchAsync(resolvedBatchId, ct);
+            }
         }
         return items.Length;
+    }
+
+    // Revalidates every fact this send depends on right before the provider call —
+    // a document may have been unconfirmed, an employee deactivated, the module
+    // disabled, or the condominium changed between queueing and this attempt — and
+    // then uploads the individualized PDF as media for the template's DOCUMENT
+    // header. Never sends without every check passing.
+    internal static async Task<(IReadOnlyList<string> Parameters, WhatsAppDocumentHeader? Header, WhatsAppSendResult? PrecomputedFailure)>
+        PrepareEmployeePayslipSendAsync(
+            CondoLink.Domain.Entities.WhatsAppOutboundMessage item, AppDbContext db, IWhatsAppClient client,
+            CondoLink.Api.Features.RequestAttachments.LocalFileStorage storage,
+            CondoLink.Api.Features.CondominiumModules.ICondominiumModuleService modules,
+            CancellationToken ct)
+    {
+        static WhatsAppSendResult Failure(string code, string description) =>
+            new(false, null, description, false, code, FailureKind: "Validation", FailureStage: "prevalidation");
+
+        if (item.EmployeeDocumentId is not Guid employeeDocumentId)
+            return ([], null, Failure("employee_document_missing", "Outbound message has no linked employee document."));
+
+        var document = await db.EmployeeDocuments.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == employeeDocumentId, ct);
+        if (document is null)
+            return ([], null, Failure("employee_document_not_found", "Linked employee document no longer exists."));
+        if (document.IdentificationStatus != EmployeeDocumentIdentificationStatus.Confirmed || document.EmployeeId is not Guid employeeId)
+            return ([], null, Failure("employee_document_not_confirmed", "Employee document is not in a confirmed state."));
+
+        var batch = await db.EmployeeDocumentBatches.AsNoTracking().SingleOrDefaultAsync(x => x.Id == document.BatchId, ct);
+        var employee = await db.Employees.AsNoTracking().SingleOrDefaultAsync(x => x.Id == employeeId, ct);
+        var condominium = await db.Condominiums.AsNoTracking().SingleOrDefaultAsync(x => x.Id == item.CondominiumId, ct);
+        if (batch is null || employee is null || condominium is null)
+            return ([], null, Failure("employee_document_context_missing", "Employee, batch or condominium no longer exists."));
+        if (document.CondominiumId != item.CondominiumId || batch.CondominiumId != item.CondominiumId || employee.CondominiumId != item.CondominiumId)
+            return ([], null, Failure("employee_document_condominium_mismatch", "Document, batch and employee do not all belong to the same condominium."));
+        if (!employee.IsActive)
+            return ([], null, Failure("employee_inactive", "Employee is no longer active."));
+        if (employee.NormalizedPhoneNumber is not { Length: > 0 } phone || phone != item.DestinationPhone)
+            return ([], null, Failure("employee_phone_invalid", "Employee has no valid phone number, or it changed since queueing."));
+        if (!await modules.IsEnabledAsync(item.CondominiumId.Value, CondominiumModuleType.EmployeeManagement, ct))
+            return ([], null, Failure("module_disabled", "Employee Management module is no longer enabled for this condominium."));
+
+        using var stream = storage.OpenRead(document.FileKey);
+        if (stream is null)
+            return ([], null, Failure("employee_document_file_missing", "Stored document file could not be found."));
+        await using var buffer = new MemoryStream();
+        await stream.CopyToAsync(buffer, ct);
+
+        var fileName = FriendlyPayslipFileName(document.CompetenceMonth, document.CompetenceYear, employee.FullName);
+        var upload = await client.UploadDocumentAsync(buffer.ToArray(), fileName, "application/pdf", ct);
+        if (!upload.Succeeded || string.IsNullOrWhiteSpace(upload.MediaId))
+            return ([], null, new WhatsAppSendResult(false, null, upload.Error ?? "Media upload failed.",
+                upload.IsTransient, upload.ErrorCode, FailureKind: upload.FailureKind ?? "MediaUpload", FailureStage: "media_upload"));
+
+        IReadOnlyList<string> parameters = [employee.FullName, CompetenceLabel(document.CompetenceMonth, document.CompetenceYear), condominium.Name];
+        return (parameters, new WhatsAppDocumentHeader(upload.MediaId, fileName), null);
+    }
+
+    private static readonly string[] MonthNames =
+    [
+        "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+        "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+    ];
+
+    internal static string CompetenceLabel(int month, int year) => $"{MonthNames[month - 1]}/{year}";
+
+    internal static string FriendlyPayslipFileName(int month, int year, string employeeFullName)
+    {
+        var sanitizedName = string.Concat(employeeFullName.Trim().Split(' ',
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(part => "_" + new string(part.Where(char.IsLetterOrDigit).ToArray())));
+        return $"Holerite_{MonthNames[month - 1]}_{year}{sanitizedName}.pdf";
     }
 
     internal static IReadOnlyList<string> ManagerNewRequestTemplateParameters(

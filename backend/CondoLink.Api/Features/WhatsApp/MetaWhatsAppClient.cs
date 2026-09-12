@@ -52,6 +52,18 @@ public sealed class MetaWhatsAppClient(
         SendTemplateAsync(phoneNumber, templateName, language, bodyParameters,
             quickReplyPayloads, cancellationToken, bodyParameterName, []);
 
+    public Task<WhatsAppSendResult> SendTemplateAsync(
+        string phoneNumber,
+        string templateName,
+        string language,
+        IReadOnlyList<string> bodyParameters,
+        IReadOnlyList<string> quickReplyPayloads,
+        CancellationToken cancellationToken,
+        string? bodyParameterName,
+        IReadOnlyList<string> urlButtonParameters) =>
+        SendTemplateAsync(phoneNumber, templateName, language, bodyParameters,
+            quickReplyPayloads, cancellationToken, bodyParameterName, urlButtonParameters, null);
+
     public async Task<WhatsAppSendResult> SendTemplateAsync(
         string phoneNumber,
         string templateName,
@@ -60,7 +72,8 @@ public sealed class MetaWhatsAppClient(
         IReadOnlyList<string> quickReplyPayloads,
         CancellationToken cancellationToken,
         string? bodyParameterName,
-        IReadOnlyList<string> urlButtonParameters)
+        IReadOnlyList<string> urlButtonParameters,
+        WhatsAppDocumentHeader? documentHeader)
     {
         var stage = "building_payload";
         int? httpStatus = null;
@@ -89,6 +102,16 @@ public sealed class MetaWhatsAppClient(
                     templateName, language, namedParameterEnabled);
 
             var components = new List<object>();
+            if (documentHeader is not null)
+                components.Add(new
+                {
+                    type = "header",
+                    parameters = new[] { new
+                    {
+                        type = "document",
+                        document = new { id = documentHeader.MediaId, filename = documentHeader.FileName }
+                    } }
+                });
             if (bodyParameters.Count > 0)
                 components.Add(new
                 {
@@ -456,6 +479,59 @@ public sealed class MetaWhatsAppClient(
         {
             logger.LogWarning(exception, "WhatsApp media download failed.");
             return new(false, null, null, "Media download failed.");
+        }
+    }
+
+    public async Task<WhatsAppMediaUploadResult> UploadDocumentAsync(
+        byte[] content,
+        string fileName,
+        string mimeType,
+        CancellationToken cancellationToken)
+    {
+        var settings = options.Value;
+        if (!settings.Enabled || string.IsNullOrWhiteSpace(settings.PhoneNumberId)
+            || string.IsNullOrWhiteSpace(settings.AccessToken))
+            return new(false, null, "WhatsApp integration is not configured.", FailureKind: "Configuration");
+        try
+        {
+            using var form = new MultipartFormDataContent();
+            using var fileContent = new ByteArrayContent(content);
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue(mimeType);
+            form.Add(fileContent, "file", fileName);
+            form.Add(new StringContent("whatsapp"), "messaging_product");
+
+            using var request = new HttpRequestMessage(HttpMethod.Post,
+                $"{settings.ApiVersion}/{settings.PhoneNumberId}/media") { Content = form };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.AccessToken);
+
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                var httpStatus = (int)response.StatusCode;
+                var errorCode = ParseMetaFailure(responseBody, httpStatus, []).ErrorCode ?? $"http_{httpStatus}";
+                logger.LogWarning("WhatsApp media upload failed. HttpStatus: {HttpStatus}; ErrorCode: {ErrorCode}.", httpStatus, errorCode);
+                return new(false, null, $"Provider returned HTTP {httpStatus}.", IsTransientStatus(httpStatus), errorCode);
+            }
+            using var document = JsonDocument.Parse(responseBody);
+            var mediaId = document.RootElement.TryGetProperty("id", out var idElement) ? idElement.GetString() : null;
+            if (string.IsNullOrWhiteSpace(mediaId))
+                return new(false, null, "Provider success response did not contain a media id.", FailureKind: "ProviderResponse");
+            return new(true, mediaId, null);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning("WhatsApp media upload timed out.");
+            return new(false, null, "Provider request timed out.", true, "timeout", "Timeout");
+        }
+        catch (HttpRequestException exception)
+        {
+            logger.LogError(exception, "WhatsApp media upload failed.");
+            return new(false, null, "Provider HTTP request failed.", true, "network", "Transport");
+        }
+        catch (JsonException)
+        {
+            return new(false, null, "Provider response was not valid JSON.", FailureKind: "ProviderResponse");
         }
     }
 

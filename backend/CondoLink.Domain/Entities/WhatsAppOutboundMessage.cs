@@ -14,7 +14,8 @@ public sealed class WhatsAppOutboundMessage
         WhatsAppOutboundStatus status = WhatsAppOutboundStatus.Pending,
         string? error = null, string? templateParameterContent = null,
         Guid? requestStatusHistoryId = null,
-        Guid? requestClosureConfirmationId = null)
+        Guid? requestClosureConfirmationId = null,
+        Guid? employeeDocumentId = null)
     {
         Id = Guid.NewGuid();
         RequestId = requestId;
@@ -29,6 +30,7 @@ public sealed class WhatsAppOutboundMessage
         TemplateParameterContent = templateParameterContent;
         RequestStatusHistoryId = requestStatusHistoryId;
         RequestClosureConfirmationId = requestClosureConfirmationId;
+        EmployeeDocumentId = employeeDocumentId;
         TemplateName = templateName;
         TemplateLanguage = templateLanguage;
         Status = status;
@@ -44,6 +46,7 @@ public sealed class WhatsAppOutboundMessage
     public Guid? RequestMessageId { get; private set; }
     public Guid? RequestStatusHistoryId { get; private set; }
     public Guid? RequestClosureConfirmationId { get; private set; }
+    public Guid? EmployeeDocumentId { get; private set; }
     public Guid UserId { get; private set; }
     public Guid? CondominiumId { get; private set; }
     public string DestinationPhone { get; private set; } = null!;

@@ -14,5 +14,6 @@ public enum WhatsAppNotificationType
     ResidentFirstAccess = 10,
     DraftInactivityTimeout = 11,
     ManagerAgendaReminder = 12,
-    AdministrativeRequestUpdate = 13
+    AdministrativeRequestUpdate = 13,
+    EmployeePayslipAvailable = 14
 }

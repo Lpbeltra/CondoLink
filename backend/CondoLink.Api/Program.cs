@@ -8,6 +8,7 @@ using CondoLink.Api.Features.CondominiumSetup;
 using CondoLink.Api.Features.CondominiumAssistant;
 using CondoLink.Api.Features.CondominiumModules;
 using CondoLink.Api.Features.EmployeeManagement;
+using CondoLink.Api.Features.EmployeeDocuments;
 using CondoLink.Api.Features.Management;
 using CondoLink.Api.Features.Notifications;
 using CondoLink.Api.Features.Reports;
@@ -46,6 +47,11 @@ builder.Services.AddProblemDetails();
 builder.Services.AddScoped<CondominiumMembershipService>();
 builder.Services.AddScoped<ICondominiumModuleService, CondominiumModuleService>();
 builder.Services.AddScoped<EmployeeManagementAccessService>();
+builder.Services.AddScoped<EmployeeDocumentProcessingService>();
+builder.Services.AddScoped<EmployeeDocumentDistributionService>();
+builder.Services.Configure<EmployeeDocumentProcessingOptions>(
+    builder.Configuration.GetSection(EmployeeDocumentProcessingOptions.SectionName));
+builder.Services.AddHostedService<EmployeeDocumentProcessingWorker>();
 builder.Services.AddScoped<CondoLink.Api.Features.Categories.RequestCategoryResolver>();
 builder.Services.AddScoped<ManagerOnboardingService>();
 builder.Services.AddScoped<NotificationService>();
@@ -385,6 +391,7 @@ app.MapManagementContext();
 
 // Employee Management
 app.MapEmployeeManagementEndpoints();
+app.MapEmployeeDocumentEndpoints();
 
 // Blocks
 app.MapCondominiumBlocks();

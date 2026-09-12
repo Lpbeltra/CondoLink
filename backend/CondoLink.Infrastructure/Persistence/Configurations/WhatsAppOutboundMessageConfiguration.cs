@@ -17,6 +17,7 @@ public sealed class WhatsAppOutboundMessageConfiguration
         b.Property(x => x.RequestMessageId).HasColumnName("request_message_id");
         b.Property(x => x.RequestStatusHistoryId).HasColumnName("request_status_history_id");
         b.Property(x => x.RequestClosureConfirmationId).HasColumnName("request_closure_confirmation_id");
+        b.Property(x => x.EmployeeDocumentId).HasColumnName("employee_document_id");
         b.Property(x => x.UserId).HasColumnName("user_id").IsRequired();
         b.Property(x => x.CondominiumId).HasColumnName("condominium_id");
         b.Property(x => x.DestinationPhone).HasColumnName("destination_phone").HasMaxLength(20).IsRequired();
@@ -44,6 +45,7 @@ public sealed class WhatsAppOutboundMessageConfiguration
         b.HasOne<RequestMessage>().WithMany().HasForeignKey(x => x.RequestMessageId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<Condominium>().WithMany().HasForeignKey(x => x.CondominiumId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<EmployeeDocument>().WithMany().HasForeignKey(x => x.EmployeeDocumentId).OnDelete(DeleteBehavior.Restrict);
         b.HasIndex(x => x.IdempotencyKey).HasDatabaseName("ux_whatsapp_outbound_idempotency_key").IsUnique();
         b.HasIndex(x => x.ExternalMessageId).HasDatabaseName("ux_whatsapp_outbound_external_message_id")
             .IsUnique().HasFilter("\"external_message_id\" IS NOT NULL");

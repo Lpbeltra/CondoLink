@@ -70,6 +70,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<Employee> Employees => Set<Employee>();
     public DbSet<ManagementCompanyEmployeeModulePermission> ManagementCompanyEmployeeModulePermissions =>
         Set<ManagementCompanyEmployeeModulePermission>();
+    public DbSet<EmployeeDocumentBatch> EmployeeDocumentBatches => Set<EmployeeDocumentBatch>();
+    public DbSet<EmployeeDocument> EmployeeDocuments => Set<EmployeeDocument>();
+    public DbSet<EmployeeDocumentDelivery> EmployeeDocumentDeliveries => Set<EmployeeDocumentDelivery>();
     public DbSet<CondominiumAssistantConversation> CondominiumAssistantConversations => Set<CondominiumAssistantConversation>();
     public DbSet<CondominiumAssistantMessage> CondominiumAssistantMessages => Set<CondominiumAssistantMessage>();
     public DbSet<TelegramUserLink> TelegramUserLinks => Set<TelegramUserLink>();

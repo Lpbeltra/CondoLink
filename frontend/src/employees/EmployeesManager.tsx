@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
 import { createEmployee, listEmployees, setEmployeeStatus, updateEmployee, type Employee, type EmployeeInput } from './api'
+import { PayslipDistribution } from '../employeeDocuments/PayslipDistribution'
 
 const blank: EmployeeInput = { fullName: '', jobTitle: '', phoneNumber: '', email: '', registrationNumber: '', admissionDate: '' }
 const errorMessage = (value: unknown) =>
@@ -9,6 +10,7 @@ const errorMessage = (value: unknown) =>
   ?? 'Não foi possível salvar o funcionário.'
 
 export function EmployeesManager({ condominiumId }: { condominiumId: string }) {
+  const [tab, setTab] = useState<'employees' | 'payslips'>('employees')
   const [items, setItems] = useState<Employee[]>([])
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('active')
@@ -75,8 +77,13 @@ export function EmployeesManager({ condominiumId }: { condominiumId: string }) {
           <Typography variant="h1">Funcionários</Typography>
           <Typography color="text.secondary">Funcionários deste condomínio.</Typography>
         </Box>
-        <Button variant="contained" onClick={() => open()}>Novo funcionário</Button>
+        {tab === 'employees' && <Button variant="contained" onClick={() => open()}>Novo funcionário</Button>}
       </Box>
+      <Tabs value={tab} onChange={(_, value: 'employees' | 'payslips') => setTab(value)}>
+        <Tab value="employees" label="Funcionários" />
+        <Tab value="payslips" label="Holerites" />
+      </Tabs>
+      {tab === 'payslips' ? <PayslipDistribution condominiumId={condominiumId} /> : <>
       {error && <Alert severity="error">{error}</Alert>}
       <Stack direction={{ xs: 'column', sm: 'row' }} gap={1.5}>
         <TextField label="Buscar" value={search} onChange={e => setSearch(e.target.value)} fullWidth />
@@ -133,6 +140,7 @@ export function EmployeesManager({ condominiumId }: { condominiumId: string }) {
           <Button variant="contained" onClick={() => void save()}>Salvar</Button>
         </DialogActions>
       </Dialog>
+      </>}
     </Stack>
   )
 }

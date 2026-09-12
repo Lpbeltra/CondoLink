@@ -113,6 +113,34 @@ public sealed class LocalFileStorage : ICondominiumDocumentStorage
         if (File.Exists(fullPath)) File.Delete(fullPath);
     }
 
+    public async Task<string> SaveEmployeeDocumentBatchFileAsync(
+        Guid condominiumId, Guid batchId, Stream content, string extension,
+        CancellationToken cancellationToken)
+    {
+        var storageKey = Path.Combine("employee-documents", condominiumId.ToString(), batchId.ToString(),
+            "uploads", $"{Guid.NewGuid():N}{extension}").Replace('\\', '/');
+        var fullPath = Resolve(storageKey);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        await using var output = new FileStream(fullPath, FileMode.CreateNew,
+            FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous);
+        await content.CopyToAsync(output, cancellationToken);
+        return storageKey;
+    }
+
+    public async Task<string> SaveEmployeeDocumentAsync(
+        Guid condominiumId, Guid batchId, Guid documentId, byte[] content,
+        CancellationToken cancellationToken)
+    {
+        var storageKey = Path.Combine("employee-documents", condominiumId.ToString(), batchId.ToString(),
+            "documents", $"{documentId:N}.pdf").Replace('\\', '/');
+        var fullPath = Resolve(storageKey);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        await using var output = new FileStream(fullPath, FileMode.Create,
+            FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous);
+        await output.WriteAsync(content, cancellationToken);
+        return storageKey;
+    }
+
     public void DeleteCondominiumDocument(Guid condominiumId, Guid documentId, string storageKey)
     {
         var expectedPrefix = $"condominium-documents/{condominiumId}/{documentId}/";

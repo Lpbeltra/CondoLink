@@ -33,6 +33,11 @@ public sealed class WhatsAppTemplateOptions
     public WhatsAppTemplateDefinition ManagerNewRequest { get; set; } = new();
     public WhatsAppTemplateDefinition ResidentFirstAccess { get; set; } = new();
     public WhatsAppTemplateDefinition ManagerAgendaReminder { get; set; } = new();
+    public WhatsAppTemplateDefinition EmployeePayslipAvailable { get; set; } = new()
+    {
+        Name = "holerite_disponivel",
+        Language = "pt_BR"
+    };
 }
 
 public sealed class WhatsAppTemplateDefinition
