@@ -42,13 +42,21 @@ namespace CondoLink.Infrastructure.Migrations
 
             // Preserve all currently available capabilities for existing condominiums.
             // EmployeeManagement is reserved for a future product and begins disabled.
+            //
+            // condominium_modules has no explicit HasColumnName mappings in
+            // CondominiumModuleConfiguration (unlike every other table in this
+            // schema), so EF/Npgsql fell back to the raw CLR property names as
+            // column identifiers — quoted, case-preserved: "Id", "CondominiumId",
+            // "Module", "IsEnabled", "ManagementCompanyAccessEnabled", "CreatedAt",
+            // "UpdatedAt". This INSERT must target those exact identifiers, not the
+            // snake_case convention used elsewhere in the codebase.
             migrationBuilder.Sql("""
                 INSERT INTO condominium_modules
-                    (id, condominium_id, module, is_enabled, management_company_access_enabled, created_at, updated_at)
+                    ("Id", "CondominiumId", "Module", "IsEnabled", "ManagementCompanyAccessEnabled", "CreatedAt", "UpdatedAt")
                 SELECT gen_random_uuid(), c.id, m.module, m.module <> 5, FALSE, NOW(), NOW()
                 FROM condominiums c
                 CROSS JOIN (VALUES (1), (2), (3), (4), (5)) AS m(module)
-                ON CONFLICT (condominium_id, module) DO NOTHING;
+                ON CONFLICT ("CondominiumId", "Module") DO NOTHING;
                 """);
         }
 
