@@ -182,6 +182,38 @@ public sealed class EmployeeDocumentsEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Real_split_and_persisted_preview_bytes_never_cross_contaminate_employees()
+    {
+        var condominium = new Condominium("Condo Isolamento", null, null);
+        var manager = CoreTestSeed.User("Síndico Isolamento", "sindico-isolamento@test.local");
+        Guid adrianeId = Guid.Empty, myleneId = Guid.Empty;
+        await _host.WithDbAsync(async db =>
+        {
+            db.AddRange(condominium, manager);
+            CoreTestSeed.AddMember(db, manager.Id, condominium.Id, CondominiumRole.Manager);
+            CondominiumModuleService.AddDefaults(db, condominium.Id, DateTime.UtcNow);
+            var adriane = new Employee(condominium.Id, "ADRIANE PEREIRA DA SILVA", null, null, null, null, null);
+            var mylene = new Employee(condominium.Id, "MYLENE MANFRINATO DOS REIS AMARO", null, null, null, null, null);
+            db.AddRange(adriane, mylene);
+            await db.SaveChangesAsync(); adrianeId = adriane.Id; myleneId = mylene.Id;
+        });
+        await EnableModuleAsync(_host, condominium.Id);
+        var client = _host.ClientFor(manager.Id);
+        var (_, batchId) = await UploadAsync(client, condominium.Id, BuildPdf(
+            "HOLERITE\nADRIANE PEREIRA DA SILVA", "HOLERITE\nMYLENE MANFRINATO DOS REIS AMARO"));
+        await ProcessAsync(batchId);
+        var detail = await client.GetFromJsonAsync<JsonElement>($"/condominiums/{condominium.Id}/employees/documents/batches/{batchId}");
+        foreach (var document in detail.GetProperty("documents").EnumerateArray())
+        {
+            var employeeId = document.GetProperty("employeeId").GetGuid();
+            var bytes = await client.GetByteArrayAsync($"/condominiums/{condominium.Id}/employees/documents/{document.GetProperty("id").GetGuid()}/preview");
+            var text = CondominiumDocumentText.Extract(new MemoryStream(bytes), ".pdf");
+            if (employeeId == adrianeId) { Assert.Contains("ADRIANE", text); Assert.DoesNotContain("MYLENE", text); }
+            else { Assert.Equal(myleneId, employeeId); Assert.Contains("MYLENE", text); Assert.DoesNotContain("ADRIANE", text); }
+        }
+    }
+
+    [Fact]
     public async Task Multi_page_payslip_without_a_repeated_signal_stays_one_document()
     {
         var condominium = new Condominium("Condo Holerites B", null, null);
@@ -372,7 +404,7 @@ public sealed class EmployeeDocumentsEndpointTests : IAsyncLifetime
             condominium.SetManagementCompany(company.Id);
             var companyEmployee = new ManagementCompanyEmployee(company.Id, operatorUser.Id, "Departamento Pessoal");
             db.Add(companyEmployee);
-            db.Add(new ManagementCompanyEmployeeModulePermission(companyEmployee.Id, CondominiumModuleType.EmployeeManagement, operatorUser.Id));
+            db.Add(new ManagementCompanyEmployeeModulePermission(companyEmployee.Id, condominium.Id, CondominiumModuleType.EmployeeManagement, operatorUser.Id));
             await db.SaveChangesAsync();
         });
         await EnableModuleAsync(_host, condominium.Id, managementCompanyAccessEnabled: true);

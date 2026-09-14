@@ -97,6 +97,12 @@ export async function updateDocumentAssociation(
     { action, employeeId: employeeId ?? null })).data
 }
 
+export async function replaceDocumentFile(condominiumId: string, documentId: string, file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  await api.put(`/condominiums/${condominiumId}/employees/documents/${documentId}/file`, form)
+}
+
 export async function confirmBatch(condominiumId: string, batchId: string) {
   await api.post(`/condominiums/${condominiumId}/employees/documents/batches/${batchId}/confirm`)
 }

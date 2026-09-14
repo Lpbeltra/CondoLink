@@ -12,8 +12,12 @@ public static class EmployeeDocumentPdfSlicer
 {
     public static byte[] Slice(Stream sourceStream, int pageStart, int pageEnd)
     {
+        if (pageStart < 1 || pageEnd < pageStart)
+            throw new ArgumentOutOfRangeException(nameof(pageStart), "Page range is invalid.");
         sourceStream.Position = 0;
         using var source = PdfReader.Open(sourceStream, PdfDocumentOpenMode.Import);
+        if (pageEnd > source.PageCount)
+            throw new InvalidDataException("Page range exceeds the source PDF page count.");
         using var output = new PdfDocument();
         for (var pageNumber = pageStart; pageNumber <= pageEnd; pageNumber++)
             output.AddPage(source.Pages[pageNumber - 1]);

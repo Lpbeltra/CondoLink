@@ -1,6 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using CondoLink.Api.Features.CondominiumModules;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
@@ -8,74 +7,83 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CondoLink.Api.Features.Overwatch.ManagementCompanyEmployees;
 
-/// <summary>
-/// Grants/revokes a management company employee's (or department's) access to
-/// delegable modules — e.g. "Departamento Pessoal" gets EmployeeManagement,
-/// "Jurídico" does not — independent of "employee is active" or "company is
-/// linked". Platform-admin only, mirroring SubManagerEndpoints' permission shape.
-/// </summary>
 public static class ManagementCompanyEmployeeModulePermissionEndpoints
 {
+    private const string BasePath = "/overwatch/management-companies/employees/{employeeId:guid}/module-permissions";
+
     public static IEndpointRouteBuilder MapManagementCompanyEmployeeModulePermissionEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/overwatch/management-companies/employees/{employeeId:guid}/module-permissions", ListAsync)
-            .RequireAuthorization("PlatformAdmin").WithTags("Overwatch")
-            .WithSummary("List management company employee module permissions");
-        endpoints.MapPut("/overwatch/management-companies/employees/{employeeId:guid}/module-permissions", UpdateAsync)
-            .RequireAuthorization("PlatformAdmin").WithTags("Overwatch")
-            .WithSummary("Update management company employee module permissions");
+        endpoints.MapGet(BasePath, ListAsync).RequireAuthorization("PlatformAdmin").WithTags("Overwatch");
+        endpoints.MapPut(BasePath + "/{condominiumId:guid}", UpdateAsync)
+            .RequireAuthorization("PlatformAdmin").WithTags("Overwatch");
         return endpoints;
     }
 
     private static async Task<IResult> ListAsync(Guid employeeId, AppDbContext db, CancellationToken ct)
     {
-        var exists = await db.ManagementCompanyEmployees.AnyAsync(x => x.Id == employeeId, ct);
-        if (!exists) return Results.NotFound(new { message = "Management company employee not found." });
+        var employee = await db.ManagementCompanyEmployees.AsNoTracking().SingleOrDefaultAsync(x => x.Id == employeeId, ct);
+        if (employee is null) return Results.NotFound();
 
-        var granted = await db.ManagementCompanyEmployeeModulePermissions.AsNoTracking()
-            .Where(x => x.ManagementCompanyEmployeeId == employeeId && x.IsAllowed && x.RevokedAt == null)
-            .Select(x => x.Module).ToListAsync(ct);
-        var rows = CondominiumModuleCatalog.All.Where(x => x.SupportsManagementCompanyAccess)
-            .Select(x => new { module = x.Module.ToString(), allowed = granted.Contains(x.Module) });
+        var condominiums = await db.Condominiums.AsNoTracking()
+            .Where(x => x.ManagementCompanyId == employee.ManagementCompanyId)
+            .OrderBy(x => x.Name).Select(x => new { x.Id, x.Name }).ToArrayAsync(ct);
+        var ids = condominiums.Select(x => x.Id).ToArray();
+        var modules = await db.CondominiumModules.AsNoTracking()
+            .Where(x => ids.Contains(x.CondominiumId) && x.Module == CondominiumModuleType.EmployeeManagement)
+            .ToArrayAsync(ct);
+        var allowedIds = await db.ManagementCompanyEmployeeModulePermissions.AsNoTracking()
+            .Where(x => x.ManagementCompanyEmployeeId == employeeId
+                && x.CondominiumId.HasValue && ids.Contains(x.CondominiumId.Value)
+                && x.Module == CondominiumModuleType.EmployeeManagement && x.IsAllowed && x.RevokedAt == null)
+            .Select(x => x.CondominiumId!.Value).ToArrayAsync(ct);
+        var granted = allowedIds.ToHashSet();
+        var rows = condominiums.Select(c =>
+        {
+            var module = modules.SingleOrDefault(m => m.CondominiumId == c.Id);
+            var eligible = employee.IsActive && module is { IsEnabled: true, ManagementCompanyAccessEnabled: true };
+            return new PermissionRow(c.Id, c.Name, eligible, eligible && granted.Contains(c.Id));
+        }).ToArray();
         return Results.Ok(rows);
     }
 
-    private static async Task<IResult> UpdateAsync(Guid employeeId, Request request,
+    private static async Task<IResult> UpdateAsync(Guid employeeId, Guid condominiumId, Request request,
         ClaimsPrincipal principal, AppDbContext db, ILoggerFactory loggerFactory, CancellationToken ct)
     {
-        var employeeExists = await db.ManagementCompanyEmployees.AnyAsync(x => x.Id == employeeId, ct);
-        if (!employeeExists) return Results.NotFound(new { message = "Management company employee not found." });
+        var employee = await db.ManagementCompanyEmployees.SingleOrDefaultAsync(x => x.Id == employeeId, ct);
+        if (employee is null) return Results.NotFound();
+        var linked = await db.Condominiums.AsNoTracking().AnyAsync(x =>
+            x.Id == condominiumId && x.ManagementCompanyId == employee.ManagementCompanyId, ct);
+        if (!linked) return Results.Forbid();
+        if (request.Allowed)
+        {
+            var entitled = employee.IsActive && await db.CondominiumModules.AsNoTracking().AnyAsync(x =>
+                x.CondominiumId == condominiumId && x.Module == CondominiumModuleType.EmployeeManagement
+                && x.IsEnabled && x.ManagementCompanyAccessEnabled, ct);
+            if (!entitled) return Results.Forbid();
+        }
 
-        var delegable = CondominiumModuleCatalog.All.Where(x => x.SupportsManagementCompanyAccess)
-            .Select(x => x.Module).ToHashSet();
-        if (request.Permissions is null || request.Permissions.Count != delegable.Count
-            || request.Permissions.Any(x => !Enum.TryParse<CondominiumModuleType>(x.Module, true, out var module)
-                || !delegable.Contains(module)))
-            return Results.BadRequest(new { message = "Informe exatamente uma permissão por módulo delegável." });
-
-        var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (!Guid.TryParse(value, out var actorId)) return Results.Unauthorized();
 
-        foreach (var item in request.Permissions)
+        var permission = await db.ManagementCompanyEmployeeModulePermissions.SingleOrDefaultAsync(x =>
+            x.ManagementCompanyEmployeeId == employeeId && x.CondominiumId == condominiumId
+            && x.Module == CondominiumModuleType.EmployeeManagement, ct);
+        if (permission is null && request.Allowed)
         {
-            var module = Enum.Parse<CondominiumModuleType>(item.Module, true);
-            var permission = await db.ManagementCompanyEmployeeModulePermissions.SingleOrDefaultAsync(
-                x => x.ManagementCompanyEmployeeId == employeeId && x.Module == module, ct);
-            if (permission is null)
-            {
-                permission = new ManagementCompanyEmployeeModulePermission(employeeId, module, actorId);
-                db.Add(permission);
-            }
-            permission.SetAllowed(item.Allowed, actorId);
+            permission = new ManagementCompanyEmployeeModulePermission(employeeId, condominiumId,
+                CondominiumModuleType.EmployeeManagement, actorId);
+            db.Add(permission);
         }
+        else permission?.SetAllowed(request.Allowed, actorId);
         await db.SaveChangesAsync(ct);
 
         loggerFactory.CreateLogger("ManagementCompanyEmployeeModulePermissionAudit").LogInformation(
-            "Management company employee module permissions updated. EmployeeId: {EmployeeId}; Modules: {Modules}; ActorUserId: {ActorUserId}",
-            employeeId, string.Join(',', request.Permissions.Select(x => x.Module)), actorId);
+            "Employee Management permission updated. EmployeeId: {EmployeeId}; CondominiumId: {CondominiumId}; Allowed: {Allowed}; ActorUserId: {ActorUserId}",
+            employeeId, condominiumId, request.Allowed, actorId);
         return Results.NoContent();
     }
 
-    public sealed record PermissionItem(string Module, bool Allowed);
-    public sealed record Request(IReadOnlyList<PermissionItem>? Permissions);
+    public sealed record PermissionRow(Guid CondominiumId, string CondominiumName, bool Eligible, bool Allowed);
+    public sealed record Request(bool Allowed);
 }

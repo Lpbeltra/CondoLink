@@ -154,6 +154,7 @@ export interface AdministratorContext {
   jobTitle: string;
   accessType: "Person" | "Department";
   categories: CategoryOption[];
+  hasEmployeeManagementAccess?: boolean;
 }
 export interface AdministratorOptions {
   condominiums: { condominiumId: string; name: string }[];

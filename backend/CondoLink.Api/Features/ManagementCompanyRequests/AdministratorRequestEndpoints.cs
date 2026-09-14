@@ -34,7 +34,15 @@ public static class AdministratorRequestEndpoints
     {
         var scope = await Scope(user, db, access, ct);
         var categories = await db.ManagementCompanyRequestCategories.AsNoTracking().Where(x => x.ManagementCompanyId == scope.ManagementCompanyId && scope.CategoryIds.Contains(x.Id)).OrderBy(x => x.Name).Select(x => new { x.Id, x.Name, Type = x.FormType == ManagementCompanyRequestFormType.UnitFine ? ManagementCompanyRequestType.Fine : x.FormType == ManagementCompanyRequestFormType.SupplierPayment ? ManagementCompanyRequestType.Payment : ManagementCompanyRequestType.GeneralQuestion }).ToListAsync(ct);
-        return Results.Ok(new { managementCompanyId = scope.ManagementCompanyId, managementCompanyName = scope.CompanyName, scope.JobTitle, scope.AccessType, categories });
+        var hasEmployeeManagementAccess = await db.ManagementCompanyEmployeeModulePermissions.AnyAsync(p =>
+            p.ManagementCompanyEmployeeId == scope.AccessId && p.Module == CondominiumModuleType.EmployeeManagement
+            && p.IsAllowed && p.RevokedAt == null
+            && db.Condominiums.Any(c => c.ManagementCompanyId == scope.ManagementCompanyId
+                && p.CondominiumId == c.Id
+                && db.CondominiumModules.Any(m => m.CondominiumId == c.Id
+                    && m.Module == CondominiumModuleType.EmployeeManagement && m.IsEnabled
+                    && m.ManagementCompanyAccessEnabled)), ct);
+        return Results.Ok(new { managementCompanyId = scope.ManagementCompanyId, managementCompanyName = scope.CompanyName, scope.JobTitle, scope.AccessType, categories, hasEmployeeManagementAccess });
     }
 
     private static async Task<IResult> Options(ClaimsPrincipal user, AppDbContext db, ManagementCompanyRequestAccessService access, CancellationToken ct)

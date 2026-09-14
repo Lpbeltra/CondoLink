@@ -36,16 +36,13 @@ public static class ListAdministratorEmployeeManagementCondominiums
 
         var employee = await db.ManagementCompanyEmployees.AsNoTracking()
             .SingleOrDefaultAsync(x => x.UserId == userId && x.IsActive, ct);
-        if (employee is null) return Results.Ok(Array.Empty<CondominiumOption>());
-
-        var hasPermission = await db.ManagementCompanyEmployeeModulePermissions.AsNoTracking()
-            .AnyAsync(x => x.ManagementCompanyEmployeeId == employee.Id
-                && x.Module == CondominiumModuleType.EmployeeManagement
-                && x.IsAllowed && x.RevokedAt == null, ct);
-        if (!hasPermission) return Results.Ok(Array.Empty<CondominiumOption>());
+        if (employee is null) return Results.Forbid();
 
         var candidates = await db.Condominiums.AsNoTracking()
-            .Where(x => x.ManagementCompanyId == employee.ManagementCompanyId)
+            .Where(x => x.ManagementCompanyId == employee.ManagementCompanyId
+                && db.ManagementCompanyEmployeeModulePermissions.Any(p => p.ManagementCompanyEmployeeId == employee.Id
+                    && p.CondominiumId == x.Id
+                    && p.Module == CondominiumModuleType.EmployeeManagement && p.IsAllowed && p.RevokedAt == null))
             .OrderBy(x => x.Name)
             .Select(x => new { x.Id, x.Name })
             .ToListAsync(ct);

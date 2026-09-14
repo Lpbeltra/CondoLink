@@ -7,7 +7,7 @@ import { listEmployees, type Employee } from '../employees/api'
 import { getErrorMessage } from '../services/api'
 import {
   confirmBatch, distributeBatch, getBatch, getDistributionSummary, listBatches, listDeliveries,
-  previewDocumentUrl, resendDocument, updateDocumentAssociation, uploadBatch,
+  previewDocumentUrl, replaceDocumentFile, resendDocument, updateDocumentAssociation, uploadBatch,
   type DistributionSummary, type EmployeeDocument, type EmployeeDocumentBatch, type EmployeeDocumentDelivery,
 } from './api'
 
@@ -168,6 +168,7 @@ function ReviewBatch({ condominiumId, batchId, onBack, onConfirmed }: {
   const [error, setError] = useState('')
   const [confirming, setConfirming] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [replacing, setReplacing] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = () => getBatch(condominiumId, batchId).then(detail => {
@@ -196,6 +197,14 @@ function ReviewBatch({ condominiumId, batchId, onBack, onConfirmed }: {
   const preview = async (documentId: string) => {
     try { setPreviewUrl(await previewDocumentUrl(condominiumId, documentId)) }
     catch { setError('Não foi possível abrir a pré-visualização.') }
+  }
+
+  const replace = async (documentId: string, file: File | undefined) => {
+    if (!file) return
+    setReplacing(documentId); setError('')
+    try { await replaceDocumentFile(condominiumId, documentId, file); await load() }
+    catch (e) { setError(getErrorMessage(e)) }
+    finally { setReplacing(null) }
   }
 
   const confirmBatchAssociations = async () => {
@@ -240,7 +249,7 @@ function ReviewBatch({ condominiumId, batchId, onBack, onConfirmed }: {
               <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
                 {document.identificationStatus !== 'Confirmed' && document.identificationStatus !== 'Ignored' && (
                   <TextField select size="small" label="Funcionário" value={document.employeeId ?? ''}
-                    sx={{ minWidth: 200 }}
+                    sx={{ width: { xs: '100%', sm: 300 }, flexShrink: 0 }}
                     onChange={e => void act(document.id, 'Assign', e.target.value)}>
                     <MenuItem value="">Selecionar funcionário</MenuItem>
                     {employees.map(employee => <MenuItem key={employee.id} value={employee.id}>{employee.fullName}</MenuItem>)}
@@ -249,6 +258,11 @@ function ReviewBatch({ condominiumId, batchId, onBack, onConfirmed }: {
                 <Button size="small" onClick={() => void preview(document.id)}>Visualizar</Button>
                 {document.identificationStatus !== 'Confirmed' && document.identificationStatus !== 'Ignored' && (
                   <>
+                    <Button component="label" size="small" disabled={replacing === document.id}>
+                      {replacing === document.id ? 'Substituindo…' : 'Substituir arquivo'}
+                      <input hidden type="file" accept="application/pdf"
+                        onChange={event => { void replace(document.id, event.target.files?.[0]); event.target.value = '' }} />
+                    </Button>
                     <Button size="small" disabled={!document.employeeId} onClick={() => void act(document.id, 'Confirm')}>Confirmar</Button>
                     <Button size="small" color="inherit" onClick={() => void act(document.id, 'Ignore')}>Ignorar</Button>
                   </>

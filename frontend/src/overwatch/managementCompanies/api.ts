@@ -57,6 +57,13 @@ export async function updateManagementCompanyEmployeeStatus(
   )).data
 }
 
+export async function updateManagementCompanyEmployee(employeeId: string, input: EmployeeInput) {
+  await api.put(`/overwatch/management-company-accesses/${employeeId}`, {
+    displayName: input.fullName, phoneNumber: input.contact, jobTitle: input.jobTitle,
+    accessType: input.accessType ?? 'Person',
+  })
+}
+
 export async function removeManagementCompanyEmployee(employeeId: string) {
   await api.delete(`/employees/${employeeId}`)
 }
@@ -81,7 +88,12 @@ export async function setManagementCompanyAccessCategories(accessId: string, cat
   await api.put(`/overwatch/management-company-accesses/${accessId}/categories`, { categoryIds })
 }
 
-export interface ManagementCompanyEmployeeModulePermission { module: string; allowed: boolean }
+export interface ManagementCompanyEmployeeModulePermission {
+  condominiumId: string
+  condominiumName: string
+  eligible: boolean
+  allowed: boolean
+}
 
 export async function listManagementCompanyEmployeeModulePermissions(employeeId: string) {
   return (await api.get<ManagementCompanyEmployeeModulePermission[]>(
@@ -90,9 +102,9 @@ export async function listManagementCompanyEmployeeModulePermissions(employeeId:
 }
 
 export async function setManagementCompanyEmployeeModulePermissions(
-  employeeId: string, permissions: ManagementCompanyEmployeeModulePermission[],
+  employeeId: string, condominiumId: string, allowed: boolean,
 ) {
-  await api.put(`/overwatch/management-companies/employees/${employeeId}/module-permissions`, { permissions })
+  await api.put(`/overwatch/management-companies/employees/${employeeId}/module-permissions/${condominiumId}`, { allowed })
 }
 
 export async function listManagementCompanyCategories(managementCompanyId: string) {

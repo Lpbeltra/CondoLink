@@ -51,6 +51,7 @@ public sealed class EmployeeManagementAccessService(AppDbContext db, ICondominiu
                 condominiumId, employee.ManagementCompanyId, CondominiumModuleType.EmployeeManagement, ct);
             var hasPermission = canDelegate && await db.ManagementCompanyEmployeeModulePermissions.AsNoTracking()
                 .AnyAsync(x => x.ManagementCompanyEmployeeId == employee.Id
+                    && x.CondominiumId == condominiumId
                     && x.Module == CondominiumModuleType.EmployeeManagement
                     && x.IsAllowed && x.RevokedAt == null, ct);
             if (hasPermission) return new(user.Id, user.FullName, EmployeeManagementActorKind.ManagementCompany);

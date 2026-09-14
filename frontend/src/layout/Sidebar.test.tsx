@@ -62,7 +62,7 @@ function renderSidebar() {
 
 describe("Sidebar multi-role navigation", () => {
   it("shows only the administrator queue for a pure administrator access", () => {
-    mockContexts({ administrator: { managementCompanyId: "mc1" } });
+    mockContexts({ administrator: { managementCompanyId: "mc1", hasEmployeeManagementAccess: true } });
     renderSidebar();
     expect(document.querySelector('a[href="/administrator/requests"]')).toBeInTheDocument();
     expect(document.querySelector('a[href="/management/administrator"]')).not.toBeInTheDocument();
@@ -114,9 +114,15 @@ describe("Sidebar multi-role navigation", () => {
     expect(document.querySelector('a[href="/management/employees"]')).toBeInTheDocument();
   });
 
-  it("shows Funcionários for the administrator portal regardless of module entitlement", () => {
-    mockContexts({ administrator: { managementCompanyId: "mc1" } });
+  it("shows Funcionários for the administrator portal with effective access", () => {
+    mockContexts({ administrator: { managementCompanyId: "mc1", hasEmployeeManagementAccess: true } });
     renderSidebar();
     expect(document.querySelector('a[href="/administrator/employees"]')).toBeInTheDocument();
+  });
+
+  it("hides Funcionários for the administrator portal without effective access", () => {
+    mockContexts({ administrator: { managementCompanyId: "mc1", hasEmployeeManagementAccess: false } });
+    renderSidebar();
+    expect(document.querySelector('a[href="/administrator/employees"]')).not.toBeInTheDocument();
   });
 });

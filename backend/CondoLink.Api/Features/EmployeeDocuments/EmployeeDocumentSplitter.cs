@@ -45,9 +45,21 @@ public static class EmployeeDocumentSplitter
                 current = new DocumentSegment(page.PageNumber, page.PageNumber, null,
                     EmployeeDocumentIdentificationConfidence.None, EmployeeDocumentIdentificationMethod.None);
             }
-            else
+            else if (identity.EmployeeId == current.EmployeeId && identity.EmployeeId is not null)
             {
                 current = current with { PageEnd = page.PageNumber };
+            }
+            else if (LooksLikeExplicitContinuation(page.Text))
+            {
+                current = current with { PageEnd = page.PageNumber };
+            }
+            else
+            {
+                // Fail-safe: an ambiguous page is never silently attached to
+                // the preceding employee's private payroll document.
+                segments.Add(current);
+                current = new DocumentSegment(page.PageNumber, page.PageNumber, null,
+                    EmployeeDocumentIdentificationConfidence.None, EmployeeDocumentIdentificationMethod.None);
             }
         }
         if (current is not null) segments.Add(current);
@@ -60,22 +72,26 @@ public static class EmployeeDocumentSplitter
         if (normalizedPage.Length == 0 || candidates.Count == 0)
             return new(null, EmployeeDocumentIdentificationConfidence.None, EmployeeDocumentIdentificationMethod.None);
 
-        foreach (var candidate in candidates)
+        var registrationMatches = candidates.Where(candidate =>
         {
-            if (string.IsNullOrWhiteSpace(candidate.NormalizedRegistrationNumber)) continue;
+            if (string.IsNullOrWhiteSpace(candidate.NormalizedRegistrationNumber)) return false;
             var token = Normalize(candidate.NormalizedRegistrationNumber);
-            if (token.Length < 2) continue;
-            if (Regex.IsMatch(normalizedPage, $@"(?<![A-Z0-9]){Regex.Escape(token)}(?![A-Z0-9])"))
-                return new(candidate.EmployeeId, EmployeeDocumentIdentificationConfidence.High, EmployeeDocumentIdentificationMethod.RegistrationNumber);
-        }
+            return token.Length >= 2 && Regex.IsMatch(normalizedPage, $@"(?<![A-Z0-9]){Regex.Escape(token)}(?![A-Z0-9])");
+        }).ToArray();
+        if (registrationMatches.Length == 1)
+            return new(registrationMatches[0].EmployeeId, EmployeeDocumentIdentificationConfidence.High, EmployeeDocumentIdentificationMethod.RegistrationNumber);
+        if (registrationMatches.Length > 1)
+            return new(null, EmployeeDocumentIdentificationConfidence.None, EmployeeDocumentIdentificationMethod.None);
 
-        foreach (var candidate in candidates)
+        var exactNameMatches = candidates.Where(candidate =>
         {
             var normalizedName = Normalize(candidate.FullName);
-            if (normalizedName.Length < 4) continue;
-            if (normalizedPage.Contains(normalizedName, StringComparison.Ordinal))
-                return new(candidate.EmployeeId, EmployeeDocumentIdentificationConfidence.High, EmployeeDocumentIdentificationMethod.ExactName);
-        }
+            return normalizedName.Length >= 4 && normalizedPage.Contains(normalizedName, StringComparison.Ordinal);
+        }).ToArray();
+        if (exactNameMatches.Length == 1)
+            return new(exactNameMatches[0].EmployeeId, EmployeeDocumentIdentificationConfidence.High, EmployeeDocumentIdentificationMethod.ExactName);
+        if (exactNameMatches.Length > 1)
+            return new(null, EmployeeDocumentIdentificationConfidence.None, EmployeeDocumentIdentificationMethod.None);
 
         Candidate? bestFuzzy = null;
         var bestScore = 0.0;
@@ -88,6 +104,13 @@ public static class EmployeeDocumentSplitter
             return new(bestFuzzy.EmployeeId, EmployeeDocumentIdentificationConfidence.Low, EmployeeDocumentIdentificationMethod.FuzzyName);
 
         return new(null, EmployeeDocumentIdentificationConfidence.None, EmployeeDocumentIdentificationMethod.None);
+    }
+
+    private static bool LooksLikeExplicitContinuation(string text)
+    {
+        var normalized = Normalize(text);
+        return normalized.Contains("CONTINUAC", StringComparison.Ordinal)
+            || Regex.IsMatch(normalized, @"P[AÁ]GINA\s+\d+\s+DE\s+\d+");
     }
 
     private static double FuzzyNameScore(string normalizedPage, string fullName)

@@ -25,6 +25,7 @@ export function ManagementLayout() {
     || location.pathname.startsWith('/management/documents')
     || location.pathname.startsWith('/management/agenda')
     || location.pathname.startsWith('/management/service-providers')
+    || location.pathname.startsWith('/management/employees')
     || location.pathname.startsWith('/management/administrator')
 
   if (isLoading) {

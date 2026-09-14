@@ -47,10 +47,11 @@ export function Sidebar() {
     });
     navigationItems.push({
       label: "Funcionários",
-      path: "/administrator/employees",
+      path: administrator.hasEmployeeManagementAccess ? "/administrator/employees" : "",
       icon: BadgeRoundedIcon,
     });
   }
+  navigationItems = navigationItems.filter((item) => item.path !== "");
   return (
     <Drawer
       variant="permanent"

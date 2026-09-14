@@ -69,6 +69,23 @@ public sealed class EmployeeDocument
         FileKey = fileKey;
     }
 
+    public string ReplaceFile(string fileKey, string contentHash, DateTime now)
+    {
+        if (IdentificationStatus == EmployeeDocumentIdentificationStatus.Confirmed)
+            throw new InvalidOperationException("A confirmed document's file cannot be replaced.");
+        if (string.IsNullOrWhiteSpace(fileKey) || string.IsNullOrWhiteSpace(contentHash))
+            throw new ArgumentException("Replacement file metadata is required.");
+        var previous = FileKey;
+        FileKey = fileKey;
+        ContentHash = contentHash;
+        IdentificationStatus = EmployeeDocumentIdentificationStatus.NeedsReview;
+        IdentificationConfidence = EmployeeDocumentIdentificationConfidence.None;
+        IdentificationMethod = EmployeeDocumentIdentificationMethod.None;
+        ConfirmedAt = null;
+        UpdatedAt = now;
+        return previous;
+    }
+
     public void ApplyAutomaticIdentification(Guid? employeeId,
         EmployeeDocumentIdentificationConfidence confidence,
         EmployeeDocumentIdentificationMethod method, DateTime now)

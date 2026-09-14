@@ -141,6 +141,19 @@ public sealed class LocalFileStorage : ICondominiumDocumentStorage
         return storageKey;
     }
 
+    public async Task<string> SaveEmployeeDocumentReplacementAsync(
+        Guid condominiumId, Guid batchId, Guid documentId, byte[] content,
+        CancellationToken cancellationToken)
+    {
+        var storageKey = Path.Combine("employee-documents", condominiumId.ToString(), batchId.ToString(),
+            "documents", $"{documentId:N}-{Guid.NewGuid():N}.pdf").Replace('\\', '/');
+        var fullPath = Resolve(storageKey);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        await using var output = new FileStream(fullPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous);
+        await output.WriteAsync(content, cancellationToken);
+        return storageKey;
+    }
+
     public void DeleteCondominiumDocument(Guid condominiumId, Guid documentId, string storageKey)
     {
         var expectedPrefix = $"condominium-documents/{condominiumId}/{documentId}/";

@@ -31,7 +31,7 @@ describe('ManagementCompanyEmployees hard delete', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     api.listManagementCompanyEmployees.mockResolvedValue([employee])
-    api.listManagementCompanyEmployeeModulePermissions.mockResolvedValue([{ module: 'EmployeeManagement', allowed: false }])
+    api.listManagementCompanyEmployeeModulePermissions.mockResolvedValue([])
     api.setManagementCompanyEmployeeModulePermissions.mockResolvedValue(undefined)
     api.hardDeleteManagementCompanyEmployeeEligibility.mockResolvedValue({ canHardDelete: true, reason: null })
     api.hardDeleteManagementCompanyEmployee.mockResolvedValue(undefined)
@@ -101,5 +101,26 @@ describe('ManagementCompanyEmployees hard delete', () => {
     expect((await screen.findAllByRole('alert')).at(-1)).toBeVisible()
     expect(api.hardDeleteManagementCompanyEmployee).toHaveBeenCalledTimes(1)
     expect(screen.getAllByText(employee.fullName)[0]).toBeVisible()
+  })
+
+  it('offers independent A and B permissions while hiding ineligible C', async () => {
+    api.listManagementCompanyEmployeeModulePermissions.mockResolvedValue([
+      { condominiumId: 'a', condominiumName: 'Condomínio A', eligible: true, allowed: true },
+      { condominiumId: 'b', condominiumName: 'Condomínio B', eligible: true, allowed: false },
+      { condominiumId: 'c', condominiumName: 'Condomínio C', eligible: false, allowed: false },
+    ])
+    const user = userEvent.setup()
+    render(<ManagementCompanyEmployees managementCompanyId="company-1" />)
+    await screen.findByText('Condomínio A')
+    const a = screen.getByText('Condomínio A').parentElement?.querySelector('input')
+    const b = screen.getByText('Condomínio B').parentElement?.querySelector('input')
+    expect(a).not.toBeNull()
+    expect(b).not.toBeNull()
+    expect(a).toBeChecked()
+    expect(b).not.toBeChecked()
+    expect(screen.queryByLabelText(/Condomínio C/)).not.toBeInTheDocument()
+    await user.click(b!)
+    expect(api.setManagementCompanyEmployeeModulePermissions).toHaveBeenCalledWith('access-1', 'b', true)
+    expect(a).toBeChecked()
   })
 })

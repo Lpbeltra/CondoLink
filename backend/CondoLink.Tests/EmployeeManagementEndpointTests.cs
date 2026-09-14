@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using CondoLink.Api.Features.CondominiumModules;
 using CondoLink.Api.Features.EmployeeManagement;
 using CondoLink.Api.Features.Management;
+using CondoLink.Api.Features.ManagementCompanyRequests;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
@@ -18,11 +19,12 @@ public sealed class EmployeeManagementEndpointTests
 {
     private static async Task<CoreEndpointTestHost> StartHostAsync(RecordingLoggerProvider? logs = null) =>
         await CoreEndpointTestHost.StartAsync(
-            app => app.MapEmployeeManagementEndpoints(),
+            app => { app.MapEmployeeManagementEndpoints(); app.MapAdministratorRequests(); },
             builder =>
             {
                 builder.Services.AddScoped<ICondominiumModuleService, CondominiumModuleService>();
                 builder.Services.AddScoped<EmployeeManagementAccessService>();
+                builder.Services.AddScoped<ManagementCompanyRequestAccessService>();
                 if (logs is not null) builder.Logging.AddProvider(logs);
             });
 
@@ -53,7 +55,7 @@ public sealed class EmployeeManagementEndpointTests
             condominium.SetManagementCompany(company.Id);
             employee = new ManagementCompanyEmployee(company.Id, operatorUser.Id, "Departamento Pessoal");
             db.Add(employee);
-            db.Add(new ManagementCompanyEmployeeModulePermission(employee.Id, CondominiumModuleType.EmployeeManagement, operatorUser.Id));
+            db.Add(new ManagementCompanyEmployeeModulePermission(employee.Id, condominium.Id, CondominiumModuleType.EmployeeManagement, operatorUser.Id));
             await db.SaveChangesAsync();
         });
         await EnableModuleAsync(host, condominium.Id, true, true);
@@ -214,7 +216,7 @@ public sealed class EmployeeManagementEndpointTests
             condominium.SetManagementCompany(companyA.Id);
             var employee = new ManagementCompanyEmployee(companyB.Id, outsider.Id, "Departamento Pessoal");
             db.Add(employee);
-            db.Add(new ManagementCompanyEmployeeModulePermission(employee.Id, CondominiumModuleType.EmployeeManagement, outsider.Id));
+            db.Add(new ManagementCompanyEmployeeModulePermission(employee.Id, condominium.Id, CondominiumModuleType.EmployeeManagement, outsider.Id));
             await db.SaveChangesAsync();
         });
         await EnableModuleAsync(host, condominium.Id, true, true);
@@ -398,7 +400,7 @@ public sealed class EmployeeManagementEndpointTests
             notDelegated.SetManagementCompany(company.Id);
             var employee = new ManagementCompanyEmployee(company.Id, user.Id, "Departamento Pessoal");
             db.Add(employee);
-            db.Add(new ManagementCompanyEmployeeModulePermission(employee.Id, CondominiumModuleType.EmployeeManagement, user.Id));
+            db.Add(new ManagementCompanyEmployeeModulePermission(employee.Id, delegated.Id, CondominiumModuleType.EmployeeManagement, user.Id));
             await db.SaveChangesAsync();
         });
         await EnableModuleAsync(host, delegated.Id, true, true);
@@ -408,6 +410,84 @@ public sealed class EmployeeManagementEndpointTests
             .GetFromJsonAsync<ListAdministratorEmployeeManagementCondominiums.CondominiumOption[]>("/administrator/employee-management/condominiums");
         Assert.Single(options!);
         Assert.Equal(delegated.Id, options![0].CondominiumId);
+    }
+
+    [Fact]
+    public async Task Same_administrator_employee_operates_only_explicit_A_and_B_not_C_and_loses_access_live()
+    {
+        await using var host = await StartHostAsync();
+        var a = new Condominium("A", null, null);
+        var b = new Condominium("B", null, null);
+        var c = new Condominium("C", null, null);
+        var company = new ManagementCompany("Dimarp", null, null, null, null);
+        var replacementCompany = new ManagementCompany("Replacement", null, null, null, null);
+        var user = CoreTestSeed.User("Departamento Pessoal", "dp-abc@test.local");
+        await host.WithDbAsync(async db =>
+        {
+            db.AddRange(a, b, c, company, replacementCompany, user);
+            foreach (var condominium in new[] { a, b, c }) CondominiumModuleService.AddDefaults(db, condominium.Id, DateTime.UtcNow);
+            await db.SaveChangesAsync();
+            foreach (var condominium in new[] { a, b, c }) condominium.SetManagementCompany(company.Id);
+            var employee = new ManagementCompanyEmployee(company.Id, user.Id, "Departamento Pessoal");
+            db.Add(employee);
+            db.Add(new ManagementCompanyEmployeeModulePermission(employee.Id, a.Id, CondominiumModuleType.EmployeeManagement, user.Id));
+            db.Add(new ManagementCompanyEmployeeModulePermission(employee.Id, b.Id, CondominiumModuleType.EmployeeManagement, user.Id));
+            await db.SaveChangesAsync();
+        });
+        foreach (var condominium in new[] { a, b, c }) await EnableModuleAsync(host, condominium.Id, true, true);
+        var client = host.ClientFor(user.Id);
+
+        async Task<Guid[]> VisibleAsync() => (await client.GetFromJsonAsync<ListAdministratorEmployeeManagementCondominiums.CondominiumOption[]>(
+            "/administrator/employee-management/condominiums"))!.Select(x => x.CondominiumId).ToArray();
+        async Task<bool> MenuVisibleAsync()
+        {
+            var context = await client.GetFromJsonAsync<System.Text.Json.JsonElement>("/administrator/context");
+            return context.GetProperty("hasEmployeeManagementAccess").GetBoolean();
+        }
+
+        Assert.Equal(new[] { a.Id, b.Id }.Order().ToArray(), (await VisibleAsync()).Order().ToArray());
+        Assert.True(await MenuVisibleAsync());
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/condominiums/{a.Id}/employees")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/condominiums/{b.Id}/employees")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/condominiums/{c.Id}/employees")).StatusCode);
+
+        await EnableModuleAsync(host, b.Id, true, false);
+        Assert.Equal([a.Id], await VisibleAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/condominiums/{b.Id}/employees")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/condominiums/{a.Id}/employees")).StatusCode);
+
+        await host.WithDbAsync(async db =>
+        {
+            var tracked = await db.Condominiums.SingleAsync(x => x.Id == a.Id);
+            tracked.SetManagementCompany(replacementCompany.Id);
+            await db.SaveChangesAsync();
+        });
+        Assert.Empty(await VisibleAsync());
+        Assert.False(await MenuVisibleAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/condominiums/{a.Id}/employees")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Legacy_global_permission_without_condominium_never_grants_access_or_menu()
+    {
+        await using var host = await StartHostAsync();
+        var (condominium, _, user, employee) = await SeedDelegatedScenarioAsync(
+            host, moduleEnabled: true, delegationEnabled: true, grantPermission: true);
+        await host.WithDbAsync(async db =>
+        {
+            var permission = await db.ManagementCompanyEmployeeModulePermissions.SingleAsync(
+                x => x.ManagementCompanyEmployeeId == employee.Id);
+            db.Entry(permission).Property(x => x.CondominiumId).CurrentValue = null;
+            await db.SaveChangesAsync();
+        });
+
+        var client = host.ClientFor(user.Id);
+        var options = await client.GetFromJsonAsync<ListAdministratorEmployeeManagementCondominiums.CondominiumOption[]>(
+            "/administrator/employee-management/condominiums");
+        Assert.Empty(options!);
+        var context = await client.GetFromJsonAsync<System.Text.Json.JsonElement>("/administrator/context");
+        Assert.False(context.GetProperty("hasEmployeeManagementAccess").GetBoolean());
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/condominiums/{condominium.Id}/employees")).StatusCode);
     }
 
     private static async Task<(Condominium Condominium, ManagementCompany Company, ApplicationUser User, ManagementCompanyEmployee Employee)>
@@ -426,7 +506,7 @@ public sealed class EmployeeManagementEndpointTests
             employee = new ManagementCompanyEmployee(company.Id, user.Id, "Departamento Pessoal");
             db.Add(employee);
             if (grantPermission)
-                db.Add(new ManagementCompanyEmployeeModulePermission(employee.Id, CondominiumModuleType.EmployeeManagement, user.Id));
+                db.Add(new ManagementCompanyEmployeeModulePermission(employee.Id, condominium.Id, CondominiumModuleType.EmployeeManagement, user.Id));
             await db.SaveChangesAsync();
         });
         await EnableModuleAsync(host, condominium.Id, moduleEnabled, delegationEnabled);

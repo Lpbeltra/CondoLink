@@ -7,7 +7,7 @@ namespace CondoLink.Infrastructure.Persistence.Configurations;
 public sealed class ManagementCompanyEmployeeModulePermissionConfiguration
     : IEntityTypeConfiguration<ManagementCompanyEmployeeModulePermission>
 {
-    public const string UniqueEmployeeModuleIndex = "ux_mc_employee_module_permissions_employee_module";
+    public const string UniqueEmployeeCondominiumModuleIndex = "ux_mc_employee_module_permissions_employee_condominium_module";
 
     public void Configure(EntityTypeBuilder<ManagementCompanyEmployeeModulePermission> builder)
     {
@@ -16,6 +16,7 @@ public sealed class ManagementCompanyEmployeeModulePermissionConfiguration
 
         builder.Property(permission => permission.Id).HasColumnName("id");
         builder.Property(permission => permission.ManagementCompanyEmployeeId).HasColumnName("management_company_employee_id").IsRequired();
+        builder.Property(permission => permission.CondominiumId).HasColumnName("condominium_id");
         builder.Property(permission => permission.Module).HasColumnName("module").HasConversion<int>().IsRequired();
         builder.Property(permission => permission.IsAllowed).HasColumnName("is_allowed").IsRequired();
         builder.Property(permission => permission.GrantedByUserId).HasColumnName("granted_by_user_id").IsRequired();
@@ -26,8 +27,12 @@ public sealed class ManagementCompanyEmployeeModulePermissionConfiguration
             .HasForeignKey(permission => permission.ManagementCompanyEmployeeId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        builder.HasIndex(permission => new { permission.ManagementCompanyEmployeeId, permission.Module })
-            .HasDatabaseName(UniqueEmployeeModuleIndex)
+        builder.HasOne<Condominium>().WithMany()
+            .HasForeignKey(permission => permission.CondominiumId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(permission => new { permission.ManagementCompanyEmployeeId, permission.CondominiumId, permission.Module })
+            .HasDatabaseName(UniqueEmployeeCondominiumModuleIndex)
             .IsUnique();
     }
 }

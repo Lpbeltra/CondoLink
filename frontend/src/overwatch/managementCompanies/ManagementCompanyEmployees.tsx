@@ -42,6 +42,7 @@ import {
   removeManagementCompanyEmployee,
   setManagementCompanyEmployeeModulePermissions,
   updateManagementCompanyEmployeeStatus,
+  updateManagementCompanyEmployee,
   resendManagementCompanyAccess,
   resetManagementCompanyAccessPassword,
   hardDeleteManagementCompanyEmployee, hardDeleteManagementCompanyEmployeeEligibility,
@@ -52,6 +53,7 @@ import type {
   CreatedManagementCompanyEmployee,
   ManagementCompanyEmployee,
 } from './types'
+import type { ManagementCompanyEmployeeModulePermission } from './api'
 import { validateEmployee } from './validation'
 
 interface Props {
@@ -68,6 +70,7 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [formOpen, setFormOpen] = useState(false)
+  const [editingEmployee, setEditingEmployee] = useState<ManagementCompanyEmployee | null>(null)
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [contact, setContact] = useState('')
@@ -87,7 +90,9 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
     anchorEl: HTMLElement
   } | null>(null)
 
-  const [employeeManagementAllowed, setEmployeeManagementAllowed] = useState<Record<string, boolean>>({})
+  const [employeeManagementPermissions, setEmployeeManagementPermissions] = useState<Record<string, ManagementCompanyEmployeeModulePermission[]>>({})
+  const [updatingPermission, setUpdatingPermission] = useState<string | null>(null)
+  const [pendingRequest, setPendingRequest] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setIsLoading(true)
@@ -97,9 +102,9 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
       setEmployees(list)
       const entries = await Promise.all(list.map(async (item) => {
         const permissions = await listManagementCompanyEmployeeModulePermissions(item.id)
-        return [item.id, permissions.some((x) => x.module === 'EmployeeManagement' && x.allowed)] as const
+        return [item.id, permissions] as const
       }))
-      setEmployeeManagementAllowed(Object.fromEntries(entries))
+      setEmployeeManagementPermissions(Object.fromEntries(entries))
     } catch (error) {
       setLoadError(employeeError(error))
     } finally {
@@ -111,17 +116,21 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
     void load()
   }, [load])
 
-  const toggleEmployeeManagement = async (employee: ManagementCompanyEmployee, allowed: boolean) => {
-    setEmployeeManagementAllowed((current) => ({ ...current, [employee.id]: allowed }))
+  const toggleEmployeeManagement = async (employee: ManagementCompanyEmployee, condominiumId: string, allowed: boolean) => {
+    const key = `${employee.id}:${condominiumId}`
+    if (updatingPermission === key) return
+    setUpdatingPermission(key)
     try {
-      await setManagementCompanyEmployeeModulePermissions(employee.id, [{ module: 'EmployeeManagement', allowed }])
+      await setManagementCompanyEmployeeModulePermissions(employee.id, condominiumId, allowed)
+      setEmployeeManagementPermissions(current => ({ ...current, [employee.id]: current[employee.id].map(row =>
+        row.condominiumId === condominiumId ? { ...row, allowed } : row) }))
     } catch (error) {
-      setEmployeeManagementAllowed((current) => ({ ...current, [employee.id]: !allowed }))
       setLoadError(employeeError(error))
-    }
+    } finally { setUpdatingPermission(null) }
   }
 
   const openForm = () => {
+    setEditingEmployee(null)
     setFullName('')
     setEmail('')
     setContact('')
@@ -129,6 +138,12 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
     setAccessType('Person')
     setFormError('')
     setFormOpen(true)
+  }
+
+  const openEdit = (employee: ManagementCompanyEmployee) => {
+    setEditingEmployee(employee)
+    setFullName(employee.fullName); setEmail(employee.email); setContact(employee.contact ?? '')
+    setJobTitle(employee.jobTitle); setAccessType(employee.accessType ?? 'Person'); setFormError(''); setFormOpen(true)
   }
 
   const createEmployee = async (event: FormEvent) => {
@@ -148,6 +163,10 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
     setIsSaving(true)
     setFormError('')
     try {
+      if (editingEmployee) {
+        await updateManagementCompanyEmployee(editingEmployee.id, input)
+        setFormOpen(false); setFeedback('Funcionário atualizado.'); await load(); return
+      }
       const created = await createManagementCompanyEmployee(
         managementCompanyId,
         input,
@@ -275,11 +294,18 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
                   <TableCell>{employee.contact || 'Não informado'}</TableCell>
                   <TableCell sx={{ overflowWrap: 'anywhere' }}>{employee.jobTitle}</TableCell>
                   <TableCell>
-                    <Switch
-                      checked={employeeManagementAllowed[employee.id] ?? false}
-                      onChange={(event) => void toggleEmployeeManagement(employee, event.target.checked)}
-                      inputProps={{ 'aria-label': `Permitir Gestão de Funcionários para ${employee.fullName}` }}
-                    />
+                    <Stack gap={0.5}>
+                      {(employeeManagementPermissions[employee.id] ?? []).filter(row => row.eligible).map(row => (
+                        <Stack key={row.condominiumId} direction="row" alignItems="center" gap={1}>
+                          <Switch checked={row.allowed} disabled={updatingPermission === `${employee.id}:${row.condominiumId}`}
+                            onChange={event => void toggleEmployeeManagement(employee, row.condominiumId, event.target.checked)}
+                            inputProps={{ 'aria-label': `Permitir Gestão de Funcionários para ${employee.fullName} em ${row.condominiumName}` }} />
+                          <Typography variant="body2">{row.condominiumName}</Typography>
+                        </Stack>
+                      ))}
+                      {!(employeeManagementPermissions[employee.id] ?? []).some(row => row.eligible) &&
+                        <Typography variant="body2" color="text.secondary">Nenhum condomínio delegado</Typography>}
+                    </Stack>
                   </TableCell>
                   <TableCell>
                     <Button
@@ -291,15 +317,23 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
                       >
                         {employee.isActive ? 'Inativar' : 'Reativar'}
                       </Button>
-                    <Button size="small" onClick={async () => {
-                      const result = await resendManagementCompanyAccess(employee.id)
-                      setFeedback(result.sent ? 'Instruções reenviadas.' : 'E-mail não enviado.')
+                    <Button size="small" disabled={pendingRequest === `${employee.id}:resend`} onClick={async () => {
+                      if (pendingRequest === `${employee.id}:resend`) return
+                      setPendingRequest(`${employee.id}:resend`)
+                      try {
+                        const result = await resendManagementCompanyAccess(employee.id)
+                        setFeedback(result.sent ? 'Instruções reenviadas.' : 'E-mail não enviado.')
+                      } catch (error) { setLoadError(employeeError(error)) } finally { setPendingRequest(null) }
                     }}>
                       Reenviar instruções
                     </Button>
-                    <Button size="small" onClick={async () => {
-                      const result = await resetManagementCompanyAccessPassword(employee.id)
-                      setCredentials({ ...employee, temporaryPassword: result.temporaryPassword, invitationSent: result.invitationSent })
+                    <Button size="small" disabled={pendingRequest === `${employee.id}:reset`} onClick={async () => {
+                      if (pendingRequest === `${employee.id}:reset`) return
+                      setPendingRequest(`${employee.id}:reset`)
+                      try {
+                        const result = await resetManagementCompanyAccessPassword(employee.id)
+                        setCredentials({ ...employee, temporaryPassword: result.temporaryPassword, invitationSent: result.invitationSent })
+                      } catch (error) { setLoadError(employeeError(error)) } finally { setPendingRequest(null) }
                     }}>
                       Redefinir senha
                     </Button>
@@ -375,6 +409,7 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
                 type="email"
                 label="E-mail"
                 value={email}
+                disabled={Boolean(editingEmployee)}
                 onChange={(event) => setEmail(event.target.value)}
                 slotProps={{ htmlInput: { maxLength: 254 } }}
               />
@@ -498,6 +533,11 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
         anchorEl={employeeMenu?.anchorEl}
         onClose={() => setEmployeeMenu(null)}
       >
+        {employeeMenu && (
+          <MenuItem onClick={() => { const employee = employeeMenu.employee; setEmployeeMenu(null); openEdit(employee) }}>
+            Editar
+          </MenuItem>
+        )}
         {employeeMenu && (
           <MenuItem
             onClick={() => {

@@ -8,6 +8,7 @@ public static class MapEmployeeDocuments
         endpoints.MapListEmployeeDocumentBatches();
         endpoints.MapGetEmployeeDocumentBatch();
         endpoints.MapUpdateEmployeeDocumentAssociation();
+        endpoints.MapReplaceEmployeeDocumentFile();
         endpoints.MapConfirmEmployeeDocumentBatch();
         endpoints.MapPreviewEmployeeDocument();
         endpoints.MapEmployeeDocumentDistributionEndpoints();

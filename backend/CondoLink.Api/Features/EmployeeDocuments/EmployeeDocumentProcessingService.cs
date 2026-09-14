@@ -42,7 +42,9 @@ public sealed class EmployeeDocumentProcessingService(
             {
                 using var sourceStream = storage.OpenRead(upload.StorageKey)
                     ?? throw new InvalidOperationException("Uploaded file could not be found in storage.");
-                var pages = CondominiumDocumentText.ExtractPages(sourceStream, ".pdf");
+                using var sourceBytes = new MemoryStream();
+                await sourceStream.CopyToAsync(sourceBytes, ct);
+                var pages = CondominiumDocumentText.ExtractPages(new MemoryStream(sourceBytes.ToArray()), ".pdf");
                 var withOcr = await ocrProcessor.OcrMissingPagesAsync(pages, ct);
                 if (withOcr.Sum(page => page.Text.Length) < 20)
                     throw new InvalidOperationException(
@@ -53,7 +55,7 @@ public sealed class EmployeeDocumentProcessingService(
 
                 foreach (var segment in segments)
                 {
-                    var slicedBytes = EmployeeDocumentPdfSlicer.Slice(RewindCopy(sourceStream), segment.PageStart, segment.PageEnd);
+                    var slicedBytes = EmployeeDocumentPdfSlicer.Slice(new MemoryStream(sourceBytes.ToArray()), segment.PageStart, segment.PageEnd);
                     // Hash the extracted TEXT of the segment, not the re-sliced PDF
                     // bytes: PdfSharp embeds a fresh creation timestamp/document id on
                     // every Save(), so re-slicing byte-identical source content twice
@@ -99,12 +101,4 @@ public sealed class EmployeeDocumentProcessingService(
         }
     }
 
-    // EmployeeDocumentPdfSlicer positions the stream itself, but PdfPig's PdfDocument
-    // already consumed/positioned the same stream during extraction; give the slicer
-    // its own rewindable view rather than depend on extraction leaving it seekable.
-    private static Stream RewindCopy(Stream source)
-    {
-        source.Position = 0;
-        return source;
-    }
 }
