@@ -104,6 +104,41 @@ describe('PayslipDistribution', () => {
     expect(screen.getByRole('button', { name: 'Confirmar associações' })).toBeDisabled()
   })
 
+  it('keeps every review action available with a long name and a possible duplicate', async () => {
+    listBatches.mockResolvedValue([batch])
+    getBatch.mockResolvedValue({ batch, documents: [
+      { ...identifiedDocument, employeeName: 'Ana Maria de Oliveira Albuquerque dos Santos', possibleDuplicate: true },
+      needsReviewDocument,
+    ] })
+    render(<PayslipDistribution condominiumId="c1" />)
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Abrir' }))
+
+    expect(await screen.findByText('Ana Maria de Oliveira Albuquerque dos Santos', { exact: false })).toBeVisible()
+    expect(screen.getByText(/possível duplicidade/)).toBeVisible()
+    expect(screen.getAllByRole('combobox', { name: 'Funcionário' })).toHaveLength(2)
+    for (const action of ['Visualizar', 'Substituir arquivo', 'Confirmar', 'Ignorar']) {
+      expect(screen.getAllByRole('button', { name: action })).toHaveLength(2)
+    }
+    expect(screen.getAllByRole('button', { name: 'Confirmar' })[0]).toBeEnabled()
+    expect(screen.getAllByRole('button', { name: 'Confirmar' })[1]).toBeDisabled()
+  })
+
+  it('retains preview and the correct status for confirmed and ignored documents', async () => {
+    listBatches.mockResolvedValue([batch])
+    getBatch.mockResolvedValue({ batch, documents: [
+      { ...identifiedDocument, identificationStatus: 'Confirmed' },
+      { ...needsReviewDocument, identificationStatus: 'Ignored' },
+    ] })
+    render(<PayslipDistribution condominiumId="c1" />)
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Abrir' }))
+
+    expect(screen.getAllByRole('button', { name: 'Visualizar' })).toHaveLength(2)
+    expect(screen.getByText('Confirmado')).toBeVisible()
+    expect(screen.getByText('Ignorado')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Substituir arquivo' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Funcionário' })).not.toBeInTheDocument()
+  })
+
   it('enables batch confirmation once every document is confirmed or ignored', async () => {
     listBatches.mockResolvedValue([batch])
     getBatch.mockResolvedValue({

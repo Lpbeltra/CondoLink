@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text.Json;
 using CondoLink.Api.Features.Auth;
 using CondoLink.Api.Features.CondominiumAssistant;
@@ -211,6 +212,110 @@ public sealed class EmployeeDocumentsEndpointTests : IAsyncLifetime
             if (employeeId == adrianeId) { Assert.Contains("ADRIANE", text); Assert.DoesNotContain("MYLENE", text); }
             else { Assert.Equal(myleneId, employeeId); Assert.Contains("MYLENE", text); Assert.DoesNotContain("ADRIANE", text); }
         }
+    }
+
+    [Fact]
+    public async Task Two_page_payslip_and_manual_replacement_flow_send_only_the_confirmed_private_pdfs()
+    {
+        var condominium = new Condominium("Condo Gate", null, null);
+        var manager = CoreTestSeed.User("Manager Gate", "manager-gate@test.local");
+        var adriane = new Employee(condominium.Id, "ADRIANE PEREIRA DA SILVA", null, "11987654321", null, "MAT-A", null);
+        var mylene = new Employee(condominium.Id, "MYLENE MANFRINATO DOS REIS AMARO", null, "11987654322", null, "MAT-B", null);
+        await _host.WithDbAsync(async db =>
+        {
+            db.AddRange(condominium, manager, adriane, mylene);
+            CoreTestSeed.AddMember(db, manager.Id, condominium.Id, CondominiumRole.Manager);
+            CondominiumModuleService.AddDefaults(db, condominium.Id, DateTime.UtcNow);
+            await db.SaveChangesAsync();
+        });
+        await EnableModuleAsync(_host, condominium.Id);
+        var client = _host.ClientFor(manager.Id);
+        var (_, batchId) = await UploadAsync(client, condominium.Id, BuildPdf(
+            "HOLERITE ERRADO\nMatricula: MAT-A\nADRIANE PEREIRA DA SILVA\nPagina 1 de 2",
+            "CONTINUACAO DO HOLERITE ERRADO\nPagina 2 de 2",
+            "HOLERITE\nMatricula: MAT-B\nMYLENE MANFRINATO DOS REIS AMARO"));
+        await ProcessAsync(batchId);
+
+        var root = $"/condominiums/{condominium.Id}/employees/documents";
+        var detail = await client.GetFromJsonAsync<JsonElement>($"{root}/batches/{batchId}");
+        var documents = detail.GetProperty("documents").EnumerateArray().ToArray();
+        Assert.Equal(2, documents.Length);
+        var a = documents.Single(x => x.GetProperty("employeeId").GetGuid() == adriane.Id);
+        var b = documents.Single(x => x.GetProperty("employeeId").GetGuid() == mylene.Id);
+        Assert.Equal((1, 2), (a.GetProperty("pageStart").GetInt32(), a.GetProperty("pageEnd").GetInt32()));
+        Assert.Equal((3, 3), (b.GetProperty("pageStart").GetInt32(), b.GetProperty("pageEnd").GetInt32()));
+        var aId = a.GetProperty("id").GetGuid();
+        var bId = b.GetProperty("id").GetGuid();
+        var originalA = await client.GetByteArrayAsync($"{root}/{aId}/preview");
+        var originalB = await client.GetByteArrayAsync($"{root}/{bId}/preview");
+        using (var pdfA = PdfSharp.Pdf.IO.PdfReader.Open(new MemoryStream(originalA), PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import))
+            Assert.Equal(2, pdfA.PageCount);
+        using (var pdfB = PdfSharp.Pdf.IO.PdfReader.Open(new MemoryStream(originalB), PdfSharp.Pdf.IO.PdfDocumentOpenMode.Import))
+            Assert.Single(pdfB.Pages);
+        Assert.Contains("ADRIANE", CondominiumDocumentText.Extract(new MemoryStream(originalA), ".pdf"));
+        Assert.DoesNotContain("MYLENE", CondominiumDocumentText.Extract(new MemoryStream(originalA), ".pdf"));
+        Assert.Contains("MYLENE", CondominiumDocumentText.Extract(new MemoryStream(originalB), ".pdf"));
+        Assert.DoesNotContain("ADRIANE", CondominiumDocumentText.Extract(new MemoryStream(originalB), ".pdf"));
+
+        var oldFileKey = await _host.WithDbAsync(db => db.EmployeeDocuments.AsNoTracking()
+            .Where(x => x.Id == aId).Select(x => x.FileKey).SingleAsync());
+        var correctedA = BuildPdf("HOLERITE CORRETO\nADRIANE PEREIRA DA SILVA\nPagina 1 de 2",
+            "CONTINUACAO DO HOLERITE CORRETO\nPagina 2 de 2");
+        using var replacement = new MultipartFormDataContent();
+        var replacementFile = new ByteArrayContent(correctedA);
+        replacementFile.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
+        replacement.Add(replacementFile, "file", "adriane-corrigido.pdf");
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PutAsync($"{root}/{aId}/file", replacement)).StatusCode);
+        var changed = await _host.WithDbAsync(db => db.EmployeeDocuments.AsNoTracking().SingleAsync(x => x.Id == aId));
+        Assert.Equal(EmployeeDocumentIdentificationStatus.NeedsReview, changed.IdentificationStatus);
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(correctedA)), changed.ContentHash);
+        Assert.NotEqual(oldFileKey, changed.FileKey);
+        await _host.WithServicesAsync(services =>
+        {
+            Assert.Null(services.GetRequiredService<LocalFileStorage>().OpenRead(oldFileKey));
+            return Task.CompletedTask;
+        });
+        var correctedPreview = await client.GetByteArrayAsync($"{root}/{aId}/preview");
+        var correctedText = CondominiumDocumentText.Extract(new MemoryStream(correctedPreview), ".pdf");
+        Assert.Contains("ADRIANE", correctedText);
+        Assert.DoesNotContain("MYLENE", correctedText);
+        Assert.Contains("CORRETO", correctedText);
+        Assert.DoesNotContain("ERRADO", correctedText);
+
+        foreach (var id in new[] { aId, bId })
+            Assert.Equal(HttpStatusCode.OK, (await client.PatchAsJsonAsync($"{root}/{id}",
+                new UpdateEmployeeDocumentAssociationRequest("Confirm", null))).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync($"{root}/batches/{batchId}/confirm", null)).StatusCode);
+        var path = $"{root}/batches/{batchId}/distribute";
+        Assert.Equal(2, (await (await client.PostAsync(path, null)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("queued").GetInt32());
+        Assert.Equal(0, (await (await client.PostAsync(path, null)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("queued").GetInt32());
+        Assert.Equal(EmployeeDocumentBatchStatus.Distributing, await _host.WithDbAsync(db => db.EmployeeDocumentBatches.AsNoTracking()
+            .Where(x => x.Id == batchId).Select(x => x.Status).SingleAsync()));
+        Assert.Equal(2, await _host.WithDbAsync(db => db.EmployeeDocumentDeliveries.CountAsync(x => x.BatchId == batchId)));
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsync($"{root}/{aId}/file", new MultipartFormDataContent())).StatusCode);
+
+        await DispatchWhatsAppAsync();
+        Assert.Equal(2, _whatsAppClient.TemplateSends.Count);
+        Assert.Equal(2, _whatsAppClient.UploadedDocuments.Count);
+        Assert.Equal(EmployeeDocumentBatchStatus.Completed, await _host.WithDbAsync(db => db.EmployeeDocumentBatches.AsNoTracking()
+            .Where(x => x.Id == batchId).Select(x => x.Status).SingleAsync()));
+        Assert.All(_whatsAppClient.DetailedTemplateSends, sent =>
+        {
+            Assert.Equal("holerite_disponivel", sent.Template);
+            Assert.Equal("pt_BR", sent.Language);
+            Assert.Equal(3, sent.Body.Length);
+            Assert.Equal("Agosto/2026", sent.Body[1]);
+            Assert.Equal(condominium.Name, sent.Body[2]);
+            Assert.DoesNotContain(sent.Body, parameter => parameter.Contains("salário", StringComparison.OrdinalIgnoreCase));
+        });
+        Assert.Contains(_whatsAppClient.DetailedTemplateSends, x => x.Body[0] == adriane.FullName);
+        Assert.Contains(_whatsAppClient.DetailedTemplateSends, x => x.Body[0] == mylene.FullName);
+        var uploadedA = _whatsAppClient.UploadedDocuments.Single(x => x.FileName.Contains("ADRIANE"));
+        var uploadedB = _whatsAppClient.UploadedDocuments.Single(x => x.FileName.Contains("MYLENE"));
+        Assert.Contains("CORRETO", CondominiumDocumentText.Extract(new MemoryStream(uploadedA.Bytes), ".pdf"));
+        Assert.DoesNotContain("MYLENE", CondominiumDocumentText.Extract(new MemoryStream(uploadedA.Bytes), ".pdf"));
+        Assert.Contains("MYLENE", CondominiumDocumentText.Extract(new MemoryStream(uploadedB.Bytes), ".pdf"));
+        Assert.DoesNotContain("ADRIANE", CondominiumDocumentText.Extract(new MemoryStream(uploadedB.Bytes), ".pdf"));
     }
 
     [Fact]
@@ -867,6 +972,8 @@ public sealed class EmployeeDocumentsEndpointTests : IAsyncLifetime
     internal sealed class CapturingWhatsAppClient : IWhatsAppClient
     {
         public List<(string Phone, string Template, WhatsAppDocumentHeader? DocumentHeader)> TemplateSends { get; } = [];
+        public List<(string Template, string Language, string[] Body)> DetailedTemplateSends { get; } = [];
+        public List<(byte[] Bytes, string FileName)> UploadedDocuments { get; } = [];
 
         // Test hook: phones in either set fail their next SendTemplateAsync call
         // instead of succeeding — transient (worker reschedules to Pending) or
@@ -891,6 +998,7 @@ public sealed class EmployeeDocumentsEndpointTests : IAsyncLifetime
             string? bodyParameterName, IReadOnlyList<string> urlButtonParameters, WhatsAppDocumentHeader? documentHeader)
         {
             TemplateSends.Add((phoneNumber, templateName, documentHeader));
+            DetailedTemplateSends.Add((templateName, language, [.. bodyParameters]));
             if (TransientFailurePhones.Remove(phoneNumber))
                 return Task.FromResult(new WhatsAppSendResult(false, null, "Simulated transient failure.", true, "simulated_transient"));
             if (PermanentFailurePhones.Remove(phoneNumber))
@@ -899,6 +1007,10 @@ public sealed class EmployeeDocumentsEndpointTests : IAsyncLifetime
         }
 
         public Task<WhatsAppMediaUploadResult> UploadDocumentAsync(byte[] content, string fileName, string mimeType,
-            CancellationToken cancellationToken) => Task.FromResult(new WhatsAppMediaUploadResult(true, Guid.NewGuid().ToString("N"), null));
+            CancellationToken cancellationToken)
+        {
+            UploadedDocuments.Add(([.. content], fileName));
+            return Task.FromResult(new WhatsAppMediaUploadResult(true, Guid.NewGuid().ToString("N"), null));
+        }
     }
 }

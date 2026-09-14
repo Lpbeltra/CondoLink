@@ -236,25 +236,28 @@ function ReviewBatch({ condominiumId, batchId, onBack, onConfirmed }: {
       <Stack gap={1.5}>
         {documents.map(document => (
           <Paper key={document.id} variant="outlined" sx={{ p: 2 }}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2}>
-              <Box>
-                <Typography fontWeight={700}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'flex-start' }} gap={2}>
+              <Box minWidth={0} flex={1}>
+                <Typography fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>
                   {statusIcon[document.identificationStatus]} {document.employeeName ?? 'Não identificado'}
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                   Págs. {document.pageStart}–{document.pageEnd} · {confidenceLabel[document.identificationConfidence]}
                   {document.possibleDuplicate && ' · possível duplicidade com uma competência já confirmada'}
                 </Typography>
               </Box>
-              <Stack direction="row" gap={1} flexWrap="wrap" alignItems="center">
-                {document.identificationStatus !== 'Confirmed' && document.identificationStatus !== 'Ignored' && (
-                  <TextField select size="small" label="Funcionário" value={document.employeeId ?? ''}
-                    sx={{ width: { xs: '100%', sm: 300 }, flexShrink: 0 }}
-                    onChange={e => void act(document.id, 'Assign', e.target.value)}>
-                    <MenuItem value="">Selecionar funcionário</MenuItem>
-                    {employees.map(employee => <MenuItem key={employee.id} value={employee.id}>{employee.fullName}</MenuItem>)}
-                  </TextField>
-                )}
+              {document.identificationStatus !== 'Confirmed' && document.identificationStatus !== 'Ignored' && (
+                <TextField select size="small" label="Funcionário" value={document.employeeId ?? ''}
+                  sx={{ width: { xs: '100%', sm: 300 }, maxWidth: '100%', flexShrink: 0 }}
+                  onChange={e => void act(document.id, 'Assign', e.target.value)}>
+                  <MenuItem value="">Selecionar funcionário</MenuItem>
+                  {employees.map(employee => <MenuItem key={employee.id} value={employee.id}>{employee.fullName}</MenuItem>)}
+                </TextField>
+              )}
+            </Stack>
+            <Stack direction="row" gap={1} useFlexGap flexWrap="wrap" alignItems="center"
+              justifyContent={{ xs: 'flex-start', sm: 'flex-end' }}
+              sx={{ borderTop: 1, borderColor: 'divider', mt: 2, pt: 1.5 }}>
                 <Button size="small" onClick={() => void preview(document.id)}>Visualizar</Button>
                 {document.identificationStatus !== 'Confirmed' && document.identificationStatus !== 'Ignored' && (
                   <>
@@ -269,12 +272,11 @@ function ReviewBatch({ condominiumId, batchId, onBack, onConfirmed }: {
                 )}
                 {document.identificationStatus === 'Confirmed' && <Chip size="small" color="success" label="Confirmado" />}
                 {document.identificationStatus === 'Ignored' && <Chip size="small" label="Ignorado" />}
-              </Stack>
             </Stack>
           </Paper>
         ))}
       </Stack>
-      <Stack direction="row" gap={1} justifyContent="flex-end">
+      <Stack direction="row" gap={1} useFlexGap flexWrap="wrap" justifyContent="flex-end">
         <Button onClick={onBack}>Voltar</Button>
         <Button variant="contained" disabled={!readyToConfirm || confirming} onClick={() => void confirmBatchAssociations()}>
           Confirmar associações
