@@ -274,6 +274,8 @@ public sealed class WhatsAppOutboundWorker(
             .SingleOrDefaultAsync(x => x.Id == employeeDocumentId, ct);
         if (document is null)
             return ([], null, Failure("employee_document_not_found", "Linked employee document no longer exists."));
+        if (document.DeletedAt is not null)
+            return ([], null, Failure("employee_document_deleted", "Employee document was deleted from management."));
         if (document.IdentificationStatus != EmployeeDocumentIdentificationStatus.Confirmed || document.EmployeeId is not Guid employeeId)
             return ([], null, Failure("employee_document_not_confirmed", "Employee document is not in a confirmed state."));
 

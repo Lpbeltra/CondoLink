@@ -1,4 +1,5 @@
 using CondoLink.Domain.Entities;
+using CondoLink.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -30,10 +31,13 @@ public sealed class EmployeeDocumentConfiguration : IEntityTypeConfiguration<Emp
         b.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
         b.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
         b.Property(x => x.ConfirmedAt).HasColumnName("confirmed_at");
+        b.Property(x => x.DeletedAt).HasColumnName("deleted_at");
+        b.Property(x => x.DeletedByUserId).HasColumnName("deleted_by_user_id");
 
         b.HasOne<Condominium>().WithMany().HasForeignKey(x => x.CondominiumId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<EmployeeDocumentBatch>().WithMany().HasForeignKey(x => x.BatchId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.DeletedByUserId).OnDelete(DeleteBehavior.Restrict);
 
         b.HasIndex(x => x.BatchId).HasDatabaseName("ix_employee_documents_batch_id");
         b.HasIndex(x => new { x.CondominiumId, x.EmployeeId }).HasDatabaseName("ix_employee_documents_condominium_id_employee_id");

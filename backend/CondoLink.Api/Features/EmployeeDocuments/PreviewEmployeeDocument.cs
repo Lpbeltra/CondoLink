@@ -28,6 +28,7 @@ public static class PreviewEmployeeDocument
         var document = await db.EmployeeDocuments.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == documentId && x.BatchId == batchId, ct);
         if (document is null) return Results.NotFound(new { message = "Documento não encontrado." });
+        if (document.DeletedAt is not null) return Results.StatusCode(StatusCodes.Status410Gone);
 
         var stream = storage.OpenRead(document.FileKey);
         if (stream is null) return Results.NotFound(new { message = "Arquivo não encontrado." });

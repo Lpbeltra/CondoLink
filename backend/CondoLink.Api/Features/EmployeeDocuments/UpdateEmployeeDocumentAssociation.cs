@@ -24,7 +24,7 @@ public static class UpdateEmployeeDocumentAssociation
         var (_, batch) = await access.RequireBatchAsync(principal, batchId, ct);
 
         var document = await db.EmployeeDocuments
-            .SingleOrDefaultAsync(x => x.Id == documentId && x.BatchId == batchId, ct);
+            .SingleOrDefaultAsync(x => x.Id == documentId && x.BatchId == batchId && x.DeletedAt == null, ct);
         if (document is null) return Results.NotFound(new { message = "Documento não encontrado." });
 
         if (batch.Status != EmployeeDocumentBatchStatus.ReadyForReview)

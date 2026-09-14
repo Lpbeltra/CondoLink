@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
+import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import {
-  Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, LinearProgress,
-  MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography,
+  Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, LinearProgress,
+  Menu, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography,
 } from '@mui/material'
 import { listEmployees, type Employee } from '../employees/api'
 import { getErrorMessage } from '../services/api'
 import {
-  confirmBatch, distributeBatch, getBatch, getDistributionSummary, listBatches, listDeliveries,
+  confirmBatch, deleteDocument, distributeBatch, getBatch, getDistributionSummary, listBatches, listDeliveries,
   previewDocumentUrl, replaceDocumentFile, reopenBatch, resendDocument, updateDocumentAssociation, uploadBatch,
   type DistributionSummary, type EmployeeDocument, type EmployeeDocumentBatch, type EmployeeDocumentDelivery,
 } from './api'
@@ -307,6 +308,10 @@ function DistributionView({ batchId, onBack }: {
   const [sending, setSending] = useState(false)
   const [reopening, setReopening] = useState(false)
   const [error, setError] = useState('')
+  const [rowMenu, setRowMenu] = useState<{ documentId: string; anchorEl: HTMLElement } | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set())
 
   const load = () => Promise.all([
     getDistributionSummary(batchId).then(setSummary),
@@ -337,6 +342,13 @@ function DistributionView({ batchId, onBack }: {
     try { await reopenBatch(batchId); onBack() }
     catch (e) { setError(getErrorMessage(e)) }
     finally { setReopening(false) }
+  }
+
+  const removeDocument = async (documentId: string) => {
+    setDeleting(true); setError(''); setConfirmDeleteId(null)
+    try { await deleteDocument(batchId, documentId); setDeletedIds(current => new Set(current).add(documentId)) }
+    catch (e) { setError(getErrorMessage(e)) }
+    finally { setDeleting(false) }
   }
 
   if (!summary) return <Alert severity="info">Carregando…</Alert>
@@ -374,8 +386,18 @@ function DistributionView({ batchId, onBack }: {
                   <TableCell>{delivery.sentAt ? new Date(delivery.sentAt).toLocaleString('pt-BR') : '—'}</TableCell>
                   <TableCell>{delivery.readAt ? 'Lido' : '—'}</TableCell>
                   <TableCell align="right">
-                    {(delivery.status === 'Failed' || delivery.status === 'PermanentlyFailed') && (
-                      <Button size="small" onClick={() => void retry(delivery.employeeDocumentId)}>Reenviar</Button>
+                    {deletedIds.has(delivery.employeeDocumentId) ? (
+                      <Chip size="small" label="Excluído" />
+                    ) : (
+                      <Stack direction="row" gap={0.5} justifyContent="flex-end">
+                        {(delivery.status === 'Failed' || delivery.status === 'PermanentlyFailed') && (
+                          <Button size="small" onClick={() => void retry(delivery.employeeDocumentId)}>Reenviar</Button>
+                        )}
+                        <IconButton size="small" aria-label={`Mais ações — ${delivery.employeeName}`}
+                          onClick={event => setRowMenu({ documentId: delivery.employeeDocumentId, anchorEl: event.currentTarget })}>
+                          <MoreVertRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
                     )}
                   </TableCell>
                 </TableRow>
@@ -385,6 +407,13 @@ function DistributionView({ batchId, onBack }: {
         </Paper>
       )}
       <Box><Button onClick={onBack}>Voltar</Button></Box>
+      <Menu open={Boolean(rowMenu)} anchorEl={rowMenu?.anchorEl} onClose={() => setRowMenu(null)}>
+        <MenuItem disabled={rowMenu ? deliveries.find(d => d.employeeDocumentId === rowMenu.documentId)?.status === 'Pending'
+          || deliveries.find(d => d.employeeDocumentId === rowMenu.documentId)?.status === 'Processing' : false}
+          onClick={() => { const id = rowMenu!.documentId; setRowMenu(null); setConfirmDeleteId(id) }}>
+          Excluir registro
+        </MenuItem>
+      </Menu>
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
         <DialogTitle>Enviar {summary.ready} holerites via WhatsApp?</DialogTitle>
         <DialogContent>
@@ -395,6 +424,18 @@ function DistributionView({ batchId, onBack }: {
         <DialogActions>
           <Button onClick={() => setConfirmOpen(false)}>Cancelar</Button>
           <Button variant="contained" onClick={() => void send()}>Confirmar envio</Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={Boolean(confirmDeleteId)} onClose={() => setConfirmDeleteId(null)}>
+        <DialogTitle>Excluir este holerite?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Ele será removido da gestão e não poderá ser reenviado. O histórico do envio já realizado será preservado.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDeleteId(null)} disabled={deleting}>Cancelar</Button>
+          <Button color="error" variant="contained" disabled={deleting} onClick={() => void removeDocument(confirmDeleteId!)}>Excluir</Button>
         </DialogActions>
       </Dialog>
     </Stack>

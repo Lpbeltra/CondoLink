@@ -234,6 +234,195 @@ public sealed class EmployeeDocumentsEndpointTests : IAsyncLifetime
         Assert.Empty(scoped);
     }
 
+    private async Task<(Guid BatchId, Guid DocumentId, string FileKey)> SeedConfirmedDocumentAsync(
+        Guid employeeId, WhatsAppOutboundStatus? outboundStatus = null, bool batchCompleted = false)
+    {
+        return await _host.WithServicesAsync(async sp =>
+        {
+            var db = sp.GetRequiredService<AppDbContext>();
+            var storage = sp.GetRequiredService<LocalFileStorage>();
+            var employee = await db.Employees.SingleAsync(x => x.Id == employeeId);
+            var batch = new EmployeeDocumentBatch(null, _companyId, EmployeeDocumentType.Payslip, 8, 2026, _operatorId, DateTime.UtcNow);
+            batch.StartProcessing(); batch.MarkReadyForReview();
+            var pdfBytes = Encoding.ASCII.GetBytes("%PDF-1.4 test payslip");
+            var document = new EmployeeDocument(employee.CondominiumId, batch.Id, EmployeeDocumentType.Payslip, 8, 2026,
+                "pending", "holerite.pdf", 1, 1, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(pdfBytes)), DateTime.UtcNow);
+            var key = await storage.SaveEmployeeDocumentAsync(employee.CondominiumId, batch.Id, document.Id, pdfBytes, default);
+            document.SetFileKey(key);
+            document.ApplyAutomaticIdentification(employeeId, EmployeeDocumentIdentificationConfidence.High, EmployeeDocumentIdentificationMethod.Cpf, DateTime.UtcNow);
+            document.Confirm(DateTime.UtcNow);
+            batch.Confirm(_operatorId, DateTime.UtcNow);
+            db.AddRange(batch, document);
+            await db.SaveChangesAsync();
+
+            if (outboundStatus is not null)
+            {
+                var outbound = new WhatsAppOutboundMessage(null, null, _operatorId, employee.CondominiumId, employee.NormalizedPhoneNumber ?? "+5511999990000",
+                    WhatsAppNotificationType.EmployeePayslipAvailable, WhatsAppSendMode.Template,
+                    $"employee-document:{document.Id}:whatsapp:1", "Holerite disponível.", "holerite_disponivel", "pt_BR",
+                    DateTime.UtcNow, status: outboundStatus.Value, employeeDocumentId: document.Id);
+                db.Add(outbound);
+                await db.SaveChangesAsync();
+                db.Add(new EmployeeDocumentDelivery(document.Id, employeeId, employee.CondominiumId, batch.Id,
+                    EmployeeDocumentDeliveryChannel.WhatsApp, outbound.Id, _operatorId, DateTime.UtcNow));
+                await db.SaveChangesAsync();
+                batch.StartDistributing();
+                if (batchCompleted) batch.MarkCompleted();
+                await db.SaveChangesAsync();
+            }
+            return (batch.Id, document.Id, key);
+        });
+    }
+
+    [Fact]
+    public async Task Authorized_delete_soft_deletes_a_confirmed_document_with_no_active_delivery()
+    {
+        var (batchId, documentId, fileKey) = await SeedConfirmedDocumentAsync(_employeeId);
+        using var client = _host.ClientFor(_operatorId);
+
+        var response = await client.DeleteAsync($"/administrator/employees/documents/batches/{batchId}/documents/{documentId}");
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        var document = await _host.WithDbAsync(db => db.EmployeeDocuments.AsNoTracking().SingleAsync(x => x.Id == documentId));
+        Assert.NotNull(document.DeletedAt);
+        Assert.Equal(_operatorId, document.DeletedByUserId);
+
+        var fileExists = await _host.WithServicesAsync(sp => Task.FromResult(sp.GetRequiredService<LocalFileStorage>().OpenRead(fileKey) is not null));
+        Assert.False(fileExists);
+    }
+
+    [Fact]
+    public async Task Repeated_delete_is_idempotent_and_never_restores_the_document()
+    {
+        var (batchId, documentId, _) = await SeedConfirmedDocumentAsync(_employeeId);
+        using var client = _host.ClientFor(_operatorId);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/administrator/employees/documents/batches/{batchId}/documents/{documentId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync($"/administrator/employees/documents/batches/{batchId}/documents/{documentId}")).StatusCode);
+
+        var document = await _host.WithDbAsync(db => db.EmployeeDocuments.AsNoTracking().SingleAsync(x => x.Id == documentId));
+        Assert.NotNull(document.DeletedAt);
+    }
+
+    [Fact]
+    public async Task Cross_company_administrator_cannot_delete_another_companys_document()
+    {
+        var (batchId, documentId, _) = await SeedConfirmedDocumentAsync(_employeeId);
+        var otherOperatorId = await _host.WithDbAsync(async db =>
+        {
+            var otherCompany = new ManagementCompany("Outra Administradora", null, null, null, null);
+            var otherUser = CoreTestSeed.User("Outro Operador", $"other-op-{Guid.NewGuid():N}@test.local");
+            var otherCompanyEmployee = new ManagementCompanyEmployee(otherCompany.Id, otherUser.Id, "Departamento pessoal");
+            db.AddRange(otherCompany, otherUser, otherCompanyEmployee,
+                new ManagementCompanyModule(otherCompany.Id, ManagementCompanyModuleType.EmployeeManagement, true, DateTime.UtcNow),
+                new ManagementCompanyEmployeeModuleGrant(otherCompanyEmployee.Id, ManagementCompanyModuleType.EmployeeManagement, otherUser.Id, DateTime.UtcNow));
+            await db.SaveChangesAsync();
+            return otherUser.Id;
+        });
+
+        using var client = _host.ClientFor(otherOperatorId);
+        var response = await client.DeleteAsync($"/administrator/employees/documents/batches/{batchId}/documents/{documentId}");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+
+        var document = await _host.WithDbAsync(db => db.EmployeeDocuments.AsNoTracking().SingleAsync(x => x.Id == documentId));
+        Assert.Null(document.DeletedAt);
+    }
+
+    [Fact]
+    public async Task User_without_the_employee_management_grant_cannot_delete()
+    {
+        var (batchId, documentId, _) = await SeedConfirmedDocumentAsync(_employeeId);
+        var ungrantedUserId = await _host.WithDbAsync(async db =>
+        {
+            var user = CoreTestSeed.User("Sem Acesso", $"no-grant-{Guid.NewGuid():N}@test.local");
+            db.AddRange(user, new ManagementCompanyEmployee(_companyId, user.Id, "Outro departamento"));
+            await db.SaveChangesAsync();
+            return user.Id;
+        });
+
+        using var client = _host.ClientFor(ungrantedUserId);
+        var response = await client.DeleteAsync($"/administrator/employees/documents/batches/{batchId}/documents/{documentId}");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(WhatsAppOutboundStatus.Pending)]
+    [InlineData(WhatsAppOutboundStatus.Processing)]
+    public async Task Delete_is_blocked_while_delivery_is_actively_in_flight(WhatsAppOutboundStatus activeStatus)
+    {
+        var (batchId, documentId, _) = await SeedConfirmedDocumentAsync(_employeeId, activeStatus);
+        using var client = _host.ClientFor(_operatorId);
+
+        var response = await client.DeleteAsync($"/administrator/employees/documents/batches/{batchId}/documents/{documentId}");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+        var document = await _host.WithDbAsync(db => db.EmployeeDocuments.AsNoTracking().SingleAsync(x => x.Id == documentId));
+        Assert.Null(document.DeletedAt);
+    }
+
+    [Theory]
+    [InlineData(WhatsAppOutboundStatus.Delivered)]
+    [InlineData(WhatsAppOutboundStatus.Read)]
+    [InlineData(WhatsAppOutboundStatus.Failed)]
+    [InlineData(WhatsAppOutboundStatus.PermanentlyFailed)]
+    public async Task Delete_is_allowed_once_the_delivery_reached_a_terminal_status(WhatsAppOutboundStatus terminalStatus)
+    {
+        var (batchId, documentId, _) = await SeedConfirmedDocumentAsync(_employeeId, terminalStatus, batchCompleted: terminalStatus is WhatsAppOutboundStatus.Delivered or WhatsAppOutboundStatus.Read);
+        using var client = _host.ClientFor(_operatorId);
+
+        var response = await client.DeleteAsync($"/administrator/employees/documents/batches/{batchId}/documents/{documentId}");
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        // Delivery/outbound history is never touched by the delete.
+        var delivery = await _host.WithDbAsync(db => db.EmployeeDocumentDeliveries.AsNoTracking().SingleAsync(x => x.EmployeeDocumentId == documentId));
+        var outbound = await _host.WithDbAsync(db => db.WhatsAppOutboundMessages.AsNoTracking().SingleAsync(x => x.Id == delivery.OutboundMessageId));
+        Assert.Equal(terminalStatus, outbound.Status);
+
+        var batch = await _host.WithDbAsync(db => db.EmployeeDocumentBatches.AsNoTracking().SingleAsync(x => x.Id == batchId));
+        if (terminalStatus is WhatsAppOutboundStatus.Delivered or WhatsAppOutboundStatus.Read)
+            Assert.Equal(EmployeeDocumentBatchStatus.Completed, batch.Status); // deleting after the fact does not reopen/recompute the past
+    }
+
+    [Fact]
+    public async Task Deleted_document_disappears_from_list_and_detail_but_delivery_history_survives()
+    {
+        var (batchId, documentId, _) = await SeedConfirmedDocumentAsync(_employeeId, WhatsAppOutboundStatus.Read, batchCompleted: true);
+        using var client = _host.ClientFor(_operatorId);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/administrator/employees/documents/batches/{batchId}/documents/{documentId}")).StatusCode);
+
+        var detail = await client.GetFromJsonAsync<JsonElement>($"/administrator/employees/documents/batches/{batchId}");
+        var documents = detail.GetProperty("documents").EnumerateArray().ToArray();
+        Assert.DoesNotContain(documents, d => d.GetProperty("id").GetGuid() == documentId);
+
+        var list = await client.GetFromJsonAsync<JsonElement[]>("/administrator/employees/documents/batches");
+        var batchSummary = list!.Single(b => b.GetProperty("id").GetGuid() == batchId);
+        Assert.Equal(0, batchSummary.GetProperty("documentCount").GetInt32());
+
+        // Preview is gone (410), but the WhatsApp send/read trail is untouched.
+        var preview = await client.GetAsync($"/administrator/employees/documents/batches/{batchId}/documents/{documentId}/preview");
+        Assert.Equal(HttpStatusCode.Gone, preview.StatusCode);
+
+        var deliveryCount = await _host.WithDbAsync(db => db.EmployeeDocumentDeliveries.AsNoTracking().CountAsync(x => x.EmployeeDocumentId == documentId));
+        Assert.Equal(1, deliveryCount);
+        var outboundExists = await _host.WithDbAsync(db => db.WhatsAppOutboundMessages.AsNoTracking().AnyAsync(x => x.EmployeeDocumentId == documentId));
+        Assert.True(outboundExists);
+    }
+
+    [Fact]
+    public async Task Deleted_document_cannot_be_reassigned_replaced_or_retried()
+    {
+        var (batchId, documentId, _) = await SeedConfirmedDocumentAsync(_employeeId, WhatsAppOutboundStatus.Failed);
+        using var client = _host.ClientFor(_operatorId);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/administrator/employees/documents/batches/{batchId}/documents/{documentId}")).StatusCode);
+
+        var assign = await client.PatchAsJsonAsync($"/administrator/employees/documents/batches/{batchId}/documents/{documentId}",
+            new { action = "Confirm", employeeId = (string?)null });
+        Assert.Equal(HttpStatusCode.NotFound, assign.StatusCode);
+
+        var retry = await client.PostAsync($"/administrator/employees/documents/batches/{batchId}/documents/{documentId}/resend", null);
+        Assert.Equal(HttpStatusCode.Conflict, retry.StatusCode);
+    }
+
     [Fact]
     public async Task Legacy_condominium_route_does_not_grant_employee_management_access()
     {

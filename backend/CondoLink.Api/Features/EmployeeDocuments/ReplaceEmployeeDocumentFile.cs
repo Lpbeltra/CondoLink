@@ -21,7 +21,7 @@ public static class ReplaceEmployeeDocumentFile
         AppDbContext db, EmployeeManagement.EmployeeManagementAccessService access, LocalFileStorage storage, CancellationToken ct)
     {
         var (_, batch) = await access.RequireBatchAsync(principal, batchId, ct);
-        var document = await db.EmployeeDocuments.SingleOrDefaultAsync(x => x.Id == documentId && x.BatchId == batchId, ct);
+        var document = await db.EmployeeDocuments.SingleOrDefaultAsync(x => x.Id == documentId && x.BatchId == batchId && x.DeletedAt == null, ct);
         if (document is null) return Results.NotFound(new { message = "Documento não encontrado." });
         if (batch.Status != EmployeeDocumentBatchStatus.ReadyForReview) return Results.Conflict(new { message = "O arquivo não pode ser substituído depois da confirmação." });
         if (!request.HasFormContentType) return Results.BadRequest(new { message = "Envie um PDF." });

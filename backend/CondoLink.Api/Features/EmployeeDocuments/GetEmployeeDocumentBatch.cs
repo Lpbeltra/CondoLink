@@ -18,7 +18,7 @@ public static class GetEmployeeDocumentBatch
         EmployeeManagement.EmployeeManagementAccessService access, CancellationToken ct)
     {
         var (_, batch) = await access.RequireBatchAsync(principal, batchId, ct);
-        var documents = await db.EmployeeDocuments.AsNoTracking().Where(x => x.BatchId == batchId).OrderBy(x => x.PageStart).ToArrayAsync(ct);
+        var documents = await db.EmployeeDocuments.AsNoTracking().Where(x => x.BatchId == batchId && x.DeletedAt == null).OrderBy(x => x.PageStart).ToArrayAsync(ct);
         var employeeIds = documents.Where(x => x.EmployeeId.HasValue).Select(x => x.EmployeeId!.Value).Distinct().ToArray();
         var employees = await db.Employees.AsNoTracking().Where(x => employeeIds.Contains(x.Id))
             .Join(db.Condominiums.AsNoTracking(), e => e.CondominiumId, c => c.Id, (e, c) => new { e.Id, e.FullName, e.Cpf, e.RegistrationNumber, CondominiumId = c.Id, CondominiumName = c.Name }).ToDictionaryAsync(x => x.Id, ct);

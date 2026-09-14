@@ -1,16 +1,23 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { render, screen, waitForElementToBeRemoved, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { PayslipDistribution } from './PayslipDistribution'
 
 const api = vi.hoisted(() => ({
   listBatches: vi.fn(),
   getBatch: vi.fn(),
   listEmployees: vi.fn(),
+  getDistributionSummary: vi.fn(),
+  listDeliveries: vi.fn(),
+  deleteDocument: vi.fn(),
 }))
 
 vi.mock('./api', async () => {
   const actual = await vi.importActual<typeof import('./api')>('./api')
-  return { ...actual, listBatches: api.listBatches, getBatch: api.getBatch }
+  return {
+    ...actual, listBatches: api.listBatches, getBatch: api.getBatch,
+    getDistributionSummary: api.getDistributionSummary, listDeliveries: api.listDeliveries, deleteDocument: api.deleteDocument,
+  }
 })
 vi.mock('../employees/api', () => ({ listEmployees: api.listEmployees }))
 
@@ -32,5 +39,65 @@ describe('PayslipDistribution administrator batch review', () => {
     expect(api.getBatch).toHaveBeenCalledWith('batch-1')
     expect(api.getBatch.mock.calls[0]).not.toContain('condo-a')
     expect(screen.getByText('Montpellier')).toBeInTheDocument()
+  })
+})
+
+describe('PayslipDistribution delete a sent payslip', () => {
+  const batch = { id: 'batch-2', status: 'Completed', competenceMonth: 8, competenceYear: 2026, documentCount: 1, createdByName: 'Operator', failureReason: null, processingStage: null, processedItems: 1, totalItems: 1, progressPercentage: 100, identifiedCount: 1, needsReviewCount: 0, unidentifiedCount: 0, ignoredCount: 0, confirmedCount: 1 }
+  const delivery = { employeeDocumentId: 'doc-read', employeeId: 'employee-a', employeeName: 'Ana', status: 'Read', attemptCount: 1, queuedAt: '2026-08-01T00:00:00Z', sentAt: '2026-08-01T00:00:00Z', deliveredAt: '2026-08-01T00:00:01Z', readAt: '2026-08-01T00:00:02Z', failedAt: null, lastErrorCode: null, lastErrorDescription: null }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    api.listBatches.mockResolvedValue([batch])
+    api.getDistributionSummary.mockResolvedValue({ batchId: batch.id, totalConfirmed: 1, ready: 0, noPhone: 0, invalidPhone: 0, alreadyQueuedOrSent: 1 })
+    api.listDeliveries.mockResolvedValue([delivery])
+  })
+
+  const openDistributionView = async () => {
+    render(<PayslipDistribution />)
+    await userEvent.click(await screen.findByText('Abrir'))
+    await screen.findByText('Ana')
+  }
+
+  it('cancel keeps the record — no request is sent', async () => {
+    await openDistributionView()
+    await userEvent.click(screen.getByRole('button', { name: /Mais ações — Ana/ }))
+    await userEvent.click(await screen.findByText('Excluir registro'))
+    const dialog = (await screen.findByText('Excluir este holerite?')).closest('.MuiDialog-root') as HTMLElement
+    within(dialog).getByText(/não poderá ser reenviado/)
+    await userEvent.click(within(dialog).getByText('Cancelar'))
+
+    expect(api.deleteDocument).not.toHaveBeenCalled()
+    expect(screen.getByText('Ana')).toBeInTheDocument()
+  })
+
+  it('confirming calls the endpoint and marks the row as deleted', async () => {
+    api.deleteDocument.mockResolvedValue(undefined)
+    await openDistributionView()
+    await userEvent.click(screen.getByRole('button', { name: /Mais ações — Ana/ }))
+    await userEvent.click(await screen.findByText('Excluir registro'))
+    const dialog = (await screen.findByText('Excluir este holerite?')).closest('.MuiDialog-root') as HTMLElement
+    await userEvent.click(within(dialog).getByText('Excluir'))
+
+    expect(api.deleteDocument).toHaveBeenCalledWith('batch-2', 'doc-read')
+    await screen.findByText('Excluído')
+    expect(screen.queryByRole('button', { name: /Mais ações — Ana/ })).not.toBeInTheDocument()
+    // Delivery history stays visible — only the management action disappears.
+    expect(screen.getByText('Ana')).toBeInTheDocument()
+    expect(screen.getByText('Read')).toBeInTheDocument()
+  })
+
+  it('shows a friendly error and keeps the row when the delete request fails', async () => {
+    api.deleteDocument.mockRejectedValue({ isAxiosError: true, response: { data: { message: 'Envio em andamento.' } } })
+    await openDistributionView()
+    await userEvent.click(screen.getByRole('button', { name: /Mais ações — Ana/ }))
+    await userEvent.click(await screen.findByText('Excluir registro'))
+    const dialog = (await screen.findByText('Excluir este holerite?')).closest('.MuiDialog-root') as HTMLElement
+    await userEvent.click(within(dialog).getByText('Excluir'))
+    await waitForElementToBeRemoved(() => screen.queryByText('Excluir este holerite?'))
+
+    await screen.findByText('Envio em andamento.')
+    expect(screen.queryByText('Excluído')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Mais ações — Ana/ })).toBeInTheDocument()
   })
 })

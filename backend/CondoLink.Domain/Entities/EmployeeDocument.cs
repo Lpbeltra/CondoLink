@@ -64,6 +64,11 @@ public sealed class EmployeeDocument
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
     public DateTime? ConfirmedAt { get; private set; }
+    // Soft-delete: removes the document from normal operational flow while
+    // keeping the row (and every EmployeeDocumentDelivery/WhatsAppOutboundMessage
+    // referencing it) intact for audit/payroll-history purposes.
+    public DateTime? DeletedAt { get; private set; }
+    public Guid? DeletedByUserId { get; private set; }
 
     // The storage key is only known once the sliced PDF is written to storage,
     // which itself needs this document's Id — so it starts as a placeholder and
@@ -159,6 +164,21 @@ public sealed class EmployeeDocument
         EmployeeId = null;
         IdentificationStatus = EmployeeDocumentIdentificationStatus.Ignored;
         ConfirmedAt = now;
+        UpdatedAt = now;
+    }
+
+    // Only a document already past active review (Confirmed or Ignored) can be
+    // soft-deleted — a document still Unidentified/NeedsReview belongs to the
+    // normal review flow (Assign/Ignore), not deletion. Delivery/outbound-status
+    // checks (an active send in flight) live at the endpoint, which has that data.
+    public void SoftDelete(Guid actorUserId, DateTime now)
+    {
+        if (DeletedAt is not null)
+            throw new InvalidOperationException("Document was already deleted.");
+        if (IdentificationStatus is not (EmployeeDocumentIdentificationStatus.Confirmed or EmployeeDocumentIdentificationStatus.Ignored))
+            throw new InvalidOperationException("Only a confirmed or ignored document can be deleted.");
+        DeletedAt = now;
+        DeletedByUserId = actorUserId;
         UpdatedAt = now;
     }
 }
