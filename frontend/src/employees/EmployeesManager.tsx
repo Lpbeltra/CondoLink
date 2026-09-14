@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
-import { createEmployee, listEmployees, setEmployeeStatus, updateEmployee, type Employee, type EmployeeInput } from './api'
+import { createEmployee, getEmployee, listEmployees, setEmployeeStatus, updateEmployee, type Employee, type EmployeeInput } from './api'
 import { listEmployeeManagementCondominiums, type EmployeeManagementCondominium } from '../administrator/employeeManagement/api'
 import { PayslipDistribution } from '../employeeDocuments/PayslipDistribution'
 
@@ -12,41 +12,45 @@ const errorMessage = (value: unknown) =>
 
 export function EmployeesManager() {
   const [tab, setTab] = useState<'employees' | 'payslips'>('employees')
-  const [selected, setSelected] = useState<string[]>([])
   const [items, setItems] = useState<Employee[]>([])
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('active')
   const [condominiumId, setCondominiumId] = useState('')
+  const [hideCpf, setHideCpf] = useState(true)
   const [condominiums, setCondominiums] = useState<EmployeeManagementCondominium[]>([])
   const [editing, setEditing] = useState<Employee | null>(null)
-  const [form, setForm] = useState<EmployeeInput & { isActive: boolean }>({ ...blank, isActive: true })
+  const [form, setForm] = useState<EmployeeInput>(blank)
   const [dialog, setDialog] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
   const load = () => {
     setLoading(true)
-    return listEmployees({ condominiumId: condominiumId || undefined, search: search || undefined, status: status || undefined })
+    return listEmployees({ condominiumId: condominiumId || undefined, search: search || undefined, status: status || undefined, revealCpf: !hideCpf })
       .then(setItems)
       .catch(() => setError('Não foi possível carregar os funcionários.'))
       .finally(() => setLoading(false))
   }
-  // The request intentionally reloads when the condominium, search or status filter changes.
+  // The request intentionally reloads when the condominium, search, status or
+  // CPF-visibility filter changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void load() }, [condominiumId, search, status])
+  useEffect(() => { void load() }, [condominiumId, search, status, hideCpf])
   useEffect(() => { void listEmployeeManagementCondominiums().then(setCondominiums).catch(() => setError('Não foi possível carregar os condomínios.')) }, [])
 
   const open = (item?: Employee) => {
+    setError('')
     setEditing(item ?? null)
     setDialog(true)
-    setError('')
     setForm(item
-      ? {
-        condominiumId: item.condominiumId, fullName: item.fullName, cpf: item.cpf ?? '', jobTitle: item.jobTitle ?? '', phoneNumber: item.phoneNumber ?? '',
-        email: item.email ?? '', registrationNumber: item.registrationNumber ?? '',
-        admissionDate: item.admissionDate ?? '', isActive: item.isActive,
-      }
-      : { ...blank, condominiumId: condominiumId || condominiums[0]?.id || '', isActive: true })
+      ? { condominiumId: item.condominiumId, fullName: item.fullName, cpf: item.cpf ?? '', jobTitle: item.jobTitle ?? '', phoneNumber: item.phoneNumber ?? '',
+          email: item.email ?? '', registrationNumber: item.registrationNumber ?? '', admissionDate: item.admissionDate ?? '' }
+      : { ...blank, condominiumId: condominiumId || condominiums[0]?.id || '' })
+    // The list only ever carries a masked CPF; the edit form needs the real one.
+    if (item) {
+      void getEmployee(item.id)
+        .then(detail => setForm(current => ({ ...current, cpf: detail.cpf ?? '' })))
+        .catch(() => setError('Não foi possível carregar o CPF completo do funcionário.'))
+    }
   }
 
   const save = async () => {
@@ -55,11 +59,9 @@ export function EmployeesManager() {
         condominiumId: form.condominiumId, fullName: form.fullName, cpf: form.cpf, jobTitle: form.jobTitle, phoneNumber: form.phoneNumber,
         email: form.email, registrationNumber: form.registrationNumber, admissionDate: form.admissionDate,
       }
+      // Status is never touched here — it only ever changes via Ativar/Inativar.
       const saved = editing ? await updateEmployee(editing.id, input) : await createEmployee(input)
-      const result = editing && editing.isActive !== form.isActive
-        ? await setEmployeeStatus(saved.id, form.isActive)
-        : saved
-      setItems(old => editing ? old.map(x => x.id === result.id ? result : x) : [result, ...old])
+      setItems(old => editing ? old.map(x => x.id === saved.id ? saved : x) : [saved, ...old])
       setDialog(false)
     } catch (e) {
       setError(errorMessage(e))
@@ -75,9 +77,6 @@ export function EmployeesManager() {
     }
   }
 
-  const selectAll = () => setSelected(items.map(item => item.id))
-  const selectedCondominiumIds = [...new Set(items.filter(item => selected.includes(item.id)).map(item => item.condominiumId))]
-  const selectedCondominiumId = selected.length > 0 ? 'multi-condominium' : ''
   return (
     <Stack gap={2}>
       <Box display="flex" justifyContent="space-between" gap={2} flexWrap="wrap">
@@ -91,25 +90,20 @@ export function EmployeesManager() {
         <Tab value="employees" label="Funcionários" />
         <Tab value="payslips" label="Holerites" />
       </Tabs>
-      {tab === 'payslips' ? (selectedCondominiumId
-        ? <PayslipDistribution selectedEmployeeIds={selected} />
-        : <Alert severity="info">Selecione funcionários de um único condomínio para distribuir holerites.</Alert>) : <>
+      {tab === 'payslips' ? <PayslipDistribution /> : <>
       {error && <Alert severity="error">{error}</Alert>}
-      <Stack direction={{ xs: 'column', sm: 'row' }} gap={1.5}>
-        <TextField label="Buscar" value={search} onChange={e => setSearch(e.target.value)} fullWidth />
-        <TextField select label="Status" value={status} onChange={e => setStatus(e.target.value)} sx={{ minWidth: 160 }}>
+      <Stack direction="row" flexWrap="wrap" gap={1.5} useFlexGap alignItems="center">
+        <TextField label="Buscar" value={search} onChange={e => setSearch(e.target.value)} sx={{ flex: '1 1 200px', minWidth: 160 }} />
+        <TextField select label="Status" value={status} onChange={e => setStatus(e.target.value)} sx={{ minWidth: 140 }}>
           <MenuItem value="active">Ativos</MenuItem>
           <MenuItem value="inactive">Inativos</MenuItem>
           <MenuItem value="">Todos</MenuItem>
         </TextField>
-        <TextField select label="Condomínio" value={condominiumId} onChange={e => setCondominiumId(e.target.value)} sx={{ minWidth: 220 }}>
+        <TextField select label="Condomínio" value={condominiumId} onChange={e => setCondominiumId(e.target.value)} sx={{ minWidth: 180 }}>
           <MenuItem value="">Todos</MenuItem>
           {condominiums.map(c => <MenuItem value={c.id} key={c.id}>{c.name}</MenuItem>)}
         </TextField>
-      </Stack>
-      <Stack direction="row" gap={1} alignItems="center">
-        <Button size="small" onClick={selectAll}>Selecionar todos filtrados</Button>
-        <Typography variant="body2" color="text.secondary">{selected.length} selecionado(s)</Typography>
+        <FormControlLabel control={<Checkbox checked={hideCpf} onChange={e => setHideCpf(e.target.checked)} />} label="Ocultar CPF" />
       </Stack>
       {loading
         ? <Alert severity="info">Carregando funcionários…</Alert>
@@ -118,24 +112,21 @@ export function EmployeesManager() {
           : items.map(item => (
             <Card key={item.id} variant="outlined">
               <CardContent>
-                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2}>
-                  <Checkbox checked={selected.includes(item.id)} onChange={event => setSelected(current => event.target.checked ? [...new Set([...current, item.id])] : current.filter(id => id !== item.id))} inputProps={{ 'aria-label': `Selecionar ${item.fullName}` }} />
-                  <Box>
+                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'flex-start' }} gap={2}>
+                  <Box minWidth={0} flex={1}>
                     <Typography fontWeight={800}>{item.fullName}</Typography>
                     {item.jobTitle && <Typography color="text.secondary">{item.jobTitle}</Typography>}
-                    <Stack direction="row" flexWrap="wrap" gap={.75} mt={1}>
-                      <Chip size="small" label={condominiums.find(c => c.id === item.condominiumId)?.name ?? 'Condomínio'} />
-                      {item.cpf && <Chip size="small" label={`CPF ${item.cpf}`} />}
-                      {item.registrationNumber && <Chip size="small" label={`Matrícula ${item.registrationNumber}`} />}
-                      {item.phoneNumber && <Chip size="small" label={item.phoneNumber} />}
-                      {item.email && <Chip size="small" label={item.email} />}
-                      <Chip size="small" color={item.isActive ? 'success' : 'default'} label={item.isActive ? 'Ativo' : 'Inativo'} />
-                    </Stack>
                   </Box>
-                  <Stack direction="row" gap={1} alignSelf={{ xs: 'flex-start', sm: 'center' }}>
+                  <Stack direction="row" gap={1} flexShrink={0}>
                     <Button onClick={() => open(item)}>Editar</Button>
                     <Button onClick={() => void toggleStatus(item)}>{item.isActive ? 'Inativar' : 'Ativar'}</Button>
                   </Stack>
+                </Stack>
+                <Stack direction="row" flexWrap="wrap" gap={.75} mt={1.5}>
+                  <Chip size="small" label={condominiums.find(c => c.id === item.condominiumId)?.name ?? 'Condomínio'} />
+                  {item.cpf && <Chip size="small" label={`CPF ${item.cpf}`} />}
+                  {item.phoneNumber && <Chip size="small" label={item.phoneNumber} />}
+                  <Chip size="small" color={item.isActive ? 'success' : 'default'} label={item.isActive ? 'Ativo' : 'Inativo'} />
                 </Stack>
               </CardContent>
             </Card>
@@ -158,7 +149,6 @@ export function EmployeesManager() {
               <TextField label="Matrícula" value={form.registrationNumber} onChange={e => setForm({ ...form, registrationNumber: e.target.value })} fullWidth />
               <TextField label="Data de admissão" type="date" value={form.admissionDate} onChange={e => setForm({ ...form, admissionDate: e.target.value })} slotProps={{ inputLabel: { shrink: true } }} fullWidth />
             </Stack>
-            {editing && <FormControlLabel control={<Checkbox checked={form.isActive} onChange={e => setForm({ ...form, isActive: e.target.checked })} />} label="Ativo" />}
           </Stack>
         </DialogContent>
         <DialogActions>

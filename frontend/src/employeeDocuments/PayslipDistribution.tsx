@@ -26,7 +26,7 @@ const batchStatusLabel: Record<string, string> = {
 
 type View = 'history' | 'upload' | 'review' | 'distribution'
 
-export function PayslipDistribution({ selectedEmployeeIds }: { selectedEmployeeIds?: string[] }) {
+export function PayslipDistribution() {
   const [view, setView] = useState<View>('history')
   const [batches, setBatches] = useState<EmployeeDocumentBatch[]>([])
   const [loadingHistory, setLoadingHistory] = useState(true)
@@ -62,7 +62,7 @@ export function PayslipDistribution({ selectedEmployeeIds }: { selectedEmployeeI
         <BatchHistory loading={loadingHistory} batches={batches} onOpen={openBatch} />
       )}
       {view === 'upload' && (
-        <UploadBatch selectedEmployeeIds={selectedEmployeeIds}
+        <UploadBatch
           onCancel={() => setView('history')}
           onUploaded={batchId => { setActiveBatchId(batchId); setView('review') }} />
       )}
@@ -106,8 +106,8 @@ function BatchHistory({ loading, batches, onOpen }: {
   )
 }
 
-function UploadBatch({ selectedEmployeeIds = [], onCancel, onUploaded }: {
-  selectedEmployeeIds?: string[]; onCancel: () => void; onUploaded: (batchId: string) => void
+function UploadBatch({ onCancel, onUploaded }: {
+  onCancel: () => void; onUploaded: (batchId: string) => void
 }) {
   const now = new Date()
   const [month, setMonth] = useState(now.getMonth() + 1)
@@ -120,7 +120,7 @@ function UploadBatch({ selectedEmployeeIds = [], onCancel, onUploaded }: {
     if (files.length === 0) { setError('Selecione ao menos um arquivo PDF.'); return }
     setUploading(true); setError('')
     try {
-      const result = await uploadBatch(files, month, year, selectedEmployeeIds)
+      const result = await uploadBatch(files, month, year)
       onUploaded(result.id)
     } catch (e) {
       setError(getErrorMessage(e))

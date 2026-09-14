@@ -21,10 +21,16 @@ public static class ConfirmEmployeeDocumentBatch
         var invalid = await (from d in db.EmployeeDocuments.AsNoTracking()
             where d.BatchId == batchId && d.IdentificationStatus != EmployeeDocumentIdentificationStatus.Ignored
             join e in db.Employees.AsNoTracking() on d.EmployeeId equals e.Id
-            select new { d, e }).AnyAsync(x => x.d.IdentificationStatus != EmployeeDocumentIdentificationStatus.Confirmed
+            join c in db.Condominiums.AsNoTracking() on e.CondominiumId equals c.Id
+            select new { d, e, c }).AnyAsync(x => x.d.IdentificationStatus != EmployeeDocumentIdentificationStatus.Confirmed
                 || x.d.CondominiumId != x.e.CondominiumId
+                // Defense in depth: catches drift between match time and confirm time
+                // (e.g. the employee's CPF was corrected, or the document's own content
+                // was always inconsistent with the employee/condominium it landed on).
+                || (x.d.ExtractedCpfDigits != null && x.d.ExtractedCpfDigits != x.e.NormalizedCpf)
+                || (x.d.ExtractedCnpjDigits != null && x.d.ExtractedCnpjDigits != x.c.Cnpj)
                 || !db.EmployeeDocumentBatchEmployees.Any(b => b.BatchId == batchId && b.EmployeeId == x.e.Id)
-                || !db.Condominiums.Any(c => c.Id == x.e.CondominiumId && c.ManagementCompanyId == batch.ManagementCompanyId && c.IsActive), ct);
+                || !db.Condominiums.Any(cc => cc.Id == x.e.CondominiumId && cc.ManagementCompanyId == batch.ManagementCompanyId && cc.IsActive), ct);
         var pending = await db.EmployeeDocuments.AsNoTracking().AnyAsync(x => x.BatchId == batchId && x.IdentificationStatus != EmployeeDocumentIdentificationStatus.Confirmed && x.IdentificationStatus != EmployeeDocumentIdentificationStatus.Ignored, ct);
         if (invalid || pending) return Results.Conflict(new { message = "Revise ou ignore todos os documentos antes de confirmar." });
         batch.Confirm(actor.UserId, DateTime.UtcNow); await db.SaveChangesAsync(ct); return Results.NoContent();

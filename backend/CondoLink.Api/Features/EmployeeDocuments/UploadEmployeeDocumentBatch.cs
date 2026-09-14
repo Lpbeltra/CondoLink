@@ -44,11 +44,6 @@ public static class UploadEmployeeDocumentBatch
         if (!int.TryParse(form["competenceYear"], out var year) || year is < 2000 or > 2100)
             return Results.BadRequest(new { message = "Informe o ano de competência." });
         var documentType = EmployeeDocumentType.Payslip;
-        var selectedEmployeeIds = form["employeeIds"].Where(x => Guid.TryParse(x, out _)).Select(x => Guid.Parse(x!)).Distinct().ToArray();
-        if (selectedEmployeeIds.Length == 0) return Results.BadRequest(new { message = "Selecione ao menos um funcionário." });
-        var validEmployeeIds = await db.Employees.AsNoTracking().Where(x => selectedEmployeeIds.Contains(x.Id)
-            && db.Condominiums.Any(c => c.Id == x.CondominiumId && c.ManagementCompanyId == actor.ManagementCompanyId && c.IsActive)).Select(x => x.Id).ToArrayAsync(ct);
-        if (validEmployeeIds.Length != selectedEmployeeIds.Length) return Results.BadRequest(new { message = "A seleção de funcionários é inválida." });
 
         var files = form.Files.GetFiles("files");
         if (files.Count == 0) return Results.BadRequest(new { message = "Selecione ao menos um arquivo PDF." });
@@ -87,7 +82,6 @@ public static class UploadEmployeeDocumentBatch
             }
             batch.AttachPendingUploads(JsonSerializer.Serialize(pendingUploads));
             db.EmployeeDocumentBatches.Add(batch);
-            db.EmployeeDocumentBatchEmployees.AddRange(validEmployeeIds.Select(id => new EmployeeDocumentBatchEmployee(batch.Id, id)));
             await db.SaveChangesAsync(ct);
         }
         catch

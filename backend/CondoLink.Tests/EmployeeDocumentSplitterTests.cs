@@ -106,4 +106,109 @@ public sealed class EmployeeDocumentSplitterTests
         Assert.Null(segments[0].EmployeeId);
         Assert.Equal(EmployeeDocumentIdentificationConfidence.None, segments[0].Confidence);
     }
+
+    // --- CPF / CNPJ hard gates -------------------------------------------------
+
+    [Fact]
+    public void Cpf_match_is_blocked_when_the_documents_cnpj_belongs_to_a_different_condominium()
+    {
+        // Regression: Renato used to work at Mendonza; his record now points at
+        // Monticello, but this PDF is an OLD payslip that still carries Mendonza's
+        // CNPJ. Same person (CPF matches), wrong condominium — must NOT associate.
+        var renato = new EmployeeDocumentSplitter.Candidate(Guid.NewGuid(), "Renato Paranhos de Araujo", "MAT-900", "Zelador",
+            "52998224725", "11222333000181"); // Renato's CURRENT condominium (Monticello) CNPJ
+        var identity = EmployeeDocumentSplitter.DetectPageIdentity(
+            "CONDOMINIO MENDONZA\nCNPJ: 99.888.777/0001-62\nFuncionario: Renato Paranhos de Araujo\nCPF: 529.982.247-25",
+            [renato]);
+        Assert.Null(identity.EmployeeId);
+        Assert.Equal(EmployeeDocumentIdentificationConfidence.None, identity.Confidence);
+        Assert.Equal("52998224725", identity.ExtractedCpfDigits);
+        Assert.Equal("99888777000162", identity.ExtractedCnpjDigits);
+    }
+
+    [Fact]
+    public void Cpf_and_matching_cnpj_and_compatible_name_identifies_with_high_confidence()
+    {
+        var renato = new EmployeeDocumentSplitter.Candidate(Guid.NewGuid(), "Renato Paranhos de Araujo", null, null,
+            "52998224725", "11222333000181");
+        var identity = EmployeeDocumentSplitter.DetectPageIdentity(
+            "CONDOMINIO MONTICELLO\nCNPJ: 11.222.333/0001-81\nFuncionario: Renato Paranhos de Araujo\nCPF: 529.982.247-25",
+            [renato]);
+        Assert.Equal(renato.EmployeeId, identity.EmployeeId);
+        Assert.Equal(EmployeeDocumentIdentificationConfidence.High, identity.Confidence);
+        Assert.Equal(EmployeeDocumentIdentificationMethod.Cpf, identity.Method);
+    }
+
+    [Fact]
+    public void Cpf_and_cnpj_match_with_an_abbreviated_registered_name_still_identifies_with_high_confidence()
+    {
+        var candidate = new EmployeeDocumentSplitter.Candidate(Guid.NewGuid(), "João A. Teixeira", null, null,
+            "52998224725", "11222333000181");
+        var identity = EmployeeDocumentSplitter.DetectPageIdentity(
+            "CNPJ: 11.222.333/0001-81\nFuncionario: Joao Almeida Teixeira\nCPF: 529.982.247-25", [candidate]);
+        Assert.Equal(candidate.EmployeeId, identity.EmployeeId);
+        Assert.Equal(EmployeeDocumentIdentificationConfidence.High, identity.Confidence);
+    }
+
+    [Fact]
+    public void Cpf_and_cnpj_correct_but_completely_different_name_downgrades_to_medium_confidence_for_review()
+    {
+        var candidate = new EmployeeDocumentSplitter.Candidate(Guid.NewGuid(), "Renato Paranhos de Araujo", null, null,
+            "52998224725", "11222333000181");
+        var identity = EmployeeDocumentSplitter.DetectPageIdentity(
+            "CNPJ: 11.222.333/0001-81\nFuncionario: Carlos Eduardo Mendes\nCPF: 529.982.247-25", [candidate]);
+        Assert.Equal(candidate.EmployeeId, identity.EmployeeId);
+        Assert.Equal(EmployeeDocumentIdentificationConfidence.Medium, identity.Confidence);
+    }
+
+    [Fact]
+    public void Registration_number_match_is_overridden_by_a_present_but_non_matching_cpf()
+    {
+        var candidate = new EmployeeDocumentSplitter.Candidate(Guid.NewGuid(), "Paula Nogueira", "MAT-050", null, "52998224725");
+        var identity = EmployeeDocumentSplitter.DetectPageIdentity(
+            "Matricula: MAT-050\nFuncionaria: Paula Nogueira\nCPF: 111.444.777-35", [candidate]);
+        Assert.Null(identity.EmployeeId);
+    }
+
+    [Fact]
+    public void Registration_number_match_is_blocked_when_the_documents_cnpj_belongs_to_a_different_condominium()
+    {
+        var candidate = new EmployeeDocumentSplitter.Candidate(Guid.NewGuid(), "Paula Nogueira", "MAT-050", null, null, "11222333000181");
+        var identity = EmployeeDocumentSplitter.DetectPageIdentity(
+            "CNPJ: 99.888.777/0001-62\nMatricula: MAT-050\nFuncionaria: Paula Nogueira", [candidate]);
+        Assert.Null(identity.EmployeeId);
+        Assert.Equal("99888777000162", identity.ExtractedCnpjDigits);
+    }
+
+    [Fact]
+    public void Registration_number_match_succeeds_when_the_documents_cnpj_matches_the_same_condominium()
+    {
+        var candidate = new EmployeeDocumentSplitter.Candidate(Guid.NewGuid(), "Paula Nogueira", "MAT-050", null, null, "11222333000181");
+        var identity = EmployeeDocumentSplitter.DetectPageIdentity(
+            "CNPJ: 11.222.333/0001-81\nMatricula: MAT-050\nFuncionaria: Paula Nogueira", [candidate]);
+        Assert.Equal(candidate.EmployeeId, identity.EmployeeId);
+        Assert.Equal(EmployeeDocumentIdentificationMethod.RegistrationNumber, identity.Method);
+    }
+
+    [Fact]
+    public void Same_name_in_two_condominiums_is_disambiguated_by_the_documents_cnpj()
+    {
+        var atMonticello = new EmployeeDocumentSplitter.Candidate(Guid.NewGuid(), "Carlos Eduardo Lima", null, null, null, "11222333000181");
+        var atMendonza = new EmployeeDocumentSplitter.Candidate(Guid.NewGuid(), "Carlos Eduardo Lima", null, null, null, "99888777000162");
+        var identity = EmployeeDocumentSplitter.DetectPageIdentity(
+            "CNPJ: 99.888.777/0001-62\nFuncionario: Carlos Eduardo Lima", [atMonticello, atMendonza]);
+        Assert.Equal(atMendonza.EmployeeId, identity.EmployeeId);
+        Assert.Equal(EmployeeDocumentIdentificationMethod.ExactName, identity.Method);
+    }
+
+    [Fact]
+    public void Cpf_and_cnpj_digit_extraction_do_not_collide_with_each_other()
+    {
+        // Without a digit-boundary check, a 14-digit CNPJ always contains an
+        // 11-digit substring, so it would also be misread as a CPF.
+        var identity = EmployeeDocumentSplitter.DetectPageIdentity(
+            "CNPJ: 11.222.333/0001-81 apenas, sem CPF nesta pagina.", [MariaSouza]);
+        Assert.Null(identity.ExtractedCpfDigits);
+        Assert.Equal("11222333000181", identity.ExtractedCnpjDigits);
+    }
 }

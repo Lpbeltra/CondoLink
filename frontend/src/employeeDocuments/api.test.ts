@@ -15,7 +15,7 @@ describe('administrator EmployeeDocuments API', () => {
 
     await listBatches()
     await getBatch('batch-1')
-    await uploadBatch([new File(['pdf'], 'a.pdf')], 8, 2026, ['employee-a', 'employee-b'])
+    await uploadBatch([new File(['pdf'], 'a.pdf')], 8, 2026)
     await updateDocumentAssociation('batch-1', 'document-1', 'Assign', 'employee-a')
     await replaceDocumentFile('batch-1', 'document-1', new File(['pdf'], 'replacement.pdf'))
     await confirmBatch('batch-1')

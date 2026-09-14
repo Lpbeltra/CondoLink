@@ -38,15 +38,29 @@ public static class UpdateEmployeeDocumentAssociation
                 case "Assign":
                     if (request.EmployeeId is not Guid employeeId)
                         return Results.BadRequest(new { message = "Informe o funcionário." });
-                    // A manual correction may never widen the immutable subset chosen
-                    // when the batch was created. This is also an IDOR boundary: an
-                    // otherwise in-scope employee cannot be injected into this batch.
-                    var exists = await db.EmployeeDocumentBatchEmployees.AsNoTracking()
-                        .AnyAsync(x => x.BatchId == batch.Id && x.EmployeeId == employeeId
-                            && db.Employees.Any(e => e.Id == employeeId && db.Condominiums.Any(c => c.Id == e.CondominiumId && c.ManagementCompanyId == batch.ManagementCompanyId && c.IsActive)), ct);
-                    if (!exists) return Results.BadRequest(new { message = "Funcionário não encontrado neste condomínio." });
+                    // Authorization boundary: an employee is assignable only if they
+                    // currently belong to a condominium this management company
+                    // administers — never anything pre-selected, never cross-company.
+                    var candidate = await db.Employees.AsNoTracking()
+                        .Where(e => e.Id == employeeId && db.Condominiums.Any(c => c.Id == e.CondominiumId && c.ManagementCompanyId == batch.ManagementCompanyId && c.IsActive))
+                        .Select(e => new { e.CondominiumId, e.NormalizedCpf })
+                        .SingleOrDefaultAsync(ct);
+                    if (candidate is null) return Results.BadRequest(new { message = "Funcionário não encontrado neste condomínio." });
+                    // Hard gates (§27): a document's own extracted CPF/CNPJ can never be
+                    // manually overridden. If the PDF explicitly names a different person
+                    // or a different condominium, the fix is to replace the file — not to
+                    // force an association the document's own content contradicts.
+                    if (document.ExtractedCpfDigits is { Length: > 0 } docCpf && docCpf != candidate.NormalizedCpf)
+                        return Results.BadRequest(new { message = "O CPF encontrado no documento não corresponde ao funcionário selecionado." });
+                    var condominiumCnpj = await db.Condominiums.AsNoTracking().Where(c => c.Id == candidate.CondominiumId).Select(c => c.Cnpj).SingleAsync(ct);
+                    if (document.ExtractedCnpjDigits is { Length: > 0 } docCnpj && docCnpj != condominiumCnpj)
+                        return Results.BadRequest(new { message = "O CNPJ encontrado no documento pertence a outro condomínio." });
                     document.AssignManually(employeeId, now);
-                    document.SetCondominium(await db.Employees.Where(x => x.Id == employeeId).Select(x => x.CondominiumId).SingleAsync(ct));
+                    document.SetCondominium(candidate.CondominiumId);
+                    // Populate the batch's employee scope as associations are made — see
+                    // EmployeeDocumentProcessingService for the automatic-match side of this.
+                    if (!await db.EmployeeDocumentBatchEmployees.AnyAsync(x => x.BatchId == batch.Id && x.EmployeeId == employeeId, ct))
+                        db.EmployeeDocumentBatchEmployees.Add(new CondoLink.Domain.Entities.EmployeeDocumentBatchEmployee(batch.Id, employeeId));
                     break;
                 case "Clear":
                     document.ClearAssociation(now);

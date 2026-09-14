@@ -39,8 +39,16 @@ function toRequestBody(input: EmployeeInput) {
   }
 }
 
-export async function listEmployees(params: { condominiumId?: string; search?: string; status?: string; jobTitle?: string }) {
+export async function listEmployees(params: { condominiumId?: string; search?: string; status?: string; jobTitle?: string; revealCpf?: boolean }) {
   return (await api.get<Employee[]>('/administrator/employees', { params })).data
+}
+
+// Full, unmasked CPF — only ever used to populate the edit form. The list
+// endpoint's default response (and its revealCpf=true bulk variant) stay
+// separate so this is the one deliberate place a single employee's complete
+// CPF is fetched.
+export async function getEmployee(employeeId: string) {
+  return (await api.get<Employee>(`/administrator/employees/${employeeId}`)).data
 }
 
 export async function createEmployee(input: EmployeeInput) {

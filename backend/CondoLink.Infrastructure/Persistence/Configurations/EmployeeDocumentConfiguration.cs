@@ -25,6 +25,8 @@ public sealed class EmployeeDocumentConfiguration : IEntityTypeConfiguration<Emp
         b.Property(x => x.IdentificationStatus).HasColumnName("identification_status").HasConversion<int>().IsRequired();
         b.Property(x => x.IdentificationConfidence).HasColumnName("identification_confidence").HasConversion<int>().IsRequired();
         b.Property(x => x.IdentificationMethod).HasColumnName("identification_method").HasConversion<int>().IsRequired();
+        b.Property(x => x.ExtractedCpfDigits).HasColumnName("extracted_cpf_digits").HasMaxLength(11);
+        b.Property(x => x.ExtractedCnpjDigits).HasColumnName("extracted_cnpj_digits").HasMaxLength(14);
         b.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
         b.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
         b.Property(x => x.ConfirmedAt).HasColumnName("confirmed_at");

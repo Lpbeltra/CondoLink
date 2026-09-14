@@ -287,6 +287,14 @@ public sealed class WhatsAppOutboundWorker(
         if (document.CondominiumId != employee.CondominiumId || item.CondominiumId != employee.CondominiumId
             || batch.ManagementCompanyId != condominium.ManagementCompanyId)
             return ([], null, Failure("employee_document_condominium_mismatch", "Document and employee do not belong to the same current condominium."));
+        // Fail-closed re-validation of what the PDF itself said, in case identity data
+        // changed after the document was matched/confirmed (employee's CPF corrected,
+        // condominium's CNPJ corrected, etc.) — the FK association alone would not
+        // catch that.
+        if (document.ExtractedCpfDigits is { Length: > 0 } extractedCpf && extractedCpf != employee.NormalizedCpf)
+            return ([], null, Failure("employee_document_cpf_mismatch", "Document's extracted CPF no longer matches the employee."));
+        if (document.ExtractedCnpjDigits is { Length: > 0 } extractedCnpj && extractedCnpj != condominium.Cnpj)
+            return ([], null, Failure("employee_document_cnpj_mismatch", "Document's extracted CNPJ no longer matches the condominium."));
         if (!employee.IsActive)
             return ([], null, Failure("employee_inactive", "Employee is no longer active."));
         if (employee.NormalizedPhoneNumber is not { Length: > 0 } phone || phone != item.DestinationPhone)

@@ -34,9 +34,14 @@ public sealed class EmployeeDocumentProcessingService(
             batch.SetProgress("Extração", 0, uploads.Length);
             await db.SaveChangesAsync(ct);
 
-            var selectedIds = await db.EmployeeDocumentBatchEmployees.AsNoTracking().Where(x => x.BatchId == batch.Id).Select(x => x.EmployeeId).ToArrayAsync(ct);
+            // No pre-selection: the candidate universe is every employee currently
+            // within a condominium this management company administers — the same
+            // authorization boundary used everywhere else (AdministratorEmployeeEndpoints,
+            // manual assign). Which of them a document actually belongs to is decided
+            // entirely by the PDF's own content (CPF/CNPJ/registration/name), not by
+            // anything chosen ahead of time on the employee list screen.
             var candidates = await db.Employees.AsNoTracking()
-                .Where(x => selectedIds.Contains(x.Id))
+                .Where(x => db.Condominiums.Any(c => c.Id == x.CondominiumId && c.ManagementCompanyId == batch.ManagementCompanyId && c.IsActive))
                 .Select(x => new { x.Id, x.CondominiumId, x.FullName, x.NormalizedRegistrationNumber, x.JobTitle, x.NormalizedCpf,
                     Cnpj = db.Condominiums.Where(c => c.Id == x.CondominiumId).Select(c => c.Cnpj).FirstOrDefault() })
                 .ToArrayAsync(ct);
@@ -85,12 +90,22 @@ public sealed class EmployeeDocumentProcessingService(
                         segment.PageStart, segment.PageEnd, contentHash, DateTime.UtcNow);
                     var fileKey = await storage.SaveEmployeeDocumentAsync(documentCondominiumId ?? batch.ManagementCompanyId!.Value, batch.Id, document.Id, slicedBytes, ct);
                     document.SetFileKey(fileKey);
-                    document.ApplyAutomaticIdentification(segment.EmployeeId, segment.Confidence, segment.Method, DateTime.UtcNow);
+                    document.ApplyAutomaticIdentification(segment.EmployeeId, segment.Confidence, segment.Method, DateTime.UtcNow,
+                        segment.ExtractedCpfDigits, segment.ExtractedCnpjDigits);
                     created.Add(document);
                 }
                 batch.SetProgress("Separação/Identificação", batch.ProcessedItems + 1, uploads.Length);
                 await db.SaveChangesAsync(ct);
             }
+
+            // EmployeeDocumentBatchEmployee is no longer pre-populated from a manual
+            // selection; it now records — as an auditable scope/authorization anchor —
+            // exactly which employees the automatic matching actually identified.
+            // Employees assigned later during manual review are added at that point too
+            // (see UpdateEmployeeDocumentAssociation).
+            var identifiedEmployeeIds = created.Where(d => d.EmployeeId.HasValue).Select(d => d.EmployeeId!.Value).Distinct().ToArray();
+            if (identifiedEmployeeIds.Length > 0)
+                db.EmployeeDocumentBatchEmployees.AddRange(identifiedEmployeeIds.Select(id => new EmployeeDocumentBatchEmployee(batch.Id, id)));
 
             db.EmployeeDocuments.AddRange(created);
             batch.MarkReadyForReview();

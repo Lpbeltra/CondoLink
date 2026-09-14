@@ -54,6 +54,13 @@ public sealed class EmployeeDocument
     public EmployeeDocumentIdentificationStatus IdentificationStatus { get; private set; }
     public EmployeeDocumentIdentificationConfidence IdentificationConfidence { get; private set; }
     public EmployeeDocumentIdentificationMethod IdentificationMethod { get; private set; }
+    // Digits-only CPF/CNPJ actually found in this document's text at the time it was
+    // split/matched — independent of whether they resolved to an employee. Kept so
+    // manual review can explain a mismatch and so send-time revalidation can catch
+    // drift (e.g. the employee's CPF was corrected, or moved condominiums) even
+    // though the FK association itself still looks internally consistent.
+    public string? ExtractedCpfDigits { get; private set; }
+    public string? ExtractedCnpjDigits { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime UpdatedAt { get; private set; }
     public DateTime? ConfirmedAt { get; private set; }
@@ -80,6 +87,11 @@ public sealed class EmployeeDocument
         IdentificationStatus = EmployeeDocumentIdentificationStatus.NeedsReview;
         IdentificationConfidence = EmployeeDocumentIdentificationConfidence.None;
         IdentificationMethod = EmployeeDocumentIdentificationMethod.None;
+        // The old extracted CPF/CNPJ described the REPLACED file's content; keeping
+        // them would let a stale hard gate block (or wrongly allow) a manual
+        // association against the new file's actual content.
+        ExtractedCpfDigits = null;
+        ExtractedCnpjDigits = null;
         ConfirmedAt = null;
         UpdatedAt = now;
         return previous;
@@ -87,11 +99,14 @@ public sealed class EmployeeDocument
 
     public void ApplyAutomaticIdentification(Guid? employeeId,
         EmployeeDocumentIdentificationConfidence confidence,
-        EmployeeDocumentIdentificationMethod method, DateTime now)
+        EmployeeDocumentIdentificationMethod method, DateTime now,
+        string? extractedCpfDigits = null, string? extractedCnpjDigits = null)
     {
         EmployeeId = employeeId;
         IdentificationConfidence = confidence;
         IdentificationMethod = method;
+        ExtractedCpfDigits = extractedCpfDigits;
+        ExtractedCnpjDigits = extractedCnpjDigits;
         IdentificationStatus = employeeId is null
             ? EmployeeDocumentIdentificationStatus.Unidentified
             : confidence == EmployeeDocumentIdentificationConfidence.High

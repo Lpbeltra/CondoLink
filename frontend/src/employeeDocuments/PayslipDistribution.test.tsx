@@ -24,7 +24,7 @@ describe('PayslipDistribution administrator batch review', () => {
     ] })
     api.listEmployees.mockResolvedValue([])
 
-    render(<PayslipDistribution selectedEmployeeIds={['employee-a', 'employee-b']} />)
+    render(<PayslipDistribution />)
     await screen.findByText('Abrir')
     expect(screen.getByText(/Holerites/)).toBeInTheDocument()
     screen.getByText('Abrir').click()

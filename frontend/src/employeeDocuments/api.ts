@@ -8,7 +8,7 @@ export interface EmployeeDocumentDelivery { employeeDocumentId:string;employeeId
 const root='/administrator/employees/documents/batches'
 export const listBatches=async()=> (await api.get<EmployeeDocumentBatch[]>(root)).data
 export const getBatch=async(batchId:string)=> (await api.get<EmployeeDocumentBatchDetail>(`${root}/${batchId}`)).data
-export async function uploadBatch(files:File[],competenceMonth:number,competenceYear:number,employeeIds:string[]){const f=new FormData();f.append('competenceMonth',String(competenceMonth));f.append('competenceYear',String(competenceYear));files.forEach(x=>f.append('files',x));employeeIds.forEach(x=>f.append('employeeIds',x));return (await api.post<{id:string;status:string}>(root,f)).data}
+export async function uploadBatch(files:File[],competenceMonth:number,competenceYear:number){const f=new FormData();f.append('competenceMonth',String(competenceMonth));f.append('competenceYear',String(competenceYear));files.forEach(x=>f.append('files',x));return (await api.post<{id:string;status:string}>(root,f)).data}
 export type DocumentAction='Assign'|'Clear'|'Ignore'|'Confirm'
 export const updateDocumentAssociation=async(batchId:string,documentId:string,action:DocumentAction,employeeId?:string)=>(await api.patch<EmployeeDocument>(`${root}/${batchId}/documents/${documentId}`,{action,employeeId:employeeId??null})).data
 export async function replaceDocumentFile(batchId:string,documentId:string,file:File){const f=new FormData();f.append('file',file);await api.put(`${root}/${batchId}/documents/${documentId}/file`,f)}

@@ -70,7 +70,8 @@ public sealed class EmployeePayslipDispatchInvariantTests : IAsyncLifetime
     }
 
     private async Task<(EmployeeDocumentBatch Batch, EmployeeDocument Document, WhatsAppOutboundMessage Outbound)>
-        SeedConfirmedDocumentAsync(Guid condominiumId, Employee employee, string pdfMarker)
+        SeedConfirmedDocumentAsync(Guid condominiumId, Employee employee, string pdfMarker,
+            string? extractedCpfDigits = null, string? extractedCnpjDigits = null)
     {
         var companyId = await _db.Condominiums.Where(x => x.Id == condominiumId).Select(x => x.ManagementCompanyId).SingleAsync();
         var actor = await (from access in _db.ManagementCompanyEmployees
@@ -86,7 +87,8 @@ public sealed class EmployeePayslipDispatchInvariantTests : IAsyncLifetime
             "pending", "folha.pdf", 1, 1, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(pdfBytes)), DateTime.UtcNow);
         var fileKey = await _storage.SaveEmployeeDocumentAsync(condominiumId, batch.Id, document.Id, pdfBytes, default);
         document.SetFileKey(fileKey);
-        document.ApplyAutomaticIdentification(employee.Id, EmployeeDocumentIdentificationConfidence.High, EmployeeDocumentIdentificationMethod.RegistrationNumber, DateTime.UtcNow);
+        document.ApplyAutomaticIdentification(employee.Id, EmployeeDocumentIdentificationConfidence.High, EmployeeDocumentIdentificationMethod.RegistrationNumber, DateTime.UtcNow,
+            extractedCpfDigits, extractedCnpjDigits);
         document.Confirm(DateTime.UtcNow);
         batch.Confirm(actor.Id, DateTime.UtcNow);
         _db.AddRange(batch, document);
@@ -172,6 +174,53 @@ public sealed class EmployeePayslipDispatchInvariantTests : IAsyncLifetime
         Assert.DoesNotContain("MARKER_EMPLOYEE_B_ONLY", textForA);
         Assert.Contains("MARKER_EMPLOYEE_B_ONLY", textForB);
         Assert.DoesNotContain("MARKER_EMPLOYEE_A_ONLY", textForB);
+    }
+
+    [Fact]
+    public async Task Employees_cpf_corrected_after_confirmation_aborts_without_calling_meta()
+    {
+        var (condominium, employee) = await SeedCondominiumWithEmployeeAsync("Condo D", "Funcionário D", "11987654324");
+        employee.Update(employee.FullName, "52998224725", employee.JobTitle, employee.PhoneNumber, employee.Email, employee.RegistrationNumber, employee.AdmissionDate);
+        await _db.SaveChangesAsync();
+
+        // Matched/confirmed while the CPF was "52998224725"...
+        var (_, _, outbound) = await SeedConfirmedDocumentAsync(condominium.Id, employee, "SHOULD_NOT_BE_SENT", extractedCpfDigits: "52998224725");
+
+        // ...but the employee's registered CPF was corrected afterwards.
+        employee.Update(employee.FullName, "11144477735", employee.JobTitle, employee.PhoneNumber, employee.Email, employee.RegistrationNumber, employee.AdmissionDate);
+        await _db.SaveChangesAsync();
+
+        var (parameters, header, failure) = await WhatsAppOutboundWorker.PrepareEmployeePayslipSendAsync(
+            outbound, _db, _client, _storage, _modules, default);
+
+        Assert.NotNull(failure);
+        Assert.Equal("employee_document_cpf_mismatch", failure!.ErrorCode);
+        Assert.Empty(parameters);
+        Assert.Null(header);
+        Assert.Empty(_client.UploadCalls);
+    }
+
+    [Fact]
+    public async Task Condominiums_cnpj_corrected_after_confirmation_aborts_without_calling_meta()
+    {
+        var (condominium, employee) = await SeedCondominiumWithEmployeeAsync("Condo E", "Funcionário E", "11987654325");
+        condominium.Update(condominium.Name, condominium.Email, "11222333000181", null, null, null, false, false, null);
+        await _db.SaveChangesAsync();
+
+        var (_, _, outbound) = await SeedConfirmedDocumentAsync(condominium.Id, employee, "SHOULD_NOT_BE_SENT", extractedCnpjDigits: "11222333000181");
+
+        // The condominium's own CNPJ was corrected afterwards.
+        condominium.Update(condominium.Name, condominium.Email, "99888777000162", null, null, null, false, false, null);
+        await _db.SaveChangesAsync();
+
+        var (parameters, header, failure) = await WhatsAppOutboundWorker.PrepareEmployeePayslipSendAsync(
+            outbound, _db, _client, _storage, _modules, default);
+
+        Assert.NotNull(failure);
+        Assert.Equal("employee_document_cnpj_mismatch", failure!.ErrorCode);
+        Assert.Empty(parameters);
+        Assert.Null(header);
+        Assert.Empty(_client.UploadCalls);
     }
 
     private sealed class RecordingWhatsAppClient : IWhatsAppClient
