@@ -424,6 +424,69 @@ public sealed class EmployeeDocumentsEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Authorized_batch_delete_soft_deletes_batch_and_all_documents_preserving_history()
+    {
+        var (batchId, documentId, fileKey) = await SeedConfirmedDocumentAsync(_employeeId, WhatsAppOutboundStatus.Read, batchCompleted: true);
+        await _host.WithDbAsync(async db =>
+        {
+            db.Add(new EmployeeDocumentBatchEmployee(batchId, _employeeId));
+            await db.SaveChangesAsync();
+        });
+        using var client = _host.ClientFor(_operatorId);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/administrator/employees/documents/batches/{batchId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync($"/administrator/employees/documents/batches/{batchId}")).StatusCode);
+
+        var state = await _host.WithDbAsync(async db => new
+        {
+            Batch = await db.EmployeeDocumentBatches.AsNoTracking().SingleAsync(x => x.Id == batchId),
+            Document = await db.EmployeeDocuments.AsNoTracking().SingleAsync(x => x.Id == documentId),
+            DeliveryCount = await db.EmployeeDocumentDeliveries.CountAsync(x => x.BatchId == batchId),
+            OutboundCount = await db.WhatsAppOutboundMessages.CountAsync(x => x.EmployeeDocumentId == documentId),
+            LinkCount = await db.EmployeeDocumentBatchEmployees.CountAsync(x => x.BatchId == batchId)
+        });
+        Assert.NotNull(state.Batch.DeletedAt);
+        Assert.NotNull(state.Document.DeletedAt);
+        Assert.Equal(_operatorId, state.Batch.DeletedByUserId);
+        Assert.Equal(1, state.DeliveryCount);
+        Assert.Equal(1, state.OutboundCount);
+        Assert.Equal(1, state.LinkCount);
+        Assert.Null(await _host.WithServicesAsync(sp => Task.FromResult(sp.GetRequiredService<LocalFileStorage>().OpenRead(fileKey))));
+
+        var list = await client.GetFromJsonAsync<JsonElement[]>("/administrator/employees/documents/batches");
+        Assert.DoesNotContain(list!, x => x.GetProperty("id").GetGuid() == batchId);
+        Assert.NotEqual(HttpStatusCode.OK, (await client.GetAsync($"/administrator/employees/documents/batches/{batchId}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Ready_for_review_batch_delete_is_allowed()
+    {
+        var batchId = await _host.WithDbAsync(async db =>
+        {
+            var batch = new EmployeeDocumentBatch(null, _companyId, EmployeeDocumentType.Payslip, 8, 2026, _operatorId, DateTime.UtcNow);
+            batch.StartProcessing(); batch.MarkReadyForReview();
+            db.Add(batch);
+            await db.SaveChangesAsync();
+            return batch.Id;
+        });
+        using var client = _host.ClientFor(_operatorId);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/administrator/employees/documents/batches/{batchId}")).StatusCode);
+    }
+
+    [Theory]
+    [InlineData(WhatsAppOutboundStatus.Pending)]
+    [InlineData(WhatsAppOutboundStatus.Processing)]
+    public async Task Batch_delete_is_blocked_while_any_delivery_is_active(WhatsAppOutboundStatus activeStatus)
+    {
+        var (batchId, _, _) = await SeedConfirmedDocumentAsync(_employeeId, activeStatus);
+        using var client = _host.ClientFor(_operatorId);
+        var response = await client.DeleteAsync($"/administrator/employees/documents/batches/{batchId}");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("envios em andamento", await response.Content.ReadAsStringAsync());
+        Assert.Null(await _host.WithDbAsync(db => db.EmployeeDocumentBatches.AsNoTracking().SingleAsync(x => x.Id == batchId).ContinueWith(t => t.Result.DeletedAt)));
+    }
+
+    [Fact]
     public async Task Legacy_condominium_route_does_not_grant_employee_management_access()
     {
         using var client = _host.ClientFor(_operatorId);

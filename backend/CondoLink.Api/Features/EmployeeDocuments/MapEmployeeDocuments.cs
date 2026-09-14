@@ -11,6 +11,7 @@ public static class MapEmployeeDocuments
         endpoints.MapReplaceEmployeeDocumentFile();
         endpoints.MapConfirmEmployeeDocumentBatch();
         endpoints.MapDeleteEmployeeDocument();
+        endpoints.MapDeleteEmployeeDocumentBatch();
         endpoints.MapReopenEmployeeDocumentBatch();
         endpoints.MapPreviewEmployeeDocument();
         endpoints.MapEmployeeDocumentDistributionEndpoints();

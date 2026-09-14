@@ -49,11 +49,20 @@ public sealed class EmployeeDocumentBatch
     public DateTime CreatedAt { get; private set; }
     public DateTime? ConfirmedAt { get; private set; }
     public Guid? ConfirmedByUserId { get; private set; }
+    public DateTime? DeletedAt { get; private set; }
+    public Guid? DeletedByUserId { get; private set; }
     public string? FailureReason { get; private set; }
     public string? ProcessingStage { get; private set; }
     public int ProcessedItems { get; private set; }
     public int? TotalItems { get; private set; }
     public int? ProgressPercentage => TotalItems is > 0 ? Math.Clamp(ProcessedItems * 100 / TotalItems.Value, 0, 100) : null;
+
+    public void SoftDelete(Guid actorUserId, DateTime now)
+    {
+        if (DeletedAt is not null) throw new InvalidOperationException("Lote já foi excluído.");
+        DeletedAt = now;
+        DeletedByUserId = actorUserId;
+    }
 
     // Raw uploaded PDFs awaiting split/identification, serialized as JSON. Only
     // read by the background processing worker; cleared once processing starts.

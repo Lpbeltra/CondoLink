@@ -18,7 +18,7 @@ public static class ListEmployeeDocumentBatches
         EmployeeManagement.EmployeeManagementAccessService access, CancellationToken ct)
     {
         var scope = await access.RequireAdministratorAsync(principal, ct);
-        var batches = await db.EmployeeDocumentBatches.AsNoTracking().Where(x => x.ManagementCompanyId == scope.ManagementCompanyId)
+        var batches = await db.EmployeeDocumentBatches.AsNoTracking().Where(x => x.ManagementCompanyId == scope.ManagementCompanyId && x.DeletedAt == null)
             .OrderByDescending(x => x.CreatedAt).ToArrayAsync(ct);
         var ids = batches.Select(x => x.CreatedByUserId).Concat(batches.Where(x => x.ConfirmedByUserId.HasValue).Select(x => x.ConfirmedByUserId!.Value)).Distinct().ToArray();
         var names = await db.Set<ApplicationUser>().AsNoTracking().Where(x => ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.FullName, ct);

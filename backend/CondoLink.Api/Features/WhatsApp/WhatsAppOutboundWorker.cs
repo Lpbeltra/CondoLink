@@ -279,7 +279,7 @@ public sealed class WhatsAppOutboundWorker(
         if (document.IdentificationStatus != EmployeeDocumentIdentificationStatus.Confirmed || document.EmployeeId is not Guid employeeId)
             return ([], null, Failure("employee_document_not_confirmed", "Employee document is not in a confirmed state."));
 
-        var batch = await db.EmployeeDocumentBatches.AsNoTracking().SingleOrDefaultAsync(x => x.Id == document.BatchId, ct);
+        var batch = await db.EmployeeDocumentBatches.AsNoTracking().SingleOrDefaultAsync(x => x.Id == document.BatchId && x.DeletedAt == null, ct);
         var employee = await db.Employees.AsNoTracking().SingleOrDefaultAsync(x => x.Id == employeeId, ct);
         if (batch is null || employee is null)
             return ([], null, Failure("employee_document_context_missing", "Employee, batch or condominium no longer exists."));

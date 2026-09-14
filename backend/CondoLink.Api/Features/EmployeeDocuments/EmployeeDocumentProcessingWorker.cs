@@ -47,13 +47,13 @@ public sealed class EmployeeDocumentProcessingWorker(
         // resetting back to Uploaded and letting it run again is always safe.
         var now = DateTime.UtcNow;
         var interrupted = await db.EmployeeDocumentBatches
-            .Where(x => x.Status == EmployeeDocumentBatchStatus.Processing && x.CreatedAt < now.AddMinutes(-10))
+            .Where(x => x.DeletedAt == null && x.Status == EmployeeDocumentBatchStatus.Processing && x.CreatedAt < now.AddMinutes(-10))
             .ToArrayAsync(ct);
         foreach (var batch in interrupted) batch.RecoverInterruptedProcessing();
         if (interrupted.Length > 0) await db.SaveChangesAsync(ct);
 
         var batches = await db.EmployeeDocumentBatches
-            .Where(x => x.Status == EmployeeDocumentBatchStatus.Uploaded)
+            .Where(x => x.DeletedAt == null && x.Status == EmployeeDocumentBatchStatus.Uploaded)
             .OrderBy(x => x.CreatedAt)
             .Take(Math.Clamp(options.Value.BatchSize, 1, 10))
             .ToArrayAsync(ct);

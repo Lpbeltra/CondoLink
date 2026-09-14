@@ -20,3 +20,4 @@ export const listDeliveries=async(batchId:string)=>(await api.get<EmployeeDocume
 export const resendDocument=async(batchId:string,documentId:string)=>{await api.post(`${root}/${batchId}/documents/${documentId}/resend`)}
 export async function previewDocumentUrl(batchId:string,documentId:string){const r=await api.get(`${root}/${batchId}/documents/${documentId}/preview`,{responseType:'blob'});return URL.createObjectURL(r.data as Blob)}
 export const deleteDocument=async(batchId:string,documentId:string)=>{await api.delete(`${root}/${batchId}/documents/${documentId}`)}
+export const deleteBatch=async(batchId:string)=>{await api.delete(`${root}/${batchId}`)}

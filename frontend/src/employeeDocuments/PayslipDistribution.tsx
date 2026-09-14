@@ -7,7 +7,7 @@ import {
 import { listEmployees, type Employee } from '../employees/api'
 import { getErrorMessage } from '../services/api'
 import {
-  confirmBatch, deleteDocument, distributeBatch, getBatch, getDistributionSummary, listBatches, listDeliveries,
+  confirmBatch, deleteBatch, deleteDocument, distributeBatch, getBatch, getDistributionSummary, listBatches, listDeliveries,
   previewDocumentUrl, replaceDocumentFile, reopenBatch, resendDocument, updateDocumentAssociation, uploadBatch,
   type DistributionSummary, type EmployeeDocument, type EmployeeDocumentBatch, type EmployeeDocumentDelivery,
 } from './api'
@@ -33,6 +33,8 @@ export function PayslipDistribution() {
   const [loadingHistory, setLoadingHistory] = useState(true)
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [deleteBatchTarget, setDeleteBatchTarget] = useState<EmployeeDocumentBatch | null>(null)
+  const [deletingBatch, setDeletingBatch] = useState(false)
 
   const loadHistory = () => {
     setLoadingHistory(true)
@@ -60,7 +62,7 @@ export function PayslipDistribution() {
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
 
       {view === 'history' && (
-        <BatchHistory loading={loadingHistory} batches={batches} onOpen={openBatch} />
+        <BatchHistory loading={loadingHistory} batches={batches} onOpen={openBatch} onDelete={setDeleteBatchTarget} />
       )}
       {view === 'upload' && (
         <UploadBatch
@@ -76,15 +78,36 @@ export function PayslipDistribution() {
         <DistributionView batchId={activeBatchId}
           onBack={() => { setView('history'); void loadHistory() }} />
       )}
+      <Dialog open={Boolean(deleteBatchTarget)} onClose={() => { if (!deletingBatch) setDeleteBatchTarget(null) }}>
+        <DialogTitle>Excluir este lote de holerites?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            O lote e seus documentos serão removidos da gestão de holerites. Esta ação não poderá ser desfeita. O histórico de envios já realizados será preservado.
+            {deleteBatchTarget && deleteBatchTarget.documentCount > 0 && ` ${deleteBatchTarget.documentCount} documentos serão removidos.`}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteBatchTarget(null)} disabled={deletingBatch}>Cancelar</Button>
+          <Button color="error" variant="contained" disabled={deletingBatch} onClick={() => {
+            if (!deleteBatchTarget) return
+            setDeletingBatch(true); setError('')
+            void deleteBatch(deleteBatchTarget.id).then(() => {
+              setBatches(current => current.filter(x => x.id !== deleteBatchTarget.id))
+              setDeleteBatchTarget(null)
+            }).catch(e => setError(getErrorMessage(e))).finally(() => setDeletingBatch(false))
+          }}>Excluir lote</Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   )
 }
 
-function BatchHistory({ loading, batches, onOpen }: {
-  loading: boolean; batches: EmployeeDocumentBatch[]; onOpen: (batch: EmployeeDocumentBatch) => void
+function BatchHistory({ loading, batches, onOpen, onDelete }: {
+  loading: boolean; batches: EmployeeDocumentBatch[]; onOpen: (batch: EmployeeDocumentBatch) => void; onDelete: (batch: EmployeeDocumentBatch) => void
 }) {
+  const [batchMenu, setBatchMenu] = useState<{ batch: EmployeeDocumentBatch; anchorEl: HTMLElement } | null>(null)
   if (loading) return <Alert severity="info">Carregando…</Alert>
-  if (batches.length === 0) return <Alert severity="info">Nenhum lote de holerites ainda.</Alert>
+  if (batches.length === 0) return <Alert severity="info">Nenhum lote de holerites. Distribua um novo lote para começar.</Alert>
   return (
     <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
       <Table>
@@ -98,11 +121,19 @@ function BatchHistory({ loading, batches, onOpen }: {
               <TableCell>{batch.documentCount}</TableCell>
               <TableCell><Chip size="small" label={batchStatusLabel[batch.status] ?? batch.status} /></TableCell>
               <TableCell>{batch.createdByName}</TableCell>
-              <TableCell align="right"><Button size="small" onClick={() => onOpen(batch)}>Abrir</Button></TableCell>
+              <TableCell align="right">
+                <Button size="small" onClick={() => onOpen(batch)}>Abrir</Button>
+                <IconButton size="small" aria-label="Mais ações" onClick={event => setBatchMenu({ batch, anchorEl: event.currentTarget })}>
+                  <MoreVertRoundedIcon fontSize="small" />
+                </IconButton>
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
+      <Menu open={Boolean(batchMenu)} anchorEl={batchMenu?.anchorEl} onClose={() => setBatchMenu(null)}>
+        <MenuItem onClick={() => { const batch = batchMenu!.batch; setBatchMenu(null); onDelete(batch) }}>Excluir lote</MenuItem>
+      </Menu>
     </Paper>
   )
 }

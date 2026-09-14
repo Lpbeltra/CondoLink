@@ -22,6 +22,8 @@ public sealed class EmployeeDocumentBatchConfiguration : IEntityTypeConfiguratio
         b.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
         b.Property(x => x.ConfirmedAt).HasColumnName("confirmed_at");
         b.Property(x => x.ConfirmedByUserId).HasColumnName("confirmed_by_user_id");
+        b.Property(x => x.DeletedAt).HasColumnName("deleted_at");
+        b.Property(x => x.DeletedByUserId).HasColumnName("deleted_by_user_id");
         b.Property(x => x.FailureReason).HasColumnName("failure_reason").HasMaxLength(500);
         b.Property(x => x.PendingUploadsJson).HasColumnName("pending_uploads_json");
         b.Property(x => x.ProcessingStage).HasColumnName("processing_stage").HasMaxLength(40);
@@ -32,6 +34,7 @@ public sealed class EmployeeDocumentBatchConfiguration : IEntityTypeConfiguratio
         b.HasOne<ManagementCompany>().WithMany().HasForeignKey(x => x.ManagementCompanyId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.ConfirmedByUserId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.DeletedByUserId).OnDelete(DeleteBehavior.Restrict);
 
         b.HasIndex(x => new { x.CondominiumId, x.CreatedAt }).HasDatabaseName("ix_employee_document_batches_condominium_id_created_at");
         b.HasIndex(x => new { x.CondominiumId, x.DocumentType, x.CompetenceYear, x.CompetenceMonth })

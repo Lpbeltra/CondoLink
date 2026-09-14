@@ -10,13 +10,14 @@ const api = vi.hoisted(() => ({
   getDistributionSummary: vi.fn(),
   listDeliveries: vi.fn(),
   deleteDocument: vi.fn(),
+  deleteBatch: vi.fn(),
 }))
 
 vi.mock('./api', async () => {
   const actual = await vi.importActual<typeof import('./api')>('./api')
   return {
     ...actual, listBatches: api.listBatches, getBatch: api.getBatch,
-    getDistributionSummary: api.getDistributionSummary, listDeliveries: api.listDeliveries, deleteDocument: api.deleteDocument,
+    getDistributionSummary: api.getDistributionSummary, listDeliveries: api.listDeliveries, deleteDocument: api.deleteDocument, deleteBatch: api.deleteBatch,
   }
 })
 vi.mock('../employees/api', () => ({ listEmployees: api.listEmployees }))
@@ -99,5 +100,21 @@ describe('PayslipDistribution delete a sent payslip', () => {
     await screen.findByText('Envio em andamento.')
     expect(screen.queryByText('Excluído')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Mais ações — Ana/ })).toBeInTheDocument()
+  })
+})
+
+describe('PayslipDistribution delete batch', () => {
+  it('opens menu, confirms batch deletion and shows empty state', async () => {
+    const batch = { id: 'batch-delete', status: 'ReadyForReview', competenceMonth: 9, competenceYear: 2026, documentCount: 4, createdByName: 'Operator', failureReason: null, processingStage: null, processedItems: 4, totalItems: 4, progressPercentage: 100, identifiedCount: 4, needsReviewCount: 0, unidentifiedCount: 0, ignoredCount: 0, confirmedCount: 0 }
+    api.listBatches.mockResolvedValue([batch])
+    api.deleteBatch.mockResolvedValue(undefined)
+    render(<PayslipDistribution />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Mais ações' }))
+    await userEvent.click(await screen.findByText('Excluir lote'))
+    const dialog = await screen.findByText('Excluir este lote de holerites?')
+    expect(within(dialog.closest('.MuiDialog-root') as HTMLElement).getByText(/4 documentos serão removidos/)).toBeInTheDocument()
+    await userEvent.click(within(dialog.closest('.MuiDialog-root') as HTMLElement).getByText('Excluir lote'))
+    expect(api.deleteBatch).toHaveBeenCalledWith('batch-delete')
+    await screen.findByText(/Nenhum lote de holerites\./)
   })
 })

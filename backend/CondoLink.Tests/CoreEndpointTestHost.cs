@@ -42,23 +42,32 @@ internal sealed class CoreEndpointTestHost : IAsyncDisposable
 
     public static async Task<CoreEndpointTestHost> StartAsync(
         Action<WebApplication> mapEndpoints,
-        Action<WebApplicationBuilder>? configureServices = null)
+        Action<WebApplicationBuilder>? configureServices = null,
+        string? postgresConnection = null,
+        Microsoft.EntityFrameworkCore.Diagnostics.DbCommandInterceptor? commandInterceptor = null)
     {
         var host = new CoreEndpointTestHost();
-        await host.InitializeAsync(mapEndpoints, configureServices);
+        await host.InitializeAsync(mapEndpoints, configureServices, postgresConnection, commandInterceptor);
         return host;
     }
 
     private async Task InitializeAsync(
         Action<WebApplication> mapEndpoints,
-        Action<WebApplicationBuilder>? configureServices)
+        Action<WebApplicationBuilder>? configureServices,
+        string? postgresConnection,
+        Microsoft.EntityFrameworkCore.Diagnostics.DbCommandInterceptor? commandInterceptor)
     {
         await _connection.OpenAsync();
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         builder.WebHost.UseTestServer();
         builder.Services.AddDbContext<AppDbContext>(
-            options => options.UseSqlite(_connection));
+            options =>
+            {
+                if (postgresConnection is null) options.UseSqlite(_connection);
+                else options.UseNpgsql(postgresConnection);
+                if (commandInterceptor is not null) options.AddInterceptors(commandInterceptor);
+            });
         builder.Services
             .AddIdentityCore<ApplicationUser>(options =>
             {
@@ -106,8 +115,9 @@ internal sealed class CoreEndpointTestHost : IAsyncDisposable
         await _application.StartAsync();
 
         await using var scope = _application.Services.CreateAsyncScope();
-        await scope.ServiceProvider.GetRequiredService<AppDbContext>()
-            .Database.EnsureCreatedAsync();
+        if (postgresConnection is null)
+            await scope.ServiceProvider.GetRequiredService<AppDbContext>()
+                .Database.EnsureCreatedAsync();
     }
 
     /// <summary>A client that authenticates as the given seeded user id.</summary>

@@ -181,4 +181,12 @@ public sealed class EmployeeDocument
         DeletedByUserId = actorUserId;
         UpdatedAt = now;
     }
+
+    public void SoftDeleteFromBatch(Guid actorUserId, DateTime now)
+    {
+        if (DeletedAt is not null) return;
+        DeletedAt = now;
+        DeletedByUserId = actorUserId;
+        UpdatedAt = now;
+    }
 }

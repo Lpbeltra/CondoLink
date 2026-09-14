@@ -28,7 +28,12 @@ public static class DeleteEmployeeDocument
         EmployeeManagement.EmployeeManagementAccessService access, LocalFileStorage storage,
         ILogger<EmployeeDocumentProcessingService> logger, CancellationToken ct)
     {
-        var (actor, batch) = await access.RequireBatchAsync(principal, batchId, ct);
+        var (actor, _) = await access.RequireBatchAsync(principal, batchId, ct);
+        await using var transaction = await EmployeeDocumentBatchLock.AcquireAsync(db, batchId, ct);
+        // The authorization read precedes the lock; re-read after acquiring it
+        // so a concurrent batch delete cannot leave this document actionable.
+        var batch = await db.EmployeeDocumentBatches.SingleOrDefaultAsync(x => x.Id == batchId && x.DeletedAt == null, ct);
+        if (batch is null) return Results.NotFound(new { message = "Lote não encontrado." });
 
         var document = await db.EmployeeDocuments.SingleOrDefaultAsync(x => x.Id == documentId && x.BatchId == batchId, ct);
         if (document is null || document.DeletedAt is not null)
@@ -53,6 +58,7 @@ public static class DeleteEmployeeDocument
         // Database first: the file is only removed once the soft-delete itself is
         // durably committed, never before.
         await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
 
         if (document.FileKey != "pending")
         {

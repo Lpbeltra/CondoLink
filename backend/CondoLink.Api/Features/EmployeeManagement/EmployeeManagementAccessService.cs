@@ -27,7 +27,7 @@ public sealed class EmployeeManagementAccessService(AppDbContext db)
     {
         var scope = await RequireAdministratorAsync(principal, ct);
         var batch = await db.EmployeeDocumentBatches.SingleOrDefaultAsync(x => x.Id == batchId
-            && x.ManagementCompanyId == scope.ManagementCompanyId, ct);
+            && x.ManagementCompanyId == scope.ManagementCompanyId && x.DeletedAt == null, ct);
         if (batch is null)
             throw new ForbiddenAppException("Lote fora da administradora atual.");
         return (new(scope.UserId, scope.FullName, EmployeeManagementActorKind.ManagementCompany), batch);
