@@ -35,6 +35,7 @@ import {
 } from '../managementCompanies/api'
 import { managementCompanyError } from '../managementCompanies/errors'
 import { ManagementCompanyEmployees } from '../managementCompanies/ManagementCompanyEmployees'
+import { ManagementCompanyModules } from '../managementCompanies/ManagementCompanyModules'
 import { ManagementCompanyCategories } from '../managementCompanies/ManagementCompanyCategories'
 import { ManagementCompanyFormDialog } from '../managementCompanies/ManagementCompanyFormDialog'
 import { managementCompanyDetailTabs } from '../managementCompanies/presentation'
@@ -231,6 +232,7 @@ export function OverwatchManagementCompanyDetailsPage() {
               ))}
             </Box>
           )}
+          <ManagementCompanyModules managementCompanyId={company.id} />
           {tab === 'employees' && (
             <ManagementCompanyEmployees managementCompanyId={company.id} />
           )}

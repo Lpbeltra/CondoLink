@@ -1141,6 +1141,11 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("condominium_id");
 
+                    b.Property<string>("Cpf")
+                        .HasMaxLength(14)
+                        .HasColumnType("character varying(14)")
+                        .HasColumnName("cpf");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -1164,6 +1169,11 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)")
                         .HasColumnName("job_title");
+
+                    b.Property<string>("NormalizedCpf")
+                        .HasMaxLength(11)
+                        .HasColumnType("character varying(11)")
+                        .HasColumnName("normalized_cpf");
 
                     b.Property<string>("NormalizedPhoneNumber")
                         .HasMaxLength(32)
@@ -1221,7 +1231,7 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("competence_year");
 
-                    b.Property<Guid>("CondominiumId")
+                    b.Property<Guid?>("CondominiumId")
                         .HasColumnType("uuid")
                         .HasColumnName("condominium_id");
 
@@ -1314,7 +1324,7 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("competence_year");
 
-                    b.Property<Guid>("CondominiumId")
+                    b.Property<Guid?>("CondominiumId")
                         .HasColumnType("uuid")
                         .HasColumnName("condominium_id");
 
@@ -1343,13 +1353,30 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("failure_reason");
 
+                    b.Property<Guid?>("ManagementCompanyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("management_company_id");
+
                     b.Property<string>("PendingUploadsJson")
                         .HasColumnType("text")
                         .HasColumnName("pending_uploads_json");
 
+                    b.Property<int>("ProcessedItems")
+                        .HasColumnType("integer")
+                        .HasColumnName("processed_items");
+
+                    b.Property<string>("ProcessingStage")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("processing_stage");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer")
                         .HasColumnName("status");
+
+                    b.Property<int?>("TotalItems")
+                        .HasColumnType("integer")
+                        .HasColumnName("total_items");
 
                     b.HasKey("Id");
 
@@ -1360,10 +1387,44 @@ namespace CondoLink.Infrastructure.Migrations
                     b.HasIndex("CondominiumId", "CreatedAt")
                         .HasDatabaseName("ix_employee_document_batches_condominium_id_created_at");
 
+                    b.HasIndex("ManagementCompanyId", "CreatedAt")
+                        .HasDatabaseName("ix_employee_document_batches_management_company_id_created_at");
+
                     b.HasIndex("CondominiumId", "DocumentType", "CompetenceYear", "CompetenceMonth")
                         .HasDatabaseName("ix_employee_document_batches_condominium_id_type_competence");
 
                     b.ToTable("employee_document_batches", (string)null);
+                });
+
+            modelBuilder.Entity("CondoLink.Domain.Entities.EmployeeDocumentBatchEmployee", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("batch_id");
+
+                    b.Property<Guid?>("EmployeeDocumentBatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeDocumentBatchId");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.HasIndex("BatchId", "EmployeeId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_employee_document_batch_employees");
+
+                    b.ToTable("employee_document_batch_employees", (string)null);
                 });
 
             modelBuilder.Entity("CondoLink.Domain.Entities.EmployeeDocumentDelivery", b =>
@@ -1556,6 +1617,46 @@ namespace CondoLink.Infrastructure.Migrations
                     b.ToTable("management_company_employees", (string)null);
                 });
 
+            modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompanyEmployeeModuleGrant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("GrantedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("granted_at");
+
+                    b.Property<Guid>("GrantedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("granted_by_user_id");
+
+                    b.Property<bool>("IsAllowed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_allowed");
+
+                    b.Property<Guid>("ManagementCompanyEmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("management_company_employee_id");
+
+                    b.Property<int>("Module")
+                        .HasColumnType("integer")
+                        .HasColumnName("module");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ManagementCompanyEmployeeId", "Module")
+                        .IsUnique()
+                        .HasDatabaseName("ux_mc_employee_module_grants_employee_module");
+
+                    b.ToTable("management_company_employee_module_grants", (string)null);
+                });
+
             modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompanyEmployeeModulePermission", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1662,6 +1763,38 @@ namespace CondoLink.Infrastructure.Migrations
                     b.HasKey("RequestId");
 
                     b.ToTable("management_company_general_question_requests", (string)null);
+                });
+
+            modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompanyModule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_enabled");
+
+                    b.Property<Guid>("ManagementCompanyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("management_company_id");
+
+                    b.Property<int>("Module")
+                        .HasColumnType("integer")
+                        .HasColumnName("module");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ManagementCompanyId", "Module")
+                        .IsUnique()
+                        .HasDatabaseName("ux_management_company_modules_company_module");
+
+                    b.ToTable("management_company_modules", (string)null);
                 });
 
             modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompanyPaymentRequest", b =>
@@ -4465,8 +4598,7 @@ namespace CondoLink.Infrastructure.Migrations
                     b.HasOne("CondoLink.Domain.Entities.Condominium", null)
                         .WithMany()
                         .HasForeignKey("CondominiumId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("CondoLink.Domain.Entities.Employee", null)
                         .WithMany()
@@ -4479,8 +4611,7 @@ namespace CondoLink.Infrastructure.Migrations
                     b.HasOne("CondoLink.Domain.Entities.Condominium", null)
                         .WithMany()
                         .HasForeignKey("CondominiumId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("CondoLink.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
@@ -4490,6 +4621,31 @@ namespace CondoLink.Infrastructure.Migrations
                     b.HasOne("CondoLink.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CondoLink.Domain.Entities.ManagementCompany", null)
+                        .WithMany()
+                        .HasForeignKey("ManagementCompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("CondoLink.Domain.Entities.EmployeeDocumentBatchEmployee", b =>
+                {
+                    b.HasOne("CondoLink.Domain.Entities.EmployeeDocumentBatch", null)
+                        .WithMany()
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CondoLink.Domain.Entities.EmployeeDocumentBatch", null)
+                        .WithMany("Employees")
+                        .HasForeignKey("EmployeeDocumentBatchId")
+                        .HasConstraintName("FK_employee_document_batch_employees_employee_document_batche~1");
+
+                    b.HasOne("CondoLink.Domain.Entities.Employee", null)
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -4550,6 +4706,15 @@ namespace CondoLink.Infrastructure.Migrations
                     b.Navigation("ManagementCompany");
                 });
 
+            modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompanyEmployeeModuleGrant", b =>
+                {
+                    b.HasOne("CondoLink.Domain.Entities.ManagementCompanyEmployee", null)
+                        .WithMany()
+                        .HasForeignKey("ManagementCompanyEmployeeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompanyEmployeeModulePermission", b =>
                 {
                     b.HasOne("CondoLink.Domain.Entities.Condominium", null)
@@ -4585,6 +4750,15 @@ namespace CondoLink.Infrastructure.Migrations
                         .WithOne()
                         .HasForeignKey("CondoLink.Domain.Entities.ManagementCompanyGeneralQuestionRequest", "RequestId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompanyModule", b =>
+                {
+                    b.HasOne("CondoLink.Domain.Entities.ManagementCompany", null)
+                        .WithMany()
+                        .HasForeignKey("ManagementCompanyId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
@@ -5190,6 +5364,11 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("CondoLink.Domain.Entities.EmployeeDocumentBatch", b =>
+                {
+                    b.Navigation("Employees");
                 });
 
             modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompany", b =>

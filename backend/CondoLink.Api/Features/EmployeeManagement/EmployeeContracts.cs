@@ -11,7 +11,8 @@ public sealed record EmployeeResponse(
     DateOnly? AdmissionDate,
     bool IsActive,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    string? Cpf = null);
 
 public sealed record EmployeeRequest(
     string? FullName,
@@ -19,6 +20,10 @@ public sealed record EmployeeRequest(
     string? PhoneNumber,
     string? Email,
     string? RegistrationNumber,
-    DateOnly? AdmissionDate);
+    DateOnly? AdmissionDate)
+{
+    public string? Cpf { get; init; }
+    public Guid? CondominiumId { get; init; }
+}
 
 public sealed record EmployeeStatusRequest(bool IsActive);

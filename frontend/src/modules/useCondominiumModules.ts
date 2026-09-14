@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useManagementContext } from '../management/ManagementContext'
 import { api } from '../services/api'
 
-export type CondominiumModule = 'Assistant' | 'Documents' | 'Providers' | 'ManagementCompanyRequests' | 'EmployeeManagement'
+export type CondominiumModule = 'Assistant' | 'Documents' | 'Providers' | 'ManagementCompanyRequests'
 export interface CondominiumModuleState { module: CondominiumModule; enabled: boolean }
 
 export function useCondominiumModules() {

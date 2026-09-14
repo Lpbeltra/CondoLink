@@ -13,6 +13,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<Condominium> Condominiums => Set<Condominium>();
     public DbSet<ManagementCompany> ManagementCompanies =>
         Set<ManagementCompany>();
+    public DbSet<ManagementCompanyModule> ManagementCompanyModules => Set<ManagementCompanyModule>();
     public DbSet<ManagementCompanyEmployee> ManagementCompanyEmployees =>
         Set<ManagementCompanyEmployee>();
     public DbSet<ManagementCompanyRequestCategoryResponsible> ManagementCompanyRequestCategoryResponsibles =>
@@ -70,7 +71,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<Employee> Employees => Set<Employee>();
     public DbSet<ManagementCompanyEmployeeModulePermission> ManagementCompanyEmployeeModulePermissions =>
         Set<ManagementCompanyEmployeeModulePermission>();
+    public DbSet<ManagementCompanyEmployeeModuleGrant> ManagementCompanyEmployeeModuleGrants =>
+        Set<ManagementCompanyEmployeeModuleGrant>();
     public DbSet<EmployeeDocumentBatch> EmployeeDocumentBatches => Set<EmployeeDocumentBatch>();
+    public DbSet<EmployeeDocumentBatchEmployee> EmployeeDocumentBatchEmployees => Set<EmployeeDocumentBatchEmployee>();
     public DbSet<EmployeeDocument> EmployeeDocuments => Set<EmployeeDocument>();
     public DbSet<EmployeeDocumentDelivery> EmployeeDocumentDeliveries => Set<EmployeeDocumentDelivery>();
     public DbSet<CondominiumAssistantConversation> CondominiumAssistantConversations => Set<CondominiumAssistantConversation>();

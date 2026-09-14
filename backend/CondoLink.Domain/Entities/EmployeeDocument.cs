@@ -12,11 +12,10 @@ public sealed class EmployeeDocument
 {
     private EmployeeDocument() { }
 
-    public EmployeeDocument(Guid condominiumId, Guid batchId, EmployeeDocumentType documentType,
+    public EmployeeDocument(Guid? condominiumId, Guid batchId, EmployeeDocumentType documentType,
         int competenceMonth, int competenceYear, string fileKey, string originalFileName,
         int pageStart, int pageEnd, string contentHash, DateTime now)
     {
-        if (condominiumId == Guid.Empty) throw new ArgumentException("Condominium id is required.", nameof(condominiumId));
         if (batchId == Guid.Empty) throw new ArgumentException("Batch id is required.", nameof(batchId));
         if (string.IsNullOrWhiteSpace(fileKey)) throw new ArgumentException("File key is required.", nameof(fileKey));
         if (pageStart < 1 || pageEnd < pageStart) throw new ArgumentException("Page range is invalid.", nameof(pageEnd));
@@ -41,7 +40,7 @@ public sealed class EmployeeDocument
     }
 
     public Guid Id { get; private set; }
-    public Guid CondominiumId { get; private set; }
+    public Guid? CondominiumId { get; private set; }
     public Guid BatchId { get; private set; }
     public Guid? EmployeeId { get; private set; }
     public EmployeeDocumentType DocumentType { get; private set; }
@@ -110,6 +109,12 @@ public sealed class EmployeeDocument
         IdentificationConfidence = EmployeeDocumentIdentificationConfidence.High;
         IdentificationStatus = EmployeeDocumentIdentificationStatus.NeedsReview;
         UpdatedAt = now;
+    }
+
+    public void SetCondominium(Guid condominiumId)
+    {
+        if (condominiumId == Guid.Empty) throw new ArgumentException("Condominium id is required.", nameof(condominiumId));
+        CondominiumId = condominiumId;
     }
 
     public void ClearAssociation(DateTime now)

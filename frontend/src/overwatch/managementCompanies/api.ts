@@ -88,23 +88,31 @@ export async function setManagementCompanyAccessCategories(accessId: string, cat
   await api.put(`/overwatch/management-company-accesses/${accessId}/categories`, { categoryIds })
 }
 
-export interface ManagementCompanyEmployeeModulePermission {
-  condominiumId: string
-  condominiumName: string
+export interface ManagementCompanyEmployeeManagementGrant {
   eligible: boolean
   allowed: boolean
 }
 
-export async function listManagementCompanyEmployeeModulePermissions(employeeId: string) {
-  return (await api.get<ManagementCompanyEmployeeModulePermission[]>(
-    `/overwatch/management-companies/employees/${employeeId}/module-permissions`,
+export async function getManagementCompanyEmployeeManagementModule(id: string) {
+  return (await api.get<Array<{ module: string; isEnabled: boolean }>>(
+    `/overwatch/management-companies/${id}/modules`,
+  )).data.find(module => module.module === 'EmployeeManagement') ?? { module: 'EmployeeManagement', isEnabled: false }
+}
+
+export async function setManagementCompanyEmployeeManagementModule(id: string, enabled: boolean) {
+  await api.put(`/overwatch/management-companies/${id}/modules/employee-management`, { enabled })
+}
+
+export async function getManagementCompanyEmployeeManagementGrant(employeeId: string) {
+  return (await api.get<ManagementCompanyEmployeeManagementGrant>(
+    `/overwatch/management-companies/employees/${employeeId}/employee-management-grant`,
   )).data
 }
 
-export async function setManagementCompanyEmployeeModulePermissions(
-  employeeId: string, condominiumId: string, allowed: boolean,
+export async function setManagementCompanyEmployeeManagementGrant(
+  employeeId: string, allowed: boolean,
 ) {
-  await api.put(`/overwatch/management-companies/employees/${employeeId}/module-permissions/${condominiumId}`, { allowed })
+  await api.put(`/overwatch/management-companies/employees/${employeeId}/employee-management-grant`, { allowed })
 }
 
 export async function listManagementCompanyCategories(managementCompanyId: string) {

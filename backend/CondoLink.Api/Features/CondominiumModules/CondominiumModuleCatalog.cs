@@ -11,9 +11,8 @@ public static class CondominiumModuleCatalog
         new(CondominiumModuleType.Assistant, false),
         new(CondominiumModuleType.Documents, false),
         new(CondominiumModuleType.Providers, false),
-        new(CondominiumModuleType.ManagementCompanyRequests, false),
-        new(CondominiumModuleType.EmployeeManagement, true)
+        new(CondominiumModuleType.ManagementCompanyRequests, false)
     ];
     public static bool SupportsManagementCompanyAccess(CondominiumModuleType module) =>
-        All.Single(x => x.Module == module).SupportsManagementCompanyAccess;
+        All.SingleOrDefault(x => x.Module == module)?.SupportsManagementCompanyAccess ?? false;
 }

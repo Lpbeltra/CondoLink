@@ -11,16 +11,23 @@ public sealed class EmployeeDocumentBatch
 {
     private EmployeeDocumentBatch() { }
 
+    // Compatibility constructor for historical batch fixtures and rows. New
+    // operational code must use the management-company constructor below.
     public EmployeeDocumentBatch(Guid condominiumId, EmployeeDocumentType documentType,
         int competenceMonth, int competenceYear, Guid createdByUserId, DateTime now)
+        : this(condominiumId, Guid.NewGuid(), documentType, competenceMonth, competenceYear, createdByUserId, now) { }
+
+    public EmployeeDocumentBatch(Guid? condominiumId, Guid managementCompanyId, EmployeeDocumentType documentType,
+        int competenceMonth, int competenceYear, Guid createdByUserId, DateTime now)
     {
-        if (condominiumId == Guid.Empty) throw new ArgumentException("Condominium id is required.", nameof(condominiumId));
+        if (managementCompanyId == Guid.Empty) throw new ArgumentException("Management company id is required.", nameof(managementCompanyId));
         if (competenceMonth is < 1 or > 12) throw new ArgumentException("Competence month must be between 1 and 12.", nameof(competenceMonth));
         if (competenceYear is < 2000 or > 2100) throw new ArgumentException("Competence year is out of range.", nameof(competenceYear));
         if (createdByUserId == Guid.Empty) throw new ArgumentException("Creator user id is required.", nameof(createdByUserId));
 
         Id = Guid.NewGuid();
         CondominiumId = condominiumId;
+        ManagementCompanyId = managementCompanyId;
         DocumentType = documentType;
         CompetenceMonth = competenceMonth;
         CompetenceYear = competenceYear;
@@ -30,7 +37,10 @@ public sealed class EmployeeDocumentBatch
     }
 
     public Guid Id { get; private set; }
-    public Guid CondominiumId { get; private set; }
+    // Nullable only for new multi-condominium batches. Existing rows retain the
+    // historical value for audit/compatibility and never use it as authorization.
+    public Guid? CondominiumId { get; private set; }
+    public Guid? ManagementCompanyId { get; private set; }
     public EmployeeDocumentType DocumentType { get; private set; }
     public int CompetenceMonth { get; private set; }
     public int CompetenceYear { get; private set; }
@@ -40,17 +50,23 @@ public sealed class EmployeeDocumentBatch
     public DateTime? ConfirmedAt { get; private set; }
     public Guid? ConfirmedByUserId { get; private set; }
     public string? FailureReason { get; private set; }
+    public string? ProcessingStage { get; private set; }
+    public int ProcessedItems { get; private set; }
+    public int? TotalItems { get; private set; }
+    public int? ProgressPercentage => TotalItems is > 0 ? Math.Clamp(ProcessedItems * 100 / TotalItems.Value, 0, 100) : null;
 
     // Raw uploaded PDFs awaiting split/identification, serialized as JSON. Only
     // read by the background processing worker; cleared once processing starts.
     public string? PendingUploadsJson { get; private set; }
+
+    public ICollection<EmployeeDocumentBatchEmployee> Employees { get; private set; } = [];
 
     public void AttachPendingUploads(string pendingUploadsJson) => PendingUploadsJson = pendingUploadsJson;
 
     public void StartProcessing()
     {
         if (Status != EmployeeDocumentBatchStatus.Uploaded) return;
-        Status = EmployeeDocumentBatchStatus.Processing;
+        Status = EmployeeDocumentBatchStatus.Processing; ProcessingStage = "Upload"; ProcessedItems = 0;
     }
 
     // If the worker crashed/restarted mid-processing, nothing was ever persisted
@@ -67,7 +83,11 @@ public sealed class EmployeeDocumentBatch
     {
         Status = EmployeeDocumentBatchStatus.ReadyForReview;
         PendingUploadsJson = null;
+        ProcessingStage = "Persistência"; ProcessedItems = TotalItems ?? ProcessedItems;
     }
+
+    public void SetProgress(string stage, int processedItems, int? totalItems)
+    { ProcessingStage = stage; ProcessedItems = Math.Max(0, processedItems); TotalItems = totalItems is > 0 ? totalItems : null; }
 
     public void MarkFailed(string reason)
     {
@@ -83,6 +103,15 @@ public sealed class EmployeeDocumentBatch
         Status = EmployeeDocumentBatchStatus.Confirmed;
         ConfirmedAt = now;
         ConfirmedByUserId = actorUserId;
+    }
+
+    public void ReopenForReview()
+    {
+        if (Status != EmployeeDocumentBatchStatus.Confirmed)
+            throw new InvalidOperationException("Only a confirmed batch can be reopened.");
+        Status = EmployeeDocumentBatchStatus.ReadyForReview;
+        ConfirmedAt = null;
+        ConfirmedByUserId = null;
     }
 
     // Completed is included so a manual resend on an already-finished batch

@@ -8,4 +8,5 @@ public enum EmployeeDocumentIdentificationMethod
     NameAndJobTitle = 3,
     FuzzyName = 4,
     Manual = 5
+    ,Cpf = 6
 }

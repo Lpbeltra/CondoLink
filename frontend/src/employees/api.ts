@@ -4,6 +4,7 @@ export interface Employee {
   id: string
   condominiumId: string
   fullName: string
+  cpf: string | null
   jobTitle: string | null
   phoneNumber: string | null
   email: string | null
@@ -15,17 +16,21 @@ export interface Employee {
 }
 
 export interface EmployeeInput {
+  condominiumId: string
   fullName: string
   jobTitle: string
   phoneNumber: string
   email: string
   registrationNumber: string
   admissionDate: string
+  cpf?: string
 }
 
 function toRequestBody(input: EmployeeInput) {
   return {
+    condominiumId: input.condominiumId,
     fullName: input.fullName,
+    cpf: input.cpf || null,
     jobTitle: input.jobTitle || null,
     phoneNumber: input.phoneNumber || null,
     email: input.email || null,
@@ -34,18 +39,18 @@ function toRequestBody(input: EmployeeInput) {
   }
 }
 
-export async function listEmployees(condominiumId: string, params: { search?: string; status?: string }) {
-  return (await api.get<Employee[]>(`/condominiums/${condominiumId}/employees`, { params })).data
+export async function listEmployees(params: { condominiumId?: string; search?: string; status?: string; jobTitle?: string }) {
+  return (await api.get<Employee[]>('/administrator/employees', { params })).data
 }
 
-export async function createEmployee(condominiumId: string, input: EmployeeInput) {
-  return (await api.post<Employee>(`/condominiums/${condominiumId}/employees`, toRequestBody(input))).data
+export async function createEmployee(input: EmployeeInput) {
+  return (await api.post<Employee>('/administrator/employees', toRequestBody(input))).data
 }
 
-export async function updateEmployee(condominiumId: string, employeeId: string, input: EmployeeInput) {
-  return (await api.put<Employee>(`/condominiums/${condominiumId}/employees/${employeeId}`, toRequestBody(input))).data
+export async function updateEmployee(employeeId: string, input: EmployeeInput) {
+  return (await api.put<Employee>(`/administrator/employees/${employeeId}`, toRequestBody(input))).data
 }
 
-export async function setEmployeeStatus(condominiumId: string, employeeId: string, isActive: boolean) {
-  return (await api.patch<Employee>(`/condominiums/${condominiumId}/employees/${employeeId}/status`, { isActive })).data
+export async function setEmployeeStatus(employeeId: string, isActive: boolean) {
+  return (await api.patch<Employee>(`/administrator/employees/${employeeId}/status`, { isActive })).data
 }

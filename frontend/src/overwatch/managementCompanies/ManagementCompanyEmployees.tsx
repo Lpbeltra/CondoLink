@@ -38,9 +38,9 @@ import { PermanentDeleteDialog } from '../components/PermanentDeleteDialog'
 import {
   createManagementCompanyEmployee,
   listManagementCompanyEmployees,
-  listManagementCompanyEmployeeModulePermissions,
+  getManagementCompanyEmployeeManagementGrant,
   removeManagementCompanyEmployee,
-  setManagementCompanyEmployeeModulePermissions,
+  setManagementCompanyEmployeeManagementGrant,
   updateManagementCompanyEmployeeStatus,
   updateManagementCompanyEmployee,
   resendManagementCompanyAccess,
@@ -53,7 +53,7 @@ import type {
   CreatedManagementCompanyEmployee,
   ManagementCompanyEmployee,
 } from './types'
-import type { ManagementCompanyEmployeeModulePermission } from './api'
+import type { ManagementCompanyEmployeeManagementGrant } from './api'
 import { validateEmployee } from './validation'
 
 interface Props {
@@ -90,7 +90,7 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
     anchorEl: HTMLElement
   } | null>(null)
 
-  const [employeeManagementPermissions, setEmployeeManagementPermissions] = useState<Record<string, ManagementCompanyEmployeeModulePermission[]>>({})
+  const [employeeManagementGrants, setEmployeeManagementGrants] = useState<Record<string, ManagementCompanyEmployeeManagementGrant>>({})
   const [updatingPermission, setUpdatingPermission] = useState<string | null>(null)
   const [pendingRequest, setPendingRequest] = useState<string | null>(null)
 
@@ -101,10 +101,10 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
       const list = await listManagementCompanyEmployees(managementCompanyId)
       setEmployees(list)
       const entries = await Promise.all(list.map(async (item) => {
-        const permissions = await listManagementCompanyEmployeeModulePermissions(item.id)
-        return [item.id, permissions] as const
+        const grant = await getManagementCompanyEmployeeManagementGrant(item.id)
+        return [item.id, grant] as const
       }))
-      setEmployeeManagementPermissions(Object.fromEntries(entries))
+      setEmployeeManagementGrants(Object.fromEntries(entries))
     } catch (error) {
       setLoadError(employeeError(error))
     } finally {
@@ -116,14 +116,13 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
     void load()
   }, [load])
 
-  const toggleEmployeeManagement = async (employee: ManagementCompanyEmployee, condominiumId: string, allowed: boolean) => {
-    const key = `${employee.id}:${condominiumId}`
+  const toggleEmployeeManagement = async (employee: ManagementCompanyEmployee, allowed: boolean) => {
+    const key = employee.id
     if (updatingPermission === key) return
     setUpdatingPermission(key)
     try {
-      await setManagementCompanyEmployeeModulePermissions(employee.id, condominiumId, allowed)
-      setEmployeeManagementPermissions(current => ({ ...current, [employee.id]: current[employee.id].map(row =>
-        row.condominiumId === condominiumId ? { ...row, allowed } : row) }))
+      await setManagementCompanyEmployeeManagementGrant(employee.id, allowed)
+      setEmployeeManagementGrants(current => ({ ...current, [employee.id]: { ...current[employee.id], allowed } }))
     } catch (error) {
       setLoadError(employeeError(error))
     } finally { setUpdatingPermission(null) }
@@ -295,16 +294,13 @@ export function ManagementCompanyEmployees({ managementCompanyId }: Props) {
                   <TableCell sx={{ overflowWrap: 'anywhere' }}>{employee.jobTitle}</TableCell>
                   <TableCell>
                     <Stack gap={0.5}>
-                      {(employeeManagementPermissions[employee.id] ?? []).filter(row => row.eligible).map(row => (
-                        <Stack key={row.condominiumId} direction="row" alignItems="center" gap={1}>
-                          <Switch checked={row.allowed} disabled={updatingPermission === `${employee.id}:${row.condominiumId}`}
-                            onChange={event => void toggleEmployeeManagement(employee, row.condominiumId, event.target.checked)}
-                            inputProps={{ 'aria-label': `Permitir Gestão de Funcionários para ${employee.fullName} em ${row.condominiumName}` }} />
-                          <Typography variant="body2">{row.condominiumName}</Typography>
-                        </Stack>
-                      ))}
-                      {!(employeeManagementPermissions[employee.id] ?? []).some(row => row.eligible) &&
-                        <Typography variant="body2" color="text.secondary">Nenhum condomínio delegado</Typography>}
+                      <Stack direction="row" alignItems="center" gap={1}>
+                        <Switch checked={employeeManagementGrants[employee.id]?.allowed ?? false}
+                          disabled={!employeeManagementGrants[employee.id]?.eligible || updatingPermission === employee.id}
+                          onChange={event => void toggleEmployeeManagement(employee, event.target.checked)}
+                          inputProps={{ 'aria-label': `Permitir Gestão de Funcionários para ${employee.fullName}` }} />
+                        <Typography variant="body2">{employeeManagementGrants[employee.id]?.eligible ? 'Acesso global' : 'Módulo desabilitado ou acesso inativo'}</Typography>
+                      </Stack>
                     </Stack>
                   </TableCell>
                   <TableCell>

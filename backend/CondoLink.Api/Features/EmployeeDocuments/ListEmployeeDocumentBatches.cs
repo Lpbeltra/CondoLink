@@ -10,55 +10,21 @@ public static class ListEmployeeDocumentBatches
 {
     public static IEndpointRouteBuilder MapListEmployeeDocumentBatches(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/condominiums/{condominiumId:guid}/employees/documents/batches", HandleAsync)
-            .RequireAuthorization()
-            .WithTags("EmployeeDocuments")
-            .WithSummary("List payslip document batches for a condominium");
+        endpoints.MapGet("/administrator/employees/documents/batches", HandleAsync).RequireAuthorization().WithTags("EmployeeDocuments");
         return endpoints;
     }
 
-    private static async Task<IResult> HandleAsync(
-        Guid condominiumId, ClaimsPrincipal principal, AppDbContext db,
+    private static async Task<IResult> HandleAsync(ClaimsPrincipal principal, AppDbContext db,
         EmployeeManagement.EmployeeManagementAccessService access, CancellationToken ct)
     {
-        await access.RequireAsync(principal, condominiumId, ct);
-
-        var batches = await db.EmployeeDocumentBatches.AsNoTracking()
-            .Where(x => x.CondominiumId == condominiumId)
-            .OrderByDescending(x => x.CreatedAt)
-            .ToArrayAsync(ct);
-
-        var userIds = batches.Select(x => x.CreatedByUserId)
-            .Concat(batches.Where(x => x.ConfirmedByUserId.HasValue).Select(x => x.ConfirmedByUserId!.Value))
-            .Distinct().ToArray();
-        var names = await db.Set<ApplicationUser>().AsNoTracking()
-            .Where(x => userIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.FullName, ct);
-
-        var documentCounts = await db.EmployeeDocuments.AsNoTracking()
-            .Where(x => x.CondominiumId == condominiumId)
-            .GroupBy(x => x.BatchId)
-            .Select(g => new
-            {
-                BatchId = g.Key,
-                Total = g.Count(),
-                Identified = g.Count(x => x.IdentificationStatus == EmployeeDocumentIdentificationStatus.Identified),
-                NeedsReview = g.Count(x => x.IdentificationStatus == EmployeeDocumentIdentificationStatus.NeedsReview),
-                Unidentified = g.Count(x => x.IdentificationStatus == EmployeeDocumentIdentificationStatus.Unidentified),
-                Ignored = g.Count(x => x.IdentificationStatus == EmployeeDocumentIdentificationStatus.Ignored),
-                Confirmed = g.Count(x => x.IdentificationStatus == EmployeeDocumentIdentificationStatus.Confirmed),
-            }).ToDictionaryAsync(x => x.BatchId, ct);
-
-        var response = batches.Select(batch =>
-        {
-            documentCounts.TryGetValue(batch.Id, out var counts);
-            return new EmployeeDocumentBatchResponse(batch.Id, batch.CondominiumId, batch.DocumentType.ToDisplay(),
-                batch.CompetenceMonth, batch.CompetenceYear, batch.Status.ToString(), batch.CreatedAt,
-                names.GetValueOrDefault(batch.CreatedByUserId, "—"), batch.ConfirmedAt,
-                batch.ConfirmedByUserId is Guid confirmedBy ? names.GetValueOrDefault(confirmedBy, "—") : null,
-                batch.FailureReason, counts?.Total ?? 0, counts?.Identified ?? 0, counts?.NeedsReview ?? 0,
-                counts?.Unidentified ?? 0, counts?.Ignored ?? 0, counts?.Confirmed ?? 0);
-        }).ToArray();
-
-        return Results.Ok(response);
+        var scope = await access.RequireAdministratorAsync(principal, ct);
+        var batches = await db.EmployeeDocumentBatches.AsNoTracking().Where(x => x.ManagementCompanyId == scope.ManagementCompanyId)
+            .OrderByDescending(x => x.CreatedAt).ToArrayAsync(ct);
+        var ids = batches.Select(x => x.CreatedByUserId).Concat(batches.Where(x => x.ConfirmedByUserId.HasValue).Select(x => x.ConfirmedByUserId!.Value)).Distinct().ToArray();
+        var names = await db.Set<ApplicationUser>().AsNoTracking().Where(x => ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.FullName, ct);
+        var batchIds = batches.Select(x => x.Id).ToArray();
+        var counts = await db.EmployeeDocuments.AsNoTracking().Where(x => batchIds.Contains(x.BatchId)).GroupBy(x => x.BatchId)
+            .Select(g => new { BatchId = g.Key, Total = g.Count(), Identified = g.Count(x => x.IdentificationStatus == EmployeeDocumentIdentificationStatus.Identified), NeedsReview = g.Count(x => x.IdentificationStatus == EmployeeDocumentIdentificationStatus.NeedsReview), Unidentified = g.Count(x => x.IdentificationStatus == EmployeeDocumentIdentificationStatus.Unidentified), Ignored = g.Count(x => x.IdentificationStatus == EmployeeDocumentIdentificationStatus.Ignored), Confirmed = g.Count(x => x.IdentificationStatus == EmployeeDocumentIdentificationStatus.Confirmed) }).ToDictionaryAsync(x => x.BatchId, ct);
+        return Results.Ok(batches.Select(b => { counts.TryGetValue(b.Id, out var c); return new EmployeeDocumentBatchResponse(b.Id, null, b.DocumentType.ToDisplay(), b.CompetenceMonth, b.CompetenceYear, b.Status.ToString(), b.CreatedAt, names.GetValueOrDefault(b.CreatedByUserId, "—"), b.ConfirmedAt, b.ConfirmedByUserId is Guid id ? names.GetValueOrDefault(id, "—") : null, b.FailureReason, c?.Total ?? 0, c?.Identified ?? 0, c?.NeedsReview ?? 0, c?.Unidentified ?? 0, c?.Ignored ?? 0, c?.Confirmed ?? 0, b.ProcessingStage, b.ProcessedItems, b.TotalItems, b.ProgressPercentage); }).ToArray());
     }
 }

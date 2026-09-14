@@ -11,8 +11,14 @@ public sealed class ManagementCompanyEmployeeModulePermission
     private ManagementCompanyEmployeeModulePermission() { }
 
     public ManagementCompanyEmployeeModulePermission(Guid managementCompanyEmployeeId, Guid condominiumId, CondominiumModuleType module, Guid grantedByUserId)
+        : this(managementCompanyEmployeeId, (Guid?)condominiumId, module, grantedByUserId) { }
+
+    public ManagementCompanyEmployeeModulePermission(Guid managementCompanyEmployeeId, CondominiumModuleType module, Guid grantedByUserId)
+        : this(managementCompanyEmployeeId, null, module, grantedByUserId) { }
+
+    private ManagementCompanyEmployeeModulePermission(Guid managementCompanyEmployeeId, Guid? condominiumId, CondominiumModuleType module, Guid grantedByUserId)
     {
-        if (managementCompanyEmployeeId == Guid.Empty || condominiumId == Guid.Empty || grantedByUserId == Guid.Empty)
+        if (managementCompanyEmployeeId == Guid.Empty || grantedByUserId == Guid.Empty)
             throw new ArgumentException("Permission context is required.");
         Id = Guid.NewGuid();
         ManagementCompanyEmployeeId = managementCompanyEmployeeId;

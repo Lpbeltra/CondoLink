@@ -12,7 +12,8 @@ public sealed class EmployeeDocumentBatchConfiguration : IEntityTypeConfiguratio
         b.ToTable("employee_document_batches");
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).HasColumnName("id");
-        b.Property(x => x.CondominiumId).HasColumnName("condominium_id").IsRequired();
+        b.Property(x => x.CondominiumId).HasColumnName("condominium_id");
+        b.Property(x => x.ManagementCompanyId).HasColumnName("management_company_id");
         b.Property(x => x.DocumentType).HasColumnName("document_type").HasConversion<int>().IsRequired();
         b.Property(x => x.CompetenceMonth).HasColumnName("competence_month").IsRequired();
         b.Property(x => x.CompetenceYear).HasColumnName("competence_year").IsRequired();
@@ -23,13 +24,18 @@ public sealed class EmployeeDocumentBatchConfiguration : IEntityTypeConfiguratio
         b.Property(x => x.ConfirmedByUserId).HasColumnName("confirmed_by_user_id");
         b.Property(x => x.FailureReason).HasColumnName("failure_reason").HasMaxLength(500);
         b.Property(x => x.PendingUploadsJson).HasColumnName("pending_uploads_json");
+        b.Property(x => x.ProcessingStage).HasColumnName("processing_stage").HasMaxLength(40);
+        b.Property(x => x.ProcessedItems).HasColumnName("processed_items").IsRequired();
+        b.Property(x => x.TotalItems).HasColumnName("total_items");
 
-        b.HasOne<Condominium>().WithMany().HasForeignKey(x => x.CondominiumId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Condominium>().WithMany().HasForeignKey(x => x.CondominiumId).OnDelete(DeleteBehavior.Restrict);
+        b.HasOne<ManagementCompany>().WithMany().HasForeignKey(x => x.ManagementCompanyId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<ApplicationUser>().WithMany().HasForeignKey(x => x.ConfirmedByUserId).OnDelete(DeleteBehavior.Restrict);
 
         b.HasIndex(x => new { x.CondominiumId, x.CreatedAt }).HasDatabaseName("ix_employee_document_batches_condominium_id_created_at");
         b.HasIndex(x => new { x.CondominiumId, x.DocumentType, x.CompetenceYear, x.CompetenceMonth })
             .HasDatabaseName("ix_employee_document_batches_condominium_id_type_competence");
+        b.HasIndex(x => new { x.ManagementCompanyId, x.CreatedAt }).HasDatabaseName("ix_employee_document_batches_management_company_id_created_at");
     }
 }

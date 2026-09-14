@@ -56,12 +56,15 @@ public sealed class EmployeePayslipDispatchInvariantTests : IAsyncLifetime
         string condominiumName, string employeeName, string phone)
     {
         var condominium = new Condominium(condominiumName, null, null);
+        var company = new ManagementCompany($"Administradora {condominiumName}", null, null, null, null);
+        condominium.SetManagementCompany(company.Id);
         var employee = new Employee(condominium.Id, employeeName, null, phone, null, null, null);
-        _db.AddRange(condominium, employee);
-        CondominiumModuleService.AddDefaults(_db, condominium.Id, DateTime.UtcNow);
-        await _db.SaveChangesAsync();
-        var moduleRow = await _db.CondominiumModules.SingleAsync(x => x.CondominiumId == condominium.Id && x.Module == CondominiumModuleType.EmployeeManagement);
-        moduleRow.Set(true, false, DateTime.UtcNow);
+        var operatorUser = CoreTestSeed.User($"Operador {condominiumName}", $"operator-{Guid.NewGuid():N}@test.local");
+        var companyEmployee = new ManagementCompanyEmployee(company.Id, operatorUser.Id, "Departamento pessoal");
+        _db.AddRange(condominium, company, employee, operatorUser, companyEmployee,
+            new CondominiumManagementCompanyLink(condominium.Id, company.Id),
+            new ManagementCompanyModule(company.Id, ManagementCompanyModuleType.EmployeeManagement, true, DateTime.UtcNow),
+            new ManagementCompanyEmployeeModuleGrant(companyEmployee.Id, ManagementCompanyModuleType.EmployeeManagement, operatorUser.Id, DateTime.UtcNow));
         await _db.SaveChangesAsync();
         return (condominium, employee);
     }
@@ -69,11 +72,13 @@ public sealed class EmployeePayslipDispatchInvariantTests : IAsyncLifetime
     private async Task<(EmployeeDocumentBatch Batch, EmployeeDocument Document, WhatsAppOutboundMessage Outbound)>
         SeedConfirmedDocumentAsync(Guid condominiumId, Employee employee, string pdfMarker)
     {
-        var actor = CoreTestSeed.User("Operador", $"operador-{Guid.NewGuid():N}@test.local");
-        _db.Add(actor);
-        await _db.SaveChangesAsync();
+        var companyId = await _db.Condominiums.Where(x => x.Id == condominiumId).Select(x => x.ManagementCompanyId).SingleAsync();
+        var actor = await (from access in _db.ManagementCompanyEmployees
+            join user in _db.Users on access.UserId equals user.Id
+            where access.ManagementCompanyId == companyId && access.IsActive
+            select user).SingleAsync();
 
-        var batch = new EmployeeDocumentBatch(condominiumId, EmployeeDocumentType.Payslip, 8, 2026, actor.Id, DateTime.UtcNow);
+        var batch = new EmployeeDocumentBatch(null, companyId!.Value, EmployeeDocumentType.Payslip, 8, 2026, actor.Id, DateTime.UtcNow);
         batch.StartProcessing();
         batch.MarkReadyForReview();
         var pdfBytes = BuildMarkedPdf(pdfMarker);

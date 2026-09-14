@@ -3,11 +3,11 @@ using CondoLink.Domain.Enums;
 namespace CondoLink.Api.Features.EmployeeDocuments;
 
 public sealed record EmployeeDocumentBatchResponse(
-    Guid Id, Guid CondominiumId, string DocumentType, int CompetenceMonth, int CompetenceYear,
+    Guid Id, Guid? CondominiumId, string DocumentType, int CompetenceMonth, int CompetenceYear,
     string Status, DateTime CreatedAt, string CreatedByName,
     DateTime? ConfirmedAt, string? ConfirmedByName, string? FailureReason,
     int DocumentCount, int IdentifiedCount, int NeedsReviewCount, int UnidentifiedCount,
-    int IgnoredCount, int ConfirmedCount);
+    int IgnoredCount, int ConfirmedCount, string? ProcessingStage = null, int ProcessedItems = 0, int? TotalItems = null, int? ProgressPercentage = null);
 
 public sealed record EmployeeDocumentResponse(
     Guid Id, Guid BatchId, Guid? EmployeeId, string? EmployeeName,

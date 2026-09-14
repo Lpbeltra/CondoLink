@@ -113,12 +113,18 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await _host.WithDbAsync(async db =>
         {
             var condominium = new Condominium("Condo Holerites Webhook", null, null);
+            var company = new ManagementCompany("Administradora Webhook", null, null, null, null);
+            condominium.SetManagementCompany(company.Id);
             var operatorUser = CoreTestSeed.User("Operador Webhook", "operador-webhook@test.local");
+            var companyEmployee = new ManagementCompanyEmployee(company.Id, operatorUser.Id, "Departamento pessoal");
             var employee = new Employee(condominium.Id, "Funcionário Webhook", null, "11999998888", null, null, null);
-            db.AddRange(condominium, operatorUser, employee);
+            db.AddRange(condominium, company, operatorUser, companyEmployee, employee,
+                new CondominiumManagementCompanyLink(condominium.Id, company.Id),
+                new ManagementCompanyModule(company.Id, ManagementCompanyModuleType.EmployeeManagement, true, DateTime.UtcNow),
+                new ManagementCompanyEmployeeModuleGrant(companyEmployee.Id, ManagementCompanyModuleType.EmployeeManagement, operatorUser.Id, DateTime.UtcNow));
             await db.SaveChangesAsync();
 
-            var batch = new EmployeeDocumentBatch(condominium.Id, EmployeeDocumentType.Payslip, 8, 2026, operatorUser.Id, DateTime.UtcNow);
+            var batch = new EmployeeDocumentBatch(null, company.Id, EmployeeDocumentType.Payslip, 8, 2026, operatorUser.Id, DateTime.UtcNow);
             batch.StartProcessing();
             batch.MarkReadyForReview();
             var document = new EmployeeDocument(condominium.Id, batch.Id, EmployeeDocumentType.Payslip, 8, 2026,

@@ -11,7 +11,7 @@ public sealed class EmployeeDocumentConfiguration : IEntityTypeConfiguration<Emp
         b.ToTable("employee_documents");
         b.HasKey(x => x.Id);
         b.Property(x => x.Id).HasColumnName("id");
-        b.Property(x => x.CondominiumId).HasColumnName("condominium_id").IsRequired();
+        b.Property(x => x.CondominiumId).HasColumnName("condominium_id");
         b.Property(x => x.BatchId).HasColumnName("batch_id").IsRequired();
         b.Property(x => x.EmployeeId).HasColumnName("employee_id");
         b.Property(x => x.DocumentType).HasColumnName("document_type").HasConversion<int>().IsRequired();
@@ -29,7 +29,7 @@ public sealed class EmployeeDocumentConfiguration : IEntityTypeConfiguration<Emp
         b.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
         b.Property(x => x.ConfirmedAt).HasColumnName("confirmed_at");
 
-        b.HasOne<Condominium>().WithMany().HasForeignKey(x => x.CondominiumId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<Condominium>().WithMany().HasForeignKey(x => x.CondominiumId).OnDelete(DeleteBehavior.Restrict);
         b.HasOne<EmployeeDocumentBatch>().WithMany().HasForeignKey(x => x.BatchId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Restrict);
 

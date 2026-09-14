@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle,
+  Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, LinearProgress,
   MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography,
 } from '@mui/material'
 import { listEmployees, type Employee } from '../employees/api'
 import { getErrorMessage } from '../services/api'
 import {
   confirmBatch, distributeBatch, getBatch, getDistributionSummary, listBatches, listDeliveries,
-  previewDocumentUrl, replaceDocumentFile, resendDocument, updateDocumentAssociation, uploadBatch,
+  previewDocumentUrl, replaceDocumentFile, reopenBatch, resendDocument, updateDocumentAssociation, uploadBatch,
   type DistributionSummary, type EmployeeDocument, type EmployeeDocumentBatch, type EmployeeDocumentDelivery,
 } from './api'
 
@@ -26,7 +26,7 @@ const batchStatusLabel: Record<string, string> = {
 
 type View = 'history' | 'upload' | 'review' | 'distribution'
 
-export function PayslipDistribution({ condominiumId }: { condominiumId: string }) {
+export function PayslipDistribution({ selectedEmployeeIds }: { selectedEmployeeIds?: string[] }) {
   const [view, setView] = useState<View>('history')
   const [batches, setBatches] = useState<EmployeeDocumentBatch[]>([])
   const [loadingHistory, setLoadingHistory] = useState(true)
@@ -35,12 +35,12 @@ export function PayslipDistribution({ condominiumId }: { condominiumId: string }
 
   const loadHistory = () => {
     setLoadingHistory(true)
-    return listBatches(condominiumId).then(setBatches).catch(() => setError('Não foi possível carregar o histórico.'))
+    return listBatches().then(setBatches).catch(() => setError('Não foi possível carregar o histórico.'))
       .finally(() => setLoadingHistory(false))
   }
-  // Intentionally reloads only when the condominium changes.
+  // The administrator-wide history is independent of a selected condominium.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void loadHistory() }, [condominiumId])
+  useEffect(() => { void loadHistory() }, [])
 
   const openBatch = (batch: EmployeeDocumentBatch) => {
     setActiveBatchId(batch.id)
@@ -62,17 +62,17 @@ export function PayslipDistribution({ condominiumId }: { condominiumId: string }
         <BatchHistory loading={loadingHistory} batches={batches} onOpen={openBatch} />
       )}
       {view === 'upload' && (
-        <UploadBatch condominiumId={condominiumId}
+        <UploadBatch selectedEmployeeIds={selectedEmployeeIds}
           onCancel={() => setView('history')}
           onUploaded={batchId => { setActiveBatchId(batchId); setView('review') }} />
       )}
       {view === 'review' && activeBatchId && (
-        <ReviewBatch condominiumId={condominiumId} batchId={activeBatchId}
+        <ReviewBatch batchId={activeBatchId}
           onBack={() => { setView('history'); void loadHistory() }}
           onConfirmed={() => setView('distribution')} />
       )}
       {view === 'distribution' && activeBatchId && (
-        <DistributionView condominiumId={condominiumId} batchId={activeBatchId}
+        <DistributionView batchId={activeBatchId}
           onBack={() => { setView('history'); void loadHistory() }} />
       )}
     </Stack>
@@ -106,8 +106,8 @@ function BatchHistory({ loading, batches, onOpen }: {
   )
 }
 
-function UploadBatch({ condominiumId, onCancel, onUploaded }: {
-  condominiumId: string; onCancel: () => void; onUploaded: (batchId: string) => void
+function UploadBatch({ selectedEmployeeIds = [], onCancel, onUploaded }: {
+  selectedEmployeeIds?: string[]; onCancel: () => void; onUploaded: (batchId: string) => void
 }) {
   const now = new Date()
   const [month, setMonth] = useState(now.getMonth() + 1)
@@ -120,7 +120,7 @@ function UploadBatch({ condominiumId, onCancel, onUploaded }: {
     if (files.length === 0) { setError('Selecione ao menos um arquivo PDF.'); return }
     setUploading(true); setError('')
     try {
-      const result = await uploadBatch(condominiumId, files, month, year)
+      const result = await uploadBatch(files, month, year, selectedEmployeeIds)
       onUploaded(result.id)
     } catch (e) {
       setError(getErrorMessage(e))
@@ -159,8 +159,8 @@ function UploadBatch({ condominiumId, onCancel, onUploaded }: {
   )
 }
 
-function ReviewBatch({ condominiumId, batchId, onBack, onConfirmed }: {
-  condominiumId: string; batchId: string; onBack: () => void; onConfirmed: () => void
+function ReviewBatch({ batchId, onBack, onConfirmed }: {
+  batchId: string; onBack: () => void; onConfirmed: () => void
 }) {
   const [batch, setBatch] = useState<EmployeeDocumentBatch | null>(null)
   const [documents, setDocuments] = useState<EmployeeDocument[]>([])
@@ -171,17 +171,17 @@ function ReviewBatch({ condominiumId, batchId, onBack, onConfirmed }: {
   const [replacing, setReplacing] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const load = () => getBatch(condominiumId, batchId).then(detail => {
+  const load = () => getBatch(batchId).then(detail => {
     setBatch(detail.batch); setDocuments(detail.documents)
   }).catch(() => setError('Não foi possível carregar o lote.'))
 
   useEffect(() => {
     void load()
-    void listEmployees(condominiumId, {}).then(setEmployees)
+    void listEmployees({}).then(setEmployees)
     pollRef.current = setInterval(() => { void load() }, 2500)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [condominiumId, batchId])
+  }, [batchId])
 
   useEffect(() => {
     if (batch && batch.status !== 'Uploaded' && batch.status !== 'Processing' && pollRef.current) {
@@ -190,31 +190,32 @@ function ReviewBatch({ condominiumId, batchId, onBack, onConfirmed }: {
   }, [batch])
 
   const act = async (documentId: string, action: 'Assign' | 'Ignore' | 'Confirm', employeeId?: string) => {
-    try { await updateDocumentAssociation(condominiumId, documentId, action, employeeId); await load() }
+    try { await updateDocumentAssociation(batchId, documentId, action, employeeId); await load() }
     catch (e) { setError(getErrorMessage(e)) }
   }
 
   const preview = async (documentId: string) => {
-    try { setPreviewUrl(await previewDocumentUrl(condominiumId, documentId)) }
+    try { setPreviewUrl(await previewDocumentUrl(batchId, documentId)) }
     catch { setError('Não foi possível abrir a pré-visualização.') }
   }
 
   const replace = async (documentId: string, file: File | undefined) => {
     if (!file) return
     setReplacing(documentId); setError('')
-    try { await replaceDocumentFile(condominiumId, documentId, file); await load() }
+    try { await replaceDocumentFile(batchId, documentId, file); await load() }
     catch (e) { setError(getErrorMessage(e)) }
     finally { setReplacing(null) }
   }
 
   const confirmBatchAssociations = async () => {
     setConfirming(true); setError('')
-    try { await confirmBatch(condominiumId, batchId); onConfirmed() }
+    try { await confirmBatch(batchId); onConfirmed() }
     catch (e) { setError(getErrorMessage(e)) }
     finally { setConfirming(false) }
   }
 
   if (!batch) return <Alert severity="info">Carregando…</Alert>
+  if (batch.status === 'Uploaded' || batch.status === 'Processing') return <Stack gap={1}><Alert severity="info">{batch.processingStage ?? 'Processando documentos'}{batch.totalItems ? ` — ${batch.processedItems} de ${batch.totalItems}` : ''}</Alert><LinearProgress variant={batch.progressPercentage === null ? 'indeterminate' : 'determinate'} value={batch.progressPercentage ?? undefined} /></Stack>
   if (batch.status === 'Uploaded' || batch.status === 'Processing')
     return <Alert severity="info">Processando documentos enviados… isso pode levar alguns instantes.</Alert>
   if (batch.status === 'Failed')
@@ -238,6 +239,9 @@ function ReviewBatch({ condominiumId, batchId, onBack, onConfirmed }: {
           <Paper key={document.id} variant="outlined" sx={{ p: 2 }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'flex-start' }} gap={2}>
               <Box minWidth={0} flex={1}>
+                <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                  {document.condominiumName ?? 'Condomínio não identificado'}
+                </Typography>
                 <Typography fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>
                   {statusIcon[document.identificationStatus]} {document.employeeName ?? 'Não identificado'}
                 </Typography>
@@ -294,18 +298,19 @@ function ReviewBatch({ condominiumId, batchId, onBack, onConfirmed }: {
   )
 }
 
-function DistributionView({ condominiumId, batchId, onBack }: {
-  condominiumId: string; batchId: string; onBack: () => void
+function DistributionView({ batchId, onBack }: {
+  batchId: string; onBack: () => void
 }) {
   const [summary, setSummary] = useState<DistributionSummary | null>(null)
   const [deliveries, setDeliveries] = useState<EmployeeDocumentDelivery[]>([])
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [sending, setSending] = useState(false)
+  const [reopening, setReopening] = useState(false)
   const [error, setError] = useState('')
 
   const load = () => Promise.all([
-    getDistributionSummary(condominiumId, batchId).then(setSummary),
-    listDeliveries(condominiumId, batchId).then(setDeliveries),
+    getDistributionSummary(batchId).then(setSummary),
+    listDeliveries(batchId).then(setDeliveries),
   ]).catch(() => setError('Não foi possível carregar a distribuição.'))
 
   useEffect(() => {
@@ -313,18 +318,25 @@ function DistributionView({ condominiumId, batchId, onBack }: {
     const interval = setInterval(() => { void load() }, 4000)
     return () => clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [condominiumId, batchId])
+  }, [batchId])
 
   const send = async () => {
     setSending(true); setError(''); setConfirmOpen(false)
-    try { await distributeBatch(condominiumId, batchId); await load() }
+    try { await distributeBatch(batchId); await load() }
     catch (e) { setError(getErrorMessage(e)) }
     finally { setSending(false) }
   }
 
   const retry = async (documentId: string) => {
-    try { await resendDocument(condominiumId, documentId); await load() }
+    try { await resendDocument(batchId, documentId); await load() }
     catch (e) { setError(getErrorMessage(e)) }
+  }
+
+  const reopen = async () => {
+    setReopening(true); setError('')
+    try { await reopenBatch(batchId); onBack() }
+    catch (e) { setError(getErrorMessage(e)) }
+    finally { setReopening(false) }
   }
 
   if (!summary) return <Alert severity="info">Carregando…</Alert>
@@ -346,6 +358,7 @@ function DistributionView({ condominiumId, batchId, onBack }: {
           </Button>
         </Box>
       )}
+      {deliveries.length === 0 && <Box><Button disabled={reopening} onClick={() => void reopen()}>Revisar associações</Button></Box>}
       {deliveries.length > 0 && (
         <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
           <Table>

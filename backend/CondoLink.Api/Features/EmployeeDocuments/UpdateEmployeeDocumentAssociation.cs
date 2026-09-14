@@ -9,7 +9,7 @@ public static class UpdateEmployeeDocumentAssociation
 {
     public static IEndpointRouteBuilder MapUpdateEmployeeDocumentAssociation(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapPatch("/condominiums/{condominiumId:guid}/employees/documents/{documentId:guid}", HandleAsync)
+        endpoints.MapPatch("/administrator/employees/documents/batches/{batchId:guid}/documents/{documentId:guid}", HandleAsync)
             .RequireAuthorization()
             .WithTags("EmployeeDocuments")
             .WithSummary("Assign, clear, ignore or confirm one document's employee association");
@@ -17,19 +17,17 @@ public static class UpdateEmployeeDocumentAssociation
     }
 
     private static async Task<IResult> HandleAsync(
-        Guid condominiumId, Guid documentId, UpdateEmployeeDocumentAssociationRequest request,
+        Guid batchId, Guid documentId, UpdateEmployeeDocumentAssociationRequest request,
         ClaimsPrincipal principal, AppDbContext db,
         EmployeeManagement.EmployeeManagementAccessService access, CancellationToken ct)
     {
-        await access.RequireAsync(principal, condominiumId, ct);
+        var (_, batch) = await access.RequireBatchAsync(principal, batchId, ct);
 
         var document = await db.EmployeeDocuments
-            .SingleOrDefaultAsync(x => x.Id == documentId && x.CondominiumId == condominiumId, ct);
+            .SingleOrDefaultAsync(x => x.Id == documentId && x.BatchId == batchId, ct);
         if (document is null) return Results.NotFound(new { message = "Documento não encontrado." });
 
-        var batch = await db.EmployeeDocumentBatches
-            .SingleOrDefaultAsync(x => x.Id == document.BatchId && x.CondominiumId == condominiumId, ct);
-        if (batch is null || batch.Status != EmployeeDocumentBatchStatus.ReadyForReview)
+        if (batch.Status != EmployeeDocumentBatchStatus.ReadyForReview)
             return Results.Conflict(new { message = "Este lote não está mais disponível para revisão." });
 
         var now = DateTime.UtcNow;
@@ -40,10 +38,15 @@ public static class UpdateEmployeeDocumentAssociation
                 case "Assign":
                     if (request.EmployeeId is not Guid employeeId)
                         return Results.BadRequest(new { message = "Informe o funcionário." });
-                    var exists = await db.Employees.AsNoTracking()
-                        .AnyAsync(x => x.Id == employeeId && x.CondominiumId == condominiumId, ct);
+                    // A manual correction may never widen the immutable subset chosen
+                    // when the batch was created. This is also an IDOR boundary: an
+                    // otherwise in-scope employee cannot be injected into this batch.
+                    var exists = await db.EmployeeDocumentBatchEmployees.AsNoTracking()
+                        .AnyAsync(x => x.BatchId == batch.Id && x.EmployeeId == employeeId
+                            && db.Employees.Any(e => e.Id == employeeId && db.Condominiums.Any(c => c.Id == e.CondominiumId && c.ManagementCompanyId == batch.ManagementCompanyId && c.IsActive)), ct);
                     if (!exists) return Results.BadRequest(new { message = "Funcionário não encontrado neste condomínio." });
                     document.AssignManually(employeeId, now);
+                    document.SetCondominium(await db.Employees.Where(x => x.Id == employeeId).Select(x => x.CondominiumId).SingleAsync(ct));
                     break;
                 case "Clear":
                     document.ClearAssociation(now);

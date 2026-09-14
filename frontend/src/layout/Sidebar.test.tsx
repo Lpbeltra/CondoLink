@@ -9,120 +9,40 @@ import { useAdministrator } from "../administrator/AdministratorContext";
 import { useCondominiumModules } from "../modules/useCondominiumModules";
 
 vi.mock("../auth/AuthContext", () => ({ useAuth: vi.fn() }));
-vi.mock("../condominiums/CondominiumContext", () => ({
-  useCondominium: vi.fn(),
-}));
-vi.mock("../management/ManagementContext", () => ({
-  useManagementContext: vi.fn(),
-}));
-vi.mock("../administrator/AdministratorContext", () => ({
-  useAdministrator: vi.fn(),
-}));
-vi.mock("../modules/useCondominiumModules", () => ({
-  useCondominiumModules: vi.fn(),
-}));
+vi.mock("../condominiums/CondominiumContext", () => ({ useCondominium: vi.fn() }));
+vi.mock("../management/ManagementContext", () => ({ useManagementContext: vi.fn() }));
+vi.mock("../administrator/AdministratorContext", () => ({ useAdministrator: vi.fn() }));
+vi.mock("../modules/useCondominiumModules", () => ({ useCondominiumModules: vi.fn() }));
 
-function mockContexts({
-  administrator = null,
-  condominiumCount = 0,
-  hasEligibleManagementCompany = false,
-  currentCondominium = null,
-  isModuleEnabled = () => false,
-}: {
-  administrator?: unknown;
-  condominiumCount?: number;
-  hasEligibleManagementCompany?: boolean;
-  currentCondominium?: { roles: string[] } | null;
-  isModuleEnabled?: (module: string) => boolean;
-}) {
+function mockContexts(administrator: unknown = null, currentCondominium: { roles: string[] } | null = null) {
   vi.mocked(useAuth).mockReturnValue({ user: { roles: [] } } as never);
-  vi.mocked(useCondominium).mockReturnValue({
-    currentCondominium,
-  } as never);
-  vi.mocked(useManagementContext).mockReturnValue({
-    condominiumCount,
-    hasEligibleManagementCompany,
-  } as never);
-  vi.mocked(useAdministrator).mockReturnValue({
-    value: administrator,
-    loading: false,
-  } as never);
-  vi.mocked(useCondominiumModules).mockReturnValue({
-    isModuleEnabled,
-  } as never);
+  vi.mocked(useCondominium).mockReturnValue({ currentCondominium } as never);
+  vi.mocked(useManagementContext).mockReturnValue({ condominiumCount: currentCondominium ? 1 : 0, hasEligibleManagementCompany: false } as never);
+  vi.mocked(useAdministrator).mockReturnValue({ value: administrator, loading: false } as never);
+  vi.mocked(useCondominiumModules).mockReturnValue({ isModuleEnabled: () => true } as never);
 }
 
 function renderSidebar() {
-  return render(
-    <MemoryRouter>
-      <Sidebar />
-    </MemoryRouter>,
-  );
+  return render(<MemoryRouter><Sidebar /></MemoryRouter>);
 }
 
 describe("Sidebar multi-role navigation", () => {
-  it("shows only the administrator queue for a pure administrator access", () => {
-    mockContexts({ administrator: { managementCompanyId: "mc1", hasEmployeeManagementAccess: true } });
-    renderSidebar();
-    expect(document.querySelector('a[href="/administrator/requests"]')).toBeInTheDocument();
-    expect(document.querySelector('a[href="/management/administrator"]')).not.toBeInTheDocument();
-    expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
-  });
-
-  it("keeps both experiences visible for a user with management and administrator access", () => {
-    mockContexts({
-      administrator: { managementCompanyId: "mc1" },
-      condominiumCount: 1,
-      hasEligibleManagementCompany: true,
-      currentCondominium: { roles: ["Manager"] },
-    });
-    renderSidebar();
-    expect(screen.getByText("Dashboard")).toBeInTheDocument();
-    expect(document.querySelector('a[href="/administrator/requests"]')).toBeInTheDocument();
-    expect(document.querySelector('a[href="/management/administrator"]')).toBeInTheDocument();
-  });
-
-  it("hides the administrator item for a pure management user", () => {
-    mockContexts({
-      administrator: null,
-      condominiumCount: 1,
-      hasEligibleManagementCompany: true,
-      currentCondominium: { roles: ["Manager"] },
-    });
-    renderSidebar();
-    expect(screen.getByText("Dashboard")).toBeInTheDocument();
-    expect(document.querySelector('a[href="/administrator/requests"]')).not.toBeInTheDocument();
-  });
-
-  it("hides Funcionários when the EmployeeManagement module is disabled", () => {
-    mockContexts({
-      condominiumCount: 1,
-      currentCondominium: { roles: ["Manager"] },
-      isModuleEnabled: () => false,
-    });
-    renderSidebar();
-    expect(document.querySelector('a[href="/management/employees"]')).not.toBeInTheDocument();
-  });
-
-  it("shows Funcionários when the EmployeeManagement module is enabled", () => {
-    mockContexts({
-      condominiumCount: 1,
-      currentCondominium: { roles: ["Manager"] },
-      isModuleEnabled: (module) => module === "EmployeeManagement",
-    });
-    renderSidebar();
-    expect(document.querySelector('a[href="/management/employees"]')).toBeInTheDocument();
-  });
-
-  it("shows Funcionários for the administrator portal with effective access", () => {
-    mockContexts({ administrator: { managementCompanyId: "mc1", hasEmployeeManagementAccess: true } });
+  it("shows administrator Employee Management only with effective access", () => {
+    mockContexts({ managementCompanyId: "mc1", hasEmployeeManagementAccess: true });
     renderSidebar();
     expect(document.querySelector('a[href="/administrator/employees"]')).toBeInTheDocument();
   });
 
-  it("hides Funcionários for the administrator portal without effective access", () => {
-    mockContexts({ administrator: { managementCompanyId: "mc1", hasEmployeeManagementAccess: false } });
+  it("hides administrator Employee Management without effective access", () => {
+    mockContexts({ managementCompanyId: "mc1", hasEmployeeManagementAccess: false });
     renderSidebar();
     expect(document.querySelector('a[href="/administrator/employees"]')).not.toBeInTheDocument();
+  });
+
+  it("never exposes the old condominium Employee Management route", () => {
+    mockContexts(null, { roles: ["Manager"] });
+    renderSidebar();
+    expect(document.querySelector('a[href="/management/employees"]')).not.toBeInTheDocument();
+    expect(screen.getByText("Dashboard")).toBeInTheDocument();
   });
 });

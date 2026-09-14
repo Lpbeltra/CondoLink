@@ -9,12 +9,9 @@ public static class SubManagerAccess
     public static IReadOnlyList<SubManagerModule> ConfigurableModules { get; } =
         [SubManagerModule.Attendance, SubManagerModule.ManagementCompany,
          SubManagerModule.Agenda, SubManagerModule.Assistant,
-         SubManagerModule.Documents, SubManagerModule.Management,
-         SubManagerModule.EmployeeManagement];
+         SubManagerModule.Documents, SubManagerModule.Management];
 
-    // Every configurable module defaults to allowed once backfilled, except EmployeeManagement:
-    // a SubManager must be granted that one explicitly.
-    private static bool DefaultAllowed(SubManagerModule module) => module != SubManagerModule.EmployeeManagement;
+    private static bool DefaultAllowed(SubManagerModule module) => true;
 
     public static IQueryable<Guid> ActiveMemberships(AppDbContext db, Guid userId, Guid condominiumId) =>
         from membership in db.CondominiumMemberships.AsNoTracking()
@@ -29,12 +26,7 @@ public static class SubManagerAccess
          join role in db.CondominiumMembershipRoles.AsNoTracking() on membership.Id equals role.CondominiumMembershipId
          where role.IsActive && role.RevokedAt == null && (role.Role == CondominiumRole.Manager
             || db.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == membershipId && p.Module == module && p.IsAllowed && p.RevokedAt == null)
-            // Legacy fallback: a SubManager with no permission rows at all (never backfilled)
-            // keeps full access to pre-existing modules. EmployeeManagement postdates that
-            // legacy behavior and must never be granted by absence of rows — only by an
-            // explicit allow row, so it is excluded from this fallback.
-            || (module != SubManagerModule.EmployeeManagement
-                && !db.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == membershipId)))
+            || !db.SubManagerModulePermissions.Any(p => p.CondominiumMembershipId == membershipId))
          select membershipId).AnyAsync(ct);
 
     public static async Task EnsureDefaultsAsync(AppDbContext db, Guid membershipId, Guid actorUserId, CancellationToken ct)

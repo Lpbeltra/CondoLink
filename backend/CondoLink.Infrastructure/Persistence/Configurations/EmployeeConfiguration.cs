@@ -16,6 +16,8 @@ public sealed class EmployeeConfiguration : IEntityTypeConfiguration<Employee>
         builder.Property(employee => employee.Id).HasColumnName("id");
         builder.Property(employee => employee.CondominiumId).HasColumnName("condominium_id").IsRequired();
         builder.Property(employee => employee.FullName).HasColumnName("full_name").HasMaxLength(200).IsRequired();
+        builder.Property(employee => employee.Cpf).HasColumnName("cpf").HasMaxLength(14);
+        builder.Property(employee => employee.NormalizedCpf).HasColumnName("normalized_cpf").HasMaxLength(11);
         builder.Property(employee => employee.JobTitle).HasColumnName("job_title").HasMaxLength(120);
         builder.Property(employee => employee.PhoneNumber).HasColumnName("phone_number").HasMaxLength(32);
         builder.Property(employee => employee.NormalizedPhoneNumber).HasColumnName("normalized_phone_number").HasMaxLength(32);

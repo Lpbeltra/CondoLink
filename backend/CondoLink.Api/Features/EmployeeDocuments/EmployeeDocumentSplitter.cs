@@ -20,7 +20,8 @@ namespace CondoLink.Api.Features.EmployeeDocuments;
 /// </summary>
 public static class EmployeeDocumentSplitter
 {
-    public sealed record Candidate(Guid EmployeeId, string FullName, string? NormalizedRegistrationNumber, string? JobTitle);
+    public sealed record Candidate(Guid EmployeeId, string FullName, string? NormalizedRegistrationNumber, string? JobTitle,
+        string? NormalizedCpf = null, string? NormalizedCnpj = null);
     public sealed record PageIdentity(Guid? EmployeeId, EmployeeDocumentIdentificationConfidence Confidence, EmployeeDocumentIdentificationMethod Method);
     public sealed record DocumentSegment(int PageStart, int PageEnd, Guid? EmployeeId,
         EmployeeDocumentIdentificationConfidence Confidence, EmployeeDocumentIdentificationMethod Method);
@@ -69,7 +70,24 @@ public static class EmployeeDocumentSplitter
     public static PageIdentity DetectPageIdentity(string pageText, IReadOnlyList<Candidate> candidates)
     {
         var normalizedPage = Normalize(pageText);
+        var compactPage = new string(normalizedPage.Where(char.IsLetterOrDigit).ToArray());
         if (normalizedPage.Length == 0 || candidates.Count == 0)
+            return new(null, EmployeeDocumentIdentificationConfidence.None, EmployeeDocumentIdentificationMethod.None);
+
+        var cpfMatches = candidates.Where(candidate =>
+        {
+            if (string.IsNullOrWhiteSpace(candidate.NormalizedCpf)) return false;
+            return compactPage.Contains(new string(Normalize(candidate.NormalizedCpf).Where(char.IsDigit).ToArray()), StringComparison.Ordinal);
+        }).ToArray();
+        var hasCpf = Regex.Matches(compactPage, @"\d{11}").Count > 0;
+        if (hasCpf && cpfMatches.Length == 1)
+            return new(cpfMatches[0].EmployeeId, EmployeeDocumentIdentificationConfidence.High, EmployeeDocumentIdentificationMethod.Cpf);
+        if (hasCpf)
+            return new(null, EmployeeDocumentIdentificationConfidence.None, EmployeeDocumentIdentificationMethod.None);
+
+        var cnpjTokens = candidates.Select(x => x.NormalizedCnpj).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToArray();
+        if (cnpjTokens.Length > 0 && Regex.Matches(compactPage, @"\d{14}").Count > 0
+            && !cnpjTokens.Any(x => compactPage.Contains(new string(Normalize(x!).Where(char.IsDigit).ToArray()), StringComparison.Ordinal)))
             return new(null, EmployeeDocumentIdentificationConfidence.None, EmployeeDocumentIdentificationMethod.None);
 
         var registrationMatches = candidates.Where(candidate =>
@@ -100,11 +118,28 @@ public static class EmployeeDocumentSplitter
             var score = FuzzyNameScore(normalizedPage, candidate.FullName);
             if (score > bestScore) { bestScore = score; bestFuzzy = candidate; }
         }
-        if (bestFuzzy is not null && bestScore >= 0.6)
+        if (bestFuzzy is not null && bestScore >= 0.6 && IsCoherentNameMatch(normalizedPage, bestFuzzy.FullName))
             return new(bestFuzzy.EmployeeId, EmployeeDocumentIdentificationConfidence.Low, EmployeeDocumentIdentificationMethod.FuzzyName);
 
         return new(null, EmployeeDocumentIdentificationConfidence.None, EmployeeDocumentIdentificationMethod.None);
     }
+
+    private static bool IsCoherentNameMatch(string normalizedPage, string fullName)
+    {
+        var tokens = Normalize(fullName).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length < 2) return false;
+        var first = tokens[0]; var last = tokens[^1];
+        if (!ContainsToken(normalizedPage, first) || !ContainsToken(normalizedPage, last)) return false;
+        var middle = tokens.Skip(1).SkipLast(1).Where(x => x.Length > 1).ToArray();
+        // Intermediate names may be omitted by payroll exports; if present they
+        // must be full tokens or initials, while the principal surname anchors
+        // the suggestion.
+        return middle.Length == 0 || middle.Any(token => ContainsToken(normalizedPage, token) || ContainsInitial(normalizedPage, token)) ||
+            (middle.All(token => !ContainsToken(normalizedPage, token)) && ContainsToken(normalizedPage, last));
+    }
+
+    private static bool ContainsToken(string text, string token) => Regex.IsMatch(text, $@"(?<![A-Z]){Regex.Escape(token)}(?![A-Z])");
+    private static bool ContainsInitial(string text, string token) => Regex.IsMatch(text, $@"(?<![A-Z]){Regex.Escape(token[..1])}(?:\.|\s)(?![A-Z])");
 
     private static bool LooksLikeExplicitContinuation(string text)
     {

@@ -120,8 +120,6 @@ public sealed class WhatsAppOutboundWorker(
                         await PrepareEmployeePayslipSendAsync(item, db, client,
                             scope.ServiceProvider.GetRequiredService<
                                 CondoLink.Api.Features.RequestAttachments.LocalFileStorage>(),
-                            scope.ServiceProvider.GetRequiredService<
-                                CondoLink.Api.Features.CondominiumModules.ICondominiumModuleService>(),
                             ct);
                 }
                 else if (item.NotificationType == WhatsAppNotificationType.InformationRequested)
@@ -264,7 +262,6 @@ public sealed class WhatsAppOutboundWorker(
         PrepareEmployeePayslipSendAsync(
             CondoLink.Domain.Entities.WhatsAppOutboundMessage item, AppDbContext db, IWhatsAppClient client,
             CondoLink.Api.Features.RequestAttachments.LocalFileStorage storage,
-            CondoLink.Api.Features.CondominiumModules.ICondominiumModuleService modules,
             CancellationToken ct)
     {
         static WhatsAppSendResult Failure(string code, string description) =>
@@ -282,17 +279,23 @@ public sealed class WhatsAppOutboundWorker(
 
         var batch = await db.EmployeeDocumentBatches.AsNoTracking().SingleOrDefaultAsync(x => x.Id == document.BatchId, ct);
         var employee = await db.Employees.AsNoTracking().SingleOrDefaultAsync(x => x.Id == employeeId, ct);
-        var condominium = await db.Condominiums.AsNoTracking().SingleOrDefaultAsync(x => x.Id == item.CondominiumId, ct);
-        if (batch is null || employee is null || condominium is null)
+        if (batch is null || employee is null)
             return ([], null, Failure("employee_document_context_missing", "Employee, batch or condominium no longer exists."));
-        if (document.CondominiumId != item.CondominiumId || batch.CondominiumId != item.CondominiumId || employee.CondominiumId != item.CondominiumId)
-            return ([], null, Failure("employee_document_condominium_mismatch", "Document, batch and employee do not all belong to the same condominium."));
+        var condominium = await db.Condominiums.AsNoTracking().SingleOrDefaultAsync(x => x.Id == employee.CondominiumId, ct);
+        if (condominium is null)
+            return ([], null, Failure("employee_document_context_missing", "Employee, batch or condominium no longer exists."));
+        if (document.CondominiumId != employee.CondominiumId || item.CondominiumId != employee.CondominiumId
+            || batch.ManagementCompanyId != condominium.ManagementCompanyId)
+            return ([], null, Failure("employee_document_condominium_mismatch", "Document and employee do not belong to the same current condominium."));
         if (!employee.IsActive)
             return ([], null, Failure("employee_inactive", "Employee is no longer active."));
         if (employee.NormalizedPhoneNumber is not { Length: > 0 } phone || phone != item.DestinationPhone)
             return ([], null, Failure("employee_phone_invalid", "Employee has no valid phone number, or it changed since queueing."));
-        if (!await modules.IsEnabledAsync(item.CondominiumId.Value, CondominiumModuleType.EmployeeManagement, ct))
-            return ([], null, Failure("module_disabled", "Employee Management module is no longer enabled for this condominium."));
+        if (condominium.ManagementCompanyId is not Guid companyId
+            || !await db.ManagementCompanyModules.AsNoTracking().AnyAsync(x =>
+                x.ManagementCompanyId == companyId
+                && x.Module == ManagementCompanyModuleType.EmployeeManagement && x.IsEnabled, ct))
+            return ([], null, Failure("module_disabled", "Employee Management is not enabled for the current management company."));
 
         using var stream = storage.OpenRead(document.FileKey);
         if (stream is null)
@@ -309,6 +312,15 @@ public sealed class WhatsAppOutboundWorker(
         IReadOnlyList<string> parameters = [employee.FullName, CompetenceLabel(document.CompetenceMonth, document.CompetenceYear), condominium.Name];
         return (parameters, new WhatsAppDocumentHeader(upload.MediaId, fileName), null);
     }
+
+    // Test-only compatibility overload while the legacy module service is
+    // retired from payroll authorization. The service is intentionally ignored.
+    internal static Task<(IReadOnlyList<string> Parameters, WhatsAppDocumentHeader? Header, WhatsAppSendResult? PrecomputedFailure)>
+        PrepareEmployeePayslipSendAsync(
+            CondoLink.Domain.Entities.WhatsAppOutboundMessage item, AppDbContext db, IWhatsAppClient client,
+            CondoLink.Api.Features.RequestAttachments.LocalFileStorage storage,
+            CondoLink.Api.Features.CondominiumModules.ICondominiumModuleService _,
+            CancellationToken ct) => PrepareEmployeePayslipSendAsync(item, db, client, storage, ct);
 
     private static readonly string[] MonthNames =
     [

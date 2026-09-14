@@ -51,12 +51,13 @@ public static class MapOverwatch
             endpoints.MapCreateManagementCompany();
             endpoints.MapUpdateManagementCompany();
             endpoints.MapUpdateManagementCompanyStatus();
+            endpoints.MapManagementCompanyModuleEndpoints();
             endpoints.MapSetCondominiumManagementCompany();
             endpoints.MapCreateManagementCompanyEmployee();
             endpoints.MapListManagementCompanyEmployees();
             endpoints.MapUpdateManagementCompanyEmployeeStatus();
             endpoints.MapDeleteManagementCompanyEmployee();
-            endpoints.MapManagementCompanyEmployeeModulePermissionEndpoints();
+            endpoints.MapManagementCompanyEmployeeModuleGrantEndpoints();
             endpoints.MapManagementCompanyAccessLifecycleEndpoints();
             endpoints.MapDeleteManagementCompanyRequest();
             endpoints.MapListManagementCompanyRequests();

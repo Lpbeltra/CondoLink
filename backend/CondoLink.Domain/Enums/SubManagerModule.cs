@@ -11,7 +11,6 @@ public enum SubManagerModule
     Assistant = 5,
     Documents = 6,
     Management = 7,
-    // Denied by default when backfilled: unlike the other modules, this one must be
-    // explicitly granted by a Manager rather than inherited automatically.
+    // Historical persisted value. It is never consulted by Employee Management.
     EmployeeManagement = 8
 }

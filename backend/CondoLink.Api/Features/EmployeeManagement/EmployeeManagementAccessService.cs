@@ -1,8 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CondoLink.Api.Common;
-using CondoLink.Api.Features.CondominiumModules;
-using CondoLink.Api.Features.Management;
+using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
@@ -10,55 +9,45 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CondoLink.Api.Features.EmployeeManagement;
 
-public enum EmployeeManagementActorKind { Management, ManagementCompany }
-
+public enum EmployeeManagementActorKind { ManagementCompany }
 public sealed record EmployeeManagementActor(Guid UserId, string FullName, EmployeeManagementActorKind Kind);
 
-/// <summary>
-/// Single authorization gate for the Employee Management module. Reused by every
-/// Employee Management endpoint (and, later, payslip/document features built on
-/// top of it) so the entitlement/delegation/permission rules live in one place.
-///
-/// A caller is authorized for a condominium's Employee Management module when
-/// EITHER:
-///  - they hold an active Manager role for the condominium (always allowed once
-///    the module is enabled), or an active SubManager role explicitly granted the
-///    <see cref="SubManagerModule.EmployeeManagement"/> permission; OR
-///  - they are an active employee/department of the management company CURRENTLY
-///    linked to the condominium, that condominium has delegated the module to its
-///    management company, and that employee/department was explicitly granted the
-///    <see cref="CondominiumModuleType.EmployeeManagement"/> permission.
-///
-/// Neither path requires an active Manager to exist on the condominium.
-/// </summary>
-public sealed class EmployeeManagementAccessService(AppDbContext db, ICondominiumModuleService modules)
+public sealed class EmployeeManagementAccessService(AppDbContext db)
 {
     public async Task<EmployeeManagementActor> RequireAsync(ClaimsPrincipal principal, Guid condominiumId, CancellationToken ct)
     {
-        var user = await RequireActiveUserAsync(principal, ct);
-
-        if (!await modules.IsEnabledAsync(condominiumId, CondominiumModuleType.EmployeeManagement, ct))
-            throw new ForbiddenAppException("A Gestão de Funcionários não está habilitada para este condomínio.");
-
-        if (await SubManagerAccess.HasAsync(db, user.Id, condominiumId, SubManagerModule.EmployeeManagement, ct))
-            return new(user.Id, user.FullName, EmployeeManagementActorKind.Management);
-
-        var employee = await db.ManagementCompanyEmployees.AsNoTracking()
-            .SingleOrDefaultAsync(x => x.UserId == user.Id && x.IsActive, ct);
-        if (employee is not null)
-        {
-            var canDelegate = await modules.CanManagementCompanyAccessAsync(
-                condominiumId, employee.ManagementCompanyId, CondominiumModuleType.EmployeeManagement, ct);
-            var hasPermission = canDelegate && await db.ManagementCompanyEmployeeModulePermissions.AsNoTracking()
-                .AnyAsync(x => x.ManagementCompanyEmployeeId == employee.Id
-                    && x.CondominiumId == condominiumId
-                    && x.Module == CondominiumModuleType.EmployeeManagement
-                    && x.IsAllowed && x.RevokedAt == null, ct);
-            if (hasPermission) return new(user.Id, user.FullName, EmployeeManagementActorKind.ManagementCompany);
-        }
-
-        throw new ForbiddenAppException("Você não possui acesso à Gestão de Funcionários deste condomínio.");
+        var scope = await RequireAdministratorAsync(principal, ct);
+        if (!await db.Condominiums.AsNoTracking().AnyAsync(x => x.Id == condominiumId && x.ManagementCompanyId == scope.ManagementCompanyId && x.IsActive, ct))
+            throw new ForbiddenAppException("Condomínio fora da administradora atual.");
+        return new(scope.UserId, scope.FullName, EmployeeManagementActorKind.ManagementCompany);
     }
+
+    public async Task<(EmployeeManagementActor Actor, EmployeeDocumentBatch Batch)> RequireBatchAsync(
+        ClaimsPrincipal principal, Guid batchId, CancellationToken ct)
+    {
+        var scope = await RequireAdministratorAsync(principal, ct);
+        var batch = await db.EmployeeDocumentBatches.SingleOrDefaultAsync(x => x.Id == batchId
+            && x.ManagementCompanyId == scope.ManagementCompanyId, ct);
+        if (batch is null)
+            throw new ForbiddenAppException("Lote fora da administradora atual.");
+        return (new(scope.UserId, scope.FullName, EmployeeManagementActorKind.ManagementCompany), batch);
+    }
+
+    public async Task<(Guid UserId, Guid ManagementCompanyId, string FullName)> RequireAdministratorAsync(ClaimsPrincipal principal, CancellationToken ct)
+    {
+        var user = await RequireActiveUserAsync(principal, ct);
+        var employee = await db.ManagementCompanyEmployees.AsNoTracking().SingleOrDefaultAsync(x => x.UserId == user.Id && x.IsActive, ct);
+        if (employee is null || !await HasGlobalAccessAsync(employee.Id, employee.ManagementCompanyId, ct))
+            throw new ForbiddenAppException("Você não possui acesso à Gestão de Funcionários.");
+        return (user.Id, employee.ManagementCompanyId, user.FullName);
+    }
+
+    public async Task<bool> HasGlobalAccessAsync(Guid employeeId, Guid managementCompanyId, CancellationToken ct) =>
+        await db.ManagementCompanyModules.AsNoTracking().AnyAsync(x => x.ManagementCompanyId == managementCompanyId && x.Module == ManagementCompanyModuleType.EmployeeManagement && x.IsEnabled, ct)
+        && await db.ManagementCompanyEmployeeModuleGrants.AsNoTracking().AnyAsync(x =>
+            x.ManagementCompanyEmployeeId == employeeId
+            && x.Module == ManagementCompanyModuleType.EmployeeManagement
+            && x.IsAllowed && x.RevokedAt == null, ct);
 
     private async Task<ApplicationUser> RequireActiveUserAsync(ClaimsPrincipal principal, CancellationToken ct)
     {

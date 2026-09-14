@@ -1,19 +1,23 @@
 import { useEffect, useState } from 'react'
 import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
 import { createEmployee, listEmployees, setEmployeeStatus, updateEmployee, type Employee, type EmployeeInput } from './api'
+import { listEmployeeManagementCondominiums, type EmployeeManagementCondominium } from '../administrator/employeeManagement/api'
 import { PayslipDistribution } from '../employeeDocuments/PayslipDistribution'
 
-const blank: EmployeeInput = { fullName: '', jobTitle: '', phoneNumber: '', email: '', registrationNumber: '', admissionDate: '' }
+const blank: EmployeeInput = { condominiumId: '', fullName: '', jobTitle: '', phoneNumber: '', email: '', registrationNumber: '', admissionDate: '' }
 const errorMessage = (value: unknown) =>
   (value as { response?: { data?: { message?: string; title?: string } } })?.response?.data?.message
   ?? (value as { response?: { data?: { title?: string } } })?.response?.data?.title
   ?? 'Não foi possível salvar o funcionário.'
 
-export function EmployeesManager({ condominiumId }: { condominiumId: string }) {
+export function EmployeesManager() {
   const [tab, setTab] = useState<'employees' | 'payslips'>('employees')
+  const [selected, setSelected] = useState<string[]>([])
   const [items, setItems] = useState<Employee[]>([])
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('active')
+  const [condominiumId, setCondominiumId] = useState('')
+  const [condominiums, setCondominiums] = useState<EmployeeManagementCondominium[]>([])
   const [editing, setEditing] = useState<Employee | null>(null)
   const [form, setForm] = useState<EmployeeInput & { isActive: boolean }>({ ...blank, isActive: true })
   const [dialog, setDialog] = useState(false)
@@ -22,7 +26,7 @@ export function EmployeesManager({ condominiumId }: { condominiumId: string }) {
 
   const load = () => {
     setLoading(true)
-    return listEmployees(condominiumId, { search: search || undefined, status: status || undefined })
+    return listEmployees({ condominiumId: condominiumId || undefined, search: search || undefined, status: status || undefined })
       .then(setItems)
       .catch(() => setError('Não foi possível carregar os funcionários.'))
       .finally(() => setLoading(false))
@@ -30,6 +34,7 @@ export function EmployeesManager({ condominiumId }: { condominiumId: string }) {
   // The request intentionally reloads when the condominium, search or status filter changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void load() }, [condominiumId, search, status])
+  useEffect(() => { void listEmployeeManagementCondominiums().then(setCondominiums).catch(() => setError('Não foi possível carregar os condomínios.')) }, [])
 
   const open = (item?: Employee) => {
     setEditing(item ?? null)
@@ -37,22 +42,22 @@ export function EmployeesManager({ condominiumId }: { condominiumId: string }) {
     setError('')
     setForm(item
       ? {
-        fullName: item.fullName, jobTitle: item.jobTitle ?? '', phoneNumber: item.phoneNumber ?? '',
+        condominiumId: item.condominiumId, fullName: item.fullName, cpf: item.cpf ?? '', jobTitle: item.jobTitle ?? '', phoneNumber: item.phoneNumber ?? '',
         email: item.email ?? '', registrationNumber: item.registrationNumber ?? '',
         admissionDate: item.admissionDate ?? '', isActive: item.isActive,
       }
-      : { ...blank, isActive: true })
+      : { ...blank, condominiumId: condominiumId || condominiums[0]?.id || '', isActive: true })
   }
 
   const save = async () => {
     try {
       const input: EmployeeInput = {
-        fullName: form.fullName, jobTitle: form.jobTitle, phoneNumber: form.phoneNumber,
+        condominiumId: form.condominiumId, fullName: form.fullName, cpf: form.cpf, jobTitle: form.jobTitle, phoneNumber: form.phoneNumber,
         email: form.email, registrationNumber: form.registrationNumber, admissionDate: form.admissionDate,
       }
-      const saved = editing ? await updateEmployee(condominiumId, editing.id, input) : await createEmployee(condominiumId, input)
+      const saved = editing ? await updateEmployee(editing.id, input) : await createEmployee(input)
       const result = editing && editing.isActive !== form.isActive
-        ? await setEmployeeStatus(condominiumId, saved.id, form.isActive)
+        ? await setEmployeeStatus(saved.id, form.isActive)
         : saved
       setItems(old => editing ? old.map(x => x.id === result.id ? result : x) : [result, ...old])
       setDialog(false)
@@ -63,13 +68,16 @@ export function EmployeesManager({ condominiumId }: { condominiumId: string }) {
 
   const toggleStatus = async (item: Employee) => {
     try {
-      const updated = await setEmployeeStatus(condominiumId, item.id, !item.isActive)
+      const updated = await setEmployeeStatus(item.id, !item.isActive)
       setItems(old => old.map(x => x.id === updated.id ? updated : x))
     } catch (e) {
       setError(errorMessage(e))
     }
   }
 
+  const selectAll = () => setSelected(items.map(item => item.id))
+  const selectedCondominiumIds = [...new Set(items.filter(item => selected.includes(item.id)).map(item => item.condominiumId))]
+  const selectedCondominiumId = selected.length > 0 ? 'multi-condominium' : ''
   return (
     <Stack gap={2}>
       <Box display="flex" justifyContent="space-between" gap={2} flexWrap="wrap">
@@ -83,7 +91,9 @@ export function EmployeesManager({ condominiumId }: { condominiumId: string }) {
         <Tab value="employees" label="Funcionários" />
         <Tab value="payslips" label="Holerites" />
       </Tabs>
-      {tab === 'payslips' ? <PayslipDistribution condominiumId={condominiumId} /> : <>
+      {tab === 'payslips' ? (selectedCondominiumId
+        ? <PayslipDistribution selectedEmployeeIds={selected} />
+        : <Alert severity="info">Selecione funcionários de um único condomínio para distribuir holerites.</Alert>) : <>
       {error && <Alert severity="error">{error}</Alert>}
       <Stack direction={{ xs: 'column', sm: 'row' }} gap={1.5}>
         <TextField label="Buscar" value={search} onChange={e => setSearch(e.target.value)} fullWidth />
@@ -92,6 +102,14 @@ export function EmployeesManager({ condominiumId }: { condominiumId: string }) {
           <MenuItem value="inactive">Inativos</MenuItem>
           <MenuItem value="">Todos</MenuItem>
         </TextField>
+        <TextField select label="Condomínio" value={condominiumId} onChange={e => setCondominiumId(e.target.value)} sx={{ minWidth: 220 }}>
+          <MenuItem value="">Todos</MenuItem>
+          {condominiums.map(c => <MenuItem value={c.id} key={c.id}>{c.name}</MenuItem>)}
+        </TextField>
+      </Stack>
+      <Stack direction="row" gap={1} alignItems="center">
+        <Button size="small" onClick={selectAll}>Selecionar todos filtrados</Button>
+        <Typography variant="body2" color="text.secondary">{selected.length} selecionado(s)</Typography>
       </Stack>
       {loading
         ? <Alert severity="info">Carregando funcionários…</Alert>
@@ -101,10 +119,14 @@ export function EmployeesManager({ condominiumId }: { condominiumId: string }) {
             <Card key={item.id} variant="outlined">
               <CardContent>
                 <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2}>
+                  <Checkbox checked={selected.includes(item.id)} onChange={event => setSelected(current => event.target.checked ? [...new Set([...current, item.id])] : current.filter(id => id !== item.id))} inputProps={{ 'aria-label': `Selecionar ${item.fullName}` }} />
                   <Box>
                     <Typography fontWeight={800}>{item.fullName}</Typography>
                     {item.jobTitle && <Typography color="text.secondary">{item.jobTitle}</Typography>}
                     <Stack direction="row" flexWrap="wrap" gap={.75} mt={1}>
+                      <Chip size="small" label={condominiums.find(c => c.id === item.condominiumId)?.name ?? 'Condomínio'} />
+                      {item.cpf && <Chip size="small" label={`CPF ${item.cpf}`} />}
+                      {item.registrationNumber && <Chip size="small" label={`Matrícula ${item.registrationNumber}`} />}
                       {item.phoneNumber && <Chip size="small" label={item.phoneNumber} />}
                       {item.email && <Chip size="small" label={item.email} />}
                       <Chip size="small" color={item.isActive ? 'success' : 'default'} label={item.isActive ? 'Ativo' : 'Inativo'} />
@@ -123,6 +145,10 @@ export function EmployeesManager({ condominiumId }: { condominiumId: string }) {
         <DialogContent dividers>
           <Stack gap={2}>
             <TextField label="Nome completo" value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })} required fullWidth />
+            <TextField select label="Condomínio" value={form.condominiumId} onChange={e => setForm({ ...form, condominiumId: e.target.value })} required fullWidth>
+              {condominiums.map(c => <MenuItem value={c.id} key={c.id}>{c.name}</MenuItem>)}
+            </TextField>
+            <TextField label="CPF" value={form.cpf ?? ''} onChange={e => setForm({ ...form, cpf: e.target.value })} fullWidth />
             <TextField label="Função / cargo" value={form.jobTitle} onChange={e => setForm({ ...form, jobTitle: e.target.value })} fullWidth />
             <Stack direction={{ xs: 'column', sm: 'row' }} gap={1}>
               <TextField label="Telefone" value={form.phoneNumber} onChange={e => setForm({ ...form, phoneNumber: e.target.value })} fullWidth />

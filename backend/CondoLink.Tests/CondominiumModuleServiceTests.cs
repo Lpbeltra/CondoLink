@@ -40,9 +40,8 @@ public sealed class CondominiumModuleServiceTests : IAsyncLifetime
         foreach (var condominiumId in new[] { existing.Id, created.Id })
         {
             var modules = await service.GetModulesAsync(condominiumId, CancellationToken.None);
-            Assert.Equal(5, modules.Count);
-            Assert.All(modules.Where(x => x.Module != CondominiumModuleType.EmployeeManagement), x => Assert.True(x.IsEnabled));
-            Assert.False(modules.Single(x => x.Module == CondominiumModuleType.EmployeeManagement).IsEnabled);
+            Assert.Equal(4, modules.Count);
+            Assert.All(modules, x => Assert.True(x.IsEnabled));
         }
     }
 
@@ -59,29 +58,18 @@ public sealed class CondominiumModuleServiceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Delegation_is_scoped_to_condominium_and_current_management_company()
+    public async Task Employee_management_is_not_controlled_by_condominium_modules()
     {
         var companyX = new ManagementCompany("Administradora X", null, null, null, null);
-        var companyY = new ManagementCompany("Administradora Y", null, null, null, null);
         var condominiumA = Condominium("A");
-        var condominiumB = Condominium("B");
         condominiumA.SetManagementCompany(companyX.Id);
-        condominiumB.SetManagementCompany(companyX.Id);
-        db.AddRange(companyX, companyY, condominiumA, condominiumB);
+        db.AddRange(companyX, condominiumA);
         CondominiumModuleService.AddDefaults(db, condominiumA.Id, DateTime.UtcNow);
-        CondominiumModuleService.AddDefaults(db, condominiumB.Id, DateTime.UtcNow);
-        var employeeA = db.CondominiumModules.Local.Single(x => x.CondominiumId == condominiumA.Id && x.Module == CondominiumModuleType.EmployeeManagement);
-        employeeA.Set(true, true, DateTime.UtcNow);
         await db.SaveChangesAsync();
 
         var service = new CondominiumModuleService(db);
-        Assert.True(await service.CanManagementCompanyAccessAsync(condominiumA.Id, companyX.Id, CondominiumModuleType.EmployeeManagement, CancellationToken.None));
-        Assert.False(await service.CanManagementCompanyAccessAsync(condominiumB.Id, companyX.Id, CondominiumModuleType.EmployeeManagement, CancellationToken.None));
-
-        condominiumA.SetManagementCompany(companyY.Id);
-        await db.SaveChangesAsync();
-        Assert.False(await service.CanManagementCompanyAccessAsync(condominiumA.Id, companyX.Id, CondominiumModuleType.EmployeeManagement, CancellationToken.None));
-        Assert.True(await service.CanManagementCompanyAccessAsync(condominiumA.Id, companyY.Id, CondominiumModuleType.EmployeeManagement, CancellationToken.None));
+        var modules = await service.GetModulesAsync(condominiumA.Id, CancellationToken.None);
+        Assert.DoesNotContain(modules, x => x.Module == CondominiumModuleType.EmployeeManagement);
     }
 
     private static Condominium Condominium(string name) => new(name, null, null);

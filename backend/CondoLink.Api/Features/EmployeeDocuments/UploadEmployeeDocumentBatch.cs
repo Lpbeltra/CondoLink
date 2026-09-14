@@ -17,7 +17,7 @@ public static class UploadEmployeeDocumentBatch
 
     public static IEndpointRouteBuilder MapUploadEmployeeDocumentBatch(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapPost("/condominiums/{condominiumId:guid}/employees/documents/batches", HandleAsync)
+        endpoints.MapPost("/administrator/employees/documents/batches", HandleAsync)
             .RequireAuthorization()
             .DisableAntiforgery()
             .WithMetadata(new RequestSizeLimitAttribute(MaximumRequestSize))
@@ -27,11 +27,11 @@ public static class UploadEmployeeDocumentBatch
     }
 
     private static async Task<IResult> HandleAsync(
-        Guid condominiumId, HttpRequest request, System.Security.Claims.ClaimsPrincipal principal,
+        HttpRequest request, System.Security.Claims.ClaimsPrincipal principal,
         AppDbContext db, EmployeeManagement.EmployeeManagementAccessService access,
         LocalFileStorage storage, CancellationToken ct)
     {
-        var actor = await access.RequireAsync(principal, condominiumId, ct);
+        var actor = await access.RequireAdministratorAsync(principal, ct);
 
         if (!request.HasFormContentType)
             return Results.BadRequest(new { message = "Envie os arquivos usando multipart/form-data." });
@@ -44,6 +44,11 @@ public static class UploadEmployeeDocumentBatch
         if (!int.TryParse(form["competenceYear"], out var year) || year is < 2000 or > 2100)
             return Results.BadRequest(new { message = "Informe o ano de competência." });
         var documentType = EmployeeDocumentType.Payslip;
+        var selectedEmployeeIds = form["employeeIds"].Where(x => Guid.TryParse(x, out _)).Select(x => Guid.Parse(x!)).Distinct().ToArray();
+        if (selectedEmployeeIds.Length == 0) return Results.BadRequest(new { message = "Selecione ao menos um funcionário." });
+        var validEmployeeIds = await db.Employees.AsNoTracking().Where(x => selectedEmployeeIds.Contains(x.Id)
+            && db.Condominiums.Any(c => c.Id == x.CondominiumId && c.ManagementCompanyId == actor.ManagementCompanyId && c.IsActive)).Select(x => x.Id).ToArrayAsync(ct);
+        if (validEmployeeIds.Length != selectedEmployeeIds.Length) return Results.BadRequest(new { message = "A seleção de funcionários é inválida." });
 
         var files = form.Files.GetFiles("files");
         if (files.Count == 0) return Results.BadRequest(new { message = "Selecione ao menos um arquivo PDF." });
@@ -68,7 +73,7 @@ public static class UploadEmployeeDocumentBatch
             validatedContents.Add((result.Name!, content));
         }
 
-        var batch = new EmployeeDocumentBatch(condominiumId, documentType, month, year, actor.UserId, DateTime.UtcNow);
+        var batch = new EmployeeDocumentBatch(null, actor.ManagementCompanyId, documentType, month, year, actor.UserId, DateTime.UtcNow);
         var savedKeys = new List<string>();
         try
         {
@@ -76,12 +81,13 @@ public static class UploadEmployeeDocumentBatch
             foreach (var item in validatedContents)
             {
                 using var contentStream = new MemoryStream(item.Content);
-                var key = await storage.SaveEmployeeDocumentBatchFileAsync(condominiumId, batch.Id, contentStream, ".pdf", ct);
+                var key = await storage.SaveEmployeeDocumentBatchFileAsync(actor.ManagementCompanyId, batch.Id, contentStream, ".pdf", ct);
                 savedKeys.Add(key);
                 pendingUploads.Add(new PendingEmployeeDocumentUpload(key, item.OriginalFileName));
             }
             batch.AttachPendingUploads(JsonSerializer.Serialize(pendingUploads));
             db.EmployeeDocumentBatches.Add(batch);
+            db.EmployeeDocumentBatchEmployees.AddRange(validEmployeeIds.Select(id => new EmployeeDocumentBatchEmployee(batch.Id, id)));
             await db.SaveChangesAsync(ct);
         }
         catch
@@ -90,7 +96,7 @@ public static class UploadEmployeeDocumentBatch
             throw;
         }
 
-        return Results.Accepted($"/condominiums/{condominiumId}/employees/documents/batches/{batch.Id}",
+        return Results.Accepted($"/administrator/employees/documents/batches/{batch.Id}",
             new { batch.Id, Status = batch.Status.ToString() });
     }
 }

@@ -25,7 +25,8 @@ public static class CondominiumModuleEndpoints
         AppDbContext db, ILoggerFactory loggerFactory, HttpContext context, CancellationToken ct)
     {
         if (!await db.Condominiums.AnyAsync(x => x.Id == condominiumId, ct)) return Results.NotFound();
-        if (request.Modules.Any(x => !Enum.TryParse<CondominiumModuleType>(x.Module, true, out _)))
+        if (request.Modules.Any(x => !Enum.TryParse<CondominiumModuleType>(x.Module, true, out var type)
+            || type == CondominiumModuleType.EmployeeManagement))
             return Results.BadRequest(new { message = "Unknown module." });
         var now = DateTime.UtcNow;
         var logger = loggerFactory.CreateLogger("CondominiumModuleAudit");

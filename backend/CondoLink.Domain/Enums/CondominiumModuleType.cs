@@ -7,6 +7,6 @@ public enum CondominiumModuleType
     Documents = 2,
     Providers = 3,
     ManagementCompanyRequests = 4,
-    // Reserved: feature is intentionally not implemented in this release.
+    // Historical persisted value. It is never consulted by Employee Management.
     EmployeeManagement = 5
 }

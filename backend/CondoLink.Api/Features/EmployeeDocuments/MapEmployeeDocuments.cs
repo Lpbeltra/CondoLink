@@ -10,6 +10,7 @@ public static class MapEmployeeDocuments
         endpoints.MapUpdateEmployeeDocumentAssociation();
         endpoints.MapReplaceEmployeeDocumentFile();
         endpoints.MapConfirmEmployeeDocumentBatch();
+        endpoints.MapReopenEmployeeDocumentBatch();
         endpoints.MapPreviewEmployeeDocument();
         endpoints.MapEmployeeDocumentDistributionEndpoints();
         return endpoints;

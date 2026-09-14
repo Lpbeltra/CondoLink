@@ -31,15 +31,22 @@ public sealed class EmployeeDocumentProcessingService(
         {
             var uploads = JsonSerializer.Deserialize<PendingEmployeeDocumentUpload[]>(batch.PendingUploadsJson ?? "[]") ?? [];
             if (uploads.Length == 0) throw new InvalidOperationException("Batch has no pending uploads.");
+            batch.SetProgress("Extração", 0, uploads.Length);
+            await db.SaveChangesAsync(ct);
 
+            var selectedIds = await db.EmployeeDocumentBatchEmployees.AsNoTracking().Where(x => x.BatchId == batch.Id).Select(x => x.EmployeeId).ToArrayAsync(ct);
             var candidates = await db.Employees.AsNoTracking()
-                .Where(x => x.CondominiumId == batch.CondominiumId)
-                .Select(x => new EmployeeDocumentSplitter.Candidate(x.Id, x.FullName, x.NormalizedRegistrationNumber, x.JobTitle))
+                .Where(x => selectedIds.Contains(x.Id))
+                .Select(x => new { x.Id, x.CondominiumId, x.FullName, x.NormalizedRegistrationNumber, x.JobTitle, x.NormalizedCpf,
+                    Cnpj = db.Condominiums.Where(c => c.Id == x.CondominiumId).Select(c => c.Cnpj).FirstOrDefault() })
                 .ToArrayAsync(ct);
+            var candidateCondominiums = candidates.ToDictionary(x => x.Id, x => x.CondominiumId);
+            var splitterCandidates = candidates.Select(x => new EmployeeDocumentSplitter.Candidate(x.Id, x.FullName, x.NormalizedRegistrationNumber, x.JobTitle, x.NormalizedCpf, x.Cnpj)).ToArray();
 
             var created = new List<EmployeeDocument>();
             foreach (var upload in uploads)
             {
+                batch.SetProgress("Extração/OCR", batch.ProcessedItems, uploads.Length);
                 using var sourceStream = storage.OpenRead(upload.StorageKey)
                     ?? throw new InvalidOperationException("Uploaded file could not be found in storage.");
                 using var sourceBytes = new MemoryStream();
@@ -51,7 +58,7 @@ public sealed class EmployeeDocumentProcessingService(
                         $"Não foi possível extrair texto de \"{upload.OriginalFileName}\". O arquivo pode estar corrompido ou ser uma imagem sem texto reconhecível.");
 
                 var segments = EmployeeDocumentSplitter.Segment(
-                    withOcr.Select(page => (page.PageNumber!.Value, page.Text)).ToArray(), candidates);
+                    withOcr.Select(page => (page.PageNumber!.Value, page.Text)).ToArray(), splitterCandidates);
 
                 foreach (var segment in segments)
                 {
@@ -71,22 +78,26 @@ public sealed class EmployeeDocumentProcessingService(
                         .OrderBy(page => page.PageNumber)
                         .Select(page => page.Text));
                     var contentHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(segmentText)));
-                    var document = new EmployeeDocument(batch.CondominiumId, batch.Id, batch.DocumentType,
+                    Guid? documentCondominiumId = segment.EmployeeId is Guid employeeId && candidateCondominiums.TryGetValue(employeeId, out var employeeCondominiumId)
+                        ? employeeCondominiumId : null;
+                    var document = new EmployeeDocument(documentCondominiumId, batch.Id, batch.DocumentType,
                         batch.CompetenceMonth, batch.CompetenceYear, "pending", upload.OriginalFileName,
                         segment.PageStart, segment.PageEnd, contentHash, DateTime.UtcNow);
-                    var fileKey = await storage.SaveEmployeeDocumentAsync(batch.CondominiumId, batch.Id, document.Id, slicedBytes, ct);
+                    var fileKey = await storage.SaveEmployeeDocumentAsync(documentCondominiumId ?? batch.ManagementCompanyId!.Value, batch.Id, document.Id, slicedBytes, ct);
                     document.SetFileKey(fileKey);
                     document.ApplyAutomaticIdentification(segment.EmployeeId, segment.Confidence, segment.Method, DateTime.UtcNow);
                     created.Add(document);
                 }
+                batch.SetProgress("Separação/Identificação", batch.ProcessedItems + 1, uploads.Length);
+                await db.SaveChangesAsync(ct);
             }
 
             db.EmployeeDocuments.AddRange(created);
             batch.MarkReadyForReview();
             await db.SaveChangesAsync(ct);
             logger.LogInformation(
-                "Employee document batch processed. CondominiumId: {CondominiumId}; BatchId: {BatchId}; Documents: {DocumentCount}.",
-                batch.CondominiumId, batch.Id, created.Count);
+                "Employee document batch processed. ManagementCompanyId: {ManagementCompanyId}; BatchId: {BatchId}; Documents: {DocumentCount}.",
+                batch.ManagementCompanyId, batch.Id, created.Count);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -96,8 +107,8 @@ public sealed class EmployeeDocumentProcessingService(
             batch.MarkFailed(exception.Message.Length <= 500 ? exception.Message : "Falha ao processar os documentos enviados.");
             await db.SaveChangesAsync(ct);
             logger.LogWarning(exception,
-                "Employee document batch processing failed. CondominiumId: {CondominiumId}; BatchId: {BatchId}.",
-                batch.CondominiumId, batch.Id);
+                "Employee document batch processing failed. ManagementCompanyId: {ManagementCompanyId}; BatchId: {BatchId}.",
+                batch.ManagementCompanyId, batch.Id);
         }
     }
 
