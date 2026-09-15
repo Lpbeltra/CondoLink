@@ -1,5 +1,5 @@
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
-import { Alert, Box, Card, CardActionArea, CardContent, Stack, Typography } from '@mui/material'
+import { Alert, Box, ButtonBase, Stack, Typography } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
 import { formatRelativeDate, formatRequestProtocol } from '../presentation'
 import type { ManagementRequestItem } from '../types'
@@ -9,17 +9,18 @@ import { RequestStatusChip } from './RequestStatusChip'
 export function ManagementRequestCard({ request }: { request: ManagementRequestItem }) {
   const navigate = useNavigate()
   const unit = request.targetUnit && `${request.targetUnit.block ? `Bloco ${request.targetUnit.block} · ` : ''}${request.targetUnit.identifier}`
-  return <Card elevation={0} sx={{ boxShadow: 'none' }}><CardActionArea onClick={() => navigate(`/management/requests/${request.id}`)}>
-    <CardContent sx={{ p: { xs: 2.25, sm: 2.75 } }}>
-      <Box display="flex" gap={2} alignItems="flex-start">
-        <Box flex={1} minWidth={0}><Typography color="primary.main" fontSize=".76rem" fontWeight={800}>Atendimento #{formatRequestProtocol(request.id, request.protocol)}</Typography><Typography variant="h3" mt={.35}>{request.title}</Typography><Typography color="text.secondary" fontSize=".84rem" mt={.5}>{request.author.fullName} · {request.category.name}</Typography></Box>
-        <ChevronRightRoundedIcon color="action" />
+  return <Box component="article" sx={{ borderBottom: '1px solid', borderColor: 'divider', '&:last-child': { borderBottom: 0 } }}>
+    <ButtonBase onClick={() => navigate(`/management/requests/${request.id}`)} sx={{ width: '100%', display: 'block', textAlign: 'left', px: { xs: 1.25, sm: 1.5 }, py: 1.5, borderRadius: 1, '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: -2 } }}>
+      <Box display="flex" gap={1.5} alignItems="flex-start">
+        <Box flex={1} minWidth={0}>
+          <Typography variant="h3" sx={{ fontSize: '1rem', overflowWrap: 'anywhere' }}>{request.title}</Typography>
+          <Typography color="text.secondary" fontSize=".82rem" mt={.35} noWrap>{request.author.fullName} · {unit || 'Sem unidade relacionada'}</Typography>
+          <Stack direction="row" flexWrap="wrap" gap={.75} mt={1}>{<RequestStatusChip status={request.status} />}<RequestPriorityChip priority={request.priority} /></Stack>
+          {(request.hasUnreadResidentReply || request.hasUnreadResidentUpdate) && <Stack direction="row" gap={.75} mt={1} flexWrap="wrap">{request.hasUnreadResidentReply && <Alert severity="warning" sx={{ py: 0, px: 1, '& .MuiAlert-icon': { mr: .5 } }}>Morador respondeu</Alert>}{request.hasUnreadResidentUpdate && <Alert severity="info" sx={{ py: 0, px: 1, '& .MuiAlert-icon': { mr: .5 } }}>Atualizado pelo morador</Alert>}</Stack>}
+          <Stack direction="row" gap={1.5} mt={1} flexWrap="wrap"><Typography color="text.secondary" fontSize=".74rem">#{formatRequestProtocol(request.id, request.protocol)}</Typography><Typography color="text.secondary" fontSize=".74rem">{request.category.name}</Typography><Typography color="text.secondary" fontSize=".74rem">{formatRelativeDate(request.updatedAt)}</Typography>{request.condominiumName && <Typography color="text.secondary" fontSize=".74rem">{request.condominiumName}</Typography>}</Stack>
+        </Box>
+        <ChevronRightRoundedIcon color="action" sx={{ mt: .25, flexShrink: 0 }} />
       </Box>
-      <Stack direction="row" flexWrap="wrap" gap={1} mt={2}><RequestStatusChip status={request.status} /><RequestPriorityChip priority={request.priority} /></Stack>
-      {request.hasUnreadResidentReply && <Alert severity="warning" sx={{ mt: 1.5, py: 0 }}>Morador respondeu</Alert>}
-      {request.hasUnreadResidentUpdate && <Alert severity="info" sx={{ mt: 1.5, py: 0 }}>Atualizado pelo morador</Alert>}
-      <Typography color="primary.main" fontSize=".8rem" fontWeight={750} mt={1.5}>{request.condominiumName}</Typography>
-      <Box display="flex" justifyContent="space-between" gap={2} mt={2}><Typography color="text.secondary" fontSize=".8rem" noWrap>{unit || 'Sem unidade relacionada'}</Typography><Typography color="text.secondary" fontSize=".8rem" flexShrink={0}>{formatRelativeDate(request.updatedAt)}</Typography></Box>
-    </CardContent>
-  </CardActionArea></Card>
+    </ButtonBase>
+  </Box>
 }
