@@ -70,14 +70,14 @@ export function RequestManagementActions({ requestId, status, priority, agendaRe
   return <Box component="section" sx={{ mb: 2.5 }}>
     <Typography variant="h3">Ações de atendimento</Typography><Typography color="text.secondary" mt={.5}>Atualize a situação desta solicitação.</Typography>
     {success && <Alert severity="success" sx={{ mt: 2 }}>{success}</Alert>}
-    <Stack spacing={1} mt={2} sx={{ '& .MuiButton-root': { width: '100%', minWidth: 0, whiteSpace: 'normal', justifyContent: 'flex-start', textAlign: 'left' } }}>
-      {updateAllowed && <Button variant="contained" color="primary" onClick={() => { setError(''); setSuccess(''); setSuggestionError(''); setUpdateOpen(true) }}>Atualizar / enviar mensagem</Button>}
+    <Box mt={2} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1, '& .MuiButton-root': { width: '100%', minWidth: 0, whiteSpace: 'normal', justifyContent: 'flex-start', textAlign: 'left' }, '& > .MuiButton-root:first-of-type': { order: { xs: 1, sm: 0 }, gridRow: { sm: updateAllowed ? 2 : 1, xs: 'auto' } }, '& > .MuiButton-root:last-of-type': { order: { xs: 10, sm: 0 }, gridColumn: '1 / -1', gridRow: { sm: updateAllowed ? 4 : 3, xs: 'auto' } } }}>
+      {updateAllowed && <Box sx={{ gridColumn: '1 / -1' }}><Button variant="contained" color="primary" onClick={() => { setError(''); setSuccess(''); setSuggestionError(''); setUpdateOpen(true) }}>Atualizar / enviar mensagem</Button></Box>}
       {(actions.changeStatus || actions.reopen) && <Button variant="outlined" startIcon={actions.reopen ? <ReplayRoundedIcon /> : <EditRoundedIcon />} disabled={transitions.length === 0 || isSaving} onClick={() => openStatus(actions.reopen ? 'Open' : null)}>{actions.reopen ? 'Reabrir solicitação' : 'Alterar status'}</Button>}
-      {actions.changePriority && <Button variant="outlined" disabled={isSaving} onClick={() => { setError(''); setSuccess(''); setPriorityOpen(true) }}>Alterar prioridade</Button>}
+      {actions.changePriority && <Box sx={{ order: { xs: 2, sm: 0 } }}><Button variant="outlined" disabled={isSaving} onClick={() => { setError(''); setSuccess(''); setPriorityOpen(true) }}>Alterar prioridade</Button></Box>}
       {agendaReminder ? <Button variant="outlined" onClick={() => navigate('/management/agenda')}>Abrir lembrete{agendaReminder.isActive ? '' : ' concluído'}</Button> : status !== 'Resolved' && status !== 'Cancelled' && <Button variant="outlined" onClick={() => navigate(`/management/agenda?create=true&requestId=${requestId}`)}>Vincular lembrete</Button>}
-      {actions.resolve && <Button variant="outlined" color="success" startIcon={<CheckCircleOutlineRoundedIcon />} disabled={isSaving} onClick={() => openStatus(requestShortcutStatuses.resolve)}>Resolver</Button>}
-      {actions.cancel && <Button variant="outlined" color="error" startIcon={<CancelOutlinedIcon />} disabled={isSaving} onClick={() => openStatus(requestShortcutStatuses.cancel)}>Cancelar</Button>}
-    </Stack>
+      {actions.resolve && <Box sx={{ order: { xs: 3, sm: 0 }, gridRow: { sm: updateAllowed ? 3 : 2, xs: 'auto' } }}><Button variant="outlined" color="success" startIcon={<CheckCircleOutlineRoundedIcon />} disabled={isSaving} onClick={() => openStatus(requestShortcutStatuses.resolve)}>Resolver</Button></Box>}
+      {actions.cancel && <Box sx={{ order: { xs: 3, sm: 0 }, gridRow: { sm: updateAllowed ? 3 : 2, xs: 'auto' } }}><Button variant="outlined" color="error" startIcon={<CancelOutlinedIcon />} disabled={isSaving} onClick={() => openStatus(requestShortcutStatuses.cancel)}>Cancelar</Button></Box>}
+    </Box>
 
     <Dialog open={statusOpen} onClose={() => { if (!isSaving && !isSuggesting) closeStatus() }} fullWidth maxWidth="sm">
       <DialogTitle>{shortcut === 'Open' ? 'Reabrir solicitação' : shortcut === 'Resolved' ? 'Resolver solicitação' : shortcut === 'Cancelled' ? 'Cancelar solicitação' : 'Alterar status'}</DialogTitle>
