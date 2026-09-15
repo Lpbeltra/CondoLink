@@ -67,7 +67,7 @@ export function RequestManagementActions({ requestId, status, priority, agendaRe
   const suggestUpdate = async () => { if (!updateText.trim() || isSuggesting || updateText.length > 3000) return; const source = updateText; setIsSuggesting(true); setSuggestionError(''); try { const result = await suggestRequestStatusMessage(requestId, status, source.trim()); setUpdateSuggestion(result.suggestion); setUpdateSuggestionSource(source) } catch { setSuggestionError('Não foi possível gerar a sugestão. Você ainda pode enviar seu texto.') } finally { setIsSuggesting(false) } }
   const sendUpdate = async (content: string) => { if (!content.trim() || content.length > 3000 || isSaving) return; setIsSaving(true); setError(''); try { await createAdministrativeRequestUpdate(requestId, content.trim()); setUpdateOpen(false); setUpdateText(''); setUpdateSuggestion(''); await onUpdated(); setSuccess('Atualização enviada sem alterar o status.') } catch (requestError) { setError(friendlyError(requestError)) } finally { setIsSaving(false) } }
 
-  return <Box sx={{ mt: 3, pt: 2.5, borderTop: '1px solid', borderColor: 'divider' }}>
+  return <Box component="section" sx={{ mb: 2.5 }}>
     <Typography variant="h3">Ações de atendimento</Typography><Typography color="text.secondary" mt={.5}>Atualize a situação desta solicitação.</Typography>
     {success && <Alert severity="success" sx={{ mt: 2 }}>{success}</Alert>}
     <Stack spacing={1} mt={2} sx={{ '& .MuiButton-root': { width: '100%', minWidth: 0, whiteSpace: 'normal', justifyContent: 'flex-start', textAlign: 'left' } }}>
