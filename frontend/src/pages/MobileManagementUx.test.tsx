@@ -153,8 +153,8 @@ describe('mobile management hierarchy', () => {
 
   it('puts actionable dashboard indicators before historical metrics on mobile', async () => {
     renderPage(<ManagementReportsPage />)
-    const attention = await screen.findByRole('heading', { name: 'Atenção agora' })
-    const history = screen.getByRole('heading', { name: 'Resumo do período' })
+    const attention = await screen.findByRole('region', { name: 'Precisa da sua atenção' })
+    const history = screen.getByRole('region', { name: 'Operação' })
     expect(attention.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
