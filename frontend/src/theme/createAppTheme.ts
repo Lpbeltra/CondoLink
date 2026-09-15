@@ -33,15 +33,16 @@ export function createAppTheme(mode: ThemeMode): Theme {
       fontFamily:
         'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       h1: {
-        fontSize: 'clamp(1.75rem, 3vw, 2.25rem)',
-        fontWeight: 750,
-        lineHeight: 1.15,
-        letterSpacing: '-0.035em',
+        fontSize: 'clamp(1.75rem, 2.5vw, 2rem)',
+        fontWeight: 700,
+        lineHeight: 1.2,
+        letterSpacing: '-0.028em',
       },
-      h2: { fontSize: '1.5rem', fontWeight: 730, lineHeight: 1.25, letterSpacing: '-0.025em' },
-      h3: { fontSize: '1.125rem', fontWeight: 700 },
-      button: { fontWeight: 700, textTransform: 'none', letterSpacing: '-0.01em' },
-      body1: { lineHeight: 1.6 },
+      h2: { fontSize: '1.25rem', fontWeight: 680, lineHeight: 1.3, letterSpacing: '-0.018em' },
+      h3: { fontSize: '1rem', fontWeight: 650, lineHeight: 1.35 },
+      button: { fontWeight: 650, textTransform: 'none', letterSpacing: '-0.005em' },
+      body1: { fontSize: '.875rem', lineHeight: 1.55 },
+      body2: { fontSize: '.8125rem', lineHeight: 1.5 },
     },
     shape: { borderRadius: radii.lg },
     spacing: 8,
@@ -58,7 +59,7 @@ export function createAppTheme(mode: ThemeMode): Theme {
           // Tells the browser to render native controls/scrollbars for this mode.
           ':root': { colorScheme: mode },
           body: {
-            backgroundImage: `radial-gradient(circle at 90% -10%, ${t.ambient}, transparent 32%)`,
+            backgroundColor: t.background,
           },
           // Honour the OS reduced-motion preference globally.
           '@media (prefers-reduced-motion: reduce)': {
@@ -70,8 +71,8 @@ export function createAppTheme(mode: ThemeMode): Theme {
             },
           },
           '::selection': {
-            color: mode === 'light' ? '#10275f' : t.textPrimary,
-            background: mode === 'light' ? '#c9d7ff' : 'rgba(126, 166, 255, 0.35)',
+            color: t.primaryContrast,
+            background: t.primarySoft,
           },
         },
       },
@@ -81,11 +82,11 @@ export function createAppTheme(mode: ThemeMode): Theme {
           root: {
             minHeight: 44,
             borderRadius: radii.md,
-            paddingInline: 20,
+            paddingInline: 16,
             transition: `transform ${motion.fast}ms ease, background-color ${motion.fast}ms ease`,
             '&:active': { transform: 'translateY(1px)' },
             '&:focus-visible': {
-              outline: `3px solid ${t.primarySoft}`,
+              outline: `3px solid ${t.focus}`,
               outlineOffset: 2,
             },
           },
@@ -97,7 +98,7 @@ export function createAppTheme(mode: ThemeMode): Theme {
           root: {
             borderRadius: radii.md,
             backgroundColor: t.surface,
-            '&.Mui-focused': { boxShadow: `0 0 0 3px ${t.primarySoft}` },
+            '&.Mui-focused': { boxShadow: `0 0 0 3px ${t.focus}` },
           },
         },
       },
@@ -123,7 +124,9 @@ export function createAppTheme(mode: ThemeMode): Theme {
       MuiIconButton: {
         styleOverrides: {
           root: {
-            '&:focus-visible': { outline: `3px solid ${t.primarySoft}` },
+            minWidth: 44,
+            minHeight: 44,
+            '&:focus-visible': { outline: `3px solid ${t.focus}` },
           },
         },
       },
@@ -158,6 +161,19 @@ export function createAppTheme(mode: ThemeMode): Theme {
           tooltip: { fontSize: '0.8125rem', padding: '6px 10px' },
         },
       },
+      MuiListItemButton: {
+        styleOverrides: {
+          root: {
+            minHeight: 40,
+            borderRadius: radii.md,
+          },
+        },
+      },
+      MuiMenuItem: {
+        styleOverrides: { root: { minHeight: 40, borderRadius: radii.sm, marginInline: 4 } },
+      },
+      MuiDivider: { styleOverrides: { root: { borderColor: t.divider } } },
+      MuiAlert: { styleOverrides: { root: { borderRadius: radii.md } } },
     },
   })
 }

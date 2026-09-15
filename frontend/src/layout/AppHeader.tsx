@@ -70,15 +70,14 @@ export function AppHeader() {
         zIndex: theme.zIndex.drawer + 1,
         borderBottom: "1px solid",
         borderColor: "divider",
-        bgcolor: alpha(theme.palette.background.paper, 0.9),
-        backdropFilter: "blur(16px)",
+        bgcolor: alpha(theme.palette.background.paper, 0.97),
         pt: "env(safe-area-inset-top)",
       })}
     >
       <Toolbar
         sx={{
-          minHeight: { xs: 64, md: 72 },
-          px: { xs: 1.5, sm: 2, md: 3 },
+          minHeight: { xs: 60, md: 68 },
+          px: { xs: 1.25, sm: 2, md: 2.5 },
           minWidth: 0,
           gap: { xs: 1, sm: 1.5 },
         }}
@@ -135,7 +134,7 @@ export function AppHeader() {
                 height: 36,
                 bgcolor: "primary.main",
                 fontSize: ".8rem",
-                fontWeight: 750,
+                fontWeight: 700,
               }}
             >
               {initials}

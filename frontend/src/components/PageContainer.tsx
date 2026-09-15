@@ -15,7 +15,7 @@ export function PageContainer(props: BoxProps) {
       maxWidth={fullWidth ? 'none' : 1440}
       mx={fullWidth ? 0 : 'auto'}
       px={{ xs: 2, sm: 3, lg: 4 }}
-      py={{ xs: 3, md: 4 }}
+      py={{ xs: 2.5, md: 3 }}
       {...props}
     />
   )

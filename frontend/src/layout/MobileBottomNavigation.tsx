@@ -47,6 +47,7 @@ export function MobileBottomNavigation() {
         borderColor: "divider",
         pb: "env(safe-area-inset-bottom)",
         borderRadius: 0,
+        bgcolor: "background.paper",
       }}
     >
       <BottomNavigation
@@ -54,6 +55,7 @@ export function MobileBottomNavigation() {
         value={selectedPath}
         onChange={(_, value) => navigate(value)}
         showLabels
+        sx={{ minHeight: 58, '& .MuiBottomNavigationAction-root': { minWidth: 56, py: .5 }, '& .MuiBottomNavigationAction-label': { fontSize: '.68rem' } }}
       >
         {navigationItems.map(({ label, path, icon: Icon }) => (
           <BottomNavigationAction

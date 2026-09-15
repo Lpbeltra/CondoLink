@@ -23,6 +23,7 @@ export function OverwatchMobileNavigation() {
         borderColor: 'divider',
         pb: 'env(safe-area-inset-bottom)',
         borderRadius: 0,
+        bgcolor: 'background.paper',
       }}
     >
       <BottomNavigation
@@ -30,6 +31,7 @@ export function OverwatchMobileNavigation() {
         value={getOverwatchSelectedPath(location.pathname)}
         onChange={(_, value) => navigate(value)}
         showLabels
+        sx={{ minHeight: 58, '& .MuiBottomNavigationAction-root': { minWidth: 56, py: .5 }, '& .MuiBottomNavigationAction-label': { fontSize: '.68rem' } }}
       >
         {overwatchNavigationItems.map(({ label, path, icon: Icon }) => (
           <BottomNavigationAction

@@ -23,7 +23,7 @@ export function OverwatchSidebar() {
         },
       }}
     >
-      <Toolbar sx={{ minHeight: 'calc(72px + env(safe-area-inset-top)) !important', px: 3, pt: 'env(safe-area-inset-top)' }}><Brand /></Toolbar>
+      <Toolbar sx={{ minHeight: 'calc(68px + env(safe-area-inset-top)) !important', px: 2.5, pt: 'env(safe-area-inset-top)' }}><Brand /></Toolbar>
       <Box display="flex" flexDirection="column" flex={1}>
       <List
         component="nav"
@@ -37,7 +37,7 @@ export function OverwatchSidebar() {
             to={path}
             end={path === '/overwatch'}
             sx={{
-              borderRadius: 2.5,
+              borderRadius: 1,
               mb: .5,
               color: 'text.secondary',
               '&.active': {
@@ -58,7 +58,7 @@ export function OverwatchSidebar() {
       {condominiumCount > 0 && (
         <Box mt="auto" px={1.5} pb={2}>
           <Divider sx={{ mb: 1.5 }} />
-          <ListItemButton component={NavLink} to={managementEntryPath} sx={{ borderRadius: 2.5, color: 'text.secondary' }}>
+          <ListItemButton component={NavLink} to={managementEntryPath} sx={{ borderRadius: 1, color: 'text.secondary' }}>
             <ListItemIcon sx={{ minWidth: 40, color: 'inherit' }}><ArrowBackRoundedIcon /></ListItemIcon>
             <ListItemText primary="Voltar para a gestão" primaryTypographyProps={{ fontWeight: 700, fontSize: '.875rem' }} />
           </ListItemButton>

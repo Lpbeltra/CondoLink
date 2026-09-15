@@ -21,8 +21,8 @@ export function OverwatchLayout() {
         }}
       >
         <Toolbar sx={{ minHeight: {
-          xs: 'calc(64px + env(safe-area-inset-top)) !important',
-          md: 'calc(72px + env(safe-area-inset-top)) !important',
+          xs: 'calc(60px + env(safe-area-inset-top)) !important',
+          md: 'calc(68px + env(safe-area-inset-top)) !important',
         } }} />
         <PageContainerScope fullWidth>
           <Suspense fallback={<Skeleton variant="rounded" height={240} sx={{ m: 2 }} />}>

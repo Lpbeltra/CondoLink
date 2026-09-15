@@ -46,8 +46,8 @@ export interface ColorTokens {
   info: string
   /** Overlay behind modals and drawers. */
   scrim: string
-  /** Ambient decorative wash on the app background. */
-  ambient: string
+  /** Keyboard focus ring. */
+  focus: string
 }
 
 const lightColors: ColorTokens = {
@@ -70,7 +70,7 @@ const lightColors: ColorTokens = {
   error: '#c62b39',
   info: '#1257c3',
   scrim: 'rgba(15, 23, 42, 0.5)',
-  ambient: 'rgba(31, 94, 255, 0.08)',
+  focus: 'rgba(31, 94, 255, 0.28)',
 }
 
 const darkColors: ColorTokens = {
@@ -95,7 +95,7 @@ const darkColors: ColorTokens = {
   error: '#ff8a95',
   info: '#7fb2ff',
   scrim: 'rgba(3, 6, 12, 0.66)',
-  ambient: 'rgba(126, 166, 255, 0.10)',
+  focus: 'rgba(126, 166, 255, 0.38)',
 }
 
 export const palettes: Record<ThemeMode, ColorTokens> = {
@@ -125,7 +125,8 @@ export const elevations: Record<ThemeMode, readonly string[]> = {
 }
 
 /** Shared spacing/mo­tion primitives — identical across modes. */
-export const radii = { sm: 8, md: 12, lg: 14, xl: 18 } as const
+/** Small, deliberate radius scale; rounded is reserved for actual surfaces. */
+export const radii = { sm: 6, md: 8, lg: 10, xl: 12 } as const
 
 export const motion = {
   /** Micro-interactions. */

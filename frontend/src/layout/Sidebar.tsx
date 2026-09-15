@@ -6,6 +6,7 @@ import {
   ListItemIcon,
   ListItemText,
   Toolbar,
+  Typography,
 } from "@mui/material";
 import { NavLink } from "react-router-dom";
 import { Brand } from "../components/Brand";
@@ -17,7 +18,14 @@ import { useAdministrator } from "../administrator/AdministratorContext";
 import BusinessRoundedIcon from "@mui/icons-material/BusinessRounded";
 import BadgeRoundedIcon from "@mui/icons-material/BadgeRounded";
 
-export const drawerWidth = 248;
+export const drawerWidth = 232;
+
+function navigationGroup(path: string) {
+  if (path === "/management/dashboard" || path === "/requests" || path === "/management/requests" || path === "/management/agenda") return "OPERAÇÃO";
+  if (path === "/management/service-providers" || path === "/management/assistant" || path === "/management/documents") return "RECURSOS";
+  if (path === "/management/administrator" || path === "/management/units" || path.startsWith("/administrator/")) return "ADMINISTRAÇÃO";
+  return "SISTEMA";
+}
 
 export function Sidebar() {
   const { currentCondominium } = useCondominium();
@@ -63,7 +71,7 @@ export function Sidebar() {
         },
       }}
     >
-      <Toolbar sx={{ minHeight: "calc(72px + env(safe-area-inset-top)) !important", px: 3, pt: "env(safe-area-inset-top)" }}>
+      <Toolbar sx={{ minHeight: "calc(68px + env(safe-area-inset-top)) !important", px: 2.5, pt: "env(safe-area-inset-top)" }}>
         <Box
           component={NavLink}
           to={
@@ -82,32 +90,32 @@ export function Sidebar() {
       <List
         component="nav"
         aria-label="Navegação principal"
-        sx={{ px: 1.5, pt: 2 }}
+        sx={{ px: 1.25, pt: 1.5 }}
       >
-        {navigationItems.map(({ label, path, icon: Icon }) => (
-          <ListItemButton
-            key={path}
-            component={NavLink}
-            to={path}
-            sx={{
-              borderRadius: 2.5,
-              mb: 0.5,
-              color: "text.secondary",
-              "&.active": {
-                bgcolor: "rgba(31,94,255,.09)",
-                color: "primary.main",
-              },
-              "&:hover": { bgcolor: "rgba(31,94,255,.06)" },
-            }}
-          >
-            <ListItemIcon sx={{ minWidth: 40, color: "inherit" }}>
-              <Icon />
-            </ListItemIcon>
-            <ListItemText
-              primary={label}
-              primaryTypographyProps={{ fontWeight: 700, fontSize: ".925rem" }}
-            />
-          </ListItemButton>
+        {Array.from(new Set(navigationItems.map((item) => navigationGroup(item.path))).values()).map((group) => (
+          <Box key={group} sx={{ mb: 1.5 }}>
+            <Typography component="div" variant="overline" color="text.secondary" sx={{ px: 1.5, mb: .5, display: "block", fontSize: ".65rem", letterSpacing: ".12em", fontWeight: 800 }}>
+              {group}
+            </Typography>
+            {navigationItems.filter((item) => navigationGroup(item.path) === group).map(({ label, path, icon: Icon }) => (
+              <ListItemButton
+                key={path}
+                component={NavLink}
+                to={path}
+                sx={{
+                  mb: 0.25,
+                  color: "text.secondary",
+                  position: "relative",
+                  "&::before": { content: '""', position: "absolute", left: 0, top: 8, bottom: 8, width: 3, borderRadius: 2, bgcolor: "transparent" },
+                  "&.active": { bgcolor: "action.selected", color: "primary.main", "&::before": { bgcolor: "primary.main" } },
+                  "&:hover": { bgcolor: "action.hover" },
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 36, color: "inherit" }}><Icon fontSize="small" /></ListItemIcon>
+                <ListItemText primary={label} primaryTypographyProps={{ fontWeight: 650, fontSize: ".875rem" }} />
+              </ListItemButton>
+            ))}
+          </Box>
         ))}
       </List>
     </Drawer>

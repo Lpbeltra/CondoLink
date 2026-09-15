@@ -117,8 +117,8 @@ export function AppShell() {
         <Toolbar
           sx={{
             minHeight: {
-              xs: "calc(64px + env(safe-area-inset-top)) !important",
-              md: "calc(72px + env(safe-area-inset-top)) !important",
+              xs: "calc(60px + env(safe-area-inset-top)) !important",
+              md: "calc(68px + env(safe-area-inset-top)) !important",
             },
           }}
         />
