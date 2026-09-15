@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { Alert, Box, Button, Card, CardContent, CircularProgress, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, CircularProgress, Stack, TextField, Typography } from '@mui/material'
 import { createInternalNote, deleteInternalNote, editInternalNote, listInternalNotes, type RequestInternalNote } from '../internalNotes'
 import { formatDateTime, getRequestError } from '../presentation'
 import { useVisiblePolling } from '../../hooks/useVisiblePolling'
@@ -50,7 +50,7 @@ export function RequestInternalNotes({ requestId, onChanged }: { requestId: stri
     })
   }
 
-  return <Card elevation={0} sx={{ mt: 3 }}><CardContent sx={{ p: { xs: 2.5, sm: 4 } }}>
+  return <Box component="section" sx={{ mt: 2.5, pt: 2.5, borderTop: '1px solid', borderColor: 'divider' }}>
     <Typography variant="h2" mb={.5}>Notas internas</Typography>
     <Typography color="text.secondary" mb={2}>Visíveis apenas para a gestão autorizada deste atendimento.</Typography>
     {error && <Alert severity="error" sx={{ mb: 2 }} action={<Button color="inherit" disabled={busy} onClick={() => void load()}>Atualizar</Button>}>{error}</Alert>}
@@ -84,5 +84,5 @@ export function RequestInternalNotes({ requestId, onChanged }: { requestId: stri
         </>}
       </Box>)}</Stack>
     </>}
-  </CardContent></Card>
+  </Box>
 }

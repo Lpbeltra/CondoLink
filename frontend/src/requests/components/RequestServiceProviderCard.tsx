@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, CardContent, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import { listRequestServiceProviders, setRequestServiceProvider, type ServiceProviderOption } from '../api'
 import type { ProviderPaymentRequestItem, ServiceProvider, ServiceProviderHistoryItem } from '../types'
 import { ProviderWhatsAppDialog } from './ProviderWhatsAppDialog'
@@ -40,7 +40,7 @@ export function RequestServiceProviderCard({ requestId, status, current, history
   if (!current && (status !== 'WaitingForThirdParty' || options.length === 0)) return null
 
   return <>
-    <Card elevation={0} sx={{ mt: 3 }}><CardContent>
+    <Box component="section" sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
       <Typography variant="h2">Prestador</Typography>
       {current && <>
         <Typography color="text.secondary" mt={.5}>
@@ -64,7 +64,7 @@ export function RequestServiceProviderCard({ requestId, status, current, history
       {paymentFeedback && <Alert severity="success" sx={{ mt: 1 }}>Pagamento solicitado à administradora ({paymentFeedback}).</Alert>}
       {paymentRequests.length > 0 && <Typography variant="caption" color="text.secondary" display="block" mt={1}>Pagamento solicitado à administradora · {paymentRequests.length} solicitação(ões) relacionada(s).</Typography>}
       {history.length > 0 && <Typography variant="caption" color="text.secondary" display="block" mt={1}>Histórico: {history.length} evento(s)</Typography>}
-    </CardContent></Card>
+    </Box>
     {contactOpen && current && <ProviderWhatsAppDialog requestId={requestId} provider={current} onClose={() => setContactOpen(false)} />}
     {paymentOpen && current && <ProviderPaymentDialog requestId={requestId} provider={current} requestTitle={requestTitle} condominium={condominium} unit={unit} onClose={() => setPaymentOpen(false)} onCreated={async identifier => { setPaymentFeedback(identifier); await onUpdated() }} />}
     <Dialog open={unlinkOpen} onClose={saving ? undefined : () => setUnlinkOpen(false)} fullWidth maxWidth="xs">

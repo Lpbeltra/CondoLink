@@ -41,8 +41,7 @@ export function RequestConversation({ requestId, status, messages, onMessageCrea
         {orderedMessages.length === 0 && <Typography color="text.secondary">Ainda não há mensagens neste atendimento.</Typography>}
         {orderedMessages.map((message) => (
           <Box key={message.id} component="article" aria-label={`Mensagem ${message.author.isManager ? 'da gestão' : 'do morador'}`}
-            sx={{ borderLeft: '3px solid', borderColor: getUpdateMarkerColor(message), borderRadius: 1,
-              bgcolor: message.author.isManager ? 'action.hover' : 'background.paper', p: { xs: 1.5, sm: 2 }, minWidth: 0 }}>
+            sx={{ borderLeft: '2px solid', borderLeftColor: getUpdateMarkerColor(message), borderBottom: '1px solid', borderBottomColor: 'divider', p: { xs: 1.25, sm: 1.5 }, minWidth: 0, '&:last-child': { borderBottom: 0 } }}>
             <Typography fontWeight={750} fontSize=".8rem">{message.author.isManager ? 'Gestão' : 'Morador'} · {message.author.fullName}</Typography>
             <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.7, my: 1 }}>{message.content}</Typography>
             <Typography color="text.secondary" fontSize=".72rem">{formatDateTime(message.createdAt)} <WhatsAppDeliveryIndicator delivery={message.whatsAppDelivery} /></Typography>

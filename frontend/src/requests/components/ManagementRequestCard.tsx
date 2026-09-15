@@ -1,14 +1,14 @@
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import { Alert, Box, ButtonBase, Stack, Typography } from '@mui/material'
 import { useNavigate } from 'react-router-dom'
-import { formatRelativeDate, formatRequestProtocol } from '../presentation'
+import { formatRelativeDate, formatRequestProtocol, formatTargetUnit } from '../presentation'
 import type { ManagementRequestItem } from '../types'
 import { RequestPriorityChip } from './RequestPriorityChip'
 import { RequestStatusChip } from './RequestStatusChip'
 
 export function ManagementRequestCard({ request }: { request: ManagementRequestItem }) {
   const navigate = useNavigate()
-  const unit = request.targetUnit && `${request.targetUnit.block ? `Bloco ${request.targetUnit.block} · ` : ''}${request.targetUnit.identifier}`
+  const unit = formatTargetUnit(request.targetUnit)
   return <Box component="article" sx={{ borderBottom: '1px solid', borderColor: 'divider', '&:last-child': { borderBottom: 0 } }}>
     <ButtonBase onClick={() => navigate(`/management/requests/${request.id}`)} sx={{ width: '100%', display: 'block', textAlign: 'left', px: { xs: 1.25, sm: 1.5 }, py: 1.5, borderRadius: 1, '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: -2 } }}>
       <Box display="flex" gap={1.5} alignItems="flex-start">

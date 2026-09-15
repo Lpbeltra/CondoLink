@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { RequestListItem, RequestPriority, RequestStatus } from './types'
+import type { RequestListItem, RequestPriority, RequestStatus, TargetUnit } from './types'
 
 export const statusPresentation: Record<RequestStatus, { label: string; color: 'info' | 'warning' | 'secondary' | 'success' | 'error' | 'default' }> = {
   Open: { label: 'Aberta', color: 'info' },
@@ -24,6 +24,12 @@ const dateTimeFormatter = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short',
 export function formatDate(value: string) { return dateFormatter.format(new Date(value)) }
 export function formatRequestProtocol(id: string, protocol?: string) {
   return (protocol || id.replace(/-/g, '').slice(0, 8)).toUpperCase()
+}
+export function formatTargetUnit(unit: TargetUnit | null | undefined) {
+  if (!unit) return ''
+  const block = unit.block?.trim() ?? ''
+  const blockLabel = block && /^bloco\b/i.test(block) ? block : block ? `Bloco ${block}` : ''
+  return [blockLabel, unit.identifier.trim()].filter(Boolean).join(' · ')
 }
 export function formatDateTime(value: string) { return dateTimeFormatter.format(new Date(value)).replace(',', ' às') }
 

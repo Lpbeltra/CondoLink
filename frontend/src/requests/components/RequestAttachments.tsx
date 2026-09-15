@@ -9,8 +9,6 @@ import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -206,8 +204,7 @@ export function RequestAttachments({
   }
 
   return (
-    <Card elevation={0} sx={{ mt: 3 }}>
-      <CardContent sx={{ p: { xs: 2.5, sm: 4 } }}>
+    <Box component="section" sx={{ mt: 2.5, pt: 2.5, borderTop: '1px solid', borderColor: 'divider' }}>
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
           justifyContent="space-between"
@@ -460,8 +457,6 @@ export function RequestAttachments({
             ))}
           </Box>
         ) : null}
-      </CardContent>
-
       <Dialog
         open={Boolean(dialogUrl)}
         onClose={closePreview}
@@ -528,6 +523,6 @@ export function RequestAttachments({
           </Button>
         </DialogActions>
       </Dialog>
-    </Card>
+    </Box>
   )
 }

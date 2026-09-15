@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AxiosError } from 'axios'
-import { allowedStatusTransitions, canSendMessage, filterRequestsByCondominium, formatRelativeDate, formatResidentPhone, getRequestError, priorityPresentation, statusPresentation } from './presentation'
+import { allowedStatusTransitions, canSendMessage, filterRequestsByCondominium, formatRelativeDate, formatResidentPhone, formatTargetUnit, getRequestError, priorityPresentation, statusPresentation } from './presentation'
 import type { RequestListItem } from './types'
 
 const request = (id: string, condominiumId: string): RequestListItem => ({ id, condominiumId, category: { id: 'category', name: 'Manutenção' }, targetUnit: null, title: id, status: 'Open', priority: 'Normal', createdAt: '2026-07-16T12:00:00Z', updatedAt: '2026-07-16T12:00:00Z', resolvedAt: null })
@@ -27,6 +27,11 @@ describe('request presentation', () => {
     expect(formatResidentPhone('+5511999990001')).toBe('+55 (11) 99999-0001')
     expect(formatResidentPhone('+1 212 555 1234')).toBe('+1 212 555 1234')
     expect(formatResidentPhone(null)).toBe('Não informado')
+  })
+
+  it('does not duplicate the Bloco prefix in request unit labels', () => {
+    expect(formatTargetUnit({ id: 'unit', block: 'Bloco 2', identifier: '206' })).toBe('Bloco 2 · 206')
+    expect(formatTargetUnit({ id: 'unit', block: '2', identifier: '206' })).toBe('Bloco 2 · 206')
   })
 
   it('blocks messages for both closed request states', () => {
