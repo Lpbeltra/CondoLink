@@ -251,6 +251,7 @@ public static class CondominiumAssistantEndpoints
         // Same flat source contract as JSON and SSE answer responses. Reopening a
         // conversation must not turn persisted sources into a nested shape.
         var messages = messageRows.Select(x => new { x.Id, Role = x.Role.ToString(), x.Content, x.CreatedAt,
+            OperationalReferences = ParseOperationalReferences(x.SourcesJson),
             Sources = ParseSources(x.SourcesJson).Select(source =>
             {
                 availableDocuments.TryGetValue(source.DocumentId, out var current);
@@ -298,7 +299,7 @@ public static class CondominiumAssistantEndpoints
             conversation.Touch();
             await db.SaveChangesAsync(ct);
             var result = await assistant.AskAsync(conversation, question, ct, executionId);
-            db.CondominiumAssistantMessages.Add(new(conversationId, CondominiumAssistantRole.Assistant, result.Answer, JsonSerializer.Serialize(result.Sources, AssistantJsonOptions)));
+            db.CondominiumAssistantMessages.Add(new(conversationId, CondominiumAssistantRole.Assistant, result.Answer, SerializeReferences(result)));
             await db.SaveChangesAsync(ct); return Results.Ok(result);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -331,9 +332,9 @@ public static class CondominiumAssistantEndpoints
             var result = await assistant.AskAsync(conversation, question, ct, executionId);
             db.CondominiumAssistantMessages.Add(new(conversation.Id,
                 CondominiumAssistantRole.Assistant, result.Answer,
-                JsonSerializer.Serialize(result.Sources, AssistantJsonOptions)));
+                SerializeReferences(result)));
             conversation.Touch(); await db.SaveChangesAsync(ct);
-            return Results.Ok(new { conversation, result.Answer, result.Sources });
+            return Results.Ok(new { conversation, result.Answer, result.Sources, result.OperationalReferences });
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -374,7 +375,7 @@ public static class CondominiumAssistantEndpoints
                 ct, executionId);
 
             db.CondominiumAssistantMessages.Add(new(conversation.Id, CondominiumAssistantRole.Assistant,
-                result.Answer, JsonSerializer.Serialize(result.Sources, AssistantJsonOptions)));
+                result.Answer, SerializeReferences(result)));
             conversation.Touch();
             await db.SaveChangesAsync(ct);
 
@@ -383,6 +384,7 @@ public static class CondominiumAssistantEndpoints
                 conversation,
                 answer = result.Answer,
                 sources = result.Sources,
+                operationalReferences = result.OperationalReferences,
             });
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -446,12 +448,51 @@ public static class CondominiumAssistantEndpoints
         try
         {
             using var document = JsonDocument.Parse(json);
-            if (document.RootElement.ValueKind != JsonValueKind.Array) return [];
-            return document.RootElement.EnumerateArray().Select(NormalizeSource)
+            var items = document.RootElement.ValueKind == JsonValueKind.Array
+                ? document.RootElement.EnumerateArray().ToArray()
+                : document.RootElement.TryGetProperty("sources", out var sources) && sources.ValueKind == JsonValueKind.Array
+                    ? sources.EnumerateArray().ToArray() : [];
+            return items.Select(NormalizeSource)
                 .Where(source => source is not null).Cast<AssistantSource>().ToArray();
         }
         catch (JsonException) { return []; }
     }
+
+    internal static AssistantOperationalReference[] ParseOperationalReferences(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (!document.RootElement.TryGetProperty("operationalReferences", out var values)
+                || values.ValueKind != JsonValueKind.Array) return [];
+            return values.EnumerateArray().Select(item =>
+            {
+                var type = String(item, "type");
+                var id = String(item, "id");
+                var label = String(item, "label");
+                return type is not null && Guid.TryParse(id, out var parsed) && label is not null
+                    ? new AssistantOperationalReference(type, parsed, label, OperationalHref(type, parsed)) : null;
+            }).Where(x => x is not null).Cast<AssistantOperationalReference>().ToArray();
+        }
+        catch (JsonException) { return []; }
+    }
+
+    private static string? OperationalHref(string type, Guid id) => type switch
+    {
+        "request" => $"/requests/{id}",
+        "reminder" => $"/management/agenda?reminderId={id}",
+        "service_provider" => null,
+        "management_company_request" => $"/management-company-requests/{id}",
+        "unit" when id != Guid.Empty => $"/management/units/{id}",
+        _ => null
+    };
+
+    private static string SerializeReferences(AssistantAnswer answer) => JsonSerializer.Serialize(new
+    {
+        sources = answer.Sources,
+        operationalReferences = answer.OperationalReferences ?? []
+    }, AssistantJsonOptions);
 
     private static AssistantSource? NormalizeSource(JsonElement item)
     {

@@ -1,12 +1,13 @@
 import { getStoredToken } from '../auth/authStorage'
 import { getErrorMessageForStatus } from '../services/api'
-import type { AssistantConversation, AssistantSource } from './api'
+import type { AssistantConversation, AssistantOperationalReference, AssistantSource } from './api'
 
 const baseURL = import.meta.env.VITE_API_URL || '/api'
 
 export interface AssistantStreamResult {
   answer: string
   sources: AssistantSource[]
+  operationalReferences?: AssistantOperationalReference[]
   conversation?: AssistantConversation
 }
 
@@ -64,6 +65,7 @@ export async function streamAssistant(
       answer: string
       sources: AssistantSource[]
       conversation?: AssistantConversation
+      operationalReferences?: AssistantOperationalReference[]
     }
     const sources = canonicalSources(data.sources)
     handlers.onSources?.(sources)
@@ -120,10 +122,13 @@ function processFrame(frame: string, handlers: AssistantStreamHandlers) {
   if (eventName === 'sources') handlers.onSources?.(canonicalSources(record.sources))
   else if (eventName === 'token') handlers.onToken?.((record.delta as string) ?? '')
   else if (eventName === 'done') {
+    const operationalReferences = Array.isArray(record.operationalReferences)
+      ? record.operationalReferences as AssistantOperationalReference[] : []
     handlers.onDone?.({
       answer: (record.answer as string) ?? '',
       sources: canonicalSources(record.sources),
       conversation: record.conversation as AssistantConversation | undefined,
+      ...(operationalReferences.length > 0 ? { operationalReferences } : {}),
     })
   } else if (eventName === 'error') {
     handlers.onError?.((record.message as string) ?? getErrorMessageForStatus(undefined))

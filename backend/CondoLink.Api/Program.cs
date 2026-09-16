@@ -107,6 +107,7 @@ builder.Services.AddHttpClient<IDocumentOcrService, OpenAiDocumentOcrService>((s
 .AddOpenAiResilience("openai-document-ocr");
 builder.Services.AddScoped<CondominiumDocumentProcessor>();
 builder.Services.AddSingleton<AssistantExecutionMetricWriter>();
+builder.Services.AddScoped<AssistantOperationalTools>();
 builder.Services.AddHttpClient<CondominiumAssistantService>((services, client) =>
 {
     var settings = services.GetRequiredService<

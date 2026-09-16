@@ -55,4 +55,21 @@ describe("AssistantSources", () => {
     expect(screen.getByText("Ata Assembleia 09-04-2026.pdf · pág. 1")).toBeInTheDocument();
     expect(screen.queryByText(/s3-68f8e30b94f3b/)).not.toBeInTheDocument();
   });
+
+  it("renders safe operational references as links", () => {
+    render(<AssistantSources onDownload={vi.fn()} sources={[]} operationalReferences={[
+      { type: "request", id: "request-1", label: "Atendimento #123", href: "/requests/request-1" },
+      { type: "management_company", id: "company-1", label: "Administradora", href: null },
+    ]} />);
+
+    expect(screen.getByRole("link", { name: "Atendimento #123 →" })).toHaveAttribute("href", "/requests/request-1");
+    expect(screen.getByText("Administradora")).toBeInTheDocument();
+    expect(screen.getByText("Relacionado")).toBeInTheDocument();
+  });
+
+  it("keeps documentary sources under a separate heading", () => {
+    render(<AssistantSources onDownload={vi.fn()} sources={[source("doc", "Regimento.pdf", 4, "S1")]} />);
+    expect(screen.getByText("Fontes")).toBeInTheDocument();
+    expect(screen.queryByText("Relacionado")).not.toBeInTheDocument();
+  });
 });

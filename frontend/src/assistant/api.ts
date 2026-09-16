@@ -34,6 +34,12 @@ export interface AssistantSource {
   documentExists?: boolean;
   documentCurrentlyActive?: boolean;
 }
+export interface AssistantOperationalReference {
+  type: string;
+  id: string;
+  label: string;
+  href: string | null;
+}
 export interface AssistantConversation {
   id: string;
   title: string;
@@ -48,6 +54,7 @@ export interface AssistantMessage {
   content: string;
   createdAt: string;
   sources: AssistantSource[];
+  operationalReferences?: AssistantOperationalReference[];
 }
 export interface ConversationDetails {
   conversation: AssistantConversation;
@@ -142,6 +149,7 @@ export const startConversation = async (
     conversation: AssistantConversation;
     answer: string;
     sources: AssistantSource[];
+    operationalReferences?: AssistantOperationalReference[];
   };
 export const listConversations = async (
   condominiumId: string,
@@ -169,7 +177,7 @@ export const askAssistant = async (
       `/condominiums/${condominiumId}/assistant/conversations/${conversationId}/messages`,
       { question },
     )
-  ).data as { answer: string; sources: AssistantSource[] };
+  ).data as { answer: string; sources: AssistantSource[]; operationalReferences?: AssistantOperationalReference[] };
 export const removeRequestContext = async (
   condominiumId: string,
   conversationId: string,

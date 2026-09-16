@@ -3,9 +3,11 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using CondoLink.Api.Features.CondominiumAssistant;
+using CondoLink.Api.Features.Agenda;
 using CondoLink.Api.Features.TelegramAssistant;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
+using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -77,6 +79,35 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden,
             (await _host.ClientFor(_residentId).PostAsync("/users/me/telegram/link-code", null)).StatusCode);
     }
+
+    [Fact]
+    public async Task Telegram_channel_reuses_authorized_read_only_tools()
+    {
+        var handler = new TelegramToolChatHandler();
+        await _host.WithServicesAsync(async services =>
+        {
+            var db = services.GetRequiredService<AppDbContext>();
+            var condo = await db.Condominiums.SingleAsync();
+            var company = new ManagementCompany("Telegram Admin", null, null, null, null);
+            db.Add(company); condo.SetManagementCompany(company.Id); await db.SaveChangesAsync();
+            var tools = new AssistantOperationalTools(db, NullLogger<AssistantOperationalTools>.Instance,
+                Options.Create(new AgendaOptions { OperationalTimeZone = "America/Sao_Paulo" }));
+            var client = new HttpClient(handler) { BaseAddress = new Uri("https://telegram-test/") };
+            var service = new CondominiumAssistantService(db, new NoOpEmbeddingService(), client,
+                Options.Create(new RequestDraftAiOptions { Enabled = true, ApiKey = "test", Model = "telegram-test" }),
+                Options.Create(new CondominiumAssistantOptions()), NullLogger<CondominiumAssistantService>.Instance,
+                operationalTools: tools);
+            var conversation = new CondominiumAssistantConversation(condo.Id, _managerId, null, "Telegram",
+                CondominiumAssistantChannel.Telegram);
+            var answer = await service.AskAsync(conversation, "Qual administradora atende este condomínio?", default,
+                channel: CondominiumAssistantChannel.Telegram);
+            Assert.Contains(answer.OperationalReferences!, x => x.Type == "management_company");
+            Assert.Equal(CondominiumAssistantChannel.Telegram, conversation.Channel);
+        });
+        Assert.True(handler.SawTool);
+        Assert.False(handler.SawMutation);
+    }
+
     public async Task DisposeAsync() => await _host.DisposeAsync();
 
     [Fact]
@@ -504,6 +535,31 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
         var worker = ActivatorUtilities.CreateInstance<TelegramAssistantWorker>(services);
         Assert.True(await worker.ProcessOneAsync(default));
     });
+    private sealed class TelegramToolChatHandler : HttpMessageHandler
+    {
+        public bool SawTool { get; private set; }
+        public bool SawMutation { get; private set; }
+        private bool toolReturned;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            if (!body.Contains("\"tools\"", StringComparison.Ordinal))
+                return new(HttpStatusCode.InternalServerError);
+            SawMutation |= body.Contains("create", StringComparison.OrdinalIgnoreCase)
+                || body.Contains("update", StringComparison.OrdinalIgnoreCase);
+            if (!toolReturned)
+            {
+                toolReturned = true; SawTool = true;
+                return Json("{\"choices\":[{\"message\":{\"content\":null,\"tool_calls\":[{\"id\":\"tg-call\",\"type\":\"function\",\"function\":{\"name\":\"get_management_company\",\"arguments\":\"{}\"}}]}}]}");
+            }
+            return Json("{\"choices\":[{\"message\":{\"content\":\"Administradora consultada com segurança.\"}}]}");
+        }
+
+        private static HttpResponseMessage Json(string value) => new(HttpStatusCode.OK)
+        { Content = new StringContent(value, Encoding.UTF8, "application/json") };
+    }
+
     private sealed class FakeTelegramBotClient : ITelegramBotClient
     {
         public List<string> Messages { get; } = [];

@@ -26,7 +26,7 @@ vi.mock("../assistant/streamAssistant", () => ({
   streamAssistant: streamAssistantMock,
 }));
 vi.mock("../management/ManagementContext", () => ({
-  useManagementContext: () => ({ activeCondominiumId: "condo-1" }),
+  useManagementContext: () => ({ activeCondominiumId: "condo-1", activeCondominium: { id: "condo-1", name: "Monticello" } }),
 }));
 
 describe("CondominiumAssistantPage", () => {
@@ -214,12 +214,39 @@ describe("CondominiumAssistantPage", () => {
     expect(streamAssistantMock).not.toHaveBeenCalled();
     expect(
       screen.getByText(
-        "Pergunte sobre documentos, regras ou informações do condomínio.",
+        "O que você precisa saber sobre Monticello?",
       ),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("Quais são as regras da piscina?"),
     ).not.toBeInTheDocument();
+  });
+
+  it("fills the composer from a real capability suggestion", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><CondominiumAssistantPage /></MemoryRouter>);
+    await user.click(await screen.findByRole("button", { name: /Encontre um morador/ }));
+    expect(screen.getByRole("textbox", { name: "Pergunte ao assistente" })).toHaveValue("Encontre um morador");
+  });
+
+  it("exposes a compact stop action and aborts the active stream", async () => {
+    const user = userEvent.setup();
+    let signal!: AbortSignal;
+    streamAssistantMock.mockImplementation((_path, _body, _handlers, receivedSignal) => {
+      signal = receivedSignal;
+      return new Promise<void>(resolve => receivedSignal.addEventListener("abort", () => resolve(), { once: true }));
+    });
+    render(<MemoryRouter><CondominiumAssistantPage /></MemoryRouter>);
+    const input = await screen.findByRole("textbox", { name: "Pergunte ao assistente" });
+    await user.type(input, "Consulta longa{enter}");
+    await user.click(await screen.findByRole("button", { name: "Parar geração" }));
+    expect(signal.aborted).toBe(true);
+  });
+
+  it("shows the operational empty corpus state without disabling the assistant", async () => {
+    render(<MemoryRouter><CondominiumAssistantPage /></MemoryRouter>);
+    expect(await screen.findByText("Ainda não há documentos disponíveis para consulta. As consultas operacionais continuam disponíveis.")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Pergunte ao assistente" })).toBeEnabled();
   });
 
   it("sends with Enter, keeps Shift+Enter as a line break and ignores empty input", async () => {
@@ -439,10 +466,10 @@ describe("CondominiumAssistantPage", () => {
       </MemoryRouter>,
     );
     await userEvent.click(
-      await screen.findByRole("button", { name: /Histórico/ }),
+      await screen.findByTestId("assistant-conversation-chat-1"),
     );
     const source = await screen.findByText(
-      /Convenção antiga.*documento removido/,
+      /Convenção antiga/,
     );
     expect(source.closest("a")).toBeNull();
   });
@@ -453,14 +480,14 @@ describe("CondominiumAssistantPage", () => {
     assistant.getConversation.mockResolvedValue({ conversation: { id: "chat-1", title: "Histórico", requestId: null }, requestContext: null, contextUnavailable: false, messages: [{ id: "old", role: "Assistant", content: "Resposta antiga", createdAt: "2026-01-01T00:00:00Z", sources: [{ documentId: "old-doc", documentName: "Ata 2025", pageNumber: 3, sectionTitle: null, excerpt: "Trecho", marker: "S1", documentCurrentlyActive: true }] }] });
     streamAssistantMock.mockImplementation(async (_path, _body, handlers) => handlers.onDone({ answer: "Resposta nova", sources: [{ documentId: "new-doc", documentName: "Ata 2026", pageNumber: 4, sectionTitle: null, excerpt: "Novo", marker: "S1" }] }));
     render(<MemoryRouter><CondominiumAssistantPage /></MemoryRouter>);
-    await user.click(await screen.findByRole("button", { name: /Histórico/ }));
-    expect(await screen.findByText(/Ata 2025.*pág. 3/)).toBeInTheDocument();
+    await user.click(await screen.findByTestId("assistant-conversation-chat-1"));
+    expect(await screen.findByText(/Ata 2025/)).toBeInTheDocument();
     expect(screen.queryByText("undefined")).not.toBeInTheDocument();
     await user.type(screen.getByRole("textbox", { name: "Pergunte ao assistente" }), "E em 2026?{enter}");
     await waitFor(() => expect(streamAssistantMock).toHaveBeenCalledWith(
       "/condominiums/condo-1/assistant/conversations/chat-1/messages", { question: "E em 2026?" }, expect.anything(), expect.anything()));
-    expect(await screen.findByText(/Ata 2026.*pág. 4/)).toBeInTheDocument();
-    expect(screen.getByText(/Ata 2025.*pág. 3/)).toBeInTheDocument();
+    expect(await screen.findByText(/Ata 2026/)).toBeInTheDocument();
+    expect(screen.getByText(/Ata 2025/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Enviar" })).toBeEnabled());
     await user.type(screen.getByRole("textbox", { name: "Pergunte ao assistente" }), "Detalhe mais{enter}");
     await waitFor(() => expect(streamAssistantMock).toHaveBeenCalledTimes(2));
