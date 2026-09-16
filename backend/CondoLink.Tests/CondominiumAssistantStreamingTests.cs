@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using CondoLink.Api.Features.CondominiumAssistant;
@@ -191,13 +192,41 @@ public sealed class CondominiumAssistantStreamingTests : IAsyncLifetime
         Assert.DoesNotContain("documentos disponíveis", answer.Answer, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task Json_conversation_with_zero_operational_rows_does_not_fall_back_to_documents()
+    {
+        var resident = new ApplicationUser("Morador 1201", $"resident-{Guid.NewGuid():N}@test.local", "11999999999");
+        resident.NormalizedUserName = resident.UserName!.ToUpperInvariant();
+        resident.NormalizedEmail = resident.Email!.ToUpperInvariant();
+        var unit = new Unit(condominiumId, "1201", null, null, null);
+        db.AddRange(resident, unit, new UnitMembership(resident.Id, unit.Id, UnitRelationshipType.Owner, true, true));
+        await db.SaveChangesAsync();
+
+        var handler = new ContextualAttendanceStreamingHandler(emptyAttendanceResult: true);
+        var tools = new AssistantOperationalTools(db, NullLogger<AssistantOperationalTools>.Instance,
+            Options.Create(new AgendaOptions { OperationalTimeZone = "America/Sao_Paulo" }));
+        var service = Service(new SemanticTestEmbeddingService(), new HttpClient(handler)
+            { BaseAddress = new Uri("https://test/") }, new RequestDraftAiOptions { Enabled = true, ApiKey = "test", Model = "test-chat" }, tools);
+        var conversation = new CondominiumAssistantConversation(condominiumId, managerId, null, "Contexto unitário");
+
+        await AskAndPersistAsync(service, conversation, "Quais são os moradores do 1201?", stream: false);
+        await AskAndPersistAsync(service, conversation, "Qual o telefone deles?", stream: false);
+        var answer = await AskAndPersistAsync(service, conversation, "Essa unidade tem algum atendimento aberto?", stream: false);
+
+        Assert.Equal("Não encontrei atendimentos abertos para a unidade 1201.", answer.Answer);
+        Assert.Empty(answer.OperationalReferences!);
+        Assert.True(handler.SawVerifiedUnitContext);
+        Assert.DoesNotContain("documentos disponíveis", answer.Answer, StringComparison.OrdinalIgnoreCase);
+    }
+
     private async Task<AssistantAnswer> AskAndPersistAsync(CondominiumAssistantService service,
-        CondominiumAssistantConversation conversation, string question)
+        CondominiumAssistantConversation conversation, string question, bool stream = true)
     {
         db.Add(new CondominiumAssistantMessage(conversation.Id, CondominiumAssistantRole.User, question));
         await db.SaveChangesAsync();
-        var answer = await service.AskStreamAsync(conversation, question,
-            (_, _) => Task.CompletedTask, (_, _) => Task.CompletedTask, default);
+        var answer = stream
+            ? await service.AskStreamAsync(conversation, question, (_, _) => Task.CompletedTask, (_, _) => Task.CompletedTask, default)
+            : await service.AskAsync(conversation, question, default);
         db.Add(new CondominiumAssistantMessage(conversation.Id, CondominiumAssistantRole.Assistant, answer.Answer,
             JsonSerializer.Serialize(new { sources = answer.Sources, operationalReferences = answer.OperationalReferences ?? [] })));
         await db.SaveChangesAsync();
@@ -280,12 +309,15 @@ public sealed class CondominiumAssistantStreamingTests : IAsyncLifetime
     // grounding orchestration after a tool choice. It does not predict a production model choice.
     private sealed class ContextualAttendanceStreamingHandler : HttpMessageHandler
     {
+        private readonly bool emptyAttendanceResult;
+        public ContextualAttendanceStreamingHandler(bool emptyAttendanceResult = false) => this.emptyAttendanceResult = emptyAttendanceResult;
         public bool SawVerifiedUnitContext { get; private set; }
         public string? AttendanceUnit { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            var stream = body.Contains("\"stream\":true", StringComparison.Ordinal);
             var hasToolResult = body.Contains("\"tool_call_id\"", StringComparison.Ordinal);
             var question = body.Contains("Essa unidade tem algum atendimento aberto?", StringComparison.Ordinal)
                 ? 3 : body.Contains("Qual o telefone deles?", StringComparison.Ordinal) ? 2 : 1;
@@ -296,28 +328,32 @@ public sealed class CondominiumAssistantStreamingTests : IAsyncLifetime
             {
                 var content = question == 3 ? "Há um atendimento aberto para a unidade 1201."
                     : question == 2 ? "O telefone é 11999999999." : "O morador é Morador 1201.";
-                return Sse(content);
+                if (question == 3 && emptyAttendanceResult) content = "Não encontrei atendimentos abertos para a unidade 1201.";
+                return ContentResponse(content, stream);
             }
 
             var name = question == 3 ? "search_requests" : question == 2 ? "search_residents" : "get_unit_residents";
-            const string arguments = "{\"unit\":\"1201\"}";
+            var arguments = question == 3 ? "{\"unit\":\"1201\",\"status\":\"open\"}" : "{\"unit\":\"1201\"}";
             if (question == 3) AttendanceUnit = "1201";
-            return ToolSse(name, arguments);
+            return ToolResponse(name, arguments, stream);
         }
 
-        private static HttpResponseMessage Sse(string content) => Stream(new
-        {
-            choices = new[] { new { delta = new { content } } }
-        });
+        private static HttpResponseMessage ContentResponse(string content, bool stream) => stream
+            ? Stream(new { choices = new[] { new { delta = new { content } } } })
+            : Json(new { choices = new[] { new { message = new { content } } } });
 
-        private static HttpResponseMessage ToolSse(string name, string arguments) => Stream(new
-        {
-            choices = new[] { new { delta = new { tool_calls = new[] { new { index = 0, id = "call-1", function = new { name, arguments } } } } } }
-        });
+        private static HttpResponseMessage ToolResponse(string name, string arguments, bool stream) => stream
+            ? Stream(new { choices = new[] { new { delta = new { tool_calls = new[] { new { index = 0, id = "call-1", function = new { name, arguments } } } } } } })
+            : Json(new { choices = new[] { new { message = new { content = (string?)null, tool_calls = new[] { new { id = "call-1", type = "function", function = new { name, arguments } } } } } } });
 
         private static HttpResponseMessage Stream(object payload) => new(HttpStatusCode.OK)
         {
             Content = new StringContent($"data: {JsonSerializer.Serialize(payload)}\n\ndata: [DONE]\n\n", Encoding.UTF8, "text/event-stream")
+        };
+
+        private static HttpResponseMessage Json(object payload) => new(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(payload)
         };
     }
 }

@@ -488,10 +488,9 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
                 conversation.CreatedByUserId, conversation.CondominiumId, channel, cancellationToken);
             var answer = chatResult.Answer;
             chat.Stop(); measurement.ChatDurationMs = measurement.GenerationDurationMs = chat.ElapsedMilliseconds;
-            var groundingApplied = chatResult.References.Count == 0;
+            var groundingApplied = !chatResult.HasSuccessfulOperationalQuery;
             var answerBeforeGrounding = answer;
-            if (groundingApplied)
-                answer = EnforceGrounding(answer, prepared.Evidence);
+            answer = EnforceGrounding(answer, prepared.Evidence, chatResult.HasSuccessfulOperationalQuery);
             logger.LogInformation("Assistant grounding decision. CondominiumId: {CondominiumId}; ConversationId: {ConversationId}; OperationalReferences: {OperationalReferences}; DocumentaryEvidence: {DocumentaryEvidence}; Applied: {Applied}; AnswerChanged: {AnswerChanged}; AnswerCharacters: {AnswerCharacters}.",
                 conversation.CondominiumId, conversation.Id, chatResult.References.Count, prepared.Evidence.Count,
                 groundingApplied, !string.Equals(answerBeforeGrounding, answer, StringComparison.Ordinal), answer.Length);
@@ -503,7 +502,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         catch (Exception exception) { if (metricWriter is not null) await metricWriter.WriteAsync(measurement, false, exception); throw; }
     }
 
-    private async Task<(string Answer, IReadOnlyList<AssistantOperationalReference> References)> Chat(
+    private async Task<(string Answer, IReadOnlyList<AssistantOperationalReference> References, bool HasSuccessfulOperationalQuery)> Chat(
         string question, string documents, string? requestContext, string[] history, IReadOnlyCollection<Guid> verifiedUnitIds,
         bool exhaustiveSearchWithoutEvidence, Guid userId, Guid condominiumId,
         CondominiumAssistantChannel channel, CancellationToken cancellationToken)
@@ -517,6 +516,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             new { role = "user", content = $"DOCUMENTS:\n{documents}\n\nREQUEST CONTEXT:\n{requestContext ?? "None"}\n\nHISTORY:\n{string.Join("\n", history)}\n\nQUESTION:\n{question}" }
         };
         var references = new List<AssistantOperationalReference>();
+        var hasSuccessfulOperationalQuery = false;
         for (var turn = 0; turn < AssistantOperationalTools.MaxToolCalls; turn++)
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions");
@@ -538,7 +538,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
                 logger.LogInformation("Assistant model turn completed. Transport: {Transport}; Turn: {Turn}; ToolCalls: 0; ContentPresent: {ContentPresent}; ContentCharacters: {ContentCharacters}.",
                     "json", turn + 1, message.TryGetProperty("content", out var returnedContent) && returnedContent.ValueKind == JsonValueKind.String,
                     message.TryGetProperty("content", out returnedContent) && returnedContent.ValueKind == JsonValueKind.String ? returnedContent.GetString()?.Length ?? 0 : 0);
-                return (message.TryGetProperty("content", out var content) ? content.GetString()?.Trim() ?? string.Empty : string.Empty, references);
+                return (message.TryGetProperty("content", out var content) ? content.GetString()?.Trim() ?? string.Empty : string.Empty, references, hasSuccessfulOperationalQuery);
             }
             logger.LogInformation("Assistant model turn completed. Transport: {Transport}; Turn: {Turn}; ToolCalls: {ToolCalls}; Tools: {@Tools}.",
                 "json", turn + 1, calls.GetArrayLength(), calls.EnumerateArray()
@@ -549,13 +549,14 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             {
                 var function = call.GetProperty("function");
                 var result = operationalTools is null
-                    ? new AssistantToolResult(JsonSerializer.Serialize(new { error = "Tools unavailable." }), [])
+                    ? new AssistantToolResult(JsonSerializer.Serialize(new { error = "Tools unavailable." }), [], false)
                     : await operationalTools.ExecuteAsync(function.GetProperty("name").GetString()!, function.GetProperty("arguments").GetString() ?? "{}", userId, condominiumId, cancellationToken, channel.ToString(), verifiedUnitIds);
+                hasSuccessfulOperationalQuery |= result.Succeeded;
                 references.AddRange(result.References);
                 messages.Add(new { role = "tool", tool_call_id = call.GetProperty("id").GetString(), content = result.Json });
             }
         }
-        return ("NÃ£o foi possÃ­vel concluir consulta operacional dentro do limite.", references);
+        return ("NÃ£o foi possÃ­vel concluir consulta operacional dentro do limite.", references, hasSuccessfulOperationalQuery);
     }
 
     /// <summary>
@@ -610,10 +611,9 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
                 prepared.History, prepared.VerifiedUnitIds, prepared.NoEvidence, conversation.CreatedByUserId,
                 conversation.CondominiumId, onToken, cancellationToken, measurement, channel);
             var answer = streamed.Answer;
-            var groundingApplied = streamed.References.Count == 0;
+            var groundingApplied = !streamed.HasSuccessfulOperationalQuery;
             var answerBeforeGrounding = answer;
-            if (groundingApplied)
-                answer = EnforceGrounding(answer, prepared.Evidence);
+            answer = EnforceGrounding(answer, prepared.Evidence, streamed.HasSuccessfulOperationalQuery);
             logger.LogInformation("Assistant grounding decision. CondominiumId: {CondominiumId}; ConversationId: {ConversationId}; OperationalReferences: {OperationalReferences}; DocumentaryEvidence: {DocumentaryEvidence}; Applied: {Applied}; AnswerChanged: {AnswerChanged}; AnswerCharacters: {AnswerCharacters}.",
                 conversation.CondominiumId, conversation.Id, streamed.References.Count, prepared.Evidence.Count,
                 groundingApplied, !string.Equals(answerBeforeGrounding, answer, StringComparison.Ordinal), answer.Length);
@@ -1155,8 +1155,10 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             RegexOptions.IgnoreCase)
             ? name : !string.IsNullOrWhiteSpace(originalFileName) ? originalFileName : name;
 
-    internal static string EnforceGrounding(string answer, IReadOnlyDictionary<string, string> evidence)
+    internal static string EnforceGrounding(string answer, IReadOnlyDictionary<string, string> evidence,
+        bool hasSuccessfulOperationalQuery = false)
     {
+        if (hasSuccessfulOperationalQuery) return answer;
         const string insufficient = "Não encontrei essa informação nos documentos disponíveis.";
         if (IsUncertaintyAnswer(answer)) return answer;
         var markers = Regex.Matches(answer, @"\[S(?<number>\d+)\]")
@@ -1277,7 +1279,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
     /// </summary>
     private sealed record StreamToolCall(string Id, string Name, string Arguments);
 
-    private async Task<(string Answer, IReadOnlyList<AssistantOperationalReference> References)> ChatStreamAsync(
+    private async Task<(string Answer, IReadOnlyList<AssistantOperationalReference> References, bool HasSuccessfulOperationalQuery)> ChatStreamAsync(
         string question, string documents, string? requestContext, string[] history, IReadOnlyCollection<Guid> verifiedUnitIds,
         bool exhaustiveSearchWithoutEvidence, Guid userId, Guid condominiumId,
         Func<string, CancellationToken, Task> onToken, CancellationToken cancellationToken,
@@ -1293,6 +1295,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             new { role = "user", content = $"DOCUMENTS:\n{documents}\n\nREQUEST CONTEXT:\n{requestContext ?? "None"}\n\nHISTORY:\n{string.Join("\n", history)}\n\nQUESTION:\n{question}" }
         };
         var references = new List<AssistantOperationalReference>();
+        var hasSuccessfulOperationalQuery = false;
         for (var turn = 0; turn < AssistantOperationalTools.MaxToolCalls; turn++)
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions");
@@ -1314,7 +1317,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
                 if (answer.Length > 0) await onToken(answer, cancellationToken);
                 if (measurement is not null)
                     measurement.ChatDurationMs = measurement.GenerationDurationMs = streamStarted.ElapsedMilliseconds;
-                return (answer.Length == 0 ? "NÃ£o encontrei base suficiente para responder." : answer, references);
+                return (answer.Length == 0 ? "NÃ£o encontrei base suficiente para responder." : answer, references, hasSuccessfulOperationalQuery);
             }
             messages.Add(new { role = "assistant", content = (string?)null,
                 tool_calls = streamed.ToolCalls.Select(call => new
@@ -1322,13 +1325,14 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             foreach (var call in streamed.ToolCalls)
             {
                 var result = operationalTools is null
-                    ? new AssistantToolResult(JsonSerializer.Serialize(new { error = "Tools unavailable." }), [])
+                    ? new AssistantToolResult(JsonSerializer.Serialize(new { error = "Tools unavailable." }), [], false)
                     : await operationalTools.ExecuteAsync(call.Name, call.Arguments, userId, condominiumId, cancellationToken, channel.ToString(), verifiedUnitIds);
+                hasSuccessfulOperationalQuery |= result.Succeeded;
                 references.AddRange(result.References);
                 messages.Add(new { role = "tool", tool_call_id = call.Id, content = result.Json });
             }
         }
-        return ("NÃ£o foi possÃ­vel concluir consulta operacional dentro do limite.", references);
+        return ("NÃ£o foi possÃ­vel concluir consulta operacional dentro do limite.", references, hasSuccessfulOperationalQuery);
     }
 
     private static async Task<(string Content, IReadOnlyList<StreamToolCall> ToolCalls)> ReadStreamTurnAsync(

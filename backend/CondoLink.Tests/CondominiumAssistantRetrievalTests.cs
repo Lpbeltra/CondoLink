@@ -379,6 +379,14 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
     }
 
     [Fact]
+    public void Grounding_preserves_answer_after_successful_empty_operational_query()
+    {
+        Assert.Equal("Não encontrei atendimentos abertos para a unidade 1201.",
+            CondominiumAssistantService.EnforceGrounding("Não encontrei atendimentos abertos para a unidade 1201.", new Dictionary<string, string>(),
+                hasSuccessfulOperationalQuery: true));
+    }
+
+    [Fact]
     public void Highest_cited_marker_returns_contiguous_matching_sources()
     {
         var sources = Enumerable.Range(1, 4).Select(number => new AssistantSource(

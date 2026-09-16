@@ -11,7 +11,8 @@ using Microsoft.Extensions.Options;
 namespace CondoLink.Api.Features.CondominiumAssistant;
 
 public sealed record AssistantOperationalReference(string Type, Guid Id, string Label, string? Href);
-public sealed record AssistantToolResult(string Json, IReadOnlyList<AssistantOperationalReference> References);
+public sealed record AssistantToolResult(string Json, IReadOnlyList<AssistantOperationalReference> References,
+    bool Succeeded);
 
 /// <summary>Read-only operational tool registry. Scope comes from conversation, never model arguments.</summary>
 public sealed class AssistantOperationalTools(AppDbContext db, ILogger<AssistantOperationalTools> logger,
@@ -23,7 +24,7 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
     [
         Function("search_residents", "Fonte operacional autoritativa. Localiza moradores por nome ou telefone; use unit para localizar por unidade. Use para encontrar um morador, nao para consultar regras ou documentos.", new { type = "object", properties = new { query = new { type = "string" }, unit = new { type = "string" } }, additionalProperties = false }),
         Function("get_unit_residents", "Fonte operacional autoritativa para fatos da unidade: quem mora, proprietario, ocupantes e moradores do apartamento informado. Use sempre que a pergunta pedir moradores de uma unidade. Nao use RAG ou documentos para esse fato.", new { type = "object", properties = new { unit = new { type = "string", description = "Identificador da unidade, por exemplo 1201 ou 206." } }, required = new[] { "unit" }, additionalProperties = false }),
-        Function("search_requests", "Fonte operacional autoritativa para atendimentos do condomínio atual. Use para perguntas sobre atendimentos de uma unidade, inclusive quando a unidade foi mencionada antes na conversa; nesse caso, resolva a referência conversacional e informe unit. Filtra por protocolo, texto, unidade, status ou prioridade. status aceita Open, InProgress, WaitingForResident, WaitingForThirdParty, WaitingForManager, WaitingForResidentClosure, Resolved ou Cancelled.", new { type = "object", properties = new { query = new { type = "string" }, status = new { type = "string" }, priority = new { type = "string" }, unit = new { type = "string" } }, additionalProperties = false }),
+        Function("search_requests", "Fonte operacional autoritativa para atendimentos do condomínio atual. Use para perguntas sobre atendimentos de uma unidade, inclusive quando a unidade foi mencionada antes na conversa; nesse caso, resolva a referência conversacional e informe unit. Para atendimentos abertos, use status open: inclui todos os estados não encerrados. Para estado específico, use InProgress, WaitingForResident, WaitingForThirdParty, WaitingForManager, WaitingForResidentClosure, Resolved ou Cancelled.", new { type = "object", properties = new { query = new { type = "string" }, status = new { type = "string" }, priority = new { type = "string" }, unit = new { type = "string" } }, additionalProperties = false }),
         Function("get_request", "Obtém resumo e histórico limitado de atendimento autorizado.", new { type = "object", properties = new { protocol = new { type = "string" }, id = new { type = "string" } }, additionalProperties = false }),
         Function("list_reminders", "Consulta lembretes da Agenda do condomínio atual. Use view today, overdue, week ou recurring.", new { type = "object", properties = new { view = new { type = "string" }, query = new { type = "string" } }, additionalProperties = false }),
         Function("search_service_providers", "Busca prestadores ativos visíveis ao usuário no condomínio atual.", new { type = "object", properties = new { query = new { type = "string" }, includePix = new { type = "boolean" } }, additionalProperties = false }),
@@ -120,7 +121,8 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
         IReadOnlyCollection<Guid>? conversationUnitIds)
     {
         var q = Text(a, "query"); var status = Text(a, "status"); var priority = Text(a, "priority"); var unit = Text(a, "unit");
-        var parsedStatus = Enum.TryParse<RequestStatus>(status, true, out var statusValue) ? statusValue : (RequestStatus?)null;
+        var openStatusFilter = status.Equals("open", StringComparison.OrdinalIgnoreCase);
+        var parsedStatus = !openStatusFilter && Enum.TryParse<RequestStatus>(status, true, out var statusValue) ? statusValue : (RequestStatus?)null;
         var parsedPriority = Enum.TryParse<RequestPriority>(priority, true, out var priorityValue) ? priorityValue : (RequestPriority?)null;
         var matchedUnitIds = string.IsNullOrWhiteSpace(unit) ? [] : await db.Units.AsNoTracking()
             .Where(u => u.CondominiumId == condo && u.Identifier.ToLower().Contains(unit.ToLower()))
@@ -129,9 +131,10 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
             && matchedUnitIds.Any(conversationUnitIds.Contains);
         logger.LogInformation("Assistant attendance filter resolved. CondominiumId: {CondominiumId}; UnitFilterPresent: {UnitFilterPresent}; MatchingUnits: {MatchingUnits}; MatchesConversationUnitContext: {MatchesConversationUnitContext}; StatusFilterPresent: {StatusFilterPresent}; StatusRecognized: {StatusRecognized}; PriorityFilterPresent: {PriorityFilterPresent}; PriorityRecognized: {PriorityRecognized}; QueryFilterPresent: {QueryFilterPresent}.",
             condo, !string.IsNullOrWhiteSpace(unit), matchedUnitIds.Length, matchesConversationUnitContext,
-            !string.IsNullOrWhiteSpace(status), parsedStatus is not null, !string.IsNullOrWhiteSpace(priority), parsedPriority is not null, !string.IsNullOrWhiteSpace(q));
+            !string.IsNullOrWhiteSpace(status), openStatusFilter || parsedStatus is not null, !string.IsNullOrWhiteSpace(priority), parsedPriority is not null, !string.IsNullOrWhiteSpace(q));
         var query = RequestsFor(condo);
-        if (parsedStatus is RequestStatus parsed) query = query.Where(x => x.Status == parsed);
+        if (openStatusFilter) query = query.Where(x => x.Status != RequestStatus.Resolved && x.Status != RequestStatus.Cancelled);
+        else if (parsedStatus is RequestStatus parsed) query = query.Where(x => x.Status == parsed);
         if (parsedPriority is RequestPriority priorityParsed) query = query.Where(x => x.Priority == priorityParsed);
         if (!string.IsNullOrWhiteSpace(q)) query = query.Where(x => x.Title.ToLower().Contains(q.ToLower()) || x.Description.ToLower().Contains(q.ToLower()));
         if (!string.IsNullOrWhiteSpace(unit)) query = query.Where(x => x.TargetUnitId != null && db.Units.Any(u => u.Id == x.TargetUnitId && u.Identifier.ToLower().Contains(unit.ToLower())));
@@ -218,6 +221,6 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
         using var document = JsonDocument.Parse(json);
         return document.RootElement.TryGetProperty("error", out _) ? "error" : "rows";
     }
-    private static AssistantToolResult Error(string message) => new(JsonSerializer.Serialize(new { error = message }), []);
-    private static AssistantToolResult Rows<T>(T rows, IReadOnlyList<AssistantOperationalReference> refs) => new(JsonSerializer.Serialize(new { rows, limit = MaxRows, hasMore = refs.Count >= MaxRows }), refs);
+    private static AssistantToolResult Error(string message) => new(JsonSerializer.Serialize(new { error = message }), [], false);
+    private static AssistantToolResult Rows<T>(T rows, IReadOnlyList<AssistantOperationalReference> refs) => new(JsonSerializer.Serialize(new { rows, limit = MaxRows, hasMore = refs.Count >= MaxRows }), refs, true);
 }

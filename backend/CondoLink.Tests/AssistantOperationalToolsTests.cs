@@ -153,6 +153,29 @@ public sealed class AssistantOperationalToolsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Open_attendance_filter_includes_every_non_terminal_status()
+    {
+        var resident = new ApplicationUser("Morador", $"resident-{Guid.NewGuid():N}@test.local", null);
+        resident.NormalizedUserName = resident.UserName!.ToUpperInvariant();
+        resident.NormalizedEmail = resident.Email!.ToUpperInvariant();
+        var unit = new Unit(condominiumId, "1201", null, null, null);
+        var category = new Category(condominiumId, "Manutenção", null);
+        var inProgress = new Request(condominiumId, resident.Id, unit.Id, category.Id, "Em andamento", "Descrição");
+        var resolved = new Request(condominiumId, resident.Id, unit.Id, category.Id, "Resolvido", "Descrição");
+        resolved.ChangeStatus(RequestStatus.Resolved, DateTime.UtcNow);
+        db.AddRange(resident, unit, category, inProgress, resolved);
+        await db.SaveChangesAsync();
+
+        var result = await CreateTools().ExecuteAsync("search_requests", "{\"unit\":\"1201\",\"status\":\"open\"}", managerId, condominiumId, default);
+
+        using var json = JsonDocument.Parse(result.Json);
+        var rows = json.RootElement.GetProperty("rows").EnumerateArray().ToArray();
+        Assert.Single(rows);
+        Assert.Equal("InProgress", rows[0].GetProperty("Status").GetString());
+        Assert.True(result.Succeeded);
+    }
+
+    [Fact]
     public void Resident_tool_descriptions_separate_operational_facts_from_rag()
     {
         var descriptions = JsonSerializer.Serialize(CreateTools().Definitions);
