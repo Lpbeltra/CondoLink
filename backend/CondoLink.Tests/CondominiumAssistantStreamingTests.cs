@@ -160,6 +160,50 @@ public sealed class CondominiumAssistantStreamingTests : IAsyncLifetime
         Assert.Equal(6, handler.StreamCalls);
     }
 
+    [Fact]
+    public async Task Streaming_conversation_resolves_a_unit_reference_and_uses_attendance_tool()
+    {
+        var resident = new ApplicationUser("Morador 1201", $"resident-{Guid.NewGuid():N}@test.local", "11999999999");
+        resident.NormalizedUserName = resident.UserName!.ToUpperInvariant();
+        resident.NormalizedEmail = resident.Email!.ToUpperInvariant();
+        var unit = new Unit(condominiumId, "1201", null, null, null);
+        var category = new Category(condominiumId, "Manutenção", null);
+        var request = new Request(condominiumId, resident.Id, unit.Id, category.Id, "Vazamento", "Vazamento aberto");
+        db.AddRange(resident, unit, category, request,
+            new UnitMembership(resident.Id, unit.Id, UnitRelationshipType.Owner, true, true));
+        await db.SaveChangesAsync();
+
+        var handler = new ContextualAttendanceStreamingHandler();
+        var tools = new AssistantOperationalTools(db, NullLogger<AssistantOperationalTools>.Instance,
+            Options.Create(new AgendaOptions { OperationalTimeZone = "America/Sao_Paulo" }));
+        var service = Service(new SemanticTestEmbeddingService(), new HttpClient(handler)
+            { BaseAddress = new Uri("https://test/") }, new RequestDraftAiOptions { Enabled = true, ApiKey = "test", Model = "test-chat" }, tools);
+        var conversation = new CondominiumAssistantConversation(condominiumId, managerId, null, "Contexto unitário");
+
+        await AskAndPersistAsync(service, conversation, "Quais são os moradores do 1201?");
+        await AskAndPersistAsync(service, conversation, "Qual o telefone deles?");
+        var answer = await AskAndPersistAsync(service, conversation, "Essa unidade tem algum atendimento aberto?");
+
+        Assert.Equal("Há um atendimento aberto para a unidade 1201.", answer.Answer);
+        Assert.Contains(answer.OperationalReferences!, x => x.Type == "request" && x.Id == request.Id);
+        Assert.True(handler.SawVerifiedUnitContext);
+        Assert.Equal("1201", handler.AttendanceUnit);
+        Assert.DoesNotContain("documentos disponíveis", answer.Answer, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<AssistantAnswer> AskAndPersistAsync(CondominiumAssistantService service,
+        CondominiumAssistantConversation conversation, string question)
+    {
+        db.Add(new CondominiumAssistantMessage(conversation.Id, CondominiumAssistantRole.User, question));
+        await db.SaveChangesAsync();
+        var answer = await service.AskStreamAsync(conversation, question,
+            (_, _) => Task.CompletedTask, (_, _) => Task.CompletedTask, default);
+        db.Add(new CondominiumAssistantMessage(conversation.Id, CondominiumAssistantRole.Assistant, answer.Answer,
+            JsonSerializer.Serialize(new { sources = answer.Sources, operationalReferences = answer.OperationalReferences ?? [] })));
+        await db.SaveChangesAsync();
+        return answer;
+    }
+
     private CondominiumAssistantService Service(IEmbeddingService? embedding = null,
         HttpClient? client = null, RequestDraftAiOptions? ai = null,
         AssistantOperationalTools? tools = null) => new(db,
@@ -230,5 +274,48 @@ public sealed class CondominiumAssistantStreamingTests : IAsyncLifetime
                 : "data: {\"choices\":[{\"delta\":{\"content\":\"A administradora é Administradora SSE.\"}}]}\n\ndata: [DONE]\n\n";
             return new(HttpStatusCode.OK) { Content = new StringContent(sse, Encoding.UTF8, "text/event-stream") };
         }
+    }
+
+    private sealed class ContextualAttendanceStreamingHandler : HttpMessageHandler
+    {
+        public bool SawVerifiedUnitContext { get; private set; }
+        public string? AttendanceUnit { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            var hasToolResult = body.Contains("\"tool_call_id\"", StringComparison.Ordinal);
+            var question = body.Contains("Essa unidade tem algum atendimento aberto?", StringComparison.Ordinal)
+                ? 3 : body.Contains("Qual o telefone deles?", StringComparison.Ordinal) ? 2 : 1;
+            if (question == 3)
+                SawVerifiedUnitContext |= body.Contains("CONTEXTO OPERACIONAL VERIFICADO NA CONVERSA", StringComparison.Ordinal)
+                    && body.Contains("unidades 1201", StringComparison.Ordinal);
+            if (hasToolResult)
+            {
+                var content = question == 3 ? "Há um atendimento aberto para a unidade 1201."
+                    : question == 2 ? "O telefone é 11999999999." : "O morador é Morador 1201.";
+                return Sse(content);
+            }
+
+            var name = question == 3 ? "search_requests" : question == 2 ? "search_residents" : "get_unit_residents";
+            const string arguments = "{\"unit\":\"1201\"}";
+            if (question == 3) AttendanceUnit = "1201";
+            return ToolSse(name, arguments);
+        }
+
+        private static HttpResponseMessage Sse(string content) => Stream(new
+        {
+            choices = new[] { new { delta = new { content } } }
+        });
+
+        private static HttpResponseMessage ToolSse(string name, string arguments) => Stream(new
+        {
+            choices = new[] { new { delta = new { tool_calls = new[] { new { index = 0, id = "call-1", function = new { name, arguments } } } } } }
+        });
+
+        private static HttpResponseMessage Stream(object payload) => new(HttpStatusCode.OK)
+        {
+            Content = new StringContent($"data: {JsonSerializer.Serialize(payload)}\n\ndata: [DONE]\n\n", Encoding.UTF8, "text/event-stream")
+        };
     }
 }

@@ -642,7 +642,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             retrieval.EligibleChunksByDocument.Keys.ToArray(), ranked.Select(x => x.DocumentId).Distinct().ToArray());
         var historyRows = await db.CondominiumAssistantMessages.AsNoTracking()
             .Where(x => x.ConversationId == conversation.Id).OrderByDescending(x => x.CreatedAt)
-            .Take(10).OrderBy(x => x.CreatedAt).Select(x => new { x.Role, x.Content }).ToArrayAsync(cancellationToken);
+            .Take(10).OrderBy(x => x.CreatedAt).Select(x => new { x.Role, x.Content, x.SourcesJson }).ToArrayAsync(cancellationToken);
         var effectiveHistory = historyRows.Length > 0
             && historyRows[^1].Role == CondoLink.Domain.Enums.CondominiumAssistantRole.User
             && string.Equals(historyRows[^1].Content, question, StringComparison.Ordinal)
@@ -650,6 +650,16 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         var history = effectiveHistory.Select(x => $"{x.Role}: {x.Content[..Math.Min(x.Content.Length, 2000)]}")
             .Aggregate(new List<string>(), (items, item) =>
             { if (items.Sum(x => x.Length) + item.Length <= 12000) items.Add(item); return items; }).ToArray();
+        var unitIds = effectiveHistory
+            .SelectMany(x => CondominiumAssistantEndpoints.ParseOperationalReferences(x.SourcesJson))
+            .Where(x => x.Type == "unit").Select(x => x.Id).Distinct().ToArray();
+        if (unitIds.Length > 0)
+        {
+            var units = await db.Units.AsNoTracking().Where(x => x.CondominiumId == conversation.CondominiumId
+                && unitIds.Contains(x.Id)).Select(x => x.Identifier).ToArrayAsync(cancellationToken);
+            if (units.Length > 0)
+                history = [.. history, $"CONTEXTO OPERACIONAL VERIFICADO NA CONVERSA (não é evidência documental; use apenas para resolver referências): unidades {string.Join(", ", units)}."];
+        }
         contextStarted.Stop(); if (measurement is not null) { measurement.ContextPreparationDurationMs = contextStarted.ElapsedMilliseconds; measurement.FinalChunks = ranked.Count; measurement.ContextCharacters = context.Length; }
         return new(sources, context, requestContext?.Prompt, history, ranked.Count == 0,
             ranked.Select((item, index) => new { Marker = $"S{index + 1}", item.Content })
@@ -1445,6 +1455,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
     internal const string SystemPrompt = """
         Fatos operacionais atuais do Comvy devem vir das tools estruturadas autorizadas: moradores, unidades, contatos, atendimentos, agenda, prestadores, administradora e solicitações. Prefira tools para esses fatos, mesmo quando documentos também forem recuperados.
         get_unit_residents é a fonte autoritativa para quem mora, proprietários e ocupantes de uma unidade. search_residents localiza moradores por nome ou dados. Não use ausência de evidência documental para negar um fato operacional.
+        Use o CONTEXTO OPERACIONAL VERIFICADO NA CONVERSA e o HISTÓRICO para resolver referências naturais a entidades já mencionadas. Ao responder fato operacional sobre entidade resolvida assim, consulte a tool autorizada correspondente; não use RAG nem ausência documental como fallback. Esse contexto nunca amplia autorização: tools validam usuário e condomínio no servidor.
         RAG documental é a fonte para regimento, convenção, atas, normas, decisões e demais textos dos documentos. Perguntas híbridas podem usar tool e RAG no mesmo turno.
         Use tools para dados operacionais autorizados; nunca invente nome, telefone, unidade, status, PIX ou protocolo.
         Tools sÃ£o somente leitura: nÃ£o prometa nem simule criaÃ§Ã£o, alteraÃ§Ã£o, conclusÃ£o, envio ou pagamento.
