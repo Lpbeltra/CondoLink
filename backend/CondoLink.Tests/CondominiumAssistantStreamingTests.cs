@@ -66,8 +66,11 @@ public sealed class CondominiumAssistantStreamingTests : IAsyncLifetime
     {
         var active = new CondominiumDocument(condominiumId, "s3-68f8df5e47c9a", CondominiumDocumentType.Minutes,
             "Ata atual.pdf", "key", "application/pdf", 1, null, Guid.NewGuid());
+        var legacy = new CondominiumDocument(condominiumId, "s3-68f8e0077121c.pdf", CondominiumDocumentType.Minutes,
+            "s3-68f8e0077121c.pdf", "key-legacy", "application/pdf", 1, null, Guid.NewGuid());
         active.Ready();
-        db.Add(active);
+        legacy.Ready();
+        db.AddRange(active, legacy);
         await db.SaveChangesAsync();
         var conversation = new CondominiumAssistantConversation(condominiumId, Guid.NewGuid(), null, "Catálogo");
         var reportedSources = new List<IReadOnlyList<AssistantSource>>();
@@ -85,7 +88,9 @@ public sealed class CondominiumAssistantStreamingTests : IAsyncLifetime
         var token = Assert.Single(tokens);
         Assert.Equal(answer.Answer, token);
         Assert.Contains("Ata atual.pdf", answer.Answer);
+        Assert.Contains("Documento PDF", answer.Answer);
         Assert.DoesNotContain("s3-68f8df5e47c9a", answer.Answer);
+        Assert.DoesNotContain("s3-68f8e0077121c", answer.Answer);
     }
 
     [Fact]

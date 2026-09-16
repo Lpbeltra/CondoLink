@@ -330,6 +330,8 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
             "9f7b9510-19f2-4bcc-8e75-649572ec9312.pdf", "Ata.pdf"));
         Assert.Equal("Regimento Interno",
             CondominiumAssistantService.DisplayDocumentName("Regimento Interno", "arquivo.pdf"));
+        Assert.Equal("Documento PDF", CondominiumAssistantService.DisplayDocumentName(
+            "s3-68f8e30b94f3b.pdf", "s3-68f8e30b94f3b.pdf"));
     }
 
     [Fact]
@@ -340,6 +342,9 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
         Assert.Contains("trecho documental recuperado", CondominiumAssistantService.SystemPrompt);
         Assert.Contains("get_unit_residents", CondominiumAssistantService.SystemPrompt);
         Assert.Contains("Fatos operacionais atuais", CondominiumAssistantService.SystemPrompt);
+        Assert.Contains("Não termine respostas com ofertas genéricas", CondominiumAssistantService.SystemPrompt);
+        Assert.Contains("Só faça uma pergunta quando ela for necessária", CondominiumAssistantService.SystemPrompt);
+        Assert.Contains("Nunca apresente nome técnico de documento", CondominiumAssistantService.SystemPrompt);
     }
 
     [Fact]

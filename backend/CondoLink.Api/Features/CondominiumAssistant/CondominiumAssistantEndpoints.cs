@@ -263,7 +263,9 @@ public static class CondominiumAssistantEndpoints
                 { source.DocumentId,
                     DocumentName = current is null ? source.DocumentName
                         : CondominiumAssistantService.DisplayDocumentName(current.Name, current.OriginalFileName),
-                    OriginalFileName = current?.OriginalFileName ?? source.OriginalFileName,
+                    OriginalFileName = current is null
+                        ? CondominiumAssistantService.DisplayDocumentName(source.DocumentName, source.OriginalFileName ?? string.Empty)
+                        : CondominiumAssistantService.DisplayDocumentName(current.Name, current.OriginalFileName),
                     source.PageNumber, source.SectionTitle, source.Excerpt, source.Marker, source.ChunkId,
                     DocumentExists = current is not null,
                     DocumentCurrentlyActive = current?.IsActive ?? false };
