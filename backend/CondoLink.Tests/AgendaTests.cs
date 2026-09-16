@@ -21,7 +21,8 @@ public sealed class AgendaTests : IAsyncLifetime
 {
     private CoreEndpointTestHost _host = null!;
     private Guid _condominiumId; private Guid _otherCondominiumId;
-    private Guid _managerId; private Guid _unitId; private Guid _otherUnitId;
+    private Guid _managerId;
+    private Guid _unitId; private Guid _otherUnitId;
     private Guid _firstRequestId; private Guid _secondRequestId;
     private readonly RecordingEmailSender _email = new();
 
@@ -159,6 +160,33 @@ public sealed class AgendaTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, (await _host.ClientFor(_managerId)
             .GetAsync($"/management/condominiums/{_otherCondominiumId}/agenda"))
             .StatusCode);
+    }
+
+    [Fact]
+    public async Task SubManager_agenda_permission_controls_access_and_scope()
+    {
+        var ids = await _host.WithDbAsync(async db =>
+        {
+            var allowed = CoreTestSeed.User("Subsíndico Agenda", "agenda-submanager@example.com");
+            var denied = CoreTestSeed.User("Subsíndico sem Agenda", "agenda-no-access@example.com");
+            db.AddRange(allowed, denied);
+            var allowedMembership = CoreTestSeed.AddMember(db, allowed.Id, _condominiumId, CondominiumRole.SubManager);
+            var deniedMembership = CoreTestSeed.AddMember(db, denied.Id, _condominiumId, CondominiumRole.SubManager);
+            db.Add(new SubManagerModulePermission(allowedMembership.Id, SubManagerModule.Agenda, _managerId));
+            var deniedPermission = new SubManagerModulePermission(deniedMembership.Id, SubManagerModule.Agenda, _managerId);
+            deniedPermission.SetAllowed(false, _managerId);
+            db.Add(deniedPermission);
+            await db.SaveChangesAsync();
+            return (allowed.Id, denied.Id);
+        });
+        var allowed = _host.ClientFor(ids.Item1);
+        Assert.Equal(HttpStatusCode.OK, (await allowed.GetAsync(
+            $"/management/condominiums/{_condominiumId}/agenda")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await allowed.GetAsync(
+            $"/management/condominiums/{_otherCondominiumId}/agenda")).StatusCode);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await _host.ClientFor(ids.Item2).GetAsync(
+            $"/management/condominiums/{_condominiumId}/agenda")).StatusCode);
     }
 
     [Fact]

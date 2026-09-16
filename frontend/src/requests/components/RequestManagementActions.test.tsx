@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RequestManagementActions } from './RequestManagementActions'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { createAdministrativeRequestUpdate, suggestRequestStatusMessage, updateRequestPriority, updateRequestStatus } from '../api'
 import type { RequestPriority, RequestStatus } from '../types'
 
@@ -26,6 +26,11 @@ const renderActions = ({
     requestId="request-1" status={status} priority={priority}
     onUpdated={onUpdated} /></MemoryRouter>)
   return { ...view, onUpdated }
+}
+
+function LocationProbe() {
+  const location = useLocation()
+  return <output data-testid="location">{location.pathname}{location.search}</output>
 }
 
 describe('RequestManagementActions AI preview', () => {
@@ -139,6 +144,18 @@ describe('RequestManagementActions AI preview', () => {
     expect(screen.queryByRole('button', { name: 'Alterar prioridade' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Atualizar / enviar mensagem' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Cancelar' })).not.toBeInTheDocument()
+  })
+
+  it('opens the linked reminder with its stable identifier', async () => {
+    const user = userEvent.setup()
+    render(<MemoryRouter><RequestManagementActions
+      requestId="request-1" status="InProgress" priority="Normal"
+      agendaReminder={{ id: 'reminder-7', title: 'Retorno', nextOccurrenceAtUtc: null,
+        recurrenceType: 'None', isActive: true, completedAt: null }}
+      onUpdated={vi.fn().mockResolvedValue(undefined)} /><LocationProbe /></MemoryRouter>)
+
+    await user.click(screen.getByRole('button', { name: 'Abrir lembrete' }))
+    expect(screen.getByTestId('location')).toHaveTextContent('/management/agenda?reminderId=reminder-7')
   })
 
   it('prevents duplicate status submission while the first request is pending', async () => {
