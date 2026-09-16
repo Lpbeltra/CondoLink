@@ -1391,34 +1391,35 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         var includeInactive = Regex.IsMatch(normalized, @"\binativos?\b");
         var rows = await db.CondominiumDocuments.AsNoTracking()
             .Where(x => x.CondominiumId == condominiumId && (includeInactive ? !x.IsActive : x.IsActive))
-            .OrderBy(x => x.Name).Select(x => new { x.Name, x.DocumentType, x.ProcessingStatus }).ToArrayAsync(ct);
+            .OrderBy(x => x.Name).Select(x => new { x.Name, x.OriginalFileName, x.DocumentType, x.ProcessingStatus }).ToArrayAsync(ct);
+        var displayRows = rows.Select(x => new { Name = DisplayDocumentName(x.Name, x.OriginalFileName), x.DocumentType, x.ProcessingStatus }).ToArray();
         var inventoryIntent = Regex.IsMatch(normalized, @"\b(quantos?|quais|liste|listar?)\b.*\b(documentos?|acervo)\b");
         if (inventoryIntent)
         {
-            var ready = rows.Count(x => x.ProcessingStatus == CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Ready);
-            var unavailable = rows.Count(x => x.ProcessingStatus is CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Failed
+            var ready = displayRows.Count(x => x.ProcessingStatus == CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Ready);
+            var unavailable = displayRows.Count(x => x.ProcessingStatus is CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Failed
                 or CondoLink.Domain.Enums.CondominiumDocumentProcessingStatus.Unsupported);
             if (Regex.IsMatch(normalized, @"\bquantos?\b"))
-                return $"Há {rows.Length} documento{(rows.Length == 1 ? "" : "s")} ativo{(rows.Length == 1 ? "" : "s")} cadastrado{(rows.Length == 1 ? "" : "s")}: {ready} pronto{(ready == 1 ? "" : "s")} para consulta{(unavailable == 0 ? "." : $"; {unavailable} não pôde ser processado.")}";
-            return rows.Length == 0 ? "Não há documentos ativos cadastrados." :
-                $"Documentos ativos cadastrados ({rows.Length}; {ready} prontos para consulta):\n\n{string.Join("\n", rows.Select(x => $"- {x.Name}"))}";
+                return $"Há {displayRows.Length} documento{(displayRows.Length == 1 ? "" : "s")} ativo{(displayRows.Length == 1 ? "" : "s")} cadastrado{(displayRows.Length == 1 ? "" : "s")}: {ready} pronto{(ready == 1 ? "" : "s")} para consulta{(unavailable == 0 ? "." : $"; {unavailable} não pôde ser processado.")}";
+            return displayRows.Length == 0 ? "Não há documentos ativos cadastrados." :
+                $"Documentos ativos cadastrados ({displayRows.Length}; {ready} prontos para consulta):\n\n{string.Join("\n", displayRows.Select(x => $"- {x.Name}"))}";
         }
         if (normalized.Contains("ata") || normalized.Contains("assembleia"))
-            rows = rows.Where(x => x.DocumentType == CondoLink.Domain.Enums.CondominiumDocumentType.Minutes).ToArray();
+            displayRows = displayRows.Where(x => x.DocumentType == CondoLink.Domain.Enums.CondominiumDocumentType.Minutes).ToArray();
         else if (normalized.Contains("convencao"))
-            rows = rows.Where(x => x.DocumentType == CondoLink.Domain.Enums.CondominiumDocumentType.Convention).ToArray();
+            displayRows = displayRows.Where(x => x.DocumentType == CondoLink.Domain.Enums.CondominiumDocumentType.Convention).ToArray();
         else if (normalized.Contains("regimento"))
-            rows = rows.Where(x => x.DocumentType == CondoLink.Domain.Enums.CondominiumDocumentType.InternalRules).ToArray();
+            displayRows = displayRows.Where(x => x.DocumentType == CondoLink.Domain.Enums.CondominiumDocumentType.InternalRules).ToArray();
         if (Regex.IsMatch(normalized, @"\bquantos?\b"))
-            return rows.Length == 0 ? "Nenhum documento correspondente está cadastrado atualmente."
-                : $"Atualmente há {rows.Length} documento{(rows.Length == 1 ? "" : "s")} correspondente{(rows.Length == 1 ? "" : "s")} cadastrado{(rows.Length == 1 ? "" : "s")}.";
-        if (Regex.IsMatch(normalized, @"\b(possui|tem)\b") && rows.Length == 0)
+            return displayRows.Length == 0 ? "Nenhum documento correspondente está cadastrado atualmente."
+                : $"Atualmente há {displayRows.Length} documento{(displayRows.Length == 1 ? "" : "s")} correspondente{(displayRows.Length == 1 ? "" : "s")} cadastrado{(displayRows.Length == 1 ? "" : "s")}.";
+        if (Regex.IsMatch(normalized, @"\b(possui|tem)\b") && displayRows.Length == 0)
             return "Não. Esse tipo de documento não está disponível atualmente.";
-        if (rows.Length == 0) return includeInactive ? "Não há documentos inativos cadastrados."
+        if (displayRows.Length == 0) return includeInactive ? "Não há documentos inativos cadastrados."
             : "Não há documentos disponíveis para consulta atualmente.";
         var heading = includeInactive ? "Os documentos inativos cadastrados são:"
             : "Atualmente estão disponíveis para consulta:";
-        return $"{heading}\n\n{string.Join("\n", rows.Select(x => $"- {x.Name}"))}";
+        return $"{heading}\n\n{string.Join("\n", displayRows.Select(x => $"- {x.Name}"))}";
     }
 
     private async Task<RequestContextData?> RequestContext(Guid requestId, Guid condominiumId, CancellationToken ct)
@@ -1442,6 +1443,9 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
 
     private static double Cosine(float[] left, float[] right) => left.Length == right.Length ? left.Zip(right).Sum(x => x.First * x.Second) : 0;
     internal const string SystemPrompt = """
+        Fatos operacionais atuais do Comvy devem vir das tools estruturadas autorizadas: moradores, unidades, contatos, atendimentos, agenda, prestadores, administradora e solicitações. Prefira tools para esses fatos, mesmo quando documentos também forem recuperados.
+        get_unit_residents é a fonte autoritativa para quem mora, proprietários e ocupantes de uma unidade. search_residents localiza moradores por nome ou dados. Não use ausência de evidência documental para negar um fato operacional.
+        RAG documental é a fonte para regimento, convenção, atas, normas, decisões e demais textos dos documentos. Perguntas híbridas podem usar tool e RAG no mesmo turno.
         Use tools para dados operacionais autorizados; nunca invente nome, telefone, unidade, status, PIX ou protocolo.
         Tools sÃ£o somente leitura: nÃ£o prometa nem simule criaÃ§Ã£o, alteraÃ§Ã£o, conclusÃ£o, envio ou pagamento.
         AusÃªncia de resultado significa apenas que a consulta autorizada nÃ£o localizou dados. Em ambiguidade, apresente opÃ§Ãµes curtas.

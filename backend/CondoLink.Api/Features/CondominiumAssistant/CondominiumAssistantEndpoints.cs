@@ -41,15 +41,19 @@ public static class CondominiumAssistantEndpoints
         CancellationToken ct)
     {
         var access = await Access(condominiumId, principal, db, ct, SubManagerModule.Documents); if (access.Error is not null) return access.Error;
-        return Results.Ok(await db.CondominiumDocuments.AsNoTracking().Where(x => x.CondominiumId == condominiumId)
+        var documents = await db.CondominiumDocuments.AsNoTracking().Where(x => x.CondominiumId == condominiumId)
             .OrderByDescending(x => x.UpdatedAt).Select(x => new { x.Id, x.Name, x.DocumentType,
-                x.OriginalFileName, x.Version, x.DocumentDate, x.IsActive, x.ProcessingStatus,
+                x.OriginalFileName, x.Version, x.DocumentDate, x.IsActive, ProcessingStatus = x.ProcessingStatus.ToString(),
                 x.ProcessingError, x.CreatedAt, x.UpdatedAt,
                 NeedsReindexing = x.ProcessingStatus == CondominiumDocumentProcessingStatus.Ready
                     && !db.CondominiumDocumentChunks.Any(chunk => chunk.CondominiumDocumentId == x.Id
                         && chunk.EmbeddingModel == embeddings.Model),
                 NeedsKnowledgeUpdate = x.ProcessingStatus == CondominiumDocumentProcessingStatus.Ready
-                    && !db.CondominiumDocumentKnowledge.Any(item => item.CondominiumDocumentId == x.Id) }).ToArrayAsync(ct));
+                    && !db.CondominiumDocumentKnowledge.Any(item => item.CondominiumDocumentId == x.Id) }).ToArrayAsync(ct);
+        return Results.Ok(documents.Select(x => new { x.Id,
+            Name = CondominiumAssistantService.DisplayDocumentName(x.Name, x.OriginalFileName), x.DocumentType,
+            x.OriginalFileName, x.Version, x.DocumentDate, x.IsActive, x.ProcessingStatus,
+            x.ProcessingError, x.CreatedAt, x.UpdatedAt, x.NeedsReindexing, x.NeedsKnowledgeUpdate }));
     }
 
     private static async Task<IResult> UploadDocument(Guid condominiumId, HttpRequest request,

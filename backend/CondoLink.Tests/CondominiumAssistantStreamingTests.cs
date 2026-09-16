@@ -63,8 +63,8 @@ public sealed class CondominiumAssistantStreamingTests : IAsyncLifetime
     [Fact]
     public async Task Catalog_question_reports_empty_sources_and_a_single_token_before_the_final_answer()
     {
-        var active = new CondominiumDocument(condominiumId, "Ata atual", CondominiumDocumentType.Minutes,
-            "ata.pdf", "key", "application/pdf", 1, null, Guid.NewGuid());
+        var active = new CondominiumDocument(condominiumId, "s3-68f8df5e47c9a", CondominiumDocumentType.Minutes,
+            "Ata atual.pdf", "key", "application/pdf", 1, null, Guid.NewGuid());
         active.Ready();
         db.Add(active);
         await db.SaveChangesAsync();
@@ -83,7 +83,8 @@ public sealed class CondominiumAssistantStreamingTests : IAsyncLifetime
         Assert.Empty(sourcesEvent);
         var token = Assert.Single(tokens);
         Assert.Equal(answer.Answer, token);
-        Assert.Contains("Ata atual", answer.Answer);
+        Assert.Contains("Ata atual.pdf", answer.Answer);
+        Assert.DoesNotContain("s3-68f8df5e47c9a", answer.Answer);
     }
 
     [Fact]

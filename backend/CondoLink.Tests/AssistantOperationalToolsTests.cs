@@ -132,6 +132,36 @@ public sealed class AssistantOperationalToolsTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task Unit_residents_is_authoritative_and_returns_a_scoped_unit_reference()
+    {
+        var resident = new ApplicationUser("Morador 1201", $"resident-{Guid.NewGuid():N}@test.local", null);
+        resident.NormalizedUserName = resident.UserName!.ToUpperInvariant();
+        resident.NormalizedEmail = resident.Email!.ToUpperInvariant();
+        var unit = new Unit(condominiumId, "1201", null, null, null);
+        db.AddRange(resident, unit, new UnitMembership(resident.Id, unit.Id, UnitRelationshipType.Owner, true, true));
+        await db.SaveChangesAsync();
+
+        var result = await CreateTools().ExecuteAsync("get_unit_residents", "{\"unit\":\"1201\"}", managerId, condominiumId, default);
+
+        using var json = JsonDocument.Parse(result.Json);
+        Assert.Contains("Morador 1201", json.RootElement.GetProperty("rows").GetRawText());
+        var reference = Assert.Single(result.References);
+        Assert.Equal("unit", reference.Type);
+        Assert.Equal(unit.Id, reference.Id);
+        Assert.Equal($"/management/units/{unit.Id}", reference.Href);
+    }
+
+    [Fact]
+    public void Resident_tool_descriptions_separate_operational_facts_from_rag()
+    {
+        var descriptions = JsonSerializer.Serialize(CreateTools().Definitions);
+
+        Assert.Contains("get_unit_residents", descriptions);
+        Assert.Contains("fonte operacional autoritativa", descriptions, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Nao use RAG", descriptions, StringComparison.OrdinalIgnoreCase);
+    }
+
     private AssistantOperationalTools CreateTools() => new(db,
         NullLogger<AssistantOperationalTools>.Instance,
         Options.Create(new AgendaOptions { OperationalTimeZone = "America/Sao_Paulo" }));

@@ -338,6 +338,8 @@ public sealed class CondominiumAssistantRetrievalTests : IAsyncLifetime
         Assert.Contains("HISTÓRICO é apenas contexto conversacional", CondominiumAssistantService.SystemPrompt);
         Assert.Contains("Ausência de trecho recuperado nunca prova inexistência", CondominiumAssistantService.SystemPrompt);
         Assert.Contains("trecho documental recuperado", CondominiumAssistantService.SystemPrompt);
+        Assert.Contains("get_unit_residents", CondominiumAssistantService.SystemPrompt);
+        Assert.Contains("Fatos operacionais atuais", CondominiumAssistantService.SystemPrompt);
     }
 
     [Fact]

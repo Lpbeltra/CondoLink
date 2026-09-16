@@ -21,8 +21,8 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
     private const int MaxRows = 20;
     public IReadOnlyList<object> Definitions { get; } =
     [
-        Function("search_residents", "Busca moradores por nome, telefone ou unidade no condomínio atual.", new { type = "object", properties = new { query = new { type = "string" }, unit = new { type = "string" } }, additionalProperties = false }),
-        Function("get_unit_residents", "Lista moradores vinculados à unidade informada.", new { type = "object", properties = new { unit = new { type = "string" } }, required = new[] { "unit" }, additionalProperties = false }),
+        Function("search_residents", "Fonte operacional autoritativa. Localiza moradores por nome ou telefone; use unit para localizar por unidade. Use para encontrar um morador, nao para consultar regras ou documentos.", new { type = "object", properties = new { query = new { type = "string" }, unit = new { type = "string" } }, additionalProperties = false }),
+        Function("get_unit_residents", "Fonte operacional autoritativa para fatos da unidade: quem mora, proprietario, ocupantes e moradores do apartamento informado. Use sempre que a pergunta pedir moradores de uma unidade. Nao use RAG ou documentos para esse fato.", new { type = "object", properties = new { unit = new { type = "string", description = "Identificador da unidade, por exemplo 1201 ou 206." } }, required = new[] { "unit" }, additionalProperties = false }),
         Function("search_requests", "Busca atendimentos do condomínio atual por protocolo, texto, unidade, status ou prioridade.", new { type = "object", properties = new { query = new { type = "string" }, status = new { type = "string" }, priority = new { type = "string" }, unit = new { type = "string" } }, additionalProperties = false }),
         Function("get_request", "Obtém resumo e histórico limitado de atendimento autorizado.", new { type = "object", properties = new { protocol = new { type = "string" }, id = new { type = "string" } }, additionalProperties = false }),
         Function("list_reminders", "Consulta lembretes da Agenda do condomínio atual. Use view today, overdue, week ou recurring.", new { type = "object", properties = new { view = new { type = "string" }, query = new { type = "string" } }, additionalProperties = false }),
@@ -86,7 +86,7 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
                           && (string.IsNullOrWhiteSpace(query) || p.FullName.ToLower().Contains(query.ToLower()) || (p.PhoneNumber != null && p.PhoneNumber.Contains(query)))
                           && (string.IsNullOrWhiteSpace(unit) || u.Identifier.ToLower().Contains(unit.ToLower()))
                           orderby p.FullName select new { UnitId = u.Id, p.FullName, p.PhoneNumber, p.Email, Unit = u.Identifier, Block = b == null ? null : b.Identifier, Relationship = m.RelationshipType.ToString() }).Take(MaxRows).ToArrayAsync(ct);
-        return Rows(rows, rows.Select(x => new AssistantOperationalReference("unit", Guid.Empty, $"{x.Block} · {x.Unit}", null)).ToArray());
+        return Rows(rows, rows.Select(x => new AssistantOperationalReference("unit", x.UnitId, $"{x.Block} · {x.Unit}", $"/management/units/{x.UnitId}")).ToArray());
     }
 
     private async Task<AssistantToolResult> UnitResidents(JsonElement a, Guid condo, CancellationToken ct)
@@ -97,7 +97,10 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
                           join p in db.Users.AsNoTracking() on m.UserId equals p.Id
                           where u.CondominiumId == condo && u.IsActive && m.IsActive && m.IsResident && u.Identifier.ToLower() == unit.ToLower()
                           select new { UnitId = u.Id, p.FullName, p.PhoneNumber, p.Email, Unit = u.Identifier, Relationship = m.RelationshipType.ToString() }).Take(MaxRows).ToArrayAsync(ct);
-        return Rows(rows, []);
+        var reference = rows.FirstOrDefault() is { } first
+            ? new AssistantOperationalReference("unit", first.UnitId, $"Unidade {first.Unit}", $"/management/units/{first.UnitId}")
+            : null;
+        return Rows(rows, reference is null ? [] : [reference]);
     }
 
     private async Task<AssistantToolResult> SearchRequests(JsonElement a, Guid condo, CancellationToken ct)
