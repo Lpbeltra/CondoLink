@@ -34,19 +34,25 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
     private static object Function(string name, string description, object parameters) => new
     { type = "function", function = new { name, description, parameters } };
 
-    public async Task<AssistantToolResult> ExecuteAsync(string name, string arguments, Guid userId, Guid condominiumId, CancellationToken ct, string channel = "Unknown")
+    public async Task<AssistantToolResult> ExecuteAsync(string name, string arguments, Guid userId, Guid condominiumId, CancellationToken ct,
+        string channel = "Unknown", IReadOnlyCollection<Guid>? conversationUnitIds = null)
     {
         var started = System.Diagnostics.Stopwatch.StartNew();
         if (!await CanReadAsync(name, userId, condominiumId, ct))
+        {
+            logger.LogInformation("Assistant tool denied. Tool: {Tool}; Channel: {Channel}; CondominiumId: {CondominiumId}.", name, channel, condominiumId);
             return Error("Consulta não autorizada.");
+        }
         try
         {
             using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(arguments) ? "{}" : arguments);
+            var argumentFields = document.RootElement.ValueKind == JsonValueKind.Object
+                ? document.RootElement.EnumerateObject().Select(x => x.Name).Order().ToArray() : [];
             var result = name switch
             {
                 "search_residents" => await SearchResidents(document.RootElement, condominiumId, ct),
                 "get_unit_residents" => await UnitResidents(document.RootElement, condominiumId, ct),
-                "search_requests" => await SearchRequests(document.RootElement, condominiumId, ct),
+                "search_requests" => await SearchRequests(document.RootElement, condominiumId, ct, conversationUnitIds),
                 "get_request" => await GetRequest(document.RootElement, condominiumId, ct),
                 "list_reminders" => await ListReminders(document.RootElement, condominiumId, ct),
                 "search_service_providers" => await SearchProviders(document.RootElement, userId, condominiumId, ct),
@@ -54,10 +60,17 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
                 "search_management_company_requests" => await SearchManagementCompanyRequests(document.RootElement, condominiumId, ct),
                 _ => Error("Tool inexistente.")
             };
-            logger.LogInformation("Assistant tool completed. Tool: {Tool}; Channel: {Channel}; CondominiumId: {CondominiumId}; Success: true; Results: {Results}; DurationMs: {DurationMs}.", name, channel, condominiumId, result.References.Count, started.ElapsedMilliseconds);
+            logger.LogInformation("Assistant tool completed. Tool: {Tool}; Channel: {Channel}; CondominiumId: {CondominiumId}; ArgumentFields: {@ArgumentFields}; ResultKind: {ResultKind}; Results: {Results}; ReferenceTypes: {@ReferenceTypes}; DurationMs: {DurationMs}.",
+                name, channel, condominiumId, argumentFields, ResultKind(result.Json), result.References.Count,
+                result.References.Select(x => x.Type).Distinct().Order().ToArray(), started.ElapsedMilliseconds);
             return result;
         }
-        catch (JsonException) { return Error("Argumentos inválidos."); }
+        catch (JsonException)
+        {
+            logger.LogInformation("Assistant tool rejected invalid arguments. Tool: {Tool}; Channel: {Channel}; CondominiumId: {CondominiumId}; ArgumentsPresent: {ArgumentsPresent}.",
+                name, channel, condominiumId, !string.IsNullOrWhiteSpace(arguments));
+            return Error("Argumentos inválidos.");
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         { logger.LogWarning("Assistant tool failed. Tool: {Tool}; CondominiumId: {CondominiumId}; FailureType: {FailureType}.", name, condominiumId, ex.GetType().Name); return Error("Não foi possível consultar este domínio."); }
     }
@@ -103,12 +116,23 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
         return Rows(rows, reference is null ? [] : [reference]);
     }
 
-    private async Task<AssistantToolResult> SearchRequests(JsonElement a, Guid condo, CancellationToken ct)
+    private async Task<AssistantToolResult> SearchRequests(JsonElement a, Guid condo, CancellationToken ct,
+        IReadOnlyCollection<Guid>? conversationUnitIds)
     {
         var q = Text(a, "query"); var status = Text(a, "status"); var priority = Text(a, "priority"); var unit = Text(a, "unit");
+        var parsedStatus = Enum.TryParse<RequestStatus>(status, true, out var statusValue) ? statusValue : (RequestStatus?)null;
+        var parsedPriority = Enum.TryParse<RequestPriority>(priority, true, out var priorityValue) ? priorityValue : (RequestPriority?)null;
+        var matchedUnitIds = string.IsNullOrWhiteSpace(unit) ? [] : await db.Units.AsNoTracking()
+            .Where(u => u.CondominiumId == condo && u.Identifier.ToLower().Contains(unit.ToLower()))
+            .Select(u => u.Id).ToArrayAsync(ct);
+        var matchesConversationUnitContext = conversationUnitIds is { Count: > 0 }
+            && matchedUnitIds.Any(conversationUnitIds.Contains);
+        logger.LogInformation("Assistant attendance filter resolved. CondominiumId: {CondominiumId}; UnitFilterPresent: {UnitFilterPresent}; MatchingUnits: {MatchingUnits}; MatchesConversationUnitContext: {MatchesConversationUnitContext}; StatusFilterPresent: {StatusFilterPresent}; StatusRecognized: {StatusRecognized}; PriorityFilterPresent: {PriorityFilterPresent}; PriorityRecognized: {PriorityRecognized}; QueryFilterPresent: {QueryFilterPresent}.",
+            condo, !string.IsNullOrWhiteSpace(unit), matchedUnitIds.Length, matchesConversationUnitContext,
+            !string.IsNullOrWhiteSpace(status), parsedStatus is not null, !string.IsNullOrWhiteSpace(priority), parsedPriority is not null, !string.IsNullOrWhiteSpace(q));
         var query = RequestsFor(condo);
-        if (Enum.TryParse<RequestStatus>(status, true, out var parsedStatus)) query = query.Where(x => x.Status == parsedStatus);
-        if (Enum.TryParse<RequestPriority>(priority, true, out var parsedPriority)) query = query.Where(x => x.Priority == parsedPriority);
+        if (parsedStatus is RequestStatus parsed) query = query.Where(x => x.Status == parsed);
+        if (parsedPriority is RequestPriority priorityParsed) query = query.Where(x => x.Priority == priorityParsed);
         if (!string.IsNullOrWhiteSpace(q)) query = query.Where(x => x.Title.ToLower().Contains(q.ToLower()) || x.Description.ToLower().Contains(q.ToLower()));
         if (!string.IsNullOrWhiteSpace(unit)) query = query.Where(x => x.TargetUnitId != null && db.Units.Any(u => u.Id == x.TargetUnitId && u.Identifier.ToLower().Contains(unit.ToLower())));
         var rows = await query.OrderByDescending(x => x.UpdatedAt).Take(MaxRows).Select(x => new { x.Id, Protocol = RequestProtocol.From(x.Id), x.Title, x.Description, Status = x.Status.ToString(), Priority = x.Priority.ToString(), x.CreatedAt, x.UpdatedAt, Unit = db.Units.Where(u => u.Id == x.TargetUnitId).Select(u => u.Identifier).FirstOrDefault(), Resident = db.Users.Where(u => u.Id == x.AuthorUserId).Select(u => u.FullName).FirstOrDefault() }).ToArrayAsync(ct);
@@ -189,6 +213,11 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
     private IQueryable<CondoLink.Domain.Entities.Request> RequestsFor(Guid condo) =>
         db.Requests.AsNoTracking().Where(x => x.CondominiumId == condo);
     private static string Text(JsonElement e, string name) => e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString()?.Trim() ?? "" : "";
+    private static string ResultKind(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.TryGetProperty("error", out _) ? "error" : "rows";
+    }
     private static AssistantToolResult Error(string message) => new(JsonSerializer.Serialize(new { error = message }), []);
     private static AssistantToolResult Rows<T>(T rows, IReadOnlyList<AssistantOperationalReference> refs) => new(JsonSerializer.Serialize(new { rows, limit = MaxRows, hasMore = refs.Count >= MaxRows }), refs);
 }

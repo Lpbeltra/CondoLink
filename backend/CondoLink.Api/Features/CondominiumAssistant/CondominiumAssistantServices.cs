@@ -475,7 +475,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         CondominiumAssistantChannel channel = CondominiumAssistantChannel.Portal)
     {
         using var execution = AssistantExecutionContext.Begin(executionId ?? Guid.NewGuid());
-        using var scope = logger.BeginScope(new Dictionary<string, object?> { ["AssistantExecutionId"] = AssistantExecutionContext.ExecutionId });
+        using var scope = logger.BeginScope(new Dictionary<string, object?> { ["AssistantExecutionId"] = AssistantExecutionContext.ExecutionId, ["ConversationId"] = conversation.Id });
         var measurement = new AssistantExecutionMeasurement(AssistantExecutionContext.ExecutionId!.Value,
             conversation.CondominiumId, DateTime.UtcNow, channel) { EmbeddingModel = embeddings.Model, ChatModel = aiOptions.Value.Model };
         try
@@ -484,14 +484,19 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             if (catalogAnswer is not null) { if (metricWriter is not null) await metricWriter.WriteAsync(measurement, true); return new(catalogAnswer, [], "structured-catalog"); }
             var prepared = await PrepareAnswerContextAsync(conversation, question, cancellationToken, measurement);
             var chat = System.Diagnostics.Stopwatch.StartNew();
-            var chatResult = await Chat(question, prepared.Context, prepared.RequestContextPrompt, prepared.History, prepared.NoEvidence,
+            var chatResult = await Chat(question, prepared.Context, prepared.RequestContextPrompt, prepared.History, prepared.VerifiedUnitIds, prepared.NoEvidence,
                 conversation.CreatedByUserId, conversation.CondominiumId, channel, cancellationToken);
             var answer = chatResult.Answer;
             chat.Stop(); measurement.ChatDurationMs = measurement.GenerationDurationMs = chat.ElapsedMilliseconds;
-            if (chatResult.References.Count == 0)
+            var groundingApplied = chatResult.References.Count == 0;
+            var answerBeforeGrounding = answer;
+            if (groundingApplied)
                 answer = EnforceGrounding(answer, prepared.Evidence);
+            logger.LogInformation("Assistant grounding decision. CondominiumId: {CondominiumId}; ConversationId: {ConversationId}; OperationalReferences: {OperationalReferences}; DocumentaryEvidence: {DocumentaryEvidence}; Applied: {Applied}; AnswerChanged: {AnswerChanged}; AnswerCharacters: {AnswerCharacters}.",
+                conversation.CondominiumId, conversation.Id, chatResult.References.Count, prepared.Evidence.Count,
+                groundingApplied, !string.Equals(answerBeforeGrounding, answer, StringComparison.Ordinal), answer.Length);
             answer = await AppendUnprocessedDocumentsHintAsync(conversation.CondominiumId, answer, prepared.NoEvidence, cancellationToken);
-            logger.LogInformation("Condominium assistant completed. CondominiumId: {CondominiumId}; ConversationId: {ConversationId}; Chunks: {Chunks}; Success: true.", conversation.CondominiumId, conversation.Id, prepared.Sources.Count);
+            logger.LogInformation("Condominium assistant completed. CondominiumId: {CondominiumId}; ConversationId: {ConversationId}; Chunks: {Chunks}; OperationalReferences: {OperationalReferences}; Success: true.", conversation.CondominiumId, conversation.Id, prepared.Sources.Count, chatResult.References.Count);
             var cited = SourcesForAnswer(answer, prepared.Sources);
             if (metricWriter is not null) await metricWriter.WriteAsync(measurement, true); return new(answer, cited, aiOptions.Value.Model, chatResult.References);
         }
@@ -499,7 +504,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
     }
 
     private async Task<(string Answer, IReadOnlyList<AssistantOperationalReference> References)> Chat(
-        string question, string documents, string? requestContext, string[] history,
+        string question, string documents, string? requestContext, string[] history, IReadOnlyCollection<Guid> verifiedUnitIds,
         bool exhaustiveSearchWithoutEvidence, Guid userId, Guid condominiumId,
         CondominiumAssistantChannel channel, CancellationToken cancellationToken)
     {
@@ -529,14 +534,23 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
                 return (message.TryGetProperty("content", out var content) ? content.GetString()?.Trim() : null) ?? "NÃ£o encontrei base suficiente para responder.", references;
             */
             if (!message.TryGetProperty("tool_calls", out var calls) || calls.ValueKind != JsonValueKind.Array || calls.GetArrayLength() == 0)
+            {
+                logger.LogInformation("Assistant model turn completed. Transport: {Transport}; Turn: {Turn}; ToolCalls: 0; ContentPresent: {ContentPresent}; ContentCharacters: {ContentCharacters}.",
+                    "json", turn + 1, message.TryGetProperty("content", out var returnedContent) && returnedContent.ValueKind == JsonValueKind.String,
+                    message.TryGetProperty("content", out returnedContent) && returnedContent.ValueKind == JsonValueKind.String ? returnedContent.GetString()?.Length ?? 0 : 0);
                 return (message.TryGetProperty("content", out var content) ? content.GetString()?.Trim() ?? string.Empty : string.Empty, references);
+            }
+            logger.LogInformation("Assistant model turn completed. Transport: {Transport}; Turn: {Turn}; ToolCalls: {ToolCalls}; Tools: {@Tools}.",
+                "json", turn + 1, calls.GetArrayLength(), calls.EnumerateArray()
+                    .Select(x => x.TryGetProperty("function", out var f) && f.TryGetProperty("name", out var n) ? n.GetString() : null)
+                    .Where(x => !string.IsNullOrWhiteSpace(x)).ToArray());
             messages.Add(new { role = "assistant", content = message.TryGetProperty("content", out var assistantContent) ? assistantContent.GetString() : null, tool_calls = JsonSerializer.Deserialize<object>(calls.GetRawText()) });
             foreach (var call in calls.EnumerateArray())
             {
                 var function = call.GetProperty("function");
                 var result = operationalTools is null
                     ? new AssistantToolResult(JsonSerializer.Serialize(new { error = "Tools unavailable." }), [])
-                    : await operationalTools.ExecuteAsync(function.GetProperty("name").GetString()!, function.GetProperty("arguments").GetString() ?? "{}", userId, condominiumId, cancellationToken, channel.ToString());
+                    : await operationalTools.ExecuteAsync(function.GetProperty("name").GetString()!, function.GetProperty("arguments").GetString() ?? "{}", userId, condominiumId, cancellationToken, channel.ToString(), verifiedUnitIds);
                 references.AddRange(result.References);
                 messages.Add(new { role = "tool", tool_call_id = call.GetProperty("id").GetString(), content = result.Json });
             }
@@ -584,7 +598,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         CondominiumAssistantChannel channel = CondominiumAssistantChannel.Portal)
     {
         using var execution = AssistantExecutionContext.Begin(executionId ?? Guid.NewGuid());
-        using var scope = logger.BeginScope(new Dictionary<string, object?> { ["AssistantExecutionId"] = AssistantExecutionContext.ExecutionId });
+        using var scope = logger.BeginScope(new Dictionary<string, object?> { ["AssistantExecutionId"] = AssistantExecutionContext.ExecutionId, ["ConversationId"] = conversation.Id });
         var measurement = new AssistantExecutionMeasurement(AssistantExecutionContext.ExecutionId!.Value, conversation.CondominiumId, DateTime.UtcNow) { EmbeddingModel = embeddings.Model, ChatModel = aiOptions.Value.Model };
         try
         {
@@ -593,11 +607,16 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             var prepared = await PrepareAnswerContextAsync(conversation, question, cancellationToken, measurement);
             await onSources(prepared.Sources, cancellationToken);
             var streamed = await ChatStreamAsync(question, prepared.Context, prepared.RequestContextPrompt,
-                prepared.History, prepared.NoEvidence, conversation.CreatedByUserId,
+                prepared.History, prepared.VerifiedUnitIds, prepared.NoEvidence, conversation.CreatedByUserId,
                 conversation.CondominiumId, onToken, cancellationToken, measurement, channel);
             var answer = streamed.Answer;
-            if (streamed.References.Count == 0)
+            var groundingApplied = streamed.References.Count == 0;
+            var answerBeforeGrounding = answer;
+            if (groundingApplied)
                 answer = EnforceGrounding(answer, prepared.Evidence);
+            logger.LogInformation("Assistant grounding decision. CondominiumId: {CondominiumId}; ConversationId: {ConversationId}; OperationalReferences: {OperationalReferences}; DocumentaryEvidence: {DocumentaryEvidence}; Applied: {Applied}; AnswerChanged: {AnswerChanged}; AnswerCharacters: {AnswerCharacters}.",
+                conversation.CondominiumId, conversation.Id, streamed.References.Count, prepared.Evidence.Count,
+                groundingApplied, !string.Equals(answerBeforeGrounding, answer, StringComparison.Ordinal), answer.Length);
             var hinted = await AppendUnprocessedDocumentsHintAsync(conversation.CondominiumId, answer, prepared.NoEvidence, cancellationToken);
             if (hinted != answer) { await onToken(hinted[answer.Length..], cancellationToken); answer = hinted; }
             var cited = SourcesForAnswer(answer, prepared.Sources);
@@ -608,7 +627,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
 
     private sealed record PreparedAnswerContext(
         IReadOnlyList<AssistantSource> Sources, string Context,
-        string? RequestContextPrompt, string[] History, bool NoEvidence,
+        string? RequestContextPrompt, string[] History, Guid[] VerifiedUnitIds, bool NoEvidence,
         IReadOnlyDictionary<string, string> Evidence);
 
     private async Task<PreparedAnswerContext> PrepareAnswerContextAsync(
@@ -653,15 +672,26 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         var unitIds = effectiveHistory
             .SelectMany(x => CondominiumAssistantEndpoints.ParseOperationalReferences(x.SourcesJson))
             .Where(x => x.Type == "unit").Select(x => x.Id).Distinct().ToArray();
+        var operationalReferenceTypes = effectiveHistory.SelectMany(x => CondominiumAssistantEndpoints.ParseOperationalReferences(x.SourcesJson))
+            .GroupBy(x => x.Type).ToDictionary(x => x.Key, x => x.Count());
+        var verifiedUnitContextIncluded = false;
+        Guid[] verifiedUnitIds = [];
         if (unitIds.Length > 0)
         {
             var units = await db.Units.AsNoTracking().Where(x => x.CondominiumId == conversation.CondominiumId
-                && unitIds.Contains(x.Id)).Select(x => x.Identifier).ToArrayAsync(cancellationToken);
+                && unitIds.Contains(x.Id)).Select(x => new { x.Id, x.Identifier }).ToArrayAsync(cancellationToken);
             if (units.Length > 0)
-                history = [.. history, $"CONTEXTO OPERACIONAL VERIFICADO NA CONVERSA (não é evidência documental; use apenas para resolver referências): unidades {string.Join(", ", units)}."];
+            {
+                verifiedUnitIds = units.Select(x => x.Id).ToArray();
+                history = [.. history, $"CONTEXTO OPERACIONAL VERIFICADO NA CONVERSA (não é evidência documental; use apenas para resolver referências): unidades {string.Join(", ", units.Select(x => x.Identifier))}."];
+                verifiedUnitContextIncluded = true;
+            }
         }
+        logger.LogInformation("Assistant conversation context prepared. CondominiumId: {CondominiumId}; ConversationId: {ConversationId}; PersistedMessages: {PersistedMessages}; EffectiveHistoryMessages: {EffectiveHistoryMessages}; HistoryCharacters: {HistoryCharacters}; OperationalReferenceTypes: {@OperationalReferenceTypes}; UnitReferences: {UnitReferences}; VerifiedUnitContextIncluded: {VerifiedUnitContextIncluded}; DocumentarySources: {DocumentarySources}; NoDocumentaryEvidence: {NoDocumentaryEvidence}.",
+            conversation.CondominiumId, conversation.Id, historyRows.Length, effectiveHistory.Length, history.Sum(x => x.Length),
+            operationalReferenceTypes, unitIds.Length, verifiedUnitContextIncluded, sources.Length, ranked.Count == 0);
         contextStarted.Stop(); if (measurement is not null) { measurement.ContextPreparationDurationMs = contextStarted.ElapsedMilliseconds; measurement.FinalChunks = ranked.Count; measurement.ContextCharacters = context.Length; }
-        return new(sources, context, requestContext?.Prompt, history, ranked.Count == 0,
+        return new(sources, context, requestContext?.Prompt, history, verifiedUnitIds, ranked.Count == 0,
             ranked.Select((item, index) => new { Marker = $"S{index + 1}", item.Content })
                 .ToDictionary(item => item.Marker, item => item.Content));
     }
@@ -1248,7 +1278,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
     private sealed record StreamToolCall(string Id, string Name, string Arguments);
 
     private async Task<(string Answer, IReadOnlyList<AssistantOperationalReference> References)> ChatStreamAsync(
-        string question, string documents, string? requestContext, string[] history,
+        string question, string documents, string? requestContext, string[] history, IReadOnlyCollection<Guid> verifiedUnitIds,
         bool exhaustiveSearchWithoutEvidence, Guid userId, Guid condominiumId,
         Func<string, CancellationToken, Task> onToken, CancellationToken cancellationToken,
         AssistantExecutionMeasurement? measurement = null,
@@ -1276,6 +1306,8 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Assistant request failed.");
             var streamed = await ReadStreamTurnAsync(response, cancellationToken);
             var streamStarted = System.Diagnostics.Stopwatch.StartNew();
+            logger.LogInformation("Assistant model turn completed. Transport: {Transport}; Turn: {Turn}; ToolCalls: {ToolCalls}; Tools: {@Tools}; ContentCharacters: {ContentCharacters}.",
+                "sse", turn + 1, streamed.ToolCalls.Count, streamed.ToolCalls.Select(x => x.Name).Distinct().ToArray(), streamed.Content.Length);
             if (streamed.ToolCalls.Count == 0)
             {
                 var answer = streamed.Content.Trim();
@@ -1291,7 +1323,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             {
                 var result = operationalTools is null
                     ? new AssistantToolResult(JsonSerializer.Serialize(new { error = "Tools unavailable." }), [])
-                    : await operationalTools.ExecuteAsync(call.Name, call.Arguments, userId, condominiumId, cancellationToken, channel.ToString());
+                    : await operationalTools.ExecuteAsync(call.Name, call.Arguments, userId, condominiumId, cancellationToken, channel.ToString(), verifiedUnitIds);
                 references.AddRange(result.References);
                 messages.Add(new { role = "tool", tool_call_id = call.Id, content = result.Json });
             }

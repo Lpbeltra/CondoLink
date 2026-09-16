@@ -161,7 +161,7 @@ public sealed class CondominiumAssistantStreamingTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Streaming_conversation_resolves_a_unit_reference_and_uses_attendance_tool()
+    public async Task Streaming_orchestration_preserves_unit_context_when_model_selects_attendance_tool()
     {
         var resident = new ApplicationUser("Morador 1201", $"resident-{Guid.NewGuid():N}@test.local", "11999999999");
         resident.NormalizedUserName = resident.UserName!.ToUpperInvariant();
@@ -276,6 +276,8 @@ public sealed class CondominiumAssistantStreamingTests : IAsyncLifetime
         }
     }
 
+    // Deterministic provider double: proves prompt/context, SSE tool JSON, tool execution and
+    // grounding orchestration after a tool choice. It does not predict a production model choice.
     private sealed class ContextualAttendanceStreamingHandler : HttpMessageHandler
     {
         public bool SawVerifiedUnitContext { get; private set; }
