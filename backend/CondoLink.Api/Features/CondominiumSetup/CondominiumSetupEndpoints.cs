@@ -977,10 +977,7 @@ public static class CondominiumSetupEndpoints
             {
                 error = "Condomínio inativo não pode ser configurado."
             });
-        if (principal.IsInRole(DependencyInjection.PlatformAdminRole))
-            return null;
-
-        return await SubManagerAccess.HasAsync(db, userId, condominiumId, SubManagerModule.Management, cancellationToken)
+        return principal.IsInRole(DependencyInjection.PlatformAdminRole)
             ? null : Results.Forbid();
     }
 

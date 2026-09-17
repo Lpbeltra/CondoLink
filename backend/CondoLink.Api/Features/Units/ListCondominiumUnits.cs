@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
+using CondoLink.Infrastructure;
 using CondoLink.Api.Features.Management;
 using Microsoft.EntityFrameworkCore;
 
@@ -23,7 +24,8 @@ public static class ListCondominiumUnits
         CancellationToken cancellationToken)
     {
         var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var manager = Guid.TryParse(value, out var userId) && await SubManagerAccess.HasAsync(dbContext, userId, condominiumId, SubManagerModule.Management, cancellationToken);
+        var manager = principal.IsInRole(DependencyInjection.PlatformAdminRole)
+            || Guid.TryParse(value, out var userId) && await SubManagerAccess.HasAsync(dbContext, userId, condominiumId, SubManagerModule.Management, cancellationToken);
         if (!manager) return Results.Forbid();
         var condominiumExists = await dbContext.Condominiums
             .AnyAsync(

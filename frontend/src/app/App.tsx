@@ -128,6 +128,10 @@ const OverwatchCondominiumDetailsPage = lazyPage(
   () => import("../overwatch/pages/OverwatchCondominiumDetailsPage"),
   "OverwatchCondominiumDetailsPage",
 );
+const OverwatchCondominiumStructurePage = lazyPage(
+  () => import("../overwatch/pages/OverwatchCondominiumStructurePage"),
+  "OverwatchCondominiumStructurePage",
+);
 const OverwatchManagementCompaniesPage = lazyPage(
   () => import("../overwatch/pages/OverwatchManagementCompaniesPage"),
   "OverwatchManagementCompaniesPage",
@@ -251,10 +255,10 @@ export function App() {
                     />
                     <Route path="administrator/:id/edit" element={<EditManagementCompanyRequestPage />} />
                     <Route path="units" element={<ManagementUnitsPage />} />
-                    <Route path="units/new" element={<CreateUnitPage />} />
+                    <Route path="units/new" element={<Navigate to="../units" replace />} />
                     <Route path="units/:unitId" element={<UnitDetailsPage />} />
-                    <Route path="blocks" element={<ManagementBlocksPage />} />
-                    <Route path="setup" element={<CondominiumSetupPage />} />
+                    <Route path="blocks" element={<Navigate to="../units" replace />} />
+                    <Route path="setup" element={<Navigate to="../dashboard" replace />} />
                     <Route
                       path="categories"
                       element={<ManagementCategoriesPage />}
@@ -292,6 +296,10 @@ export function App() {
                     <Route
                       path="condominiums/:condominiumId/setup"
                       element={<CondominiumSetupPage />}
+                    />
+                    <Route
+                      path="condominiums/:condominiumId/structure"
+                      element={<OverwatchCondominiumStructurePage />}
                     />
                     <Route
                       path="management-companies"

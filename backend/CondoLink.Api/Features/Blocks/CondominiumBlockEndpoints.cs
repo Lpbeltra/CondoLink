@@ -3,6 +3,7 @@ using System.Security.Claims;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
+using CondoLink.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using CondoLink.Api.Features.Management;
 
@@ -21,7 +22,7 @@ public static class CondominiumBlockEndpoints
 
     private static async Task<IResult> ListAsync(Guid condominiumId, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
     {
-        if (!await IsManager(principal, condominiumId, db, ct)) return Results.Forbid();
+        if (!await CanReadStructure(principal, condominiumId, db, ct)) return Results.Forbid();
         var blocks = await db.CondominiumBlocks.AsNoTracking().Where(x => x.CondominiumId == condominiumId)
             .GroupJoin(db.Units.AsNoTracking(), block => block.Id, unit => unit.BlockId, (block, units) => new Response(block.Id, block.CondominiumId, block.Identifier, units.Count(), block.CreatedAt, block.UpdatedAt))
             .ToListAsync(ct);
@@ -30,7 +31,7 @@ public static class CondominiumBlockEndpoints
 
     private static async Task<IResult> CreateAsync(Guid condominiumId, BlockRequest request, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
     {
-        if (!await IsManager(principal, condominiumId, db, ct)) return Results.Forbid();
+        if (!IsPlatformAdmin(principal)) return Results.Forbid();
         var identifier = request.Identifier?.Trim();
         if (string.IsNullOrEmpty(identifier)) return Results.BadRequest(new { error = "Block identifier is required." });
         if (identifier.Length > 50) return Results.BadRequest(new { error = "Block identifier must not exceed 50 characters." });
@@ -41,7 +42,7 @@ public static class CondominiumBlockEndpoints
 
     private static async Task<IResult> UpdateAsync(Guid condominiumId, Guid blockId, BlockRequest request, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
     {
-        if (!await IsManager(principal, condominiumId, db, ct)) return Results.Forbid();
+        if (!IsPlatformAdmin(principal)) return Results.Forbid();
         var block = await db.CondominiumBlocks.SingleOrDefaultAsync(x => x.Id == blockId && x.CondominiumId == condominiumId, ct);
         if (block is null) return Results.NotFound(new { error = "Block not found." });
         var identifier = request.Identifier?.Trim();
@@ -53,7 +54,7 @@ public static class CondominiumBlockEndpoints
 
     private static async Task<IResult> DeleteAsync(Guid condominiumId, Guid blockId, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
     {
-        if (!await IsManager(principal, condominiumId, db, ct)) return Results.Forbid();
+        if (!IsPlatformAdmin(principal)) return Results.Forbid();
         var block = await db.CondominiumBlocks.SingleOrDefaultAsync(x => x.Id == blockId && x.CondominiumId == condominiumId, ct);
         if (block is null) return Results.NotFound(new { error = "Block not found." });
         var count = await db.Units.CountAsync(x => x.BlockId == blockId, ct);
@@ -61,8 +62,12 @@ public static class CondominiumBlockEndpoints
         db.CondominiumBlocks.Remove(block); await db.SaveChangesAsync(ct); return Results.NoContent();
     }
 
-    private static async Task<bool> IsManager(ClaimsPrincipal principal, Guid condominiumId, AppDbContext db, CancellationToken ct)
+    private static bool IsPlatformAdmin(ClaimsPrincipal principal) =>
+        principal.IsInRole(DependencyInjection.PlatformAdminRole);
+
+    private static async Task<bool> CanReadStructure(ClaimsPrincipal principal, Guid condominiumId, AppDbContext db, CancellationToken ct)
     {
+        if (IsPlatformAdmin(principal)) return true;
         var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         return Guid.TryParse(value, out var userId) && await SubManagerAccess.HasAsync(db, userId, condominiumId, SubManagerModule.Management, ct);
     }

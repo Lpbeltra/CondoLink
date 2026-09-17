@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
+using CondoLink.Infrastructure;
 using CondoLink.Api.Features.Management;
 using Microsoft.EntityFrameworkCore;
 
@@ -30,7 +31,8 @@ public static class GetUnitById
 
         if (unit is null) return Results.NotFound(new { error = "Unit not found." });
         var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var manager = Guid.TryParse(value, out var userId) && await SubManagerAccess.HasAsync(dbContext, userId, unit.CondominiumId, SubManagerModule.Management, cancellationToken);
+        var manager = principal.IsInRole(DependencyInjection.PlatformAdminRole)
+            || Guid.TryParse(value, out var userId) && await SubManagerAccess.HasAsync(dbContext, userId, unit.CondominiumId, SubManagerModule.Management, cancellationToken);
         return manager ? Results.Ok(unit) : Results.Forbid();
     }
 

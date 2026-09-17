@@ -229,6 +229,12 @@ export function OverwatchCondominiumDetailsPage() {
           </Button>
           <Button
             variant="outlined"
+            onClick={() => navigate(`/overwatch/condominiums/${condominium.id}/structure`)}
+          >
+            Administrar estrutura
+          </Button>
+          <Button
+            variant="outlined"
             startIcon={<EditRoundedIcon />}
             onClick={() => {
               setOperationError('')

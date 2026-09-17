@@ -64,6 +64,7 @@ const labels: Record<RelationshipType, string> = {
 }
 
 export function UnitDetailsPage() {
+  const canManageStructure = false
   const { unitId = '' } = useParams()
   const navigate = useNavigate()
 
@@ -354,7 +355,7 @@ export function UnitDetailsPage() {
       </Button>
 
       <Typography variant="h1" mt={2}>
-        Gestão da unidade
+        Unidade
       </Typography>
 
       {success && (
@@ -369,7 +370,7 @@ export function UnitDetailsPage() {
         </Alert>
       )}
 
-      <Card elevation={0} sx={{ mt: 3 }}>
+      {canManageStructure && <Card elevation={0} sx={{ mt: 3 }}>
         <CardContent
           component="form"
           onSubmit={(event) => void saveUnit(event)}
@@ -447,7 +448,7 @@ export function UnitDetailsPage() {
             </Box>
           </Stack>
         </CardContent>
-      </Card>
+      </Card>}
 
       <Stack
         direction={{

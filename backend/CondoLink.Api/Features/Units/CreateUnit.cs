@@ -3,6 +3,7 @@ using System.Security.Claims;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
+using CondoLink.Infrastructure;
 using CondoLink.Infrastructure.Persistence.Configurations;
 using Microsoft.EntityFrameworkCore;
 using CondoLink.Api.Features.Management;
@@ -25,7 +26,7 @@ public static class CreateUnit
         AppDbContext dbContext,
         CancellationToken cancellationToken)
     {
-        if (!await IsManager(principal, condominiumId, dbContext, cancellationToken)) return Results.Forbid();
+        if (!principal.IsInRole(DependencyInjection.PlatformAdminRole)) return Results.Forbid();
         if (string.IsNullOrWhiteSpace(request.Identifier))
         {
             return Results.BadRequest(new { error = "Identifier is required." });
@@ -117,12 +118,6 @@ public static class CreateUnit
     {
         var trimmed = value?.Trim();
         return string.IsNullOrEmpty(trimmed) ? null : trimmed;
-    }
-
-    private static async Task<bool> IsManager(ClaimsPrincipal principal, Guid condominiumId, AppDbContext db, CancellationToken ct)
-    {
-        var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        return Guid.TryParse(value, out var userId) && await SubManagerAccess.HasAsync(db, userId, condominiumId, SubManagerModule.Management, ct);
     }
 
     private static bool IsDuplicateUnitViolation(DbUpdateException exception)

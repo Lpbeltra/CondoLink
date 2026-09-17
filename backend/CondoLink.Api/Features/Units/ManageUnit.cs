@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Persistence;
+using CondoLink.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using CondoLink.Api.Features.Management;
 
@@ -18,7 +19,7 @@ public static class ManageUnit
 
     private static async Task<IResult> UpdateAsync(Guid condominiumId, Guid unitId, Request request, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
     {
-        if (!await IsManager(principal, condominiumId, db, ct)) return Results.Forbid();
+        if (!principal.IsInRole(DependencyInjection.PlatformAdminRole)) return Results.Forbid();
         var unit = await db.Units.SingleOrDefaultAsync(x => x.Id == unitId && x.CondominiumId == condominiumId, ct);
         if (unit is null) return Results.NotFound(new { error = "Unit not found." });
         var identifier = request.Identifier?.Trim();
@@ -33,18 +34,15 @@ public static class ManageUnit
 
     private static async Task<IResult> DeleteAsync(Guid condominiumId, Guid unitId, ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
     {
-        if (!await IsManager(principal, condominiumId, db, ct)) return Results.Forbid();
+        if (!principal.IsInRole(DependencyInjection.PlatformAdminRole)) return Results.Forbid();
         var unit = await db.Units.SingleOrDefaultAsync(x => x.Id == unitId && x.CondominiumId == condominiumId, ct);
         if (unit is null) return Results.NotFound(new { error = "Unit not found." });
-        if (await db.UnitMemberships.AnyAsync(x => x.UnitId == unitId, ct) || await db.Requests.AnyAsync(x => x.TargetUnitId == unitId, ct))
+        var hasProtectedRelation = await db.UnitMemberships.AnyAsync(x => x.UnitId == unitId, ct)
+            || await db.Requests.AnyAsync(x => x.TargetUnitId == unitId, ct)
+            || await db.ManagementCompanyFineRequests.AnyAsync(x => x.UnitId == unitId, ct);
+        if (hasProtectedRelation)
             return Results.Conflict(new { error = "Não é possível excluir esta unidade porque ela possui pessoas ou registros vinculados." });
         db.Units.Remove(unit); await db.SaveChangesAsync(ct); return Results.NoContent();
-    }
-
-    private static async Task<bool> IsManager(ClaimsPrincipal principal, Guid condominiumId, AppDbContext db, CancellationToken ct)
-    {
-        var value = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        return Guid.TryParse(value, out var userId) && await SubManagerAccess.HasAsync(db, userId, condominiumId, SubManagerModule.Management, ct);
     }
 
     public sealed record Request(string? Identifier, Guid? BlockId, string? Description);
