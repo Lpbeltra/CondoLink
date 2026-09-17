@@ -2,6 +2,7 @@ import type { PropsWithChildren } from 'react'
 import { Box } from '@mui/material'
 import { Brand } from '../components/Brand'
 import { ThemeModeToggle } from '../theme/ThemeModeToggle'
+import { AuthBrandGraphic } from './AuthBrandGraphic'
 
 export function AuthShell({ children }: PropsWithChildren) {
   return (
@@ -44,6 +45,7 @@ export function AuthShell({ children }: PropsWithChildren) {
           mx: 'auto',
           flex: 1,
           display: 'flex',
+          position: 'relative',
           alignItems: { xs: 'flex-start', md: 'center' },
           pt: { xs: 7, md: 0 },
           pb: { xs: 5, md: 7 },
@@ -56,7 +58,23 @@ export function AuthShell({ children }: PropsWithChildren) {
             ml: { xs: 0, md: 'clamp(40px, 10vw, 152px)' },
           }}
         >
-          {children}
+          <Box
+            sx={{
+              display: { xs: 'none', lg: 'block' },
+              position: 'absolute',
+              width: 'clamp(360px, 43vw, 560px)',
+              height: 'clamp(360px, 43vw, 560px)',
+              right: 'clamp(-56px, -3vw, -16px)',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              pointerEvents: 'none',
+            }}
+          >
+            <AuthBrandGraphic />
+          </Box>
+          <Box sx={{ position: 'relative', zIndex: 1 }}>
+            {children}
+          </Box>
         </Box>
       </Box>
     </Box>
