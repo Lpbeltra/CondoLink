@@ -55,9 +55,7 @@ export function ManagementLayout() {
 
   const value = location.pathname.startsWith('/management/categories')
       ? '/management/categories'
-      : location.pathname.startsWith('/management/people')
-        ? '/management/people'
-        : '/management/units'
+      : '/management/people'
 
   return (
     <>
@@ -72,18 +70,13 @@ export function ManagementLayout() {
           variant="scrollable"
         >
           <Tab
-            value="/management/units"
-            label="Unidades"
-          />
-
-          <Tab
             value="/management/categories"
             label="Categorias"
           />
 
           <Tab
             value="/management/people"
-            label="Pessoas"
+            label="Moradores"
           />
         </Tabs>
       </PageContainer>

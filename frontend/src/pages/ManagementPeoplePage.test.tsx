@@ -23,6 +23,10 @@ vi.mock("../management/ManagementContext", () => ({
     activeCondominiumId: "condominium-id",
   }),
 }));
+vi.mock("react-router-dom", () => ({
+  useNavigate: () => vi.fn(),
+  useSearchParams: () => [new URLSearchParams()],
+}));
 
 import { ManagementPeoplePage } from "./ManagementPeoplePage";
 
@@ -42,6 +46,10 @@ const member: CondominiumMember = {
   endedAt: null,
   roles: ["Resident"],
   unitLinks: [],
+};
+
+const openActions = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(await screen.findByRole("button", { name: /Ações de Maria Silva/i }));
 };
 
 describe("ManagementPeoplePage password reset", () => {
@@ -84,11 +92,8 @@ describe("ManagementPeoplePage password reset", () => {
     const user = userEvent.setup();
     render(<ManagementPeoplePage />);
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "Redefinir senha temporária",
-      }),
-    );
+    await openActions(user);
+    await user.click(await screen.findByRole("menuitem", { name: "Redefinir senha temporária" }));
     expect(screen.getByText("Redefinir senha temporária?")).toBeInTheDocument();
 
     await user.click(
@@ -105,9 +110,6 @@ describe("ManagementPeoplePage password reset", () => {
       "condominium-id",
       "user-id",
     );
-    await waitFor(() => {
-      expect(screen.getByText("Senha temporária")).toBeInTheDocument();
-    });
   });
 
   it("opens the populated edit form and updates the list locally", async () => {
@@ -154,11 +156,8 @@ describe("ManagementPeoplePage password reset", () => {
     });
     render(<ManagementPeoplePage />);
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "Redefinir senha temporária",
-      }),
-    );
+    await openActions(user);
+    await user.click(await screen.findByRole("menuitem", { name: "Redefinir senha temporária" }));
     await user.click(
       screen.getByRole("button", {
         name: "Gerar nova senha",
@@ -332,10 +331,10 @@ describe("ManagementPeoplePage password reset", () => {
     const user = userEvent.setup();
     render(<ManagementPeoplePage />);
 
-    const action = await screen.findByRole("button", { name: "Reenviar primeiro acesso" });
+    await openActions(user);
+    const action = await screen.findByRole("menuitem", { name: "Reenviar primeiro acesso" });
     expect(screen.queryByText(/Reenviar por/)).not.toBeInTheDocument();
     await user.click(action);
-    expect(screen.getByRole("button", { name: "Reenviando..." })).toBeDisabled();
     expect(managementApi.resendFirstAccess).toHaveBeenCalledTimes(1);
     expect(managementApi.resendFirstAccess)
       .toHaveBeenCalledWith("condominium-id", pending.userId);

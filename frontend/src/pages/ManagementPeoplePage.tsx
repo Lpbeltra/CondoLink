@@ -8,7 +8,6 @@
 } from "react";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
-import LockResetRoundedIcon from "@mui/icons-material/LockResetRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import MoreVertRoundedIcon from "@mui/icons-material/MoreVertRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
@@ -59,10 +58,10 @@ import type {
   RelationshipType,
   Unit,
 } from "../management/types";
-import { formatDateTime } from "../requests/presentation";
 import { getPersonBadges } from "../management/peoplePresentation";
 import { temporaryCredentialsWhatsAppText } from "../auth/temporaryCredentials";
 import { UnitAutocomplete } from "../management/components/UnitAutocomplete";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 interface CredentialResult {
   fullName: string;
@@ -76,12 +75,10 @@ const relationshipLabels: Record<RelationshipType, string> = {
   Tenant: "Inquilino",
   AuthorizedOccupant: "Ocupante autorizado",
 };
-const roleLabels: Record<string, string> = {
-  Manager: "Síndico / Gestão",
-  Resident: "Morador",
-};
 export function ManagementPeoplePage() {
   const { activeCondominiumId } = useManagementContext();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [people, setPeople] = useState<CondominiumMember[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -120,6 +117,9 @@ export function ManagementPeoplePage() {
   const [search, setSearch] = useState("");
   const [effectiveSearch, setEffectiveSearch] = useState("");
   const [status, setStatus] = useState<"active" | "inactive">("active");
+  const [view, setView] = useState<"people" | "units">(
+    () => params.get("view") === "units" ? "units" : "people",
+  );
   const [actionAnchor, setActionAnchor] = useState<HTMLElement | null>(null);
   const [actionTarget, setActionTarget] = useState<CondominiumMember | null>(
     null,
@@ -500,7 +500,7 @@ export function ManagementPeoplePage() {
         gap={2}
       >
         <Box>
-          <Typography variant="h1">Pessoas</Typography>
+          <Typography variant="h1">Moradores</Typography>
           <Typography color="text.secondary">
             Gerencie quem possui acesso ao condomínio.
           </Typography>
@@ -546,18 +546,35 @@ export function ManagementPeoplePage() {
           }}
         />
         <Tabs
+          value={view}
+          onChange={(_, value: "people" | "units") => setView(value)}
+          aria-label="Perspectiva da gestão de moradores"
+        >
+          <Tab value="people" label="Moradores" />
+          <Tab value="units" label="Unidades" />
+        </Tabs>
+        {view === "people" && <Tabs
           value={status}
           onChange={(_, value: "active" | "inactive") => setStatus(value)}
           aria-label="Status dos moradores"
         >
           <Tab value="active" label="Ativos" />
           <Tab value="inactive" label="Inativos" />
-        </Tabs>
+        </Tabs>}
       </Stack>
       {loading && people.length > 0 && (
         <LinearProgress aria-label="Atualizando pessoas" sx={{ mt: 2 }} />
       )}
-      {loading && people.length === 0 ? (
+      {view === "units" ? (
+        units.length === 0 ? <EmptyState title="Nenhuma unidade cadastrada." description="As unidades implantadas aparecerão aqui para consulta e gestão de vínculos." /> : <Box role="list" sx={{ mt: 3, borderTop: "1px solid", borderColor: "divider" }}>
+          {units.map((unit) => <Box key={unit.id} role="listitem" onClick={() => navigate(`/management/units/${unit.id}`)} sx={{ display: "grid", gridTemplateColumns: { xs: "1fr auto", md: "minmax(220px, 1fr) minmax(180px, 1fr) 120px" }, gap: 1.5, alignItems: "center", px: { xs: 1, md: 2 }, py: 1.5, borderBottom: "1px solid", borderColor: "divider", cursor: "pointer", "&:hover": { bgcolor: "action.hover" } }}>
+            <Typography fontWeight={750}>{unit.identifier}</Typography>
+            {units.some((item) => item.block) && <Typography color="text.secondary" sx={{ display: { xs: "none", md: "block" } }}>{unit.block || ""}</Typography>}
+            <Typography color="text.secondary" textAlign="right">{unit.peopleCount ?? 0} {(unit.peopleCount ?? 0) === 1 ? "morador" : "moradores"}</Typography>
+            {unit.block && <Typography color="text.secondary" sx={{ display: { xs: "block", md: "none" }, gridColumn: "1 / -1" }}>{unit.block}</Typography>}
+          </Box>)}
+        </Box>
+      ) : loading && people.length === 0 ? (
         <Skeleton variant="rounded" height={220} sx={{ mt: 3 }} />
       ) : people.length === 0 ? (
         <EmptyState
@@ -567,107 +584,33 @@ export function ManagementPeoplePage() {
           onAction={beginAdd}
         />
       ) : (
-        <Box
-          display="grid"
-          gridTemplateColumns={{ xs: "1fr", lg: "repeat(2,minmax(0,1fr))" }}
-          gap={2}
-          mt={3}
-        >
+        <Box role="list" sx={{ mt: 3, borderTop: "1px solid", borderColor: "divider" }}>
           {people.map((person) => (
-            <Card key={person.membershipId} elevation={0}>
-              <CardContent>
-                <Stack direction="row" justifyContent="space-between" gap={1}>
-                  <Typography variant="h3">{person.fullName}</Typography>
+            <Box key={person.membershipId} role="listitem" sx={{ display: "grid", gridTemplateColumns: { xs: "1fr auto", md: "minmax(220px, 1.2fr) minmax(220px, 1fr) minmax(140px, .6fr) auto" }, gap: { xs: .75, md: 2 }, alignItems: "center", px: { xs: 1, md: 2 }, py: { xs: 1.25, md: 1.5 }, borderBottom: "1px solid", borderColor: "divider" }}>
+                <Box minWidth={0}>
+                  <Typography fontWeight={750}>{person.fullName}</Typography>
+                  <Typography variant="body2" color="text.secondary" noWrap>
+                    {person.email}{person.phoneNumber ? ` · ${person.phoneNumber}` : ""}
+                  </Typography>
+                </Box>
+                <Stack gap={.25} minWidth={0}>
+                  {person.unitLinks.length === 0 ? <Typography variant="body2" color="text.secondary">Sem vínculo com unidade</Typography> : person.unitLinks.map((link) => <Button key={link.unitMembershipId} size="small" color="inherit" sx={{ justifyContent: "flex-start", p: 0, minWidth: 0, textTransform: "none" }} onClick={() => navigate(`/management/units/${link.unitId}`)}>{`${link.block ? `${link.block} · ` : ""}${link.unitIdentifier} · ${relationshipLabels[link.relationshipType]}`}</Button>)}
+                </Stack>
+                <Stack direction="row" gap={.5} flexWrap="wrap" sx={{ display: { xs: "none", md: "flex" } }}>
+                  {getPersonBadges(person).slice(0, 2).map((badge) => <Chip key={badge.label} size="small" label={badge.label} color={badge.color} />)}
+                </Stack>
+                <Box>
                   <IconButton
                     aria-label={`Ações de ${person.fullName}`}
                     onClick={(event) => openActions(event, person)}
                   >
                     <MoreVertRoundedIcon />
                   </IconButton>
+                </Box>
+                <Stack direction="row" gap={.5} flexWrap="wrap" sx={{ display: { xs: "flex", md: "none" }, gridColumn: "1 / -1" }}>
+                  {getPersonBadges(person).slice(0, 2).map((badge) => <Chip key={badge.label} size="small" label={badge.label} color={badge.color} />)}
                 </Stack>
-                <Typography color="text.secondary">
-                  {person.email}
-                  {person.phoneNumber ? ` · ${person.phoneNumber}` : ""}
-                </Typography>
-                <Stack direction="row" gap={0.5} flexWrap="wrap" mt={1}>
-                  <Chip
-                    size="small"
-                    label={
-                      (
-                        {
-                          Pending: "Acesso pendente",
-                          InviteSent: "Convite enviado",
-                          Completed: "Acesso concluído",
-                          DeliveryFailed: "Falha no envio",
-                        } as const
-                      )[person.firstAccessStatus]
-                    }
-                  />
-                  {getPersonBadges(person).map((badge) => (
-                    <Chip
-                      key={badge.label}
-                      size="small"
-                      label={badge.label}
-                      color={badge.color}
-                    />
-                  ))}
-                  {person.roles.map((role) => (
-                    <Chip
-                      key={role}
-                      size="small"
-                      label={roleLabels[role] ?? role}
-                    />
-                  ))}
-                </Stack>
-                {person.unitLinks.map((link) => (
-                  <Typography
-                    key={link.unitMembershipId}
-                    color="text.secondary"
-                    fontSize=".8rem"
-                    mt={1}
-                  >
-                    {link.block ? `Bloco ${link.block} · ` : ""}
-                    {link.unitIdentifier} ·{" "}
-                    {relationshipLabels[link.relationshipType]}
-                  </Typography>
-                ))}
-                <Typography color="text.secondary" fontSize=".78rem" mt={1}>
-                  Entrada: {formatDateTime(person.joinedAt)}
-                </Typography>
-                <Stack direction={{ xs: "column", sm: "row" }} gap={1} mt={2}>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    startIcon={<LockResetRoundedIcon />}
-                    disabled={!person.userActive}
-                    onClick={() => setResetTarget(person)}
-                  >
-                    Redefinir senha temporária
-                  </Button>
-                  {person.mustChangePassword && (
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      disabled={resendingUserId !== null}
-                      onClick={() => void resendAccess(person)}
-                    >
-                      {resendingUserId === person.userId
-                        ? "Reenviando..." : "Reenviar primeiro acesso"}
-                    </Button>
-                  )}
-                  {person.mustChangePassword && (
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<ContentCopyRoundedIcon />}
-                      onClick={() => void copyAccessLink(person)}
-                    >
-                      Copiar link de primeiro acesso
-                    </Button>
-                  )}
-                </Stack>
-              </CardContent>
-            </Card>
+            </Box>
           ))}
         </Box>
       )}
@@ -688,6 +631,15 @@ export function ManagementPeoplePage() {
             Editar
           </MenuItem>
         )}
+        {actionTarget?.userActive && <MenuItem onClick={() => { const person = actionTarget; closeActions(); setResetTarget(person); }}>
+          Redefinir senha temporária
+        </MenuItem>}
+        {actionTarget?.mustChangePassword && <MenuItem disabled={resendingUserId !== null} onClick={() => { const person = actionTarget; closeActions(); void resendAccess(person); }}>
+          Reenviar primeiro acesso
+        </MenuItem>}
+        {actionTarget?.mustChangePassword && <MenuItem onClick={() => { const person = actionTarget; closeActions(); void copyAccessLink(person); }}>
+          Copiar link de primeiro acesso
+        </MenuItem>}
         {actionTarget?.unitLinks
           .filter((link) => link.isActive !== false)
           .map((link) => (

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
 const setupApi = vi.hoisted(() => ({
   previewSetup: vi.fn(),
@@ -23,6 +23,13 @@ import { CondominiumSetupPage } from './CondominiumSetupPage'
 const renderPage = () => render(
   <MemoryRouter><CondominiumSetupPage /></MemoryRouter>,
 )
+
+const OverwatchSetup = () => <Routes>
+  <Route path="/overwatch/condominiums/:condominiumId/setup" element={<CondominiumSetupPage />} />
+  <Route path="/overwatch/condominiums/:condominiumId" element={<Location />} />
+</Routes>
+
+const Location = () => <span>{useLocation().pathname}</span>
 
 const preview = {
   draft: {
@@ -101,6 +108,15 @@ describe('CondominiumSetupPage', () => {
     expect(setupApi.downloadSetupTemplate).toHaveBeenNthCalledWith(
       2, 'condo-1', 'residents',
     )
+  })
+
+  it('returns to the selected condominium when opened from Overwatch', async () => {
+    const user = userEvent.setup()
+    render(<MemoryRouter initialEntries={['/overwatch/condominiums/condo-9/setup']}><OverwatchSetup /></MemoryRouter>)
+
+    await user.click(screen.getByRole('button', { name: '← Voltar para condomínio' }))
+
+    expect(screen.getByText('/overwatch/condominiums/condo-9')).toBeInTheDocument()
   })
 
   it('imports, previews, removes a row and confirms without partial actions', async () => {

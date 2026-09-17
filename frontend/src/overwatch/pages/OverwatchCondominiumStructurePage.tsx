@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, MenuItem, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
+import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItem, ListItemText, MenuItem, Stack, Tab, Tabs, TextField, Typography } from '@mui/material'
 import { useNavigate, useParams } from 'react-router-dom'
 import { PageContainer } from '../../components/PageContainer'
 import { createBlock, createUnit, deleteBlock, deleteUnit, listBlocks, listUnits, updateBlock, updateUnit } from '../../management/api'

@@ -45,14 +45,6 @@ const ManagementRequestsPage = lazyPage(
   () => import("../pages/ManagementRequestsPage"),
   "ManagementRequestsPage",
 );
-const ManagementUnitsPage = lazyPage(
-  () => import("../pages/ManagementUnitsPage"),
-  "ManagementUnitsPage",
-);
-const CreateUnitPage = lazyPage(
-  () => import("../pages/CreateUnitPage"),
-  "CreateUnitPage",
-);
 const UnitDetailsPage = lazyPage(
   () => import("../pages/UnitDetailsPage"),
   "UnitDetailsPage",
@@ -76,10 +68,6 @@ const ManagementAgendaPage = lazyPage(
 );
 const ServiceProvidersPage = lazyPage(() => import("../serviceProviders/ServiceProvidersPage"), "ServiceProvidersPage");
 const AdministratorEmployeeManagementPage = lazyPage(() => import("../administrator/employeeManagement/AdministratorEmployeeManagementPage"), "AdministratorEmployeeManagementPage");
-const ManagementBlocksPage = lazyPage(
-  () => import("../pages/ManagementBlocksPage"),
-  "ManagementBlocksPage",
-);
 const CondominiumSetupPage = lazyPage(
   () => import("../pages/CondominiumSetupPage"),
   "CondominiumSetupPage",
@@ -254,10 +242,10 @@ export function App() {
                       element={<ManagementCompanyRequestDetailsPage />}
                     />
                     <Route path="administrator/:id/edit" element={<EditManagementCompanyRequestPage />} />
-                    <Route path="units" element={<ManagementUnitsPage />} />
-                    <Route path="units/new" element={<Navigate to="../units" replace />} />
+                    <Route path="units" element={<Navigate to="../people?view=units" replace />} />
+                    <Route path="units/new" element={<Navigate to="../people?view=units" replace />} />
                     <Route path="units/:unitId" element={<UnitDetailsPage />} />
-                    <Route path="blocks" element={<Navigate to="../units" replace />} />
+                    <Route path="blocks" element={<Navigate to="../people?view=units" replace />} />
                     <Route path="setup" element={<Navigate to="../dashboard" replace />} />
                     <Route
                       path="categories"

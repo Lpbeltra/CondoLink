@@ -59,7 +59,7 @@ import type {
   SetupPreview,
 } from "../management/setupTypes";
 import { managementError } from "../management/errors";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 type SetupMethod = "import" | "generator";
 
@@ -71,6 +71,7 @@ const emptyDraft = (noRegistrableUnits: boolean): SetupDraft => ({
 
 export function CondominiumSetupPage() {
   const { condominiumId: overwatchCondominiumId } = useParams();
+  const navigate = useNavigate();
   const { activeCondominiumId: managementCondominiumId } =
     useManagementContext();
   const activeCondominiumId = overwatchCondominiumId ?? managementCondominiumId;
@@ -194,6 +195,16 @@ export function CondominiumSetupPage() {
 
   return (
     <PageContainer maxWidth={1200}>
+      {overwatchCondominiumId && (
+        <Button
+          color="inherit"
+          onClick={() =>
+            navigate(`/overwatch/condominiums/${overwatchCondominiumId}`)
+          }
+        >
+          ← Voltar para condomínio
+        </Button>
+      )}
       <Stack gap={0.5}>
         <Typography variant="h1">Configuração do condomínio</Typography>
         <Typography color="text.secondary">

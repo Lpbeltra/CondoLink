@@ -14,8 +14,6 @@ import {
   Autocomplete,
   Box,
   Button,
-  Card,
-  CardContent,
   Checkbox,
   CircularProgress,
   Dialog,
@@ -41,16 +39,12 @@ import {
   createUnitMembership,
   deleteUnitMembership,
   getUnit,
-  listBlocks,
   listCondominiumMembers,
   listUnitMemberships,
-  updateUnit,
   updateUnitMembership,
 } from '../management/api'
 import { managementError } from '../management/errors'
-import { sortBlocks } from '../management/unitPresentation'
 import type {
-  CondominiumBlock,
   CondominiumMember,
   RelationshipType,
   Unit,
@@ -64,7 +58,6 @@ const labels: Record<RelationshipType, string> = {
 }
 
 export function UnitDetailsPage() {
-  const canManageStructure = false
   const { unitId = '' } = useParams()
   const navigate = useNavigate()
 
@@ -76,12 +69,6 @@ export function UnitDetailsPage() {
   const [unit, setUnit] = useState<Unit | null>(null)
   const [links, setLinks] = useState<UnitMembership[]>([])
   const [members, setMembers] = useState<CondominiumMember[]>([])
-  const [blocks, setBlocks] = useState<CondominiumBlock[]>([])
-
-  const [identifier, setIdentifier] = useState('')
-  const [block, setBlock] = useState<CondominiumBlock | null>(null)
-  const [description, setDescription] = useState('')
-
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<UnitMembership | null>(null)
   const [removing, setRemoving] = useState<UnitMembership | null>(null)
@@ -114,19 +101,17 @@ export function UnitDetailsPage() {
     setUnit(null)
     setLinks([])
     setMembers([])
-    setBlocks([])
     setDialogOpen(false)
     setEditing(null)
     setRemoving(null)
     setSuccess('')
 
     try {
-      const [loadedUnit, loadedLinks, loadedMembers, loadedBlocks] =
+      const [loadedUnit, loadedLinks, loadedMembers] =
         await Promise.all([
           getUnit(unitId),
           listUnitMemberships(unitId),
           listCondominiumMembers(condominiumId),
-          listBlocks(condominiumId),
         ])
 
       if (loadedUnit.condominiumId !== condominiumId) {
@@ -135,22 +120,11 @@ export function UnitDetailsPage() {
 
       if (version !== loadVersion.current) return
 
-      const orderedBlocks = sortBlocks(loadedBlocks)
-
       setUnit(loadedUnit)
       setLinks(
         loadedLinks.filter((item) => item.membershipActive)
       )
       setMembers(loadedMembers)
-      setBlocks(orderedBlocks)
-
-      setIdentifier(loadedUnit.identifier)
-      setBlock(
-        orderedBlocks.find(
-          (item) => item.id === loadedUnit.blockId
-        ) ?? null
-      )
-      setDescription(loadedUnit.description ?? '')
     } catch (requestError) {
       if (version !== loadVersion.current) return
       setUnit(null)
@@ -172,38 +146,6 @@ export function UnitDetailsPage() {
   useEffect(() => {
     void load()
   }, [load])
-
-  const saveUnit = async (event: FormEvent) => {
-    event.preventDefault()
-
-    if (
-      !condominiumId ||
-      saving ||
-      !identifier.trim() ||
-      (blocks.length > 0 && !block)
-    ) {
-      return
-    }
-
-    setSaving(true)
-    setError('')
-    setSuccess('')
-
-    try {
-      await updateUnit(condominiumId, unitId, {
-        identifier: identifier.trim(),
-        blockId: block?.id ?? null,
-        description: description.trim() || null,
-      })
-
-      setSuccess('Unidade atualizada com sucesso.')
-      await load()
-    } catch (requestError) {
-      setError(managementError(requestError))
-    } finally {
-      setSaving(false)
-    }
-  }
 
   const openCreate = () => {
     setEditing(null)
@@ -313,7 +255,7 @@ export function UnitDetailsPage() {
         <Button
           color="inherit"
           startIcon={<ArrowBackRoundedIcon />}
-          onClick={() => navigate('/management/units')}
+          onClick={() => navigate('/management/people?view=units')}
         >
           Voltar
         </Button>
@@ -332,7 +274,7 @@ export function UnitDetailsPage() {
         <Button
           color="inherit"
           startIcon={<ArrowBackRoundedIcon />}
-          onClick={() => navigate('/management/units')}
+          onClick={() => navigate('/management/people?view=units')}
         >
           Voltar
         </Button>
@@ -349,7 +291,7 @@ export function UnitDetailsPage() {
       <Button
         color="inherit"
         startIcon={<ArrowBackRoundedIcon />}
-        onClick={() => navigate('/management/units')}
+        onClick={() => navigate('/management/people?view=units')}
       >
         Voltar para unidades
       </Button>
@@ -369,86 +311,6 @@ export function UnitDetailsPage() {
           {error}
         </Alert>
       )}
-
-      {canManageStructure && <Card elevation={0} sx={{ mt: 3 }}>
-        <CardContent
-          component="form"
-          onSubmit={(event) => void saveUnit(event)}
-        >
-          <Stack gap={2}>
-            <TextField
-              required
-              label="Identificação da unidade"
-              value={identifier}
-              onChange={(event) =>
-                setIdentifier(event.target.value)
-              }
-              slotProps={{
-                htmlInput: {
-                  maxLength: 50,
-                },
-              }}
-            />
-
-            {blocks.length > 0 && (
-              <Autocomplete
-                options={blocks}
-                value={block}
-                onChange={(_, value) => setBlock(value)}
-                getOptionLabel={(option) => option.identifier}
-                isOptionEqualToValue={(option, value) =>
-                  option.id === value.id
-                }
-                autoHighlight
-                selectOnFocus
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    required
-                    label="Bloco"
-                  />
-                )}
-              />
-            )}
-
-            <TextField
-              multiline
-              minRows={3}
-              label="Observação"
-              value={description}
-              onChange={(event) =>
-                setDescription(event.target.value)
-              }
-              slotProps={{
-                htmlInput: {
-                  maxLength: 500,
-                },
-              }}
-            />
-
-            <Box display="flex" justifyContent="flex-end">
-              <Button
-                type="submit"
-                variant="contained"
-                disabled={
-                  saving ||
-                  !identifier.trim() ||
-                  (blocks.length > 0 && !block)
-                }
-              >
-                {saving ? (
-                  <CircularProgress
-                    size={20}
-                    color="inherit"
-                  />
-                ) : (
-                  'Salvar alterações'
-                )}
-              </Button>
-            </Box>
-          </Stack>
-        </CardContent>
-      </Card>}
 
       <Stack
         direction={{
