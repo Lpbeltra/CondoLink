@@ -2,6 +2,7 @@
   useCallback,
   useEffect,
   useRef,
+  useMemo,
   useState,
   type FormEvent,
   type MouseEvent,
@@ -31,8 +32,6 @@ import {
   MenuItem,
   Skeleton,
   Stack,
-  Tab,
-  Tabs,
   TextField,
   Typography,
 } from "@mui/material";
@@ -60,7 +59,7 @@ import type {
 } from "../management/types";
 import { getPersonBadges } from "../management/peoplePresentation";
 import { temporaryCredentialsWhatsAppText } from "../auth/temporaryCredentials";
-import { UnitAutocomplete } from "../management/components/UnitAutocomplete";
+import { filterUnits, UnitAutocomplete } from "../management/components/UnitAutocomplete";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 interface CredentialResult {
@@ -120,6 +119,11 @@ export function ManagementPeoplePage() {
   const [view, setView] = useState<"people" | "units">(
     () => params.get("view") === "units" ? "units" : "people",
   );
+  const [unitSortDirection, setUnitSortDirection] = useState<"asc" | "desc">("asc");
+  const orderedUnits = useMemo(() => {
+    const ordered = filterUnits(units, search);
+    return unitSortDirection === "asc" ? ordered : ordered.reverse();
+  }, [search, unitSortDirection, units]);
   const [actionAnchor, setActionAnchor] = useState<HTMLElement | null>(null);
   const [actionTarget, setActionTarget] = useState<CondominiumMember | null>(
     null,
@@ -506,7 +510,7 @@ export function ManagementPeoplePage() {
           </Typography>
         </Box>
         <Stack direction={{ xs: "column", sm: "row" }} gap={1}>
-          <Button variant="outlined" disabled={exportingPdf}
+          <Button variant="text" disabled={exportingPdf}
             onClick={() => void exportPdf()}>
             {exportingPdf ? "Gerando PDF..." : "Exportar moradores em PDF"}
           </Button>
@@ -529,12 +533,19 @@ export function ManagementPeoplePage() {
           {error}
         </Alert>
       )}
-      <Stack mt={3} gap={2}>
+      <Stack mt={3} gap={1.5}>
+        <Box sx={{ display: "inline-flex", alignSelf: "flex-start", p: .25, gap: .25, bgcolor: "action.hover", borderRadius: 1, "@media (prefers-reduced-motion: no-preference)": { transition: "background-color 160ms ease" } }}>
+          <Button size="small" variant={view === "people" ? "contained" : "text"} disableElevation aria-pressed={view === "people"} onClick={() => setView("people")}>Moradores</Button>
+          <Button size="small" variant={view === "units" ? "contained" : "text"} disableElevation aria-pressed={view === "units"} onClick={() => setView("units")}>Unidades</Button>
+        </Box>
+        <Stack direction={{ xs: "column", sm: "row" }} gap={1.25}>
         <TextField
-          label="Buscar morador"
+          size="small"
+          fullWidth
+          label={view === "people" ? "Buscar morador" : "Buscar unidade"}
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Nome, e-mail, telefone, unidade ou bloco"
+          placeholder={view === "people" ? "Nome, contato, unidade ou bloco" : "Unidade ou bloco"}
           slotProps={{
             input: {
               startAdornment: (
@@ -545,29 +556,16 @@ export function ManagementPeoplePage() {
             },
           }}
         />
-        <Tabs
-          value={view}
-          onChange={(_, value: "people" | "units") => setView(value)}
-          aria-label="Perspectiva da gestão de moradores"
-        >
-          <Tab value="people" label="Moradores" />
-          <Tab value="units" label="Unidades" />
-        </Tabs>
-        {view === "people" && <Tabs
-          value={status}
-          onChange={(_, value: "active" | "inactive") => setStatus(value)}
-          aria-label="Status dos moradores"
-        >
-          <Tab value="active" label="Ativos" />
-          <Tab value="inactive" label="Inativos" />
-        </Tabs>}
+        {view === "people" && <TextField select size="small" label="Status" value={status} onChange={(event) => setStatus(event.target.value as "active" | "inactive")} sx={{ minWidth: { sm: 150 } }}><MenuItem value="active">Ativos</MenuItem><MenuItem value="inactive">Inativos</MenuItem></TextField>}
+        {view === "units" && <Button size="small" variant="text" onClick={() => setUnitSortDirection((current) => current === "asc" ? "desc" : "asc")}>Unidade {unitSortDirection === "asc" ? "↑" : "↓"}</Button>}
+        </Stack>
       </Stack>
       {loading && people.length > 0 && (
         <LinearProgress aria-label="Atualizando pessoas" sx={{ mt: 2 }} />
       )}
       {view === "units" ? (
-        units.length === 0 ? <EmptyState title="Nenhuma unidade cadastrada." description="As unidades implantadas aparecerão aqui para consulta e gestão de vínculos." /> : <Box role="list" sx={{ mt: 3, borderTop: "1px solid", borderColor: "divider" }}>
-          {units.map((unit) => <Box key={unit.id} role="listitem" onClick={() => navigate(`/management/units/${unit.id}`)} sx={{ display: "grid", gridTemplateColumns: { xs: "1fr auto", md: "minmax(220px, 1fr) minmax(180px, 1fr) 120px" }, gap: 1.5, alignItems: "center", px: { xs: 1, md: 2 }, py: 1.5, borderBottom: "1px solid", borderColor: "divider", cursor: "pointer", "&:hover": { bgcolor: "action.hover" } }}>
+        units.length === 0 ? <EmptyState title="Nenhuma unidade cadastrada." description="As unidades implantadas aparecerão aqui para consulta e gestão de vínculos." /> : orderedUnits.length === 0 ? <EmptyState title="Nenhuma unidade encontrada." description="Revise a busca ou o bloco informado." /> : <Box role="list" sx={{ mt: 2, borderTop: "1px solid", borderColor: "divider" }}>
+          {orderedUnits.map((unit) => <Box key={unit.id} role="listitem" onClick={() => navigate(`/management/units/${unit.id}`)} sx={{ display: "grid", gridTemplateColumns: { xs: "1fr auto", md: "minmax(180px, 280px) minmax(120px, 180px) 120px" }, gap: 1.5, alignItems: "center", px: { xs: 1, md: 2 }, py: 1.5, borderBottom: "1px solid", borderColor: "divider", cursor: "pointer", "@media (prefers-reduced-motion: no-preference)": { transition: "background-color 160ms ease" }, "&:hover": { bgcolor: "action.hover" } }}>
             <Typography fontWeight={750}>{unit.identifier}</Typography>
             {units.some((item) => item.block) && <Typography color="text.secondary" sx={{ display: { xs: "none", md: "block" } }}>{unit.block || ""}</Typography>}
             <Typography color="text.secondary" textAlign="right">{unit.peopleCount ?? 0} {(unit.peopleCount ?? 0) === 1 ? "morador" : "moradores"}</Typography>
@@ -594,7 +592,7 @@ export function ManagementPeoplePage() {
                   </Typography>
                 </Box>
                 <Stack gap={.25} minWidth={0}>
-                  {person.unitLinks.length === 0 ? <Typography variant="body2" color="text.secondary">Sem vínculo com unidade</Typography> : person.unitLinks.map((link) => <Button key={link.unitMembershipId} size="small" color="inherit" sx={{ justifyContent: "flex-start", p: 0, minWidth: 0, textTransform: "none" }} onClick={() => navigate(`/management/units/${link.unitId}`)}>{`${link.block ? `${link.block} · ` : ""}${link.unitIdentifier} · ${relationshipLabels[link.relationshipType]}`}</Button>)}
+                  {person.unitLinks.length === 0 ? <Typography variant="body2" color="text.secondary">Sem vínculo com unidade</Typography> : person.unitLinks.map((link) => <Button key={link.unitMembershipId} size="small" color="inherit" sx={{ justifyContent: "flex-start", p: 0, minWidth: 0, textTransform: "none", "&:hover": { bgcolor: "transparent", textDecoration: "underline" } }} onClick={() => navigate(`/management/units/${link.unitId}`)}>{`${link.block ? `${link.block} · ` : ""}${link.unitIdentifier} · ${relationshipLabels[link.relationshipType]}`}</Button>)}
                 </Stack>
                 <Stack direction="row" gap={.5} flexWrap="wrap" sx={{ display: { xs: "none", md: "flex" } }}>
                   {getPersonBadges(person).slice(0, 2).map((badge) => <Chip key={badge.label} size="small" label={badge.label} color={badge.color} />)}

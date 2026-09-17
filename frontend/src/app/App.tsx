@@ -217,7 +217,7 @@ export function App() {
                   <Route path="management" element={<ManagementLayout />}>
                     <Route
                       index
-                      element={<Navigate to="dashboard" replace />}
+                      element={<Navigate to="people?view=people" replace />}
                     />
                     <Route
                       path="requests"

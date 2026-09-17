@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CondominiumMember } from "../management/types";
+import type { CondominiumMember, Unit } from "../management/types";
 
 const managementApi = vi.hoisted(() => ({
   listCondominiumMembers: vi.fn(),
@@ -23,8 +23,9 @@ vi.mock("../management/ManagementContext", () => ({
     activeCondominiumId: "condominium-id",
   }),
 }));
+const router = vi.hoisted(() => ({ navigate: vi.fn() }));
 vi.mock("react-router-dom", () => ({
-  useNavigate: () => vi.fn(),
+  useNavigate: () => router.navigate,
   useSearchParams: () => [new URLSearchParams()],
 }));
 
@@ -59,6 +60,7 @@ describe("ManagementPeoplePage password reset", () => {
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
     });
     Object.values(managementApi).forEach((mock) => mock.mockReset());
+    router.navigate.mockReset();
     managementApi.listCondominiumMembers.mockResolvedValue([member]);
     managementApi.listUnits.mockResolvedValue([]);
     managementApi.resetMemberTemporaryPassword.mockResolvedValue({
@@ -290,15 +292,64 @@ describe("ManagementPeoplePage password reset", () => {
       .toHaveBeenLastCalledWith("condominium-id", "", "active"));
   });
 
-  it("changes the active tab without waiting for search debounce", async () => {
+  it("changes the status filter without waiting for search debounce", async () => {
     const user = userEvent.setup();
     render(<ManagementPeoplePage />);
     await screen.findByText("Maria Silva");
     managementApi.listCondominiumMembers.mockClear();
 
-    await user.click(screen.getByRole("tab", { name: "Inativos" }));
+    await user.click(screen.getByRole("combobox", { name: "Status" }));
+    await user.click(screen.getByRole("option", { name: "Inativos" }));
     await waitFor(() => expect(managementApi.listCondominiumMembers)
       .toHaveBeenCalledWith("condominium-id", "", "inactive"));
+  });
+
+  it("switches to units and applies the natural ordering in both directions", async () => {
+    const units: Unit[] = [
+      { id: "unit-10", condominiumId: "condominium-id", identifier: "10", blockId: null, block: null, floor: null, description: null, isActive: true, peopleCount: 0, createdAt: "", updatedAt: "" },
+      { id: "unit-2", condominiumId: "condominium-id", identifier: "2", blockId: null, block: null, floor: null, description: null, isActive: true, peopleCount: 0, createdAt: "", updatedAt: "" },
+      { id: "unit-1", condominiumId: "condominium-id", identifier: "1", blockId: null, block: null, floor: null, description: null, isActive: true, peopleCount: 0, createdAt: "", updatedAt: "" },
+    ];
+    managementApi.listUnits.mockResolvedValue(units);
+    const user = userEvent.setup();
+    render(<ManagementPeoplePage />);
+
+    expect(await screen.findByRole("button", { name: "Moradores" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(await screen.findByRole("button", { name: "Unidades" }));
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(3));
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      expect.stringContaining("1"),
+      expect.stringContaining("2"),
+      expect.stringContaining("10"),
+    ]);
+
+    await user.click(screen.getByRole("button", { name: "Unidade ↑" }));
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      expect.stringContaining("10"),
+      expect.stringContaining("2"),
+      expect.stringContaining("1"),
+    ]);
+
+    await user.click(screen.getAllByRole("listitem")[0]);
+    expect(router.navigate).toHaveBeenCalledWith("/management/units/unit-10");
+  });
+
+  it("shows every unit link for a person", async () => {
+    managementApi.listCondominiumMembers.mockResolvedValue([{
+      ...member,
+      unitLinks: [
+        { unitMembershipId: "link-101", unitId: "unit-101", unitIdentifier: "101", block: null, relationshipType: "Owner", isResident: true, isPrimaryResidence: true, isActive: true, endedAt: null },
+        { unitMembershipId: "link-202", unitId: "unit-202", unitIdentifier: "202", block: null, relationshipType: "AuthorizedOccupant", isResident: true, isPrimaryResidence: false, isActive: true, endedAt: null },
+      ],
+    }]);
+    const user = userEvent.setup();
+    render(<ManagementPeoplePage />);
+
+    expect(await screen.findByRole("button", { name: "101 · Proprietário" })).toBeInTheDocument();
+    const secondLink = screen.getByRole("button", { name: "202 · Ocupante autorizado" });
+    expect(secondLink).toBeInTheDocument();
+    await user.click(secondLink);
+    expect(router.navigate).toHaveBeenCalledWith("/management/units/unit-202");
   });
 
   it("offers combined first access only when phone and deliverable email are available", async () => {

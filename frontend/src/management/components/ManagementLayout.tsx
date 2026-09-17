@@ -70,13 +70,13 @@ export function ManagementLayout() {
           variant="scrollable"
         >
           <Tab
-            value="/management/categories"
-            label="Categorias"
+            value="/management/people"
+            label="Moradores"
           />
 
           <Tab
-            value="/management/people"
-            label="Moradores"
+            value="/management/categories"
+            label="Categorias"
           />
         </Tabs>
       </PageContainer>
