@@ -2,7 +2,6 @@
   useCallback,
   useEffect,
   useRef,
-  useMemo,
   useState,
   type FormEvent,
   type MouseEvent,
@@ -59,8 +58,8 @@ import type {
 } from "../management/types";
 import { getPersonBadges } from "../management/peoplePresentation";
 import { temporaryCredentialsWhatsAppText } from "../auth/temporaryCredentials";
-import { filterUnits, UnitAutocomplete } from "../management/components/UnitAutocomplete";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { UnitAutocomplete } from "../management/components/UnitAutocomplete";
+import { useNavigate } from "react-router-dom";
 
 interface CredentialResult {
   fullName: string;
@@ -77,7 +76,6 @@ const relationshipLabels: Record<RelationshipType, string> = {
 export function ManagementPeoplePage() {
   const { activeCondominiumId } = useManagementContext();
   const navigate = useNavigate();
-  const [params] = useSearchParams();
   const [people, setPeople] = useState<CondominiumMember[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -116,14 +114,6 @@ export function ManagementPeoplePage() {
   const [search, setSearch] = useState("");
   const [effectiveSearch, setEffectiveSearch] = useState("");
   const [status, setStatus] = useState<"active" | "inactive">("active");
-  const [view, setView] = useState<"people" | "units">(
-    () => params.get("view") === "units" ? "units" : "people",
-  );
-  const [unitSortDirection, setUnitSortDirection] = useState<"asc" | "desc">("asc");
-  const orderedUnits = useMemo(() => {
-    const ordered = filterUnits(units, search);
-    return unitSortDirection === "asc" ? ordered : ordered.reverse();
-  }, [search, unitSortDirection, units]);
   const [actionAnchor, setActionAnchor] = useState<HTMLElement | null>(null);
   const [actionTarget, setActionTarget] = useState<CondominiumMember | null>(
     null,
@@ -533,19 +523,14 @@ export function ManagementPeoplePage() {
           {error}
         </Alert>
       )}
-      <Stack mt={3} gap={1.5}>
-        <Box sx={{ display: "inline-flex", alignSelf: "flex-start", p: .25, gap: .25, bgcolor: "action.hover", borderRadius: 1, "@media (prefers-reduced-motion: no-preference)": { transition: "background-color 160ms ease" } }}>
-          <Button size="small" variant={view === "people" ? "contained" : "text"} disableElevation aria-pressed={view === "people"} onClick={() => setView("people")}>Moradores</Button>
-          <Button size="small" variant={view === "units" ? "contained" : "text"} disableElevation aria-pressed={view === "units"} onClick={() => setView("units")}>Unidades</Button>
-        </Box>
-        <Stack direction={{ xs: "column", sm: "row" }} gap={1.25}>
+      <Stack mt={3} direction={{ xs: "column", sm: "row" }} gap={1.25}>
         <TextField
           size="small"
           fullWidth
-          label={view === "people" ? "Buscar morador" : "Buscar unidade"}
+          label="Buscar morador"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder={view === "people" ? "Nome, contato, unidade ou bloco" : "Unidade ou bloco"}
+          placeholder="Nome, contato, unidade ou bloco"
           slotProps={{
             input: {
               startAdornment: (
@@ -556,23 +541,12 @@ export function ManagementPeoplePage() {
             },
           }}
         />
-        {view === "people" && <TextField select size="small" label="Status" value={status} onChange={(event) => setStatus(event.target.value as "active" | "inactive")} sx={{ minWidth: { sm: 150 } }}><MenuItem value="active">Ativos</MenuItem><MenuItem value="inactive">Inativos</MenuItem></TextField>}
-        {view === "units" && <Button size="small" variant="text" onClick={() => setUnitSortDirection((current) => current === "asc" ? "desc" : "asc")}>Unidade {unitSortDirection === "asc" ? "↑" : "↓"}</Button>}
-        </Stack>
+        <TextField select size="small" label="Status" value={status} onChange={(event) => setStatus(event.target.value as "active" | "inactive")} sx={{ minWidth: { sm: 150 } }}><MenuItem value="active">Ativos</MenuItem><MenuItem value="inactive">Inativos</MenuItem></TextField>
       </Stack>
       {loading && people.length > 0 && (
         <LinearProgress aria-label="Atualizando pessoas" sx={{ mt: 2 }} />
       )}
-      {view === "units" ? (
-        units.length === 0 ? <EmptyState title="Nenhuma unidade cadastrada." description="As unidades implantadas aparecerão aqui para consulta e gestão de vínculos." /> : orderedUnits.length === 0 ? <EmptyState title="Nenhuma unidade encontrada." description="Revise a busca ou o bloco informado." /> : <Box role="list" sx={{ mt: 2, borderTop: "1px solid", borderColor: "divider" }}>
-          {orderedUnits.map((unit) => <Box key={unit.id} role="listitem" onClick={() => navigate(`/management/units/${unit.id}`)} sx={{ display: "grid", gridTemplateColumns: { xs: "1fr auto", md: "minmax(180px, 280px) minmax(120px, 180px) 120px" }, gap: 1.5, alignItems: "center", px: { xs: 1, md: 2 }, py: 1.5, borderBottom: "1px solid", borderColor: "divider", cursor: "pointer", "@media (prefers-reduced-motion: no-preference)": { transition: "background-color 160ms ease" }, "&:hover": { bgcolor: "action.hover" } }}>
-            <Typography fontWeight={750}>{unit.identifier}</Typography>
-            {units.some((item) => item.block) && <Typography color="text.secondary" sx={{ display: { xs: "none", md: "block" } }}>{unit.block || ""}</Typography>}
-            <Typography color="text.secondary" textAlign="right">{unit.peopleCount ?? 0} {(unit.peopleCount ?? 0) === 1 ? "morador" : "moradores"}</Typography>
-            {unit.block && <Typography color="text.secondary" sx={{ display: { xs: "block", md: "none" }, gridColumn: "1 / -1" }}>{unit.block}</Typography>}
-          </Box>)}
-        </Box>
-      ) : loading && people.length === 0 ? (
+      {loading && people.length === 0 ? (
         <Skeleton variant="rounded" height={220} sx={{ mt: 3 }} />
       ) : people.length === 0 ? (
         <EmptyState

@@ -59,7 +59,7 @@ function renderAt(path: string, value = contextValue()) {
   );
 }
 
-const gestaoChrome = ["Gestão", "Moradores", "Categorias"];
+const gestaoChrome = ["Gestão", "Moradores", "Unidades", "Categorias"];
 
 describe("ManagementLayout composition", () => {
   it("renders the administrator queue without the Gestão chrome", () => {
@@ -92,9 +92,9 @@ describe("ManagementLayout composition", () => {
     renderAt("/management/units");
     expect(screen.getByText("Lista de unidades")).toBeInTheDocument();
     expect(screen.getByText("Gestão")).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "Unidades" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Blocos" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Configuração" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Unidades" })).toBeInTheDocument();
     expect(
       screen.getByRole("tab", { name: "Categorias" }),
     ).toBeInTheDocument();

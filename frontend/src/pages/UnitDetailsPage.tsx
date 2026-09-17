@@ -255,7 +255,7 @@ export function UnitDetailsPage() {
         <Button
           color="inherit"
           startIcon={<ArrowBackRoundedIcon />}
-          onClick={() => navigate('/management/people?view=units')}
+          onClick={() => navigate('/management/units')}
         >
           Voltar
         </Button>
@@ -274,7 +274,7 @@ export function UnitDetailsPage() {
         <Button
           color="inherit"
           startIcon={<ArrowBackRoundedIcon />}
-          onClick={() => navigate('/management/people?view=units')}
+          onClick={() => navigate('/management/units')}
         >
           Voltar
         </Button>
@@ -291,7 +291,7 @@ export function UnitDetailsPage() {
       <Button
         color="inherit"
         startIcon={<ArrowBackRoundedIcon />}
-        onClick={() => navigate('/management/people?view=units')}
+        onClick={() => navigate('/management/units')}
       >
         Voltar para unidades
       </Button>

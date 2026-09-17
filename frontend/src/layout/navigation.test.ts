@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getMobileNavigationItems, getMobileNavigationParts, getMobileSelectedPath, getMoreNavigationItems, getNavigationItems, shouldShowGeneralCondominiumSwitcher } from "./navigation";
+import { getMobileNavigationItems, getMobileNavigationParts, getMobileSelectedPath, getMoreNavigationItems, getNavigationItems, managementEntryPath, shouldShowGeneralCondominiumSwitcher } from "./navigation";
 import type { CondominiumContext } from "../condominiums/types";
 
 const allPermissions = ["Attendance", "ManagementCompany", "Agenda", "Assistant", "Documents", "Management"];
@@ -7,6 +7,12 @@ const allPermissions = ["Attendance", "ManagementCompany", "Agenda", "Assistant"
 describe("role-based navigation", () => {
   it("keeps resident navigation free of administrative modules", () => {
     expect(getNavigationItems(["Resident"], [], allPermissions)).toHaveLength(1);
+  });
+
+  it("opens Gestão in Moradores", () => {
+    expect(managementEntryPath).toBe("/management/people");
+    expect(getNavigationItems(["Manager"], [], allPermissions)
+      .find((item) => item.label === "Gestão")?.path).toBe("/management/people");
   });
 
   it("does not expose Employee Management to condominium roles", () => {

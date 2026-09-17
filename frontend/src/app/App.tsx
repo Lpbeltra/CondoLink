@@ -58,6 +58,10 @@ const ManagementPeoplePage = lazyPage(
   () => import("../pages/ManagementPeoplePage"),
   "ManagementPeoplePage",
 );
+const ManagementUnitsPage = lazyPage(
+  () => import("../pages/ManagementUnitsPage"),
+  "ManagementUnitsPage",
+);
 const ManagementReportsPage = lazyPage(
   () => import("../pages/ManagementReportsPage"),
   "ManagementReportsPage",
@@ -181,6 +185,13 @@ function ProtectedRoute() {
   );
 }
 
+function ManagementPeopleRoute() {
+  const location = useLocation();
+  return new URLSearchParams(location.search).get("view") === "units"
+    ? <Navigate to="/management/units" replace />
+    : <ManagementPeoplePage />;
+}
+
 export function App() {
   return (
     <AppThemeProvider>
@@ -217,7 +228,7 @@ export function App() {
                   <Route path="management" element={<ManagementLayout />}>
                     <Route
                       index
-                      element={<Navigate to="people?view=people" replace />}
+                      element={<Navigate to="people" replace />}
                     />
                     <Route
                       path="requests"
@@ -242,16 +253,16 @@ export function App() {
                       element={<ManagementCompanyRequestDetailsPage />}
                     />
                     <Route path="administrator/:id/edit" element={<EditManagementCompanyRequestPage />} />
-                    <Route path="units" element={<Navigate to="../people?view=units" replace />} />
-                    <Route path="units/new" element={<Navigate to="../people?view=units" replace />} />
+                    <Route path="units" element={<ManagementUnitsPage />} />
+                    <Route path="units/new" element={<Navigate to="/management/units" replace />} />
                     <Route path="units/:unitId" element={<UnitDetailsPage />} />
-                    <Route path="blocks" element={<Navigate to="../people?view=units" replace />} />
+                    <Route path="blocks" element={<Navigate to="/management/units" replace />} />
                     <Route path="setup" element={<Navigate to="../dashboard" replace />} />
                     <Route
                       path="categories"
                       element={<ManagementCategoriesPage />}
                     />
-                    <Route path="people" element={<ManagementPeoplePage />} />
+                    <Route path="people" element={<ManagementPeopleRoute />} />
                     <Route
                       path="assistant"
                       element={<CondominiumAssistantPage />}

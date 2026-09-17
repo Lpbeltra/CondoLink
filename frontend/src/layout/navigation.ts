@@ -31,7 +31,7 @@ export interface MobileNavigationParts {
   more: NavigationItem[];
 }
 
-export const managementEntryPath = "/management/dashboard";
+export const managementEntryPath = "/management/people";
 
 const commonItems: NavigationItem[] = [
   { label: "Dashboard", path: "/management/dashboard", icon: AssessmentRoundedIcon, requiredRole: "Manager", mobilePrimary: true, mobilePriority: 10 },
@@ -42,7 +42,7 @@ const commonItems: NavigationItem[] = [
   { label: "Prestadores", path: "/management/service-providers", icon: HandymanRoundedIcon, requiredRole: "Manager", requiredModule: "Management", mobilePriority: 55 },
   { label: "Assistente", path: "/management/assistant", icon: AutoAwesomeRoundedIcon, requiredRole: "Manager", requiredModule: "Assistant", mobilePrimary: true, mobilePriority: 30 },
   { label: "Documentos", path: "/management/documents", icon: DescriptionRoundedIcon, requiredRole: "Manager", requiredModule: "Documents", mobilePriority: 60 },
-  { label: "Gestão", path: "/management/units", icon: ApartmentRoundedIcon, requiredRole: "Manager", requiredModule: "Management", mobilePriority: 80 },
+  { label: "Gestão", path: "/management/people", icon: ApartmentRoundedIcon, requiredRole: "Manager", requiredModule: "Management", mobilePriority: 80 },
   { label: "Overwatch", path: "/overwatch", icon: AdminPanelSettingsRoundedIcon, platformAdminOnly: true },
 ];
 

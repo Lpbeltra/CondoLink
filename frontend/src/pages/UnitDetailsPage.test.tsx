@@ -83,6 +83,10 @@ function renderPage() {
           path="/management/units/:unitId"
           element={<UnitDetailsPage />}
         />
+        <Route
+          path="/management/units"
+          element={<div>Diretório de unidades</div>}
+        />
       </Routes>
     </MemoryRouter>,
   )
@@ -115,6 +119,16 @@ describe('UnitDetailsPage memberships', () => {
     expect(emptyTitle.closest('.MuiBox-root')).not.toBe(
       heading.parentElement,
     )
+  })
+
+  it('returns to the units directory', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', {
+      name: 'Voltar para unidades',
+    }))
+    expect(await screen.findByText('Diretório de unidades')).toBeInTheDocument()
   })
 
   it('creates a link, refreshes the list immediately, and closes after success', async () => {

@@ -53,9 +53,11 @@ export function ManagementLayout() {
     )
   }
 
-  const value = location.pathname.startsWith('/management/categories')
-      ? '/management/categories'
-      : '/management/people'
+  const value = location.pathname.startsWith('/management/units')
+      ? '/management/units'
+      : location.pathname.startsWith('/management/categories')
+        ? '/management/categories'
+        : '/management/people'
 
   return (
     <>
@@ -72,6 +74,11 @@ export function ManagementLayout() {
           <Tab
             value="/management/people"
             label="Moradores"
+          />
+
+          <Tab
+            value="/management/units"
+            label="Unidades"
           />
 
           <Tab
