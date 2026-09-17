@@ -18,10 +18,23 @@ const details: RequestDetails = {
   author: { id: 'resident', fullName: 'Maria' }, category: { id: 'category', name: 'Manutenção' }, status: 'InProgress', priority: 'Normal', targetUnit: null, createdAt: '2026-09-07T12:00:00Z', updatedAt: '2026-09-07T12:00:00Z', resolvedAt: null, statusHistory: [], originalReport: null, residentReplyRequirement: null, canManageInternalNotes: true,
   aiAnalysis: { title: 'Portão', description: 'Resumo contextual atualizado', suggestedCategory: 'Segurança', confidence: .8, missingInformation: ['Mais informações'], generatedAt: '2026-09-07T12:00:00Z', model: 'test' },
 }
-function page(managementMode = true) { return render(<MemoryRouter initialEntries={['/requests/request']}><Routes><Route path="/requests/:requestId" element={<RequestDetailsPage managementMode={managementMode} />} /></Routes></MemoryRouter>) }
+function page(managementMode = true, path = '/requests/request') { return render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/requests/:requestId" element={<RequestDetailsPage managementMode={managementMode} />} /></Routes></MemoryRouter>) }
 
 describe('RequestDetailsPage workspace', () => {
   beforeEach(() => { vi.resetAllMocks(); vi.mocked(getRequest).mockResolvedValue(details); vi.mocked(listRequestMessages).mockResolvedValue([]); vi.mocked(listRequestAttachments).mockResolvedValue([]); vi.mocked(listRequestServiceProviders).mockResolvedValue([]); vi.mocked(listInternalNotes).mockResolvedValue([]) })
+
+  it('opens Dados first and replaces Conversa and Timeline with Histórico', async () => {
+    page()
+    expect(await screen.findByRole('tab', { name: 'Dados' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Dados', 'Histórico', 'Prestador', 'Anexos', 'Notas'])
+    expect(screen.queryByRole('tab', { name: 'Conversa' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Timeline' })).not.toBeInTheDocument()
+  })
+
+  it.each(['conversation', 'timeline'])('normalizes legacy %s links to Histórico', async legacyTab => {
+    page(true, `/requests/request?tab=${legacyTab}`)
+    expect(await screen.findByRole('tab', { name: 'Histórico' })).toHaveAttribute('aria-selected', 'true')
+  })
 
   it('keeps summary, AI category and original report accessible in Dados', async () => {
     page()
@@ -53,6 +66,6 @@ describe('RequestDetailsPage workspace', () => {
 
   it('offers residents a deliberate update dialog instead of a permanent composer', async () => {
     vi.mocked(getRequest).mockResolvedValue({ ...details, canManageInternalNotes: false }); vi.mocked(listRequestMessages).mockResolvedValue([]); vi.mocked(createRequestMessage).mockResolvedValue({ id: 'new', requestId: 'request', author: { id: 'resident', fullName: 'Maria' }, content: 'Nova informação', channel: 'Portal', createdAt: '2026-09-07T12:30:00Z' }); page(false)
-    const user = userEvent.setup(); await user.click(await screen.findByRole('button', { name: 'Enviar nova atualização' })); expect(screen.getByLabelText('Nova informação sobre o atendimento')).toBeVisible(); await user.type(screen.getByLabelText('Nova informação sobre o atendimento'), 'Nova informação'); await user.click(screen.getByRole('button', { name: 'Enviar atualização' })); expect(createRequestMessage).toHaveBeenCalledWith('request', 'Nova informação')
+    const user = userEvent.setup(); await user.click(await screen.findByRole('tab', { name: 'Histórico' })); await user.click(await screen.findByRole('button', { name: 'Enviar nova atualização' })); expect(screen.getByLabelText('Nova informação sobre o atendimento')).toBeVisible(); await user.type(screen.getByLabelText('Nova informação sobre o atendimento'), 'Nova informação'); await user.click(screen.getByRole('button', { name: 'Enviar atualização' })); expect(createRequestMessage).toHaveBeenCalledWith('request', 'Nova informação')
   })
 })

@@ -1,16 +1,16 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { RequestTimeline } from './RequestTimeline'
+import { combineRequestHistory, RequestHistory, RequestTimeline } from './RequestTimeline'
 
-describe('RequestTimeline', () => {
+describe('RequestHistory', () => {
   it('retains portal communication, system events, and WhatsApp delivery', () => {
-    render(<RequestTimeline history={[]} messages={[{ id: 'manager', requestId: 'request', author: { id: 'manager', fullName: 'Ana', isManager: true }, content: 'Visita agendada', channel: 'Portal', createdAt: '2026-08-10T17:30:00Z', whatsAppDelivery: { status: 'Delivered' } }, { id: 'resident', requestId: 'request', author: { id: 'resident', fullName: 'Maria' }, content: 'Estarei em casa', channel: 'Portal', createdAt: '2026-08-10T17:31:00Z' }, { id: 'system', requestId: 'request', author: { id: 'manager', fullName: 'Ana', isManager: true }, content: 'Evento técnico', channel: 'System', createdAt: '2026-08-10T17:32:00Z' }]} />)
+    render(<RequestHistory history={[]} messages={[{ id: 'manager', requestId: 'request', author: { id: 'manager', fullName: 'Ana', isManager: true }, content: 'Visita agendada', channel: 'Portal', createdAt: '2026-08-10T17:30:00Z', whatsAppDelivery: { status: 'Delivered' } }, { id: 'resident', requestId: 'request', author: { id: 'resident', fullName: 'Maria' }, content: 'Estarei em casa', channel: 'Portal', createdAt: '2026-08-10T17:31:00Z' }, { id: 'system', requestId: 'request', author: { id: 'manager', fullName: 'Ana', isManager: true }, content: 'Evento técnico', channel: 'System', createdAt: '2026-08-10T17:32:00Z' }]} />)
     expect(screen.getByText('Visita agendada')).toBeVisible(); expect(screen.getByText('Estarei em casa')).toBeVisible(); expect(screen.getByText('Evento técnico')).toBeVisible(); expect(screen.getByRole('img', { name: 'Entregue pelo WhatsApp' })).toBeVisible()
   })
 
   it('shows spontaneous resident updates', () => {
-    render(<RequestTimeline history={[]} messages={[{ id: 'message', requestId: 'request', author: { id: 'resident', fullName: 'Maria', isManager: false }, content: 'resident update', channel: 'WhatsAppResidentUpdate', createdAt: '2026-08-10T17:30:00Z' }]} />)
-    expect(screen.getByText('Atualização do morador')).toBeVisible(); expect(screen.getByText('resident update')).toBeVisible()
+    render(<RequestHistory history={[]} messages={[{ id: 'message', requestId: 'request', author: { id: 'resident', fullName: 'Maria', isManager: false }, content: 'resident update', channel: 'WhatsAppResidentUpdate', createdAt: '2026-08-10T17:30:00Z' }]} />)
+    expect(screen.getByLabelText('Mensagem do morador')).toBeVisible(); expect(screen.getByText('resident update')).toBeVisible()
   })
 
   it('correlates resident replies with status events', () => {
@@ -37,8 +37,7 @@ describe('RequestTimeline', () => {
     expect(screen.queryByText(/chave-secreta/i)).not.toBeInTheDocument()
   })
 
-  it('renders private internal notes in the same timeline', () => {
-    render(<RequestTimeline history={[]} internalNotes={[{ id: 'note', content: 'Conferir câmera antes de encerrar.', author: { id: 'manager', fullName: 'Ana', isManager: true }, createdAt: '2026-08-17T12:40:00Z', updatedAt: '2026-08-17T12:45:00Z' }]} />)
-    expect(screen.getByText('🔒 Nota interna')).toBeVisible(); expect(screen.getByText('Conferir câmera antes de encerrar.')).toBeVisible(); expect(screen.getByText(/Editada/)).toBeVisible()
+  it('orders messages and administrative events deterministically', () => {
+    expect(combineRequestHistory([{ id: 'status', previousStatus: null, newStatus: 'Open', changedByUserId: 'manager', changedByFullName: 'Ana', reason: null, createdAt: '2026-08-17T12:40:00Z' }], [{ id: 'message', requestId: 'request', author: { id: 'resident', fullName: 'Maria' }, content: 'Oi', channel: 'Portal', createdAt: '2026-08-17T12:40:00Z' }]).map((item) => item.kind)).toEqual(['message', 'status'])
   })
 })
