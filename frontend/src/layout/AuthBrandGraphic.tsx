@@ -1,12 +1,13 @@
-import { useTheme } from '@mui/material/styles'
+import { alpha, useTheme } from '@mui/material/styles'
 
 export function AuthBrandGraphic() {
   const theme = useTheme()
   const isDark = theme.palette.mode === 'dark'
   const primary = theme.palette.primary.main
-  const surface = theme.palette.background.paper
-  const formOpacity = isDark ? 0.14 : 0.08
-  const orbitOpacity = isDark ? 0.44 : 0.3
+  const massPrimary = alpha(primary, isDark ? 0.19 : 0.2)
+  const massSecondary = alpha(primary, isDark ? 0.12 : 0.13)
+  const orbit = alpha(primary, isDark ? 0.48 : 0.42)
+  const accent = alpha(primary, isDark ? 0.9 : 0.72)
 
   return (
     <svg
@@ -17,46 +18,36 @@ export function AuthBrandGraphic() {
       width="100%"
       height="100%"
     >
+      <path d="M654 78 C503 6 324 35 242 161 L312 215 C369 131 477 108 571 150 Z" fill={massPrimary} />
+      <path d="M228 211 C157 315 191 452 306 513 L352 432 C289 399 267 327 310 263 Z" fill={massSecondary} />
+      <path d="M367 470 C470 496 584 448 643 360 L558 305 C513 370 439 396 375 372 Z" fill={massPrimary} />
       <path
-        d="M452 132 A210 210 0 1 0 469 451"
-        fill="none"
-        stroke={primary}
-        strokeWidth="80"
-        strokeLinecap="butt"
-        opacity={formOpacity}
+        d="M278 441 L205 584 L351 507 Z"
+        fill={massSecondary}
       />
       <path
-        d="M282 430 L246 518 L338 470 Z"
-        fill={primary}
-        opacity={formOpacity}
-      />
-      <path
-        d="M130 305 A265 265 0 0 1 492 55"
+        d="M-46 306 C22 91 188 -30 374 -37"
         fill="none"
-        stroke={primary}
+        stroke={orbit}
         strokeWidth="1.25"
-        opacity={orbitOpacity}
       />
       <path
-        d="M208 500 A265 265 0 0 0 543 231"
+        d="M250 631 C446 676 638 573 680 395"
         fill="none"
-        stroke={primary}
+        stroke={orbit}
         strokeWidth="1"
-        opacity={orbitOpacity * 0.65}
       />
       <path
-        d="M88 371 A305 305 0 0 1 257 84"
+        d="M355 -43 C593 8 721 209 663 420"
         fill="none"
-        stroke={primary}
+        stroke={orbit}
         strokeWidth="1"
-        opacity={orbitOpacity * 0.55}
       />
-      <circle cx="474" cy="142" r="7" fill={primary} opacity={isDark ? 0.85 : 0.55} />
-      <circle cx="537" cy="352" r="2.25" fill={primary} opacity={orbitOpacity} />
-      <circle cx="537" cy="368" r="2.25" fill={primary} opacity={orbitOpacity} />
-      <circle cx="537" cy="384" r="2.25" fill={primary} opacity={orbitOpacity} />
-      <circle cx="537" cy="400" r="2.25" fill={primary} opacity={orbitOpacity} />
-      <circle cx="320" cy="544" r="1.75" fill={surface} opacity={isDark ? 0.7 : 0.9} />
+      <circle cx="508" cy="107" r="7" fill={accent} />
+      <circle cx="570" cy="318" r="2.25" fill={orbit} />
+      <circle cx="570" cy="334" r="2.25" fill={orbit} />
+      <circle cx="570" cy="350" r="2.25" fill={orbit} />
+      <circle cx="570" cy="366" r="2.25" fill={orbit} />
     </svg>
   )
 }
