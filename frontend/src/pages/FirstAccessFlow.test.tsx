@@ -50,7 +50,7 @@ describe('first access frontend flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Entrar' }))
 
     expect(await screen.findByRole('heading', {
-      name: 'Alterar senha',
+      name: 'Atualize sua senha',
     })).toBeInTheDocument()
     expect(screen.getByLabelText(/E-mail/)).toHaveValue('pessoa@example.com')
     expect(screen.getByLabelText(/Senha temporária/)).toHaveValue('Temporaria1')

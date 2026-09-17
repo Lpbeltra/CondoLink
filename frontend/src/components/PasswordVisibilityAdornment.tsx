@@ -13,7 +13,6 @@ export function PasswordVisibilityAdornment({ visible, onToggle }: Props) {
       <IconButton
         type="button"
         edge="end"
-        tabIndex={-1}
         aria-label={visible ? 'Ocultar senha' : 'Exibir senha'}
         onClick={onToggle}
       >

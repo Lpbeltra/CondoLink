@@ -3,23 +3,19 @@ import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   CircularProgress,
-  Container,
   Stack,
   TextField,
   Typography,
 } from '@mui/material'
 import LockResetRoundedIcon from '@mui/icons-material/LockResetRounded'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Brand } from '../components/Brand'
 import { api } from '../services/api'
 import { authError } from '../auth/errors'
 import { useAuth } from '../auth/AuthContext'
 import { authenticatedEntryPath } from '../auth/routeAccess'
-import { ThemeModeToggle } from '../theme/ThemeModeToggle'
 import { PasswordVisibilityAdornment } from '../components/PasswordVisibilityAdornment'
+import { AuthShell } from '../layout/AuthShell'
 
 interface ChangePasswordLocationState {
   email?: string
@@ -74,20 +70,15 @@ export function ChangePasswordPage() {
   }
 
   return (
-    <Box minHeight="100dvh" display="grid" sx={{ placeItems: 'center', py: 4 }}>
-      <Box sx={{ position: 'fixed', top: 12, right: 12 }}>
-        <ThemeModeToggle />
-      </Box>
-      <Container maxWidth="xs">
-        <Stack alignItems="center" mb={4}><Brand /></Stack>
-        <Card>
-          <CardContent sx={{ p: { xs: 3, sm: 4.5 } }}>
-            <Typography variant="h1">Alterar senha</Typography>
-            <Typography color="text.secondary" mt={1}>
-              Você precisa alterar sua senha temporária antes de continuar.
-            </Typography>
-            <Box component="form" onSubmit={event => void submit(event)} mt={3}>
-              <Stack gap={2}>
+    <AuthShell>
+      <Stack spacing={1} mb={4}>
+        <Typography variant="h1">Atualize sua senha</Typography>
+        <Typography color="text.secondary">
+          Você precisa substituir sua senha temporária antes de continuar.
+        </Typography>
+      </Stack>
+      <Box component="form" onSubmit={event => void submit(event)}>
+        <Stack gap={2}>
                 {error && <Alert severity="error">{error}</Alert>}
                   <TextField
                     required
@@ -160,11 +151,8 @@ export function ChangePasswordPage() {
                   >
                     {saving ? 'Atualizando…' : 'Atualizar senha'}
                   </Button>
-              </Stack>
-            </Box>
-          </CardContent>
-        </Card>
-      </Container>
-    </Box>
+        </Stack>
+      </Box>
+    </AuthShell>
   )
 }

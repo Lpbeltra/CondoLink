@@ -15,6 +15,9 @@ vi.mock("../services/api", () => ({ api: { post } }));
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({ ...auth, logout }),
 }));
+vi.mock("../theme/ThemeModeToggle", () => ({
+  ThemeModeToggle: () => <button aria-label="Alternar para o tema escuro" />,
+}));
 import { FirstAccessPage } from "./FirstAccessPage";
 
 const invitation =
@@ -45,6 +48,26 @@ describe("FirstAccessPage", () => {
     expect(
       await screen.findByText("Senha criada com sucesso."),
     ).toBeInTheDocument();
+  });
+
+  it("uses new-password autocomplete and toggles each password independently", async () => {
+    post.mockResolvedValueOnce({ data: { valid: true } });
+    render(
+      <MemoryRouter initialEntries={[invitation]}>
+        <FirstAccessPage />
+      </MemoryRouter>,
+    );
+    const password = await screen.findByLabelText(/^Nova senha/);
+    const confirmation = screen.getByLabelText(/^Confirmar senha/);
+    expect(password).toHaveAttribute("autocomplete", "new-password");
+    expect(confirmation).toHaveAttribute("autocomplete", "new-password");
+    const user = userEvent.setup();
+    const toggles = screen.getAllByRole("button", { name: "Exibir senha" });
+    await user.click(toggles[0]);
+    expect(password).toHaveAttribute("type", "text");
+    expect(confirmation).toHaveAttribute("type", "password");
+    await user.click(toggles[1]);
+    expect(confirmation).toHaveAttribute("type", "text");
   });
 
   it("shows a safe error for an invalid token", async () => {

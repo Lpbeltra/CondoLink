@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
-import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
-import EditRoundedIcon from '@mui/icons-material/EditRounded'
+import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import {
   Alert,
@@ -14,10 +13,8 @@ import {
   DialogTitle,
   IconButton,
   InputAdornment,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
+  Menu,
+  MenuItem,
   Skeleton,
   Stack,
   TextField,
@@ -54,6 +51,8 @@ export function ManagementCategoriesPage() {
     undefined,
   )
   const [deleting, setDeleting] = useState<Category | null>(null)
+  const [actionTarget, setActionTarget] = useState<Category | null>(null)
+  const [actionAnchor, setActionAnchor] = useState<HTMLElement | null>(null)
   const [name, setName] = useState('')
   const loadVersion = useRef(0)
   const activeIdRef = useRef(condominiumId)
@@ -181,7 +180,7 @@ export function ManagementCategoriesPage() {
         <Box>
           <Typography variant="h1">Categorias</Typography>
           <Typography color="text.secondary">
-            Organize os tipos de solicitação disponíveis aos moradores.
+            Organize os atendimentos do condomínio por categoria.
           </Typography>
         </Box>
 
@@ -194,7 +193,7 @@ export function ManagementCategoriesPage() {
             setError('')
           }}
         >
-          Nova categoria
+          Adicionar categoria
         </Button>
       </Stack>
 
@@ -232,7 +231,9 @@ export function ManagementCategoriesPage() {
           {items.length === 0 ? (
             <EmptyState
               title="Nenhuma categoria cadastrada."
-              description="Crie categorias para organizar as solicitações."
+              description="Adicione uma categoria para organizar os atendimentos."
+              actionLabel="Adicionar categoria"
+              onAction={() => { setEditing(null); setName(''); setError('') }}
             />
           ) : visible.length === 0 ? (
             <EmptyState
@@ -240,75 +241,39 @@ export function ManagementCategoriesPage() {
               description="Revise o texto pesquisado."
             />
           ) : (
-            <List
-              sx={{
-                mt: 2,
-                bgcolor: 'background.paper',
-                borderRadius: 2,
-              }}
-            >
+            <Box role="list" sx={{ mt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
               {visible.map((item) => (
-                <ListItem
+                <Box
                   key={item.id}
-                  disablePadding
-                  divider
-                  secondaryAction={
-                    <Stack direction="row">
-                      <IconButton
-                        aria-label={`Editar ${item.name}`}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          setEditing(item)
-                          setName(item.name)
-                          setError('')
-                        }}
-                      >
-                        <EditRoundedIcon />
-                      </IconButton>
-
-                      <IconButton
-                        color="error"
-                        aria-label={`Excluir ${item.name}`}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          setDeleting(item)
-                        }}
-                      >
-                        <DeleteOutlineRoundedIcon />
-                      </IconButton>
-                    </Stack>
-                  }
+                  role="listitem"
+                  sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr auto', sm: 'minmax(220px, 1fr) 180px auto' }, gap: 1.5, alignItems: 'center', py: 1.25, px: { xs: 1, sm: 2 }, borderBottom: '1px solid', borderColor: 'divider', '@media (prefers-reduced-motion: no-preference)': { transition: 'background-color 150ms ease' }, '&:hover': { bgcolor: 'action.hover' } }}
                 >
-                  <ListItemButton
+                  <Button
+                    color="inherit"
                     onClick={() =>
                       navigate(
                         `/management/requests?categoryId=${item.id}`,
                       )
                     }
-                    sx={{
-                      py: 1.5,
-                      pr: 12,
-                    }}
+                    sx={{ justifyContent: 'flex-start', p: 0, minWidth: 0, textTransform: 'none', '&:hover': { bgcolor: 'transparent', textDecoration: 'underline' } }}
                     aria-label={`Abrir atendimento da categoria ${item.name}`}
                   >
-                    <ListItemText
-                      primary={item.name}
-                      secondary={`${item.requestCount} ${
-                        item.requestCount === 1
-                          ? 'solicitação'
-                          : 'solicitações'
-                      }`}
-                      primaryTypographyProps={{
-                        fontWeight: 750,
-                      }}
-                    />
-                  </ListItemButton>
-                </ListItem>
+                    <Typography fontWeight={750}>{item.name}</Typography>
+                  </Button>
+                  <Typography color="text.secondary" variant="body2" sx={{ display: { xs: 'none', sm: 'block' } }}>{item.requestCount === 0 ? 'Nenhum atendimento' : `${item.requestCount} ${item.requestCount === 1 ? 'atendimento' : 'atendimentos'}`}</Typography>
+                  <IconButton aria-label={`Ações de ${item.name}`} onClick={(event) => { setActionAnchor(event.currentTarget); setActionTarget(item) }}><MoreVertRoundedIcon /></IconButton>
+                  <Typography color="text.secondary" variant="body2" sx={{ display: { xs: 'block', sm: 'none' }, gridColumn: '1 / -1' }}>{item.requestCount === 0 ? 'Nenhum atendimento' : `${item.requestCount} ${item.requestCount === 1 ? 'atendimento' : 'atendimentos'}`}</Typography>
+                </Box>
               ))}
-            </List>
+            </Box>
           )}
         </>
       )}
+
+      <Menu anchorEl={actionAnchor} open={Boolean(actionAnchor)} onClose={() => { setActionAnchor(null); setActionTarget(null) }}>
+        {actionTarget && <MenuItem onClick={() => { setEditing(actionTarget); setName(actionTarget.name); setError(''); setActionAnchor(null); setActionTarget(null) }}>Editar</MenuItem>}
+        {actionTarget && <MenuItem sx={{ color: 'error.main' }} onClick={() => { setDeleting(actionTarget); setActionAnchor(null); setActionTarget(null) }}>Excluir</MenuItem>}
+      </Menu>
 
       <Dialog
         open={editing !== undefined}

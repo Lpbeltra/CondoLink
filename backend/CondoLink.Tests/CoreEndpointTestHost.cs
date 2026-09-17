@@ -12,6 +12,7 @@ using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
@@ -79,7 +80,11 @@ internal sealed class CoreEndpointTestHost : IAsyncDisposable
                 options.Password.RequireNonAlphanumeric = false;
             })
             .AddRoles<IdentityRole<Guid>>()
-            .AddEntityFrameworkStores<AppDbContext>();
+            .AddEntityFrameworkStores<AppDbContext>()
+            .AddDefaultTokenProviders();
+        builder.Services.AddDataProtection();
+        builder.Services.AddSingleton<IDataProtectionProvider>(
+            new EphemeralDataProtectionProvider());
         builder.Services.AddAuthentication(options =>
             {
                 options.DefaultAuthenticateScheme =

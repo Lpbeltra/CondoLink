@@ -137,12 +137,15 @@ public static class DependencyInjection
                             .Select(user => new
                             {
                                 user.IsActive,
-                                user.MustChangePassword
+                                user.MustChangePassword,
+                                user.SecurityStamp
                             })
                             .SingleOrDefaultAsync(context.HttpContext.RequestAborted);
 
                         if (state is null || !state.IsActive
-                            || state.MustChangePassword)
+                            || state.MustChangePassword
+                            || !SecurityStampJwtValidator.Matches(
+                                context.Principal!, state.SecurityStamp))
                             context.Fail("User cannot access the application.");
                     }
                 };
@@ -157,4 +160,15 @@ public static class DependencyInjection
 
         return services;
     }
+}
+
+public static class SecurityStampJwtValidator
+{
+    public const string ClaimType = "comvy_security_stamp";
+
+    public static bool Matches(ClaimsPrincipal principal, string? securityStamp) =>
+        string.Equals(
+            principal.FindFirst(ClaimType)?.Value,
+            securityStamp ?? string.Empty,
+            StringComparison.Ordinal);
 }

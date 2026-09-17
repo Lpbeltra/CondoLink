@@ -185,6 +185,9 @@ builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailO
 builder.Services.Configure<FirstAccessOptions>(builder.Configuration.GetSection(FirstAccessOptions.SectionName));
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 builder.Services.AddScoped<FirstAccessService>();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<PasswordResetRequestLimiter>();
+builder.Services.AddScoped<PasswordResetService>();
 builder.Services.AddScoped<FirstAccessWhatsAppInvitationService>();
 builder.Services.AddSingleton<IFirstAccessWhatsAppPayloadProtector,
     FirstAccessWhatsAppPayloadProtector>();
@@ -364,6 +367,7 @@ app.MapLogin();
 app.MapRefreshEndpoints();
 app.MapChangeTemporaryPassword();
 app.MapFirstAccess();
+app.MapPasswordReset();
 
 // Users
 app.MapCreateUser();
