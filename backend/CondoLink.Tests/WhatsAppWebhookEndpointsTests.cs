@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CondoLink.Tests;
 
@@ -350,6 +351,100 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Reply_later_schedules_one_due_reminder_without_agenda()
+    {
+        var requestId = await _host.WithDbAsync(async db =>
+        {
+            var category = new Category(_condominiumId, "Portaria", null);
+            var now = DateTime.UtcNow;
+            var request = new CondoLink.Domain.Entities.Request(_condominiumId,
+                _userId, _unitId, category.Id, "Acesso", "Relato");
+            request.ChangeStatus(RequestStatus.WaitingForResident, now);
+            var manager = CoreTestSeed.User("Gestor", "reminder-manager@example.com");
+            var history = new RequestStatusHistory(request.Id,
+                RequestStatus.InProgress, RequestStatus.WaitingForResident,
+                manager.Id, "Confirme o horário.", now);
+            var requirement = new RequestResidentReplyRequirement(request.Id,
+                manager.Id, history.Id, history.Reason!, now);
+            requirement.ScheduleReminder(now.AddHours(-4));
+            db.AddRange(category, manager, request, history, requirement);
+            await db.SaveChangesAsync();
+            return request.Id;
+        });
+
+        await _host.WithServicesAsync(async services =>
+        {
+            var worker = new WhatsAppResidentReplyReminderWorker(
+                services.GetRequiredService<IServiceScopeFactory>(),
+                NullLogger<WhatsAppResidentReplyReminderWorker>.Instance);
+            Assert.Equal(1, await worker.ProcessDueAsync(DateTime.UtcNow));
+            Assert.Equal(0, await worker.ProcessDueAsync(DateTime.UtcNow));
+        });
+
+        await _host.WithDbAsync(async db =>
+        {
+            var requirement = await db.RequestResidentReplyRequirements.SingleAsync();
+            Assert.Equal(1, requirement.ReminderCount);
+            var outbound = await db.WhatsAppOutboundMessages.SingleAsync();
+            Assert.Equal(requestId, outbound.RequestId);
+            Assert.Equal(WhatsAppNotificationType.InformationRequested,
+                outbound.NotificationType);
+            Assert.StartsWith("resident-reply-reminder:", outbound.IdempotencyKey);
+        });
+    }
+
+    [Fact]
+    public async Task Generic_request_update_routes_waiting_request_to_resident_reply_service()
+    {
+        var requestId = await _host.WithDbAsync(async db =>
+        {
+            var category = new Category(_condominiumId, "Portaria", null);
+            var now = DateTime.UtcNow;
+            var request = new CondoLink.Domain.Entities.Request(_condominiumId,
+                _userId, _unitId, category.Id, "Acesso", "Relato");
+            request.ChangeStatus(RequestStatus.WaitingForResident, now);
+            var manager = CoreTestSeed.User("Gestor", "generic-reply-manager@example.com");
+            var history = new RequestStatusHistory(request.Id,
+                RequestStatus.InProgress, RequestStatus.WaitingForResident,
+                manager.Id, "Confirme o horário.", now);
+            db.AddRange(category, manager, request, history,
+                new RequestResidentReplyRequirement(request.Id, manager.Id,
+                    history.Id, history.Reason!, now));
+            await db.SaveChangesAsync();
+            return request.Id;
+        });
+
+        await PostAsync(TextPayload("wamid.generic-reply-menu", "Menu"));
+        await PostAsync(TextPayload("wamid.generic-reply-option", "3"));
+        await PostAsync(TextPayload("wamid.generic-reply-select", "1"));
+        await PostAsync(TextPayload("wamid.generic-reply-content", "Foi às 22h."));
+
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(RequestStatus.InProgress,
+                (await db.Requests.SingleAsync(x => x.Id == requestId)).Status);
+            Assert.False((await db.RequestResidentReplyRequirements.SingleAsync()).IsActive);
+            Assert.Equal(MessageChannel.WhatsApp, (await db.RequestMessages
+                .SingleAsync(x => x.RequestId == requestId)).Channel);
+        });
+    }
+
+    [Fact]
+    public async Task Native_menu_and_continue_ids_follow_same_draft_flow_as_text_fallback()
+    {
+        await PostAsync(TextPayload("wamid.native-menu", "Oi"));
+        await PostAsync(InteractiveReplyPayload("wamid.native-open",
+            "menu_open_request", "Abrir solicitação"));
+        await PostAsync(TextPayload("wamid.native-description", "Portão não fecha."));
+        await PostAsync(InteractiveReplyPayload("wamid.native-continue",
+            "draft_description_done", "Continuar"));
+
+        await _host.WithDbAsync(async db => Assert.Equal(
+            WhatsAppConversationState.CollectingAttachments,
+            (await db.WhatsAppSessions.SingleAsync()).State));
+    }
+
+    [Fact]
     public async Task Known_title_is_not_used_when_button_id_is_unknown()
     {
         await PostAsync(TextPayload("wamid.unknown-button-menu", "Oi"));
@@ -553,7 +648,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.resident-forbidden-lookup",
             "Qual o telefone da Maria Silva da unidade 101?"));
 
-        Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
+        Assert.Contains("O que você precisa", _fake.Messages.Last().Text);
         Assert.DoesNotContain("maria@example.com", _fake.Messages.Last().Text);
         Assert.DoesNotContain("99999", _fake.Messages.Last().Text);
     }
@@ -1843,10 +1938,12 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.edit-1", "Menu"));
         await PostAsync(TextPayload("wamid.edit-2", "1"));
         await PostAsync(TextPayload("wamid.edit-3", "Descrição antiga"));
-        await PostAsync(TextPayload("wamid.edit-4", "2"));
+        await PostAsync(TextPayload("wamid.edit-4", "Continuar"));
         await PostAsync(TextPayload("wamid.edit-5", "2"));
-        await PostAsync(TextPayload("wamid.edit-6", "Descrição corrigida"));
-        await PostAsync(TextPayload("wamid.edit-7", "2"));
+        await PostAsync(TextPayload("wamid.edit-6", "2"));
+        await PostAsync(TextPayload("wamid.edit-7", "Descrição corrigida"));
+        await PostAsync(TextPayload("wamid.edit-7a", "Continuar"));
+        await PostAsync(TextPayload("wamid.edit-7b", "2"));
         Assert.Contains("3 - Cancelar e voltar ao início", _fake.Messages.Last().Text);
         await PostAsync(TextPayload("wamid.edit-8", "3"));
 
@@ -1863,7 +1960,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         });
 
         await PostAsync(TextPayload("wamid.edit-9", "1"));
-        Assert.Contains("Conte o que aconteceu em uma mensagem", _fake.Messages.Last().Text);
+        Assert.Contains("Me conte o que aconteceu", _fake.Messages.Last().Text);
         Assert.Equal(WhatsAppConversationState.CollectingDescription,
             await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
     }
@@ -1944,6 +2041,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.flow-1", "Menu"));
         await PostAsync(TextPayload("wamid.flow-2", "1"));
         await PostAsync(TextPayload("wamid.flow-3", "Lâmpada queimada no corredor"));
+        await PostAsync(TextPayload("wamid.flow-continue", "Continuar"));
         await PostAsync(TextPayload("wamid.flow-4", "2"));
         await PostAsync(TextPayload("wamid.flow-5", "1"));
         await PostAsync(TextPayload("wamid.flow-5", "1"));
@@ -1986,7 +2084,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload("wamid.flow-new-attendance", "Bom dia"));
 
-        Assert.Contains("Como posso ajudar", _fake.Messages.Last().Text);
+        Assert.Contains("O que você precisa", _fake.Messages.Last().Text);
         Assert.DoesNotContain("Para abrir uma solicitação, digite 1", _fake.Messages.Last().Text);
         await _host.WithDbAsync(async db =>
         {
@@ -1998,12 +2096,48 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload("wamid.flow-second-1", "1"));
         await PostAsync(TextPayload("wamid.flow-second-2", "Outra lâmpada queimada"));
+        await PostAsync(TextPayload("wamid.flow-second-continue", "Continuar"));
         await PostAsync(TextPayload("wamid.flow-second-3", "2"));
         await PostAsync(TextPayload("wamid.flow-second-4", "1"));
 
         Assert.Contains("Solicitação criada com sucesso", _fake.Messages.Last().Text);
         Assert.DoesNotContain("histórico completo no Comvy", _fake.Messages.Last().Text);
         Assert.Equal(2, await _host.WithDbAsync(db => db.Requests.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Resident_composes_report_before_confirmation_creates_one_request()
+    {
+        await _host.WithDbAsync(async db =>
+        {
+            db.Categories.Add(new Category(_condominiumId, "Manutenção", null));
+            await db.SaveChangesAsync();
+        });
+
+        await PostAsync(TextPayload("wamid.compose-menu", "Menu"));
+        await PostAsync(TextPayload("wamid.compose-open", "1"));
+        await PostAsync(TextPayload("wamid.compose-first", "Portão não fecha."));
+        await PostAsync(TextPayload("wamid.compose-second", "O problema começou hoje."));
+
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Empty(await db.Requests.ToArrayAsync());
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(WhatsAppConversationState.CollectingDescription, session.State);
+            Assert.Contains("Portão não fecha.", session.DraftDescription);
+            Assert.Contains("O problema começou hoje.", session.DraftDescription);
+        });
+
+        await PostAsync(TextPayload("wamid.compose-continue", "Continuar"));
+        await PostAsync(TextPayload("wamid.compose-skip", "2"));
+        await PostAsync(TextPayload("wamid.compose-confirm", "1"));
+
+        await _host.WithDbAsync(async db =>
+        {
+            var request = await db.Requests.SingleAsync();
+            Assert.Contains("Portão não fecha.", request.Description);
+            Assert.Contains("O problema começou hoje.", request.Description);
+        });
     }
 
     [Fact]
@@ -2019,6 +2153,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.media-1", "Menu"));
         await PostAsync(TextPayload("wamid.media-2", "1"));
         await PostAsync(TextPayload("wamid.media-description", "Portão danificado"));
+        await PostAsync(TextPayload("wamid.media-continue", "Continuar"));
         await PostAsync(MediaPayload("wamid.media-3", "media-id-1", "image", "image/jpeg"));
 
         Assert.Contains("Arquivo recebido", _fake.Messages.Last().Text);
@@ -2126,7 +2261,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Equal(1, _ai.Calls);
 
         var review = _fake.Messages.Last().Text;
-        Assert.StartsWith("Revise sua solicitação antes de enviá-la.", review);
+        Assert.StartsWith("Entendi. Vou abrir assim:", review);
         Assert.Contains("*Título:*\n", review);
         Assert.Contains("Portão da garagem danificado", review);
         Assert.Contains("*Descrição:*\n", review);
@@ -2295,7 +2430,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
 
         await PostAsync(TextPayload("wamid.legacy-category-input", "1"));
 
-        Assert.StartsWith("Revise sua solicitação", _fake.Messages.Last().Text);
+        Assert.StartsWith("Entendi. Vou abrir assim:", _fake.Messages.Last().Text);
         Assert.DoesNotContain("categoria", _fake.Messages.Last().Text,
             StringComparison.OrdinalIgnoreCase);
         Assert.Equal(WhatsAppConversationState.ReviewingNewRequest,
@@ -2479,7 +2614,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         Assert.Equal(1, _fake.DownloadCalls);
         await PostAsync(TextPayload("wamid.audio-finished", "2"));
         Assert.Equal(1, _ai.Calls);
-        Assert.Contains("Revise sua solicitação", _fake.Messages.Last().Text);
+        Assert.Contains("Entendi. Vou abrir assim:", _fake.Messages.Last().Text);
         await PostAsync(TextPayload("wamid.audio-confirm", "1"));
         await PostAsync(TextPayload("wamid.audio-confirm", "1"));
 
@@ -2599,6 +2734,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload($"wamid.attachment-menu-{Guid.NewGuid():N}", "Oi"));
         await PostAsync(TextPayload($"wamid.attachment-open-{Guid.NewGuid():N}", "1"));
         await PostAsync(TextPayload($"wamid.attachment-description-{Guid.NewGuid():N}", "Portão danificado"));
+        await PostAsync(TextPayload($"wamid.attachment-continue-{Guid.NewGuid():N}", "Continuar"));
         Assert.Equal(WhatsAppConversationState.CollectingAttachments,
             await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
     }

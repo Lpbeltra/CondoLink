@@ -62,6 +62,14 @@ public sealed class WhatsAppNotificationDispatcher(
                 Log("Skipped", "RequestNotFound", 0);
                 return;
             }
+            if (type == WhatsAppNotificationType.InformationRequested
+                && (request.Status != RequestStatus.WaitingForResident
+                    || !await db.RequestResidentReplyRequirements.AsNoTracking().AnyAsync(x =>
+                        x.RequestId == requestId && x.IsActive && x.AnswerMessageId == null, ct)))
+            {
+                Log("Skipped", "ResidentReplyNoLongerActive", 0);
+                return;
+            }
             condominiumId = request.CondominiumId;
             var userId = recipientUserId ?? request.AuthorUserId;
 

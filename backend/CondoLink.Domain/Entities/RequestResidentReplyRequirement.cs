@@ -60,4 +60,11 @@ public sealed class RequestResidentReplyRequirement
         HasUnreadAnswer = false;
         UpdatedAt = now;
     }
+
+    public void ScheduleReminder(DateTime now)
+    {
+        if (!IsActive || ReminderCount > 0) return;
+        LastReminderAt = now;
+        UpdatedAt = now;
+    }
 }

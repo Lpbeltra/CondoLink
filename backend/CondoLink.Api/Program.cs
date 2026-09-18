@@ -196,6 +196,7 @@ builder.Services.AddSingleton<IPhoneVerificationMessageProtector,
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHostedService<WhatsAppOutboundWorker>();
 builder.Services.AddHostedService<WhatsAppConversationInactivityWorker>();
+builder.Services.AddHostedService<WhatsAppResidentReplyReminderWorker>();
 builder.Services.AddHostedService<RequestClosureWorker>();
 builder.Services.AddHostedService<OperationalRetentionWorker>();
 builder.Services.Configure<AgendaOptions>(

@@ -57,6 +57,35 @@ public sealed class MetaWhatsAppClientTests
     }
 
     [Fact]
+    public async Task Interactive_buttons_payload_has_native_reply_ids_and_titles()
+    {
+        var handler = new RecordingHandler();
+
+        var result = await NewClient(handler).SendInteractiveButtonsAsync(
+            "+5511999990001", "O que você precisa?",
+            [new WhatsAppReplyButton("menu_open_request", "Abrir solicitação"),
+             new WhatsAppReplyButton("menu_my_requests", "Minhas solicitações"),
+             new WhatsAppReplyButton("menu_update_request", "Falar sobre pedido")],
+            default);
+
+        Assert.True(result.Succeeded);
+        using var json = JsonDocument.Parse(handler.Body!);
+        var root = json.RootElement;
+        Assert.Equal("interactive", root.GetProperty("type").GetString());
+        var interactive = root.GetProperty("interactive");
+        Assert.Equal("button", interactive.GetProperty("type").GetString());
+        Assert.Equal("O que você precisa?", interactive.GetProperty("body")
+            .GetProperty("text").GetString());
+        var buttons = interactive.GetProperty("action").GetProperty("buttons");
+        Assert.Equal("menu_open_request", buttons[0].GetProperty("reply")
+            .GetProperty("id").GetString());
+        Assert.Equal("Abrir solicitação", buttons[0].GetProperty("reply")
+            .GetProperty("title").GetString());
+        Assert.Equal("menu_update_request", buttons[2].GetProperty("reply")
+            .GetProperty("id").GetString());
+    }
+
+    [Fact]
     public async Task First_access_template_has_two_body_values_and_dynamic_url_suffix()
     {
         var handler = new RecordingHandler();

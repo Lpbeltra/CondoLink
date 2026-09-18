@@ -6,6 +6,13 @@ public interface IWhatsAppClient
         string phoneNumber,
         string text,
         CancellationToken cancellationToken);
+    Task<WhatsAppSendResult> SendInteractiveButtonsAsync(
+        string phoneNumber,
+        string body,
+        IReadOnlyList<WhatsAppReplyButton> buttons,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(new WhatsAppSendResult(false, null,
+            "This WhatsApp client does not support interactive buttons."));
     Task<WhatsAppMediaResult> DownloadMediaAsync(
         string mediaId,
         CancellationToken cancellationToken);
@@ -71,6 +78,7 @@ public sealed record WhatsAppSendResult(
     string? ErrorSubcode = null,
     string? FailureKind = null,
     string? FailureStage = null);
+public sealed record WhatsAppReplyButton(string Id, string Title);
 public sealed record WhatsAppMediaResult(
     bool Succeeded,
     byte[]? Content,

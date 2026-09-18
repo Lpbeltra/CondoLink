@@ -111,6 +111,27 @@ public sealed class WhatsAppSession
         MoveTo(WhatsAppConversationState.CollectingAttachments, now, expiresAt, CondominiumId);
     }
 
+    public bool AppendDescription(string segment, DateTime now, DateTime expiresAt)
+    {
+        segment = segment.Trim();
+        if (string.IsNullOrWhiteSpace(segment)) return false;
+        var combined = string.IsNullOrWhiteSpace(DraftDescription)
+            ? segment : $"{DraftDescription}\n\n{segment}";
+        if (combined.Length > 4000) return false;
+        DraftDescription = combined;
+        DraftAiProposalJson = null;
+        Touch(now, expiresAt);
+        return true;
+    }
+
+    public void FinishDescription(DateTime now, DateTime expiresAt)
+    {
+        if (string.IsNullOrWhiteSpace(DraftDescription))
+            throw new InvalidOperationException("A description is required.");
+        DraftAiProposalJson = null;
+        MoveTo(WhatsAppConversationState.CollectingAttachments, now, expiresAt, CondominiumId);
+    }
+
     public void SetAudioDescriptionForReview(
         string description, string audioDraftJson, DateTime now, DateTime expiresAt)
     {

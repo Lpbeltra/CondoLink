@@ -112,6 +112,16 @@ public sealed class WhatsAppOutboundMessage
         Version = Guid.NewGuid();
     }
 
+    public void MarkSkipped(string reason, DateTime now)
+    {
+        Status = WhatsAppOutboundStatus.Skipped;
+        NextAttemptAt = null;
+        FailedAt = now;
+        LastErrorCode = "obsolete";
+        LastErrorDescription = reason.Length <= 500 ? reason : reason[..500];
+        Version = Guid.NewGuid();
+    }
+
     public void ApplyProviderStatus(
         string status, DateTime occurredAt, string? errorCode, string? errorDescription)
     {

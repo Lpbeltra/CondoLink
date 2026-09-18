@@ -78,6 +78,23 @@ public sealed class WhatsAppOutboundWorker(
                 continue;
             }
 
+            if (item.NotificationType == WhatsAppNotificationType.InformationRequested)
+            {
+                var stillRequired = await (from request in db.Requests.AsNoTracking()
+                                           join requirement in db.RequestResidentReplyRequirements.AsNoTracking()
+                                               on request.Id equals requirement.RequestId
+                                           where request.Id == item.RequestId
+                                               && request.Status == RequestStatus.WaitingForResident
+                                               && requirement.IsActive && requirement.AnswerMessageId == null
+                                           select request.Id).AnyAsync(ct);
+                if (!stillRequired)
+                {
+                    item.MarkSkipped("Resident reply is no longer required.", DateTime.UtcNow);
+                    await db.SaveChangesAsync(ct);
+                    continue;
+                }
+            }
+
             string content;
             FirstAccessWhatsAppPayload? firstAccessPayload = null;
             try

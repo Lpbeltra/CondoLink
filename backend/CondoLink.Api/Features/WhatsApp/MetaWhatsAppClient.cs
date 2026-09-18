@@ -41,6 +41,45 @@ public sealed class MetaWhatsAppClient(
         return await SendAsync(request, cancellationToken);
     }
 
+    public async Task<WhatsAppSendResult> SendInteractiveButtonsAsync(
+        string phoneNumber, string body, IReadOnlyList<WhatsAppReplyButton> buttons,
+        CancellationToken cancellationToken)
+    {
+        var settings = options.Value;
+        if (!settings.Enabled || string.IsNullOrWhiteSpace(settings.PhoneNumberId)
+            || string.IsNullOrWhiteSpace(settings.AccessToken))
+            return new(false, null, "WhatsApp integration is not configured.");
+        if (buttons.Count is < 1 or > 3 || buttons.Any(button =>
+                string.IsNullOrWhiteSpace(button.Id) || button.Id.Length > 256
+                || string.IsNullOrWhiteSpace(button.Title) || button.Title.Length > 20))
+            return new(false, null, "Interactive button payload is invalid.", false,
+                "interactive_payload_invalid", FailureKind: "Validation");
+
+        using var request = new HttpRequestMessage(HttpMethod.Post,
+            $"{settings.ApiVersion}/{settings.PhoneNumberId}/messages");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.AccessToken);
+        request.Content = JsonContent.Create(new
+        {
+            messaging_product = "whatsapp",
+            to = phoneNumber.TrimStart('+'),
+            type = "interactive",
+            interactive = new
+            {
+                type = "button",
+                body = new { text = body },
+                action = new
+                {
+                    buttons = buttons.Select(button => new
+                    {
+                        type = "reply",
+                        reply = new { id = button.Id, title = button.Title }
+                    }).ToArray()
+                }
+            }
+        });
+        return await SendAsync(request, cancellationToken);
+    }
+
     public Task<WhatsAppSendResult> SendTemplateAsync(
         string phoneNumber,
         string templateName,

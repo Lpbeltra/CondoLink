@@ -206,7 +206,7 @@ public sealed class WhatsAppConversationService(
             throw;
         }
 
-        var send = await client.SendTextAsync(phone, response, ct);
+        var send = await SendResponseAsync(phone, response, result, ct);
         logger.Log(send.Succeeded ? LogLevel.Information : LogLevel.Warning,
             "WhatsApp message processed with result {Result} for phone {Phone}.",
             result, PhoneNumberNormalizer.Mask(phone));
@@ -366,7 +366,7 @@ public sealed class WhatsAppConversationService(
         bool isNewSession, CancellationToken ct)
     {
         var residentReplyButton = ResidentReplyButtonChoice(message);
-        var text = message.Text?.Trim();
+        var text = InteractiveFallbackChoice(message) ?? message.Text?.Trim();
         var command = NormalizeCommand(text);
         var operationalReply = await HandleOperationalTemplateReply(
             session, identity, message, now, expires, ct);
@@ -605,6 +605,14 @@ public sealed class WhatsAppConversationService(
         {
             var selected = page.Items[choice - 1];
             session.BeginRequestUpdate(selected.Id, now, expires);
+            if (selected.Status == RequestStatus.WaitingForResident)
+            {
+                var requirement = await ActiveResidentReplyRequirement(selected.Id, identity, ct);
+                return (requirement is null
+                        ? "Essa pendência não está mais ativa."
+                        : ResidentReplyInputPrompt(requirement.Question),
+                    "collecting_resident_reply");
+            }
             return (RequestUpdatePrompt(), "collecting_request_update");
         }
 
@@ -875,8 +883,11 @@ public sealed class WhatsAppConversationService(
             return ("Esta solicitação não está mais disponível para atualização.\n\n"
                 + MainMenu(identity.FullName), "request_update_no_longer_available");
         }
+        if (request.Status == RequestStatus.WaitingForResident)
+            return await CollectWaitingResidentReply(session, request, identity,
+                message, now, expires, ct);
 
-        var text = message.Text?.Trim();
+        var text = InteractiveFallbackChoice(message) ?? message.Text?.Trim();
         var command = NormalizeCommand(text);
         if (command == "finalizar" || text == "1")
         {
@@ -995,6 +1006,77 @@ public sealed class WhatsAppConversationService(
         return (RequestUpdateReceivedPrompt(message.MessageType == "audio"
                 ? "Áudio recebido." : "Arquivo recebido."),
             "request_update_attachment_received");
+    }
+
+    private async Task<(string, string)> CollectWaitingResidentReply(
+        WhatsAppSession session, OwnRequestItem request, ResolvedIdentity identity,
+        NormalizedWhatsAppMessage message, DateTime now, DateTime expires,
+        CancellationToken ct)
+    {
+        var text = InteractiveFallbackChoice(message) ?? message.Text?.Trim();
+        if (message.MessageType == "text")
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return ("Envie uma mensagem para responder à pendência.", "resident_reply_required");
+            var result = await residentReplies.ReplyAsync(request.Id, identity.UserId,
+                text, [], MessageChannel.WhatsApp, ct);
+            return ResidentReplyResult(result, session, now, expires);
+        }
+        if (message.MessageType is not ("image" or "video" or "document" or "audio")
+            || string.IsNullOrWhiteSpace(message.MediaId))
+            return ("No momento este tipo de conteúdo ainda não é suportado.", "unsupported_resident_reply_content");
+
+        var media = await client.DownloadMediaAsync(message.MediaId, ct);
+        if (!media.Succeeded || media.Content is null)
+            return ("Não foi possível baixar o arquivo. Tente enviá-lo novamente.", "resident_reply_attachment_download_failed");
+        var extension = Path.GetExtension(message.FileName);
+        if (string.IsNullOrWhiteSpace(extension))
+            extension = AttachmentPolicy.PreferredExtension(media.ContentType);
+        var fileName = string.IsNullOrWhiteSpace(message.FileName)
+            ? $"{message.MessageType}-{Guid.NewGuid():N}{extension}" : message.FileName;
+        var validation = AttachmentPolicy.Validate(fileName, media.Content.LongLength,
+            media.ContentType ?? message.MediaContentType);
+        if (validation.Error is not null) return (validation.Error, "resident_reply_attachment_rejected");
+
+        var content = message.MessageType == "audio"
+            ? "Áudio enviado pelo morador." : "Anexo enviado pelo morador.";
+        if (message.MessageType == "audio")
+        {
+            try
+            {
+                var transcription = await audioTranscription.TranscribeAsync(media.Content,
+                    validation.Name!, validation.ContentType!, ct);
+                if (transcription.Succeeded && !string.IsNullOrWhiteSpace(transcription.Text)
+                    && transcription.Text.Length <= 3000)
+                    content = transcription.Text;
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(exception, "Resident reply audio transcription failed; preserving audio.");
+            }
+        }
+        var bytes = media.Content;
+        var files = new[] { new CondoLink.Api.Features.Requests.ResidentReplyService.ReplyFile(
+            validation.Name!, validation.ContentType!, bytes.LongLength,
+            _ => Task.FromResult<Stream>(new MemoryStream(bytes, writable: false))) };
+        var reply = await residentReplies.ReplyAsync(request.Id, identity.UserId,
+            content, files, MessageChannel.WhatsApp, ct);
+        return ResidentReplyResult(reply, session, now, expires);
+    }
+
+    private static (string, string) ResidentReplyResult(
+        CondoLink.Api.Features.Requests.ResidentReplyService.Result result,
+        WhatsAppSession session, DateTime now, DateTime expires)
+    {
+        if (result.Code == CondoLink.Api.Features.Requests.ResidentReplyService.ResultCode.Succeeded)
+        {
+            session.Touch(now, expires);
+            return ("Resposta recebida. A administração dará continuidade ao atendimento.",
+                "resident_reply_sent");
+        }
+        return (result.Code == CondoLink.Api.Features.Requests.ResidentReplyService.ResultCode.Conflict
+            ? "Essa pendência não está mais ativa."
+            : result.Error ?? "Não foi possível enviar sua resposta.", "resident_reply_not_sent");
     }
 
     private async Task NotifyRequestUpdate(
@@ -1227,10 +1309,22 @@ public sealed class WhatsAppConversationService(
         bool endSession = false)
     {
         await DiscardDraftAttachments(session, ct);
+        if (endSession && session.RequestId.HasValue)
+        {
+            var requirement = await db.RequestResidentReplyRequirements.SingleOrDefaultAsync(x =>
+                x.RequestId == session.RequestId && x.IsActive && x.AnswerMessageId == null, ct);
+            if (requirement is not null)
+            {
+                requirement.ScheduleReminder(now);
+                await db.SaveChangesAsync(ct);
+            }
+        }
         if (endSession) session.End(now);
         else session.Restart(now, expires);
-        return ("Tudo bem. A solicitação continuará aguardando sua resposta.\n\n"
-            + "Você pode responder depois pelo portal ou consultar a solicitação pelo WhatsApp.",
+        return (endSession
+                ? "Tudo bem. Vou lembrar você em aproximadamente 3 horas."
+                : "Tudo bem. A solicitação continuará aguardando sua resposta.\n\n"
+                    + "Você pode responder depois pelo portal ou consultar a solicitação pelo WhatsApp.",
             "resident_reply_deferred");
     }
 
@@ -1482,6 +1576,7 @@ public sealed class WhatsAppConversationService(
         WhatsAppSession session, NormalizedWhatsAppMessage message,
         string fullName, DateTime now, DateTime expires, CancellationToken ct)
     {
+        var command = NormalizeCommand(InteractiveFallbackChoice(message) ?? message.Text);
         if (IsAudioTranscriptionFailure(session))
         {
             if (message.MessageType == "text" && message.Text?.Trim() == "1")
@@ -1502,15 +1597,20 @@ public sealed class WhatsAppConversationService(
             }
         }
 
+        if (command == "continuar")
+        {
+            if (string.IsNullOrWhiteSpace(session.DraftDescription))
+                return (DescriptionPrompt(), "description_required");
+            session.FinishDescription(now, expires);
+            return (AttachmentPrompt(), "collecting_attachments");
+        }
         if (message.MessageType == "audio")
             return await CollectAudioDescription(session, message, now, expires, ct);
         if (message.MessageType != "text" || string.IsNullOrWhiteSpace(message.Text))
             return (DescriptionPrompt(), "description_required");
-        var description = message.Text.Trim();
-        if (description.Length > 4000)
-            return ("A descrição deve ter no máximo 4000 caracteres. Envie um texto menor.", "description_too_long");
-        session.SetDescriptionForReview(description, now, expires);
-        return (AttachmentPrompt(), "collecting_attachments");
+        if (!session.AppendDescription(message.Text.Trim(), now, expires))
+            return ("Seu relato já chegou ao limite de 4000 caracteres. Escreva “Continuar” para seguir.", "description_limit");
+        return (DescriptionReceivedPrompt(), "collecting_description_segment");
     }
 
     private async Task<(string, string)> CollectAudioDescription(
@@ -1574,19 +1674,21 @@ public sealed class WhatsAppConversationService(
                 ? "audio_transcription_timeout" : "audio_transcription_failed");
         }
 
-        session.SetAudioDescriptionForReview(
-            transcription.Text,
-            JsonSerializer.Serialize(new RequestDraftReview(
-                PendingAudioSource, null, null, draft.Id)),
-            now, expires);
-        return (AttachmentPrompt(), "collecting_attachments");
+        if (!session.AppendDescription(transcription.Text, now, expires))
+        {
+            db.WhatsAppDraftAttachments.Remove(draft);
+            await db.SaveChangesAsync(ct);
+            storage.Delete(storageKey);
+            return ("Seu relato já chegou ao limite de 4000 caracteres. Escreva “Continuar” para seguir.", "description_limit");
+        }
+        return (DescriptionReceivedPrompt(), "collecting_description_segment");
     }
 
     private async Task<(string, string)> CollectAttachments(
         WhatsAppSession session, NormalizedWhatsAppMessage message, string fullName,
         DateTime now, DateTime expires, CancellationToken ct)
     {
-        var text = message.Text?.Trim();
+        var text = InteractiveFallbackChoice(message) ?? message.Text?.Trim();
         if (text is "1" or "2")
         {
             return await GenerateAiProposal(session, now, expires, ct);
@@ -1647,7 +1749,8 @@ public sealed class WhatsAppConversationService(
             storage.Delete(storageKey);
             throw;
         }
-        return ("Arquivo recebido.\n\nVocê pode enviar outro arquivo ou digitar 1 quando terminar.", "attachment_received");
+        return ("Arquivo recebido. Você pode enviar mais ou continuar.\n\n"
+            + "1 - Continuar\n2 - Sem anexos\n3 - Cancelar", "attachment_received");
     }
 
     private async Task<(string, string)> ReviewChoice(
@@ -1656,8 +1759,8 @@ public sealed class WhatsAppConversationService(
     {
         if (text == "2")
         {
-            await DiscardOriginalAudioDraft(session, ct);
-            session.RewriteDescription(now, expires);
+            await DiscardDraftAudioAttachments(session, ct);
+            session.BeginDescription(now, expires, clearDescription: true);
             return (DescriptionPrompt(), "description_correction");
         }
         if (text == "3")
@@ -1778,7 +1881,8 @@ public sealed class WhatsAppConversationService(
                 db.RequestAttachments.Add(new RequestAttachment(
                     request.Id, session.UserId.Value, draft.OriginalFileName,
                     key, draft.ContentType, draft.FileSize,
-                    draft.Id == review.OriginalAudioDraftId ? originalMessage.Id : null));
+                    draft.ContentType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase)
+                        ? originalMessage.Id : null));
             }
             db.WhatsAppDraftAttachments.RemoveRange(drafts);
             session.CompleteRequest(request.Id, now, expires);
@@ -1807,7 +1911,7 @@ public sealed class WhatsAppConversationService(
         {
             logger.LogError(exception, "Failed to notify creation of WhatsApp request {RequestId}.", request.Id);
         }
-        var response = $"Solicitação criada com sucesso.\n\nProtocolo: {ShortId(request.Id)}";
+        var response = $"Solicitação criada com sucesso. ✅\n\nProtocolo: {ShortId(request.Id)}";
         if (shouldIntroducePortal)
         {
             var portalUrl = options.Value.PortalUrl?.Trim().TrimEnd('/');
@@ -1831,21 +1935,81 @@ public sealed class WhatsAppConversationService(
             .Select(x => new CategoryChoice(x.Id, x.Name)).ToArrayAsync(ct);
 
     private static string MainMenu(string fullName) =>
-        $"Olá, {FirstName(fullName)}! Como posso ajudar?\n\n" +
+        $"Olá, {FirstName(fullName)}! 👋\n\nO que você precisa?\n\n" +
         "1 - Abrir uma solicitação\n" +
-        "2 - Ver os status de minhas solicitações\n" +
-        "3 - Falar sobre uma solicitação existente\n\n" +
+        "2 - Minhas solicitações\n" +
+        "3 - Falar sobre uma solicitação\n\n" +
         "Digite uma opção. Você também pode enviar ‘menu’ para recomeçar ou ‘sair’ para encerrar.";
 
+    private async Task<WhatsAppSendResult> SendResponseAsync(
+        string phone, string fallbackText, string result, CancellationToken ct)
+    {
+        IReadOnlyList<WhatsAppReplyButton>? buttons = result switch
+        {
+            "main_menu" or "session_expired" or "session_restarted" or "context_recovered" =>
+            [new("menu_open_request", "Abrir solicitação"),
+             new("menu_my_requests", "Minhas solicitações"),
+             new("menu_update_request", "Falar sobre pedido")],
+            "collecting_description_segment" =>
+            [new("draft_description_done", "Continuar")],
+            "collecting_attachments" or "attachment_received" =>
+            [new("draft_attachments_done", "Continuar"),
+             new("draft_attachments_skip", "Sem anexos"),
+             new("draft_cancel", "Cancelar")],
+            "reviewing_ai_proposal" or "reviewing_fallback_proposal" or "reviewing_request" =>
+            [new("draft_confirm", "Confirmar"), new("draft_correct", "Corrigir"),
+             new("draft_cancel", "Cancelar")],
+            "collecting_request_update" or "request_update_message_received" or
+                "request_update_attachment_received" =>
+            [new("request_update_finish", "Finalizar"),
+             new("request_update_cancel", "Cancelar")],
+            _ => null
+        };
+        if (buttons is null) return await client.SendTextAsync(phone, fallbackText, ct);
+
+        var body = result switch
+        {
+            "main_menu" or "session_expired" or "session_restarted" or "context_recovered" =>
+                fallbackText[..fallbackText.IndexOf("\n\n1 -", StringComparison.Ordinal)],
+            "collecting_description_segment" => "Entendi. Se quiser, pode me contar mais alguma coisa.",
+            "collecting_attachments" or "attachment_received" =>
+                "Quer acrescentar alguma foto, vídeo ou documento?",
+            "collecting_request_update" or "request_update_message_received" or
+                "request_update_attachment_received" =>
+                "Você pode enviar outra mensagem ou arquivo.",
+            _ => fallbackText[..fallbackText.IndexOf("\n\n1 -", StringComparison.Ordinal)]
+        };
+        var interactive = await client.SendInteractiveButtonsAsync(phone, body, buttons, ct);
+        if (interactive.Succeeded) return interactive;
+        logger.LogWarning("WhatsApp interactive response failed; using textual fallback. Result: {Result}; ErrorCode: {ErrorCode}.", result, interactive.ErrorCode);
+        return await client.SendTextAsync(phone, fallbackText, ct);
+    }
+
+    private static string? InteractiveFallbackChoice(NormalizedWhatsAppMessage message) =>
+        message.QuickReplyId switch
+        {
+            "menu_open_request" or "draft_attachments_done" or "draft_confirm" => "1",
+            "menu_my_requests" or "draft_attachments_skip" or "draft_correct" => "2",
+            "menu_update_request" or "draft_cancel" => "3",
+            "draft_description_done" => "continuar",
+            "request_update_finish" => "finalizar",
+            "request_update_cancel" => "cancelar",
+            _ => null
+        };
+
     private static string DescriptionPrompt() =>
-        "Conte o que aconteceu em uma mensagem. Você também pode enviar um áudio de até 2 minutos.\n\n" +
-        "Depois, você poderá adicionar fotos, vídeos ou documentos.";
+        "Certo. Me conte o que aconteceu.\n\n" +
+        "Pode escrever ou mandar um áudio. Se precisar, pode enviar mais de uma mensagem.";
+
+    private static string DescriptionReceivedPrompt() =>
+        "Entendi. Se quiser, pode me contar mais alguma coisa.\n\n" +
+        "Envie mais informações ou escreva “Continuar” quando terminar.";
 
     private static string AttachmentPrompt() =>
-        "Deseja adicionar fotos, vídeos ou documentos?\n\n" +
-        "Se sim, envie os arquivos agora. Quando terminar, responda com uma das opções:\n\n" +
-        "1 - Terminei de enviar os arquivos\n" +
-        "2 - Não quero enviar arquivos\n" +
+        "Quer acrescentar alguma foto, vídeo ou documento?\n\n" +
+        "Você pode enviar agora ou continuar sem anexos.\n\n" +
+        "1 - Continuar\n" +
+        "2 - Sem anexos\n" +
         "3 - Cancelar e voltar ao início";
 
     private static string ResidentReplyOfferPrompt(string question, bool fromDetails) =>
@@ -1855,7 +2019,8 @@ public sealed class WhatsAppConversationService(
             : "1 - Responder agora\n2 - Responder depois");
 
     private static string RequestUpdatePrompt() =>
-        "Envie sua mensagem.\nVocê também pode enviar fotos, documentos, vídeos ou áudio.\n\n"
+        "Certo. Pode me enviar sua mensagem.\n\n"
+        + "Você também pode enviar fotos, documentos, vídeos ou áudio.\n\n"
         + "Quando terminar, envie ‘Finalizar’.\nPara encerrar este atendimento, envie ‘Cancelar’.";
 
     private static string RequestUpdateReceivedPrompt(string confirmation) =>
@@ -1885,19 +2050,15 @@ public sealed class WhatsAppConversationService(
 
     private static string ReviewPrompt(RequestDraftAiProposal proposal)
     {
-        return "Revise sua solicitação antes de enviá-la.\n\n" +
-            $"*Título:*\n{proposal.Title}\n\n" +
-            $"*Descrição:*\n{proposal.Description}\n\n" +
-            "1 - Confirmar solicitação\n" +
-            "2 - Corrigir relato\n" +
-            "3 - Cancelar e voltar ao início";
+        return "Entendi. Vou abrir assim:\n\n" +
+            $"*{proposal.Title}*\n\n{proposal.Description}\n\n" +
+            "Quer enviar dessa forma?\n\n" +
+            "1 - Confirmar\n2 - Corrigir\n3 - Cancelar";
     }
 
     private static string FallbackReviewPrompt(string originalReport) =>
-        $"Você descreveu:\n\n{originalReport}\n\n" +
-        "1 - Confirmar e continuar\n" +
-        "2 - Corrigir relato\n" +
-        "3 - Cancelar e voltar ao início";
+        $"Entendi. Vou abrir assim:\n\n*Solicitação recebida pelo WhatsApp*\n\n{originalReport}\n\n" +
+        "Quer enviar dessa forma?\n\n1 - Confirmar\n2 - Corrigir\n3 - Cancelar";
 
     private static string NormalizeCommand(string? value)
     {
@@ -2027,6 +2188,18 @@ public sealed class WhatsAppConversationService(
         db.WhatsAppDraftAttachments.Remove(draft);
         await db.SaveChangesAsync(ct);
         storage.Delete(draft.StorageKey);
+    }
+
+    private async Task DiscardDraftAudioAttachments(
+        WhatsAppSession session, CancellationToken ct)
+    {
+        var drafts = await db.WhatsAppDraftAttachments.Where(draft =>
+            draft.SessionId == session.Id
+            && draft.ContentType.StartsWith("audio/")).ToArrayAsync(ct);
+        if (drafts.Length == 0) return;
+        db.WhatsAppDraftAttachments.RemoveRange(drafts);
+        await db.SaveChangesAsync(ct);
+        foreach (var draft in drafts) storage.Delete(draft.StorageKey);
     }
 
     private static Guid? OriginalAudioDraftId(WhatsAppSession session)
