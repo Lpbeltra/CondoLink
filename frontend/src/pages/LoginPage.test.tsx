@@ -25,6 +25,7 @@ describe('LoginPage', () => {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/change-password" element={<h1>Troca obrigatória</h1>} />
+          <Route path="/forgot-password" element={<h1>Recuperar senha</h1>} />
           <Route path="/" element={<h1>Início</h1>} />
         </Routes>
       </MemoryRouter>,
@@ -40,6 +41,12 @@ describe('LoginPage', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Exibir senha' }))
     expect(password).toHaveAttribute('type', 'text')
+  })
+
+  it('links to password recovery without changing the login flow', async () => {
+    renderPage()
+    await userEvent.click(screen.getByRole('link', { name: 'Esqueci minha senha' }))
+    expect(screen.getByRole('heading', { name: 'Recuperar senha' })).toBeInTheDocument()
   })
 
   it('shows loading then preserves the normal redirect after login', async () => {

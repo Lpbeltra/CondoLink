@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Alert, Box, Button, CircularProgress, Stack, TextField, Typography } from '@mui/material'
 import LoginRoundedIcon from '@mui/icons-material/LoginRounded'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { authError } from '../auth/errors'
 import { authenticatedEntryPath } from '../auth/routeAccess'
@@ -57,6 +57,9 @@ export function LoginPage() {
           {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
           <TextField label="E-mail" type="email" autoComplete="email" autoFocus required fullWidth value={email} onChange={(event) => setEmail(event.target.value)} disabled={isSubmitting} />
           <TextField label="Senha" type={showPassword ? 'text' : 'password'} autoComplete="current-password" required fullWidth value={password} onChange={(event) => setPassword(event.target.value)} disabled={isSubmitting} slotProps={{ input: { endAdornment: <PasswordVisibilityAdornment visible={showPassword} onToggle={() => setShowPassword(value => !value)} /> } }} />
+          <Button component={Link} to="/forgot-password" color="inherit" size="small" sx={{ alignSelf: 'flex-start', mt: -1 }}>
+            Esqueci minha senha
+          </Button>
           <Button type="submit" variant="contained" size="large" disabled={isSubmitting} startIcon={isSubmitting ? <CircularProgress size={18} color="inherit" /> : <LoginRoundedIcon />}>
             {isSubmitting ? 'Entrando…' : 'Entrar'}
           </Button>

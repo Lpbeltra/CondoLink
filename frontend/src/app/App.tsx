@@ -14,6 +14,8 @@ import { HomePage } from "../pages/HomePage";
 import { LoginPage } from "../pages/LoginPage";
 import { ChangePasswordPage } from "../pages/ChangePasswordPage";
 import { FirstAccessPage } from "../pages/FirstAccessPage";
+import { ForgotPasswordPage } from "../pages/ForgotPasswordPage";
+import { ResetPasswordPage } from "../pages/ResetPasswordPage";
 import { AppThemeProvider } from "../theme/AppThemeProvider";
 import { CondominiumProvider } from "../condominiums/CondominiumProvider";
 import { ManagementLayout } from "../management/components/ManagementLayout";
@@ -201,6 +203,8 @@ export function App() {
           <CondominiumProvider>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route path="/change-password" element={<ChangePasswordPage />} />
               <Route path="/primeiro-acesso" element={<FirstAccessPage />} />
               <Route element={<ProtectedRoute />}>
