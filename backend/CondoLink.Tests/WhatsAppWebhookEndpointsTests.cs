@@ -445,6 +445,87 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Stale_menu_button_during_description_preserves_draft_and_repeats_current_action()
+    {
+        await PostAsync(TextPayload("wamid.stale-description-menu", "Oi"));
+        await PostAsync(TextPayload("wamid.stale-description-open", "1"));
+        await PostAsync(TextPayload("wamid.stale-description-text", "Portão não fecha."));
+        await PostAsync(InteractiveReplyPayload("wamid.stale-description-button",
+            "menu_update_request", "Falar sobre pedido"));
+
+        Assert.Contains("Quando terminar, toque em \"Continuar\"", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(WhatsAppConversationState.CollectingDescription, session.State);
+            Assert.Equal("Portão não fecha.", session.DraftDescription);
+            Assert.Empty(await db.Requests.ToArrayAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Stale_menu_button_during_attachments_preserves_draft_and_repeats_attachment_actions()
+    {
+        await AddCategoryAndStartAttachmentFlow();
+        _fake.Media = new WhatsAppMediaResult(true, [1, 2, 3], "image/jpeg", null);
+        await PostAsync(MediaPayload("wamid.stale-attachment-file", "stale-file",
+            "image", "image/jpeg", "foto.jpg"));
+        await PostAsync(InteractiveReplyPayload("wamid.stale-attachment-menu",
+            "menu_update_request", "Falar sobre pedido"));
+
+        Assert.Contains("1 - Continuar", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(WhatsAppConversationState.CollectingAttachments,
+                (await db.WhatsAppSessions.SingleAsync()).State);
+            Assert.Single(await db.WhatsAppDraftAttachments.ToArrayAsync());
+            Assert.Empty(await db.Requests.ToArrayAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Stale_attachment_button_during_review_preserves_review()
+    {
+        await AddCategoryAndStartAttachmentFlow();
+        await PostAsync(TextPayload("wamid.stale-review-skip", "2"));
+        await PostAsync(InteractiveReplyPayload("wamid.stale-review-attachment",
+            "draft_attachments_skip", "Sem anexos"));
+
+        Assert.Contains("1 - Confirmar", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(WhatsAppConversationState.ReviewingNewRequest,
+                (await db.WhatsAppSessions.SingleAsync()).State);
+            Assert.Empty(await db.Requests.ToArrayAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Stale_review_button_in_menu_does_not_create_request()
+    {
+        await PostAsync(TextPayload("wamid.stale-menu", "Oi"));
+        await PostAsync(InteractiveReplyPayload("wamid.stale-menu-review",
+            "draft_confirm", "Confirmar"));
+
+        Assert.Contains("O que você precisa", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(WhatsAppConversationState.MainMenu,
+                (await db.WhatsAppSessions.SingleAsync()).State);
+            Assert.Empty(await db.Requests.ToArrayAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Interactive_send_failure_uses_textual_fallback()
+    {
+        _fake.InteractiveFail = true;
+        await PostAsync(TextPayload("wamid.interactive-fallback", "Oi"));
+
+        Assert.Contains("1 - Abrir uma solicitação", _fake.Messages.Last().Text);
+    }
+
+    [Fact]
     public async Task Known_title_is_not_used_when_button_id_is_unknown()
     {
         await PostAsync(TextPayload("wamid.unknown-button-menu", "Oi"));
@@ -1960,7 +2041,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         });
 
         await PostAsync(TextPayload("wamid.edit-9", "1"));
-        Assert.Contains("Me conte o que aconteceu", _fake.Messages.Last().Text);
+        Assert.Contains("Envie uma mensagem contando o que você precisa", _fake.Messages.Last().Text);
         Assert.Equal(WhatsAppConversationState.CollectingDescription,
             await _host.WithDbAsync(db => db.WhatsAppSessions.Select(x => x.State).SingleAsync()));
     }
@@ -2963,6 +3044,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     {
         public List<(string Phone, string Text)> Messages { get; } = [];
         public bool Fail { get; set; }
+        public bool InteractiveFail { get; set; }
         public int DownloadCalls { get; private set; }
         public WhatsAppMediaResult Media { get; set; } =
             new(false, null, null, "No media configured.");
@@ -2977,6 +3059,12 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
                 ? new WhatsAppSendResult(false, null, "simulated")
                 : new WhatsAppSendResult(true, Guid.NewGuid().ToString(), null));
         }
+
+        public Task<WhatsAppSendResult> SendInteractiveButtonsAsync(
+            string phoneNumber, string body, IReadOnlyList<WhatsAppReplyButton> buttons,
+            CancellationToken cancellationToken) => Task.FromResult(InteractiveFail
+            ? new WhatsAppSendResult(false, null, "simulated_interactive")
+            : new WhatsAppSendResult(false, null, "interactive_not_supported"));
 
         public Task<WhatsAppMediaResult> DownloadMediaAsync(
             string mediaId,

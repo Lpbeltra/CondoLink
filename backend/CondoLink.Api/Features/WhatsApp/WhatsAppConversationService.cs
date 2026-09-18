@@ -371,6 +371,9 @@ public sealed class WhatsAppConversationService(
         var operationalReply = await HandleOperationalTemplateReply(
             session, identity, message, now, expires, ct);
         if (operationalReply is not null) return operationalReply.Value;
+        if (IsKnownInteractiveAction(message)
+            && !IsInteractiveActionValidForState(message.QuickReplyId!, session.State))
+            return await StaleInteractiveActionResponse(session, identity, now, expires, ct);
         if (session.State == WhatsAppConversationState.AwaitingClosureQuestion)
         {
             var activeClosure = await ActiveClosure(session.RequestId, identity, ct);
@@ -1997,13 +2000,79 @@ public sealed class WhatsAppConversationService(
             _ => null
         };
 
+    private static bool IsKnownInteractiveAction(NormalizedWhatsAppMessage message) =>
+        InteractiveFallbackChoice(message) is not null;
+
+    private static bool IsInteractiveActionValidForState(
+        string actionId, WhatsAppConversationState state) => actionId switch
+    {
+        "menu_open_request" or "menu_my_requests" or "menu_update_request" =>
+            state == WhatsAppConversationState.MainMenu,
+        "draft_description_done" =>
+            state == WhatsAppConversationState.CollectingDescription,
+        "draft_attachments_done" or "draft_attachments_skip" =>
+            state == WhatsAppConversationState.CollectingAttachments,
+        "draft_confirm" or "draft_correct" =>
+            state == WhatsAppConversationState.ReviewingNewRequest,
+        "draft_cancel" => state is WhatsAppConversationState.CollectingAttachments
+            or WhatsAppConversationState.ReviewingNewRequest,
+        "request_update_finish" or "request_update_cancel" =>
+            state == WhatsAppConversationState.ReplyingToRequest,
+        _ => false
+    };
+
+    private async Task<(string, string)> StaleInteractiveActionResponse(
+        WhatsAppSession session, ResolvedIdentity identity,
+        DateTime now, DateTime expires, CancellationToken ct)
+    {
+        logger.LogInformation(
+            "WhatsApp stale interactive action ignored. SessionState: {SessionState}; RequestIdPresent: {RequestIdPresent}.",
+            session.State, session.RequestId.HasValue);
+        return session.State switch
+        {
+            WhatsAppConversationState.MainMenu =>
+                (MainMenu(identity.FullName), "main_menu"),
+            WhatsAppConversationState.CollectingDescription =>
+                (string.IsNullOrWhiteSpace(session.DraftDescription)
+                    ? DescriptionPrompt()
+                    : DescriptionReceivedPrompt(),
+                string.IsNullOrWhiteSpace(session.DraftDescription)
+                    ? "collecting_description"
+                    : "collecting_description_segment"),
+            WhatsAppConversationState.CollectingAttachments =>
+                (AttachmentPrompt(), "collecting_attachments"),
+            WhatsAppConversationState.ReviewingNewRequest =>
+                (Review(session) is { Source: AiReviewSource, Proposal: not null } review
+                    ? ReviewPrompt(review.Proposal)
+                    : FallbackReviewPrompt(session.DraftDescription ?? string.Empty),
+                "reviewing_request"),
+            WhatsAppConversationState.ReplyingToRequest =>
+                (RequestUpdatePrompt(), "collecting_request_update"),
+            WhatsAppConversationState.AwaitingResidentReplyChoice =>
+                await StaleResidentReplyActionResponse(session, identity, now, expires, ct),
+            _ => ("A operação atual continua em andamento. Envie a informação solicitada.",
+                "stale_interactive_action")
+        };
+    }
+
+    private async Task<(string, string)> StaleResidentReplyActionResponse(
+        WhatsAppSession session, ResolvedIdentity identity,
+        DateTime now, DateTime expires, CancellationToken ct)
+    {
+        var requirement = await ActiveResidentReplyRequirement(session.RequestId, identity, ct);
+        return requirement is null
+            ? ("Essa pendência não está mais ativa.", "resident_reply_no_longer_active")
+            : (ResidentReplyOfferPrompt(requirement.Question, false),
+                "resident_reply_offer");
+    }
+
     private static string DescriptionPrompt() =>
-        "Certo. Me conte o que aconteceu.\n\n" +
-        "Pode escrever ou mandar um áudio. Se precisar, pode enviar mais de uma mensagem.";
+        "Certo. Envie uma mensagem contando o que você precisa.\n\n" +
+        "Você também pode mandar um áudio. Se precisar, envie mais de uma mensagem.";
 
     private static string DescriptionReceivedPrompt() =>
-        "Entendi. Se quiser, pode me contar mais alguma coisa.\n\n" +
-        "Envie mais informações ou escreva “Continuar” quando terminar.";
+        "Mensagem recebida.\n\n" +
+        "Envie mais informações se precisar. Quando terminar, toque em \"Continuar\".";
 
     private static string AttachmentPrompt() =>
         "Quer acrescentar alguma foto, vídeo ou documento?\n\n" +
