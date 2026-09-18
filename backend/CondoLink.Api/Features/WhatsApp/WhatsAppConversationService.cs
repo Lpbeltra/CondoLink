@@ -1692,11 +1692,12 @@ public sealed class WhatsAppConversationService(
         DateTime now, DateTime expires, CancellationToken ct)
     {
         var text = InteractiveFallbackChoice(message) ?? message.Text?.Trim();
-        if (text is "1" or "2")
+        var command = NormalizeCommand(text);
+        if (text == "1" || command is "continuar" or "sem anexos")
         {
             return await GenerateAiProposal(session, now, expires, ct);
         }
-        if (text == "3")
+        if (text is "2" or "3" || command == "cancelar")
         {
             await DiscardDraftAttachments(session, ct);
             session.Restart(now, expires);
@@ -1752,8 +1753,9 @@ public sealed class WhatsAppConversationService(
             storage.Delete(storageKey);
             throw;
         }
-        return ("Arquivo recebido. Você pode enviar mais ou continuar.\n\n"
-            + "1 - Continuar\n2 - Sem anexos\n3 - Cancelar", "attachment_received");
+        return ("Arquivo recebido.\n\n"
+            + "Se quiser, envie mais arquivos. Quando terminar, toque em \"Continuar\".\n\n"
+            + "1 - Continuar\n2 - Cancelar", "attachment_received");
     }
 
     private async Task<(string, string)> ReviewChoice(
@@ -1914,14 +1916,15 @@ public sealed class WhatsAppConversationService(
         {
             logger.LogError(exception, "Failed to notify creation of WhatsApp request {RequestId}.", request.Id);
         }
-        var response = $"Solicitação criada com sucesso. ✅\n\nProtocolo: {ShortId(request.Id)}";
+        var response = $"Solicitação criada com sucesso. ✅\n\nProtocolo: {ShortId(request.Id)}"
+            + "\n\nA administração responderá por aqui. Se preferir, você também pode acompanhar sua solicitação pelo Comvy.";
         if (shouldIntroducePortal)
         {
             var portalUrl = options.Value.PortalUrl?.Trim().TrimEnd('/');
             if (!string.IsNullOrWhiteSpace(portalUrl))
-                response += $"\n\nVocê pode acompanhar as atualizações por aqui. Se preferir, consulte também o histórico completo no Comvy:\n{portalUrl}";
+                response += $"\n\n{portalUrl}";
         }
-        response += "\n\nPara iniciar outro atendimento, basta chamar novamente!";
+        response += "\n\nPara iniciar outro atendimento, é só me chamar novamente.";
         return (response, "request_created");
     }
 
@@ -1953,12 +1956,18 @@ public sealed class WhatsAppConversationService(
             [new("menu_open_request", "Abrir solicitação"),
              new("menu_my_requests", "Minhas solicitações"),
              new("menu_update_request", "Falar sobre pedido")],
+            "collecting_description" or "description_required" or
+                "collecting_text_retry" or "description_correction" =>
+            [new("draft_cancel", "Cancelar")],
             "collecting_description_segment" =>
-            [new("draft_description_done", "Continuar")],
+            [new("draft_description_done", "Continuar"), new("draft_cancel", "Cancelar")],
             "collecting_attachments" or "attachment_received" =>
             [new("draft_attachments_done", "Continuar"),
-             new("draft_attachments_skip", "Sem anexos"),
              new("draft_cancel", "Cancelar")],
+            "cancelled" =>
+            [new("menu_open_request", "Abrir solicitação"),
+             new("menu_my_requests", "Minhas solicitações"),
+             new("menu_update_request", "Falar sobre pedido")],
             "reviewing_ai_proposal" or "reviewing_fallback_proposal" or "reviewing_request" =>
             [new("draft_confirm", "Confirmar"), new("draft_correct", "Corrigir"),
              new("draft_cancel", "Cancelar")],
@@ -1974,9 +1983,14 @@ public sealed class WhatsAppConversationService(
         {
             "main_menu" or "session_expired" or "session_restarted" or "context_recovered" =>
                 fallbackText[..fallbackText.IndexOf("\n\n1 -", StringComparison.Ordinal)],
-            "collecting_description_segment" => "Entendi. Se quiser, pode me contar mais alguma coisa.",
+            "collecting_description" or "description_required" or
+                "collecting_text_retry" or "description_correction" => fallbackText,
+            "collecting_description_segment" => "Mensagem recebida.\n\n"
+                + "Envie mais informações se precisar. Quando terminar, toque em \"Continuar\".",
             "collecting_attachments" or "attachment_received" =>
-                "Quer acrescentar alguma foto, vídeo ou documento?",
+                "Se quiser, envie fotos, vídeos ou documentos agora.\n\n"
+                + "Quando terminar, toque em \"Continuar\".",
+            "cancelled" => "A abertura foi cancelada.\n\nO que você precisa?",
             "collecting_request_update" or "request_update_message_received" or
                 "request_update_attachment_received" =>
                 "Você pode enviar outra mensagem ou arquivo.",
@@ -1992,8 +2006,10 @@ public sealed class WhatsAppConversationService(
         message.QuickReplyId switch
         {
             "menu_open_request" or "draft_attachments_done" or "draft_confirm" => "1",
-            "menu_my_requests" or "draft_attachments_skip" or "draft_correct" => "2",
-            "menu_update_request" or "draft_cancel" => "3",
+            "menu_my_requests" or "draft_correct" => "2",
+            "menu_update_request" => "3",
+            "draft_attachments_skip" => "continuar",
+            "draft_cancel" => "cancelar",
             "draft_description_done" => "continuar",
             "request_update_finish" => "finalizar",
             "request_update_cancel" => "cancelar",
@@ -2015,6 +2031,7 @@ public sealed class WhatsAppConversationService(
         "draft_confirm" or "draft_correct" =>
             state == WhatsAppConversationState.ReviewingNewRequest,
         "draft_cancel" => state is WhatsAppConversationState.CollectingAttachments
+            or WhatsAppConversationState.CollectingDescription
             or WhatsAppConversationState.ReviewingNewRequest,
         "request_update_finish" or "request_update_cancel" =>
             state == WhatsAppConversationState.ReplyingToRequest,
@@ -2068,18 +2085,18 @@ public sealed class WhatsAppConversationService(
 
     private static string DescriptionPrompt() =>
         "Certo. Envie uma mensagem contando o que você precisa.\n\n" +
-        "Você também pode mandar um áudio. Se precisar, envie mais de uma mensagem.";
+        "Você também pode mandar um áudio. Se precisar, envie mais de uma mensagem.\n\n"
+        + "Depois, você poderá adicionar fotos, vídeos ou documentos.";
 
     private static string DescriptionReceivedPrompt() =>
-        "Mensagem recebida.\n\n" +
-        "Envie mais informações se precisar. Quando terminar, toque em \"Continuar\".";
+        "Entendi. Se quiser, pode me contar mais alguma coisa.\n\n"
+        + "Se não, é só tocar em \"Continuar\".";
 
     private static string AttachmentPrompt() =>
-        "Quer acrescentar alguma foto, vídeo ou documento?\n\n" +
-        "Você pode enviar agora ou continuar sem anexos.\n\n" +
+        "Se quiser, envie fotos, vídeos ou documentos agora.\n\n" +
+        "Quando terminar, toque em \"Continuar\".\n\n" +
         "1 - Continuar\n" +
-        "2 - Sem anexos\n" +
-        "3 - Cancelar e voltar ao início";
+        "2 - Cancelar";
 
     private static string ResidentReplyOfferPrompt(string question, bool fromDetails) =>
         "A administração está aguardando uma resposta sua:\n\n" + question.Trim() + "\n\n" +
@@ -2119,15 +2136,15 @@ public sealed class WhatsAppConversationService(
 
     private static string ReviewPrompt(RequestDraftAiProposal proposal)
     {
-        return "Entendi. Vou abrir assim:\n\n" +
+        return "Entendi. Vou abrir sua solicitação assim:\n\n" +
             $"*{proposal.Title}*\n\n{proposal.Description}\n\n" +
-            "Quer enviar dessa forma?\n\n" +
+            "Está tudo certo?\n\n" +
             "1 - Confirmar\n2 - Corrigir\n3 - Cancelar";
     }
 
     private static string FallbackReviewPrompt(string originalReport) =>
-        $"Entendi. Vou abrir assim:\n\n*Solicitação recebida pelo WhatsApp*\n\n{originalReport}\n\n" +
-        "Quer enviar dessa forma?\n\n1 - Confirmar\n2 - Corrigir\n3 - Cancelar";
+        $"Entendi. Vou abrir sua solicitação assim:\n\n*Solicitação recebida pelo WhatsApp*\n\n{originalReport}\n\n" +
+        "Está tudo certo?\n\n1 - Confirmar\n2 - Corrigir\n3 - Cancelar";
 
     private static string NormalizeCommand(string? value)
     {

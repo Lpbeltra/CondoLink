@@ -445,6 +445,47 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Opening_prompt_offers_cancel_before_first_report_and_cancel_cleans_draft()
+    {
+        await PostAsync(TextPayload("wamid.opening-cancel-menu", "Oi"));
+        await PostAsync(InteractiveReplyPayload("wamid.opening-cancel-open",
+            "menu_open_request", "Abrir solicitação"));
+
+        Assert.Contains("Envie uma mensagem contando o que você precisa", _fake.Messages.Last().Text);
+        Assert.Contains("Depois, você poderá adicionar fotos", _fake.Messages.Last().Text);
+        await PostAsync(InteractiveReplyPayload("wamid.opening-cancel-action",
+            "draft_cancel", "Cancelar"));
+
+        Assert.StartsWith("A abertura foi cancelada.", _fake.Messages.Last().Text);
+        await _host.WithDbAsync(async db =>
+        {
+            var session = await db.WhatsAppSessions.SingleAsync();
+            Assert.Equal(WhatsAppConversationState.MainMenu, session.State);
+            Assert.Null(session.DraftDescription);
+            Assert.Null(session.DraftAiProposalJson);
+            Assert.Empty(await db.WhatsAppDraftAttachments.ToArrayAsync());
+            Assert.Empty(await db.Requests.ToArrayAsync());
+        });
+    }
+
+    [Fact]
+    public async Task Attachment_ui_has_only_continue_and_cancel_but_legacy_skip_remains_safe()
+    {
+        await AddCategoryAndStartAttachmentFlow();
+
+        Assert.Contains("Se quiser, envie fotos, vídeos ou documentos agora", _fake.Messages.Last().Text);
+        Assert.Contains("1 - Continuar", _fake.Messages.Last().Text);
+        Assert.Contains("2 - Cancelar", _fake.Messages.Last().Text);
+        Assert.DoesNotContain("Sem anexos", _fake.Messages.Last().Text);
+
+        await PostAsync(InteractiveReplyPayload("wamid.legacy-attachment-skip",
+            "draft_attachments_skip", "Sem anexos"));
+        await _host.WithDbAsync(async db => Assert.Equal(
+            WhatsAppConversationState.ReviewingNewRequest,
+            (await db.WhatsAppSessions.SingleAsync()).State));
+    }
+
+    [Fact]
     public async Task Stale_menu_button_during_description_preserves_draft_and_repeats_current_action()
     {
         await PostAsync(TextPayload("wamid.stale-description-menu", "Oi"));
@@ -453,7 +494,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(InteractiveReplyPayload("wamid.stale-description-button",
             "menu_update_request", "Falar sobre pedido"));
 
-        Assert.Contains("Quando terminar, toque em \"Continuar\"", _fake.Messages.Last().Text);
+        Assert.Contains("Se não, é só tocar em \"Continuar\"", _fake.Messages.Last().Text);
         await _host.WithDbAsync(async db =>
         {
             var session = await db.WhatsAppSessions.SingleAsync();
@@ -487,7 +528,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
     public async Task Stale_attachment_button_during_review_preserves_review()
     {
         await AddCategoryAndStartAttachmentFlow();
-        await PostAsync(TextPayload("wamid.stale-review-skip", "2"));
+        await PostAsync(TextPayload("wamid.stale-review-skip", "1"));
         await PostAsync(InteractiveReplyPayload("wamid.stale-review-attachment",
             "draft_attachments_skip", "Sem anexos"));
 
@@ -2123,7 +2164,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.flow-2", "1"));
         await PostAsync(TextPayload("wamid.flow-3", "Lâmpada queimada no corredor"));
         await PostAsync(TextPayload("wamid.flow-continue", "Continuar"));
-        await PostAsync(TextPayload("wamid.flow-4", "2"));
+        await PostAsync(TextPayload("wamid.flow-4", "1"));
         await PostAsync(TextPayload("wamid.flow-5", "1"));
         await PostAsync(TextPayload("wamid.flow-5", "1"));
 
@@ -2158,9 +2199,10 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         });
 
         Assert.Contains(requestId.ToString("N")[..8].ToUpperInvariant(), _fake.Messages.Last().Text);
-        Assert.Contains("histórico completo no Comvy", _fake.Messages.Last().Text);
+        Assert.Contains("A administração responderá por aqui", _fake.Messages.Last().Text);
+        Assert.Contains("acompanhar sua solicitação pelo Comvy", _fake.Messages.Last().Text);
         Assert.Contains("https://www.comvy.com.br", _fake.Messages.Last().Text);
-        Assert.Contains("basta chamar novamente", _fake.Messages.Last().Text);
+        Assert.Contains("é só me chamar novamente", _fake.Messages.Last().Text);
         Assert.DoesNotContain("Digite ‘menu’", _fake.Messages.Last().Text);
 
         await PostAsync(TextPayload("wamid.flow-new-attendance", "Bom dia"));
@@ -2178,7 +2220,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         await PostAsync(TextPayload("wamid.flow-second-1", "1"));
         await PostAsync(TextPayload("wamid.flow-second-2", "Outra lâmpada queimada"));
         await PostAsync(TextPayload("wamid.flow-second-continue", "Continuar"));
-        await PostAsync(TextPayload("wamid.flow-second-3", "2"));
+        await PostAsync(TextPayload("wamid.flow-second-3", "1"));
         await PostAsync(TextPayload("wamid.flow-second-4", "1"));
 
         Assert.Contains("Solicitação criada com sucesso", _fake.Messages.Last().Text);
@@ -2210,7 +2252,7 @@ public sealed class WhatsAppWebhookEndpointsTests : IAsyncLifetime
         });
 
         await PostAsync(TextPayload("wamid.compose-continue", "Continuar"));
-        await PostAsync(TextPayload("wamid.compose-skip", "2"));
+        await PostAsync(TextPayload("wamid.compose-skip", "1"));
         await PostAsync(TextPayload("wamid.compose-confirm", "1"));
 
         await _host.WithDbAsync(async db =>
