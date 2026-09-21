@@ -1,0 +1,16 @@
+services:
+  postgres-test:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${COMVY_TEST_DB:-condolink_test}
+      POSTGRES_USER: ${COMVY_TEST_USER:-comvy_test}
+      POSTGRES_PASSWORD: ${COMVY_TEST_PASSWORD:-comvy_test_local_only}
+    ports:
+      - "${COMVY_TEST_POSTGRES_PORT:-5434}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12

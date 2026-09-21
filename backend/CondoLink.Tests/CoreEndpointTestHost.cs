@@ -107,6 +107,8 @@ internal sealed class CoreEndpointTestHost : IAsyncDisposable
         builder.Services.AddScoped<NotificationService>();
         builder.Services.AddScoped<RequestCategoryResolver>();
         builder.Services.AddScoped<CondominiumMembershipService>();
+        builder.Services.AddScoped<ResidentOnboardingService>();
+        builder.Services.AddScoped<AssistantResidentRegistrationService>();
         builder.Services.AddScoped<AuthenticationSessionService>();
         builder.Services.AddExceptionHandler<AppExceptionHandler>();
         builder.Services.AddProblemDetails();

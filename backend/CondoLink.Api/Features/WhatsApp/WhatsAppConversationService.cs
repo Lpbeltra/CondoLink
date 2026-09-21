@@ -895,7 +895,7 @@ public sealed class WhatsAppConversationService(
         if (command == "finalizar" || text == "1")
         {
             session.End(now);
-            return ("Atualização finalizada. Envie uma nova mensagem quando precisar.",
+            return ("Atualização enviada com sucesso! A gestão já pode visualizar as novas informações e arquivos deste atendimento. Se precisar acrescentar algo depois, é só iniciar uma nova atualização.",
                 "request_update_finished");
         }
         if (message.MessageType == "text")
@@ -1955,7 +1955,7 @@ public sealed class WhatsAppConversationService(
             "main_menu" or "session_expired" or "session_restarted" or "context_recovered" =>
             [new("menu_open_request", "Abrir solicitação"),
              new("menu_my_requests", "Minhas solicitações"),
-             new("menu_update_request", "Falar sobre pedido")],
+             new("menu_update_request", "Atualizar atendimento")],
             "collecting_description" or "description_required" or
                 "collecting_text_retry" or "description_correction" =>
             [new("draft_cancel", "Cancelar")],
@@ -1967,7 +1967,7 @@ public sealed class WhatsAppConversationService(
             "cancelled" =>
             [new("menu_open_request", "Abrir solicitação"),
              new("menu_my_requests", "Minhas solicitações"),
-             new("menu_update_request", "Falar sobre pedido")],
+             new("menu_update_request", "Atualizar atendimento")],
             "reviewing_ai_proposal" or "reviewing_fallback_proposal" or "reviewing_request" =>
             [new("draft_confirm", "Confirmar"), new("draft_correct", "Corrigir"),
              new("draft_cancel", "Cancelar")],
@@ -1991,9 +1991,10 @@ public sealed class WhatsAppConversationService(
                 "Se quiser, envie fotos, vídeos ou documentos agora.\n\n"
                 + "Quando terminar, toque em \"Continuar\".",
             "cancelled" => "A abertura foi cancelada.\n\nO que você precisa?",
-            "collecting_request_update" or "request_update_message_received" or
-                "request_update_attachment_received" =>
-                "Você pode enviar outra mensagem ou arquivo.",
+            "collecting_request_update" =>
+                "Escreva sua atualização ou envie arquivos, como fotos, vídeos ou documentos. Depois de enviar, aguarde o processamento e, quando terminar, toque em Finalizar.",
+            "request_update_message_received" or "request_update_attachment_received" =>
+                "Atualização processada! Você pode enviar outra mensagem ou adicionar mais arquivos. Quando terminar, toque em Finalizar.",
             _ => fallbackText[..fallbackText.IndexOf("\n\n1 -", StringComparison.Ordinal)]
         };
         var interactive = await client.SendInteractiveButtonsAsync(phone, body, buttons, ct);
@@ -2105,13 +2106,10 @@ public sealed class WhatsAppConversationService(
             : "1 - Responder agora\n2 - Responder depois");
 
     private static string RequestUpdatePrompt() =>
-        "Certo. Pode me enviar sua mensagem.\n\n"
-        + "Você também pode enviar fotos, documentos, vídeos ou áudio.\n\n"
-        + "Quando terminar, envie ‘Finalizar’.\nPara encerrar este atendimento, envie ‘Cancelar’.";
+        "Escreva sua atualização ou envie arquivos, como fotos, vídeos ou documentos. Depois de enviar, aguarde o processamento e, quando terminar, toque em Finalizar.";
 
     private static string RequestUpdateReceivedPrompt(string confirmation) =>
-        confirmation + "\n\nVocê pode enviar outra mensagem ou arquivo.\n\n"
-        + "1 - Finalizar\nCancelar - Encerrar este atendimento";
+        confirmation + "\n\nAtualização processada! Você pode enviar outra mensagem ou adicionar mais arquivos. Quando terminar, toque em Finalizar.";
 
     private static string ResidentReplyInputPrompt(string? question = null) =>
         (string.IsNullOrWhiteSpace(question)

@@ -65,7 +65,7 @@ public sealed class MetaWhatsAppClientTests
             "+5511999990001", "O que você precisa?",
             [new WhatsAppReplyButton("menu_open_request", "Abrir solicitação"),
              new WhatsAppReplyButton("menu_my_requests", "Minhas solicitações"),
-             new WhatsAppReplyButton("menu_update_request", "Falar sobre pedido")],
+             new WhatsAppReplyButton("menu_update_request", "Atualizar atendimento")],
             default);
 
         Assert.True(result.Succeeded);

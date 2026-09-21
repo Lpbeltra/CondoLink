@@ -55,6 +55,22 @@ public sealed class AssistantOperationalToolsTests : IAsyncLifetime
     }
 
     [Fact]
+    public void Contextual_definitions_preserve_the_read_only_registry_for_portal_and_telegram()
+    {
+        var tools = CreateTools();
+
+        var portal = tools.GetDefinitions(CondominiumAssistantChannel.Portal);
+        var telegram = tools.GetDefinitions(CondominiumAssistantChannel.Telegram);
+
+        Assert.Equal(8, portal.Count);
+        Assert.Equal(9, telegram.Count);
+        Assert.Contains("get_request", JsonSerializer.Serialize(portal), StringComparison.Ordinal);
+        Assert.Contains("get_request", JsonSerializer.Serialize(telegram), StringComparison.Ordinal);
+        Assert.DoesNotContain("prepare_resident_registration", JsonSerializer.Serialize(portal), StringComparison.Ordinal);
+        Assert.Contains("prepare_resident_registration", JsonSerializer.Serialize(telegram), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Personal_provider_is_visible_only_to_its_owner()
     {
         var otherUserId = Guid.NewGuid();
@@ -178,7 +194,7 @@ public sealed class AssistantOperationalToolsTests : IAsyncLifetime
     [Fact]
     public void Resident_tool_descriptions_separate_operational_facts_from_rag()
     {
-        var descriptions = JsonSerializer.Serialize(CreateTools().Definitions);
+        var descriptions = JsonSerializer.Serialize(CreateTools().GetDefinitions(CondominiumAssistantChannel.Portal));
 
         Assert.Contains("get_unit_residents", descriptions);
         Assert.Contains("fonte operacional autoritativa", descriptions, StringComparison.OrdinalIgnoreCase);

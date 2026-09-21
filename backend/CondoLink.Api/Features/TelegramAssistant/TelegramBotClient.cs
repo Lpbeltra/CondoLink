@@ -14,7 +14,13 @@ public interface ITelegramBotClient
     Task SendTypingAsync(long chatId, CancellationToken ct);
     Task<byte[]> DownloadFileAsync(string fileId, long maximumBytes, CancellationToken ct) =>
         throw new NotSupportedException("Telegram file download is not available.");
+    Task SendInlineMessageAsync(long chatId, string text, TelegramInlineKeyboard keyboard, CancellationToken ct) =>
+        SendMessageAsync(chatId, text, ct);
+    Task AnswerCallbackAsync(string callbackQueryId, string? text, CancellationToken ct) => Task.CompletedTask;
 }
+
+public sealed record TelegramInlineButton(string Text, string CallbackData);
+public sealed record TelegramInlineKeyboard(IReadOnlyList<TelegramInlineButton> Buttons);
 
 public sealed class TelegramBotClient(HttpClient http, IOptions<TelegramAssistantOptions> options)
     : ITelegramBotClient
@@ -34,6 +40,20 @@ public sealed class TelegramBotClient(HttpClient http, IOptions<TelegramAssistan
     }
     public async Task SendTypingAsync(long chatId, CancellationToken ct) =>
         _ = await PostAsync("sendChatAction", new { chat_id = chatId, action = "typing" }, ct);
+    public async Task SendInlineMessageAsync(long chatId, string text, TelegramInlineKeyboard keyboard, CancellationToken ct)
+    {
+        if (keyboard.Buttons.Count is < 1 or > 8 || keyboard.Buttons.Any(x => string.IsNullOrWhiteSpace(x.Text)
+            || string.IsNullOrWhiteSpace(x.CallbackData) || System.Text.Encoding.UTF8.GetByteCount(x.CallbackData) > 64))
+            throw new ArgumentException("Invalid Telegram inline keyboard.", nameof(keyboard));
+        var markup = new { inline_keyboard = new[]
+        { keyboard.Buttons.Select(x => new { text = x.Text, callback_data = x.CallbackData }).ToArray() } };
+        await PostAsync("sendMessage", new { chat_id = chatId, text, reply_markup = markup }, ct);
+    }
+    public async Task AnswerCallbackAsync(string callbackQueryId, string? text, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(callbackQueryId) || callbackQueryId.Length > 128) return;
+        _ = await PostAsync("answerCallbackQuery", new { callback_query_id = callbackQueryId, text }, ct);
+    }
 
     public async Task<byte[]> DownloadFileAsync(string fileId, long maximumBytes, CancellationToken ct)
     {

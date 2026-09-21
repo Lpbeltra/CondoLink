@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CondoLink.Api.Features.CondominiumAssistant;
+using CondoLink.Api.Features.CondominiumMembers;
 using CondoLink.Api.Features.RequestAttachments;
 using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Domain.Entities;
@@ -83,11 +84,15 @@ public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
             }
             stage = "telegram_delivery";
             var client = scope.ServiceProvider.GetRequiredService<ITelegramBotClient>();
-            var parts = SplitMessage(update.ResponseText!);
+            var outboundResponse = TelegramAssistantResponse.Read(update.ResponseText!);
+            var parts = SplitMessage(outboundResponse.Text);
             var delivery = Stopwatch.StartNew();
             for (var index = update.SentPartCount; index < parts.Count; index++)
             {
-                await client.SendMessageAsync(update.ChatId, parts[index],
+                if (index == 0 && outboundResponse.PendingActionId is Guid actionId
+                    && await IsDeliverableActionAsync(db, actionId, update.ChatId, ct))
+                    await client.SendInlineMessageAsync(update.ChatId, parts[index], TelegramActionCallbacks.Keyboard(actionId), ct);
+                else await client.SendMessageAsync(update.ChatId, parts[index],
                     index == 0 ? update.ReplyMarkup : TelegramReplyMarkup.None, ct);
                 update.PartSent(); await db.SaveChangesAsync(ct);
             }
@@ -112,6 +117,15 @@ public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
         }
         return true;
     }
+
+    internal static void PrepareActionResponse(TelegramInboundUpdate update, string text, Guid actionId) =>
+        update.PrepareResponse(new TelegramAssistantResponse(text, actionId).Persist());
+
+    private static Task<bool> IsDeliverableActionAsync(AppDbContext db, Guid actionId, long chatId, CancellationToken ct) =>
+        db.PendingAssistantActions.AsNoTracking().AnyAsync(x => x.Id == actionId
+            && x.Channel == CondominiumAssistantChannel.Telegram
+            && x.ExternalContextId == TelegramActionCallbacks.ChatContext(chatId)
+            && x.Status == PendingAssistantActionStatus.Pending, ct);
 
     private async Task<string?> HandleAsync(TelegramInboundUpdate update, AppDbContext db,
         IServiceProvider services, CancellationToken ct)
@@ -164,6 +178,28 @@ public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
         if (active == default)
         { link.ClearCondominium(time.GetUtcNow().UtcDateTime); await db.SaveChangesAsync(ct);
           RecordAuthorization(update, authorization); return CondominiumChoices(condominiums); }
+        if (TelegramActionCallbacks.TryInbound(update.Text, out var callback))
+        {
+            RecordAuthorization(update, authorization);
+            var resolution = await TelegramActionCallbacks.ResolveAsync(db, callback, link.UserId,
+                update.ChatId, active.Id, ct);
+            if (!resolution.Accepted) return resolution.Message;
+            var registration = services.GetRequiredService<AssistantResidentRegistrationService>();
+            if (callback.Decision == TelegramActionDecision.Cancel)
+            {
+                var cancelled = await registration.CancelAsync(callback.ActionId, link.UserId, active.Id, ct);
+                return cancelled ? "Cadastro cancelado. Nenhuma alteração foi realizada."
+                    : "Essa confirmação não está mais disponível.";
+            }
+            var execution = await registration.ExecuteAsync(callback.ActionId, link.UserId, active.Id, ct);
+            return execution.Status switch
+            {
+                "Executed" => "Cadastro realizado com sucesso.",
+                "Expired" => "Essa confirmação expirou. Envie o pedido novamente para preparar um novo cadastro.",
+                "Forbidden" => "Não foi possível concluir este cadastro.",
+                _ => "Esse cadastro já foi realizado ou não está mais disponível."
+            };
+        }
         var recent = await db.TelegramInboundUpdates.CountAsync(x => x.ChatId == update.ChatId
             && x.ReceivedAt > time.GetUtcNow().UtcDateTime.AddMinutes(-1), ct);
         if (recent > 10) { RecordAuthorization(update, authorization); return "Você enviou várias mensagens em sequência. Aguarde um instante."; }
@@ -209,12 +245,19 @@ public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
             update.UpdateId, active.Id, executionId);
         var assistantTimer = Stopwatch.StartNew();
         var answer = await assistant.AskAsync(conversation, update.Text, ct,
-            executionId, CondominiumAssistantChannel.Telegram);
+            executionId, CondominiumAssistantChannel.Telegram,
+            TelegramActionCallbacks.ChatContext(update.ChatId), $"telegram-update:{update.UpdateId}");
         assistantTimer.Stop(); update.RecordAssistant(assistantTimer.ElapsedMilliseconds);
-        var responseText = FormatAnswer(answer);
+        var responseText = answer.PendingActionId is not null && answer.ResidentPreview is not null
+            ? FormatResidentPreview(answer.ResidentPreview) : FormatAnswer(answer);
         db.CondominiumAssistantMessages.Add(new(conversation.Id, CondominiumAssistantRole.Assistant,
             answer.Answer, JsonSerializer.Serialize(answer.Sources, CondominiumAssistantEndpoints.AssistantJsonOptions)));
-        conversation.Touch(); update.PrepareResponse(responseText); await db.SaveChangesAsync(ct);
+        conversation.Touch();
+        if (answer.PendingActionId is Guid actionId)
+            PrepareActionResponse(update, responseText, actionId);
+        else
+            update.PrepareResponse(responseText);
+        await db.SaveChangesAsync(ct);
         logger.LogInformation("Telegram assistant completed. UpdateId: {UpdateId}; AssistantExecutionId: {AssistantExecutionId}; SourceCount: {SourceCount}.",
             update.UpdateId, executionId, answer.Sources.Count);
         return responseText;
@@ -376,6 +419,10 @@ public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
         + "\n\nEnvie /condominio NÚMERO.";
     internal static string FormatAnswer(AssistantAnswer answer) =>
         Regex.Replace(answer.Answer, @"\s*\[S\d+\]", string.Empty).Trim();
+    internal static string FormatResidentPreview(AssistantResidentPreview preview) => string.Join("\n",
+        new[] { "Cadastro de morador", "", preview.FullName, preview.Unit, preview.RelationshipType,
+            preview.Email, preview.PhoneNumber, "", "Confira os dados antes de continuar." }
+        .Where(x => !string.IsNullOrWhiteSpace(x)));
     private static string Pages(IEnumerable<int?> pages)
     { var values = pages.Where(x => x.HasValue).Select(x => x!.Value).Distinct().Order().ToArray();
       return values.Length == 0 ? string.Empty : values.Length == 1

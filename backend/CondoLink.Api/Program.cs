@@ -45,6 +45,8 @@ builder.Services.AddOpenApi();
 builder.Services.AddExceptionHandler<AppExceptionHandler>();
 builder.Services.AddProblemDetails();
 builder.Services.AddScoped<CondominiumMembershipService>();
+builder.Services.AddScoped<ResidentOnboardingService>();
+builder.Services.AddScoped<AssistantResidentRegistrationService>();
 builder.Services.AddScoped<ICondominiumModuleService, CondominiumModuleService>();
 builder.Services.AddScoped<EmployeeManagementAccessService>();
 builder.Services.AddScoped<EmployeeDocumentProcessingService>();

@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using CondoLink.Api.Features.CondominiumAssistant;
+using CondoLink.Api.Features.CondominiumMembers;
 using CondoLink.Api.Features.Agenda;
 using CondoLink.Api.Features.TelegramAssistant;
 using CondoLink.Domain.Entities;
@@ -482,6 +483,263 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Worker_retries_a_persisted_action_response_with_the_same_keyboard()
+    {
+        Guid actionId = Guid.Empty; Guid condominiumId = Guid.Empty;
+        await _host.WithDbAsync(async db =>
+        {
+            condominiumId = await db.Condominiums.Select(x => x.Id).SingleAsync();
+            db.Add(new TelegramUserLink(_managerId, 777, 777, DateTime.UtcNow));
+            var action = new PendingAssistantAction(PendingAssistantActionType.ResidentRegistration, _managerId,
+                condominiumId, CondominiumAssistantChannel.Telegram, TelegramActionCallbacks.ChatContext(777),
+                "{}", Guid.NewGuid().ToString("N"), DateTime.UtcNow, DateTime.UtcNow.AddMinutes(15));
+            var update = new TelegramInboundUpdate(707, 777, 777, "preview", DateTime.UtcNow);
+            TelegramAssistantWorker.PrepareActionResponse(update, "Preview visível", action.Id);
+            db.AddRange(action, update); await db.SaveChangesAsync(); actionId = action.Id;
+        });
+        _bot.FailSends = true;
+        await _host.WithServicesAsync(async services =>
+            Assert.True(await ActivatorUtilities.CreateInstance<TelegramAssistantWorker>(services).ProcessOneAsync(default)));
+        await _host.WithDbAsync(async db =>
+        {
+            var update = await db.TelegramInboundUpdates.SingleAsync(x => x.UpdateId == 707);
+            Assert.Equal(TelegramInboundStatus.Pending, update.Status);
+            Assert.Contains(actionId.ToString("N"), update.ResponseText!);
+            Assert.Equal(1, await db.PendingAssistantActions.CountAsync(x => x.Id == actionId));
+            await db.TelegramInboundUpdates.Where(x => x.Id == update.Id).ExecuteUpdateAsync(s => s.SetProperty(x => x.NextAttemptAt, DateTime.UtcNow));
+        });
+        _bot.FailSends = false;
+        await _host.WithServicesAsync(async services =>
+            Assert.True(await ActivatorUtilities.CreateInstance<TelegramAssistantWorker>(services).ProcessOneAsync(default)));
+        var keyboard = Assert.Single(_bot.InlineKeyboards);
+        Assert.Equal("Preview visível", Assert.Single(_bot.Messages));
+        Assert.All(keyboard.Buttons, x => { Assert.True(TelegramActionCallbacks.TryParse(x.CallbackData, out var parsed)); Assert.Equal(actionId, parsed.ActionId); });
+        await _host.WithDbAsync(async db =>
+        {
+            var action = await db.PendingAssistantActions.SingleAsync(x => x.Id == actionId);
+            Assert.Equal(PendingAssistantActionStatus.Pending, action.Status);
+            Assert.Equal(TelegramActionCallbacks.ChatContext(777), action.ExternalContextId);
+        });
+    }
+
+    [Fact]
+    public async Task Callback_confirm_executes_the_bound_pending_resident_registration_once()
+    {
+        Guid actionId = Guid.Empty, condominiumId = Guid.Empty, unitId = Guid.Empty;
+        await _host.WithDbAsync(async db =>
+        {
+            var condo = await db.Condominiums.SingleAsync();
+            condominiumId = condo.Id;
+            var link = new TelegramUserLink(_managerId, 888, 888, DateTime.UtcNow); link.SelectCondominium(condo.Id, DateTime.UtcNow);
+            var unit = new Unit(condo.Id, "101", null, null, null); db.Add(unit); await db.SaveChangesAsync(); unitId = unit.Id;
+            var registration = new ResidentRegistrationPayload("João da Silva", "joao.callback@example.com", null,
+                unit.Id, "Tenant", true, false, "None", false, false, null);
+            var action = new PendingAssistantAction(PendingAssistantActionType.ResidentRegistration, _managerId, condo.Id,
+                CondominiumAssistantChannel.Telegram, TelegramActionCallbacks.ChatContext(888), JsonSerializer.Serialize(registration), Guid.NewGuid().ToString("N"), DateTime.UtcNow, DateTime.UtcNow.AddMinutes(15));
+            db.AddRange(link, action); await db.SaveChangesAsync(); actionId = action.Id;
+        });
+        var data = TelegramActionCallbacks.Format(actionId, TelegramActionDecision.Confirm);
+        var payload = new { update_id = 808, callback_query = new { id = "callback-808", from = new { id = 888L }, message = new { chat = new { id = 888L, type = "private" } }, data } };
+        var client = _host.AnonymousClient(); client.DefaultRequestHeaders.Add("X-Telegram-Bot-Api-Secret-Token", "test-secret");
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/integrations/telegram/webhook", payload)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/integrations/telegram/webhook", payload)).StatusCode);
+        await _host.WithDbAsync(async db => { var inbound = await db.TelegramInboundUpdates.SingleAsync(x => x.UpdateId == 808); Assert.Contains(data, inbound.Text); Assert.Equal(TelegramInboundStatus.Pending, inbound.Status); });
+        Assert.Contains("callback-808", _bot.CallbackAnswers);
+        await ProcessPendingAsync();
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(PendingAssistantActionStatus.Executed, (await db.PendingAssistantActions.SingleAsync(x => x.Id == actionId)).Status);
+            var resident = await db.Users.SingleAsync(x => x.Email == "joao.callback@example.com");
+            Assert.True(await db.CondominiumMemberships.AnyAsync(x => x.UserId == resident.Id && x.CondominiumId == condominiumId));
+            Assert.True(await db.UnitMemberships.AnyAsync(x => x.UserId == resident.Id && x.UnitId == unitId && x.IsResident));
+        });
+        Assert.Contains("Cadastro realizado com sucesso.", _bot.Messages);
+    }
+
+    [Fact]
+    public async Task Callback_duplicate_confirm_uses_the_terminal_state_without_duplicate_onboarding()
+    {
+        var (actionId, condominiumId, email) = await AddCallbackRegistrationAsync(895, "joao.duplicate@example.com");
+
+        await PostCallbackAsync(819, 895, actionId, TelegramActionDecision.Confirm);
+        await PostCallbackAsync(820, 895, actionId, TelegramActionDecision.Confirm);
+
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(PendingAssistantActionStatus.Executed,
+                (await db.PendingAssistantActions.SingleAsync(x => x.Id == actionId)).Status);
+            var resident = await db.Users.SingleAsync(x => x.Email == email);
+            Assert.Equal(1, await db.Users.CountAsync(x => x.Email == email));
+            Assert.Equal(1, await db.CondominiumMemberships.CountAsync(x =>
+                x.UserId == resident.Id && x.CondominiumId == condominiumId));
+            Assert.Equal(1, await db.UnitMemberships.CountAsync(x => x.UserId == resident.Id && x.IsResident));
+            Assert.Empty(await db.CondominiumAssistantConversations.ToArrayAsync());
+        });
+        Assert.Contains("Cadastro realizado com sucesso.", _bot.Messages);
+        Assert.Contains("Esse cadastro já foi realizado.", _bot.Messages);
+    }
+
+    [Fact]
+    public async Task Callback_cancel_cancels_the_bound_pending_resident_registration_without_onboarding()
+    {
+        var (actionId, _, email) = await AddCallbackRegistrationAsync(889, "joao.cancel@example.com");
+
+        await PostCallbackAsync(809, 889, actionId, TelegramActionDecision.Cancel);
+
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(PendingAssistantActionStatus.Cancelled,
+                (await db.PendingAssistantActions.SingleAsync(x => x.Id == actionId)).Status);
+            Assert.False(await db.Users.AnyAsync(x => x.Email == email));
+            Assert.Empty(await db.CondominiumAssistantConversations.ToArrayAsync());
+        });
+        Assert.Contains("Cadastro cancelado. Nenhuma alteração foi realizada.", _bot.Messages);
+    }
+
+    [Fact]
+    public async Task Callback_terminal_actions_return_authoritative_messages_without_a_second_execution_or_undo()
+    {
+        var (executedId, condominiumId, executedEmail) = await AddCallbackRegistrationAsync(890, "joao.executed@example.com");
+        await _host.WithServicesAsync(services => services.GetRequiredService<AssistantResidentRegistrationService>()
+            .ExecuteAsync(executedId, _managerId, condominiumId, default));
+        var (cancelledId, _, cancelledEmail) = await AddCallbackRegistrationAsync(890, "joao.cancelled@example.com");
+        await _host.WithServicesAsync(services => services.GetRequiredService<AssistantResidentRegistrationService>()
+            .CancelAsync(cancelledId, _managerId, condominiumId, default));
+
+        await PostCallbackAsync(810, 890, executedId, TelegramActionDecision.Confirm);
+        await PostCallbackAsync(811, 890, executedId, TelegramActionDecision.Cancel);
+        await PostCallbackAsync(812, 890, cancelledId, TelegramActionDecision.Confirm);
+        await PostCallbackAsync(813, 890, cancelledId, TelegramActionDecision.Cancel);
+
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(PendingAssistantActionStatus.Executed,
+                (await db.PendingAssistantActions.SingleAsync(x => x.Id == executedId)).Status);
+            Assert.Equal(PendingAssistantActionStatus.Cancelled,
+                (await db.PendingAssistantActions.SingleAsync(x => x.Id == cancelledId)).Status);
+            Assert.Equal(1, await db.Users.CountAsync(x => x.Email == executedEmail));
+            Assert.False(await db.Users.AnyAsync(x => x.Email == cancelledEmail));
+            Assert.Empty(await db.CondominiumAssistantConversations.ToArrayAsync());
+        });
+        Assert.Contains("Esse cadastro já foi realizado.", _bot.Messages);
+        Assert.Contains("Esse cadastro já foi realizado e não pode mais ser cancelado por aqui.", _bot.Messages);
+        Assert.Contains("Esse cadastro foi cancelado e não pode mais ser confirmado.", _bot.Messages);
+        Assert.Contains("Esse cadastro já foi cancelado.", _bot.Messages);
+    }
+
+    [Fact]
+    public async Task Callback_expired_action_never_onboards_for_confirm_or_cancel()
+    {
+        var (actionId, _, email) = await AddCallbackRegistrationAsync(892, "joao.expired@example.com", DateTime.UtcNow.AddMinutes(-1));
+
+        await PostCallbackAsync(814, 892, actionId, TelegramActionDecision.Confirm);
+        await PostCallbackAsync(815, 892, actionId, TelegramActionDecision.Cancel);
+
+        await _host.WithDbAsync(async db =>
+        {
+            var action = await db.PendingAssistantActions.SingleAsync(x => x.Id == actionId);
+            Assert.True(action.IsExpired(DateTime.UtcNow));
+            Assert.False(await db.Users.AnyAsync(x => x.Email == email));
+            Assert.Empty(await db.CondominiumAssistantConversations.ToArrayAsync());
+        });
+        Assert.Equal(2, _bot.Messages.Count(x => x == "Essa confirmação expirou. Envie o pedido novamente para preparar um novo cadastro."));
+    }
+
+    [Fact]
+    public async Task Callback_confirm_on_replaced_action_cannot_resurrect_it_and_current_action_executes_its_payload()
+    {
+        const long chatId = 893;
+        Guid condominiumId = Guid.Empty, unitId = Guid.Empty;
+        await _host.WithDbAsync(async db =>
+        {
+            var condominium = await db.Condominiums.SingleAsync();
+            condominiumId = condominium.Id;
+            var link = new TelegramUserLink(_managerId, chatId, chatId, DateTime.UtcNow);
+            link.SelectCondominium(condominiumId, DateTime.UtcNow);
+            var unit = new Unit(condominiumId, "replacement-101", null, null, null);
+            db.AddRange(link, unit); await db.SaveChangesAsync(); unitId = unit.Id;
+        });
+        var first = await PrepareTelegramRegistrationAsync(_managerId, condominiumId, chatId,
+            "joao.obsolete@example.com", "Owner", "replacement-101", "replacement-a");
+        var replacement = await PrepareTelegramRegistrationAsync(_managerId, condominiumId, chatId,
+            "joao.current@example.com", "Tenant", "replacement-101", "replacement-b");
+        var firstId = first.ActionId ?? throw new InvalidOperationException("First action was not prepared.");
+        var replacementId = replacement.ActionId ?? throw new InvalidOperationException("Replacement action was not prepared.");
+
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(PendingAssistantActionStatus.Cancelled,
+                (await db.PendingAssistantActions.SingleAsync(x => x.Id == firstId)).Status);
+            Assert.Equal(PendingAssistantActionStatus.Pending,
+                (await db.PendingAssistantActions.SingleAsync(x => x.Id == replacementId)).Status);
+        });
+        await PostCallbackAsync(816, chatId, firstId, TelegramActionDecision.Confirm);
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.False(await db.Users.AnyAsync(x => x.Email == "joao.obsolete@example.com"));
+            Assert.Equal(PendingAssistantActionStatus.Pending,
+                (await db.PendingAssistantActions.SingleAsync(x => x.Id == replacementId)).Status);
+        });
+        Assert.Contains("Esse cadastro foi cancelado e não pode mais ser confirmado.", _bot.Messages);
+
+        await PostCallbackAsync(817, chatId, replacementId, TelegramActionDecision.Confirm);
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(PendingAssistantActionStatus.Executed,
+                (await db.PendingAssistantActions.SingleAsync(x => x.Id == replacementId)).Status);
+            var resident = await db.Users.SingleAsync(x => x.Email == "joao.current@example.com");
+            Assert.True(await db.CondominiumMemberships.AnyAsync(x => x.UserId == resident.Id && x.CondominiumId == condominiumId));
+            Assert.True(await db.UnitMemberships.AnyAsync(x => x.UserId == resident.Id && x.UnitId == unitId && x.IsResident));
+            Assert.False(await db.Users.AnyAsync(x => x.Email == "joao.obsolete@example.com"));
+            Assert.Empty(await db.CondominiumAssistantConversations.ToArrayAsync());
+        });
+        Assert.Contains("Cadastro realizado com sucesso.", _bot.Messages);
+    }
+
+    [Fact]
+    public async Task Callback_confirm_revalidates_management_authorization_before_onboarding()
+    {
+        const long chatId = 894;
+        Guid condominiumId = Guid.Empty;
+        await _host.WithDbAsync(async db =>
+        {
+            var condominium = await db.Condominiums.SingleAsync();
+            condominiumId = condominium.Id;
+            var link = new TelegramUserLink(_allowedSubManagerId, chatId, chatId, DateTime.UtcNow);
+            link.SelectCondominium(condominiumId, DateTime.UtcNow);
+            var unit = new Unit(condominiumId, "revalidation-101", null, null, null);
+            var membership = await db.CondominiumMemberships.SingleAsync(x => x.UserId == _allowedSubManagerId && x.CondominiumId == condominiumId);
+            db.AddRange(link, unit, new SubManagerModulePermission(membership.Id, SubManagerModule.Management, _managerId));
+            await db.SaveChangesAsync();
+        });
+        var prepared = await PrepareTelegramRegistrationAsync(_allowedSubManagerId, condominiumId, chatId,
+            "joao.revoked@example.com", "Owner", "revalidation-101", "management-revalidation");
+        await _host.WithDbAsync(async db =>
+        {
+            var membershipId = await db.CondominiumMemberships
+                .Where(x => x.UserId == _allowedSubManagerId && x.CondominiumId == condominiumId)
+                .Select(x => x.Id).SingleAsync();
+            var management = await db.SubManagerModulePermissions.SingleAsync(x =>
+                x.Module == SubManagerModule.Management && x.CondominiumMembershipId == membershipId);
+            management.SetAllowed(false, _managerId);
+            await db.SaveChangesAsync();
+            Assert.False(await CondoLink.Api.Features.Management.SubManagerAccess.HasAsync(db, _allowedSubManagerId,
+                condominiumId, SubManagerModule.Management, default));
+        });
+
+        await PostCallbackAsync(818, chatId, prepared.ActionId!.Value, TelegramActionDecision.Confirm);
+
+        await _host.WithDbAsync(async db =>
+        {
+            Assert.Equal(PendingAssistantActionStatus.Failed,
+                (await db.PendingAssistantActions.SingleAsync(x => x.Id == prepared.ActionId.Value)).Status);
+            Assert.False(await db.Users.AnyAsync(x => x.Email == "joao.revoked@example.com"));
+            Assert.Empty(await db.CondominiumAssistantConversations.ToArrayAsync());
+        });
+        Assert.Contains("Esse cadastro já foi realizado ou não está mais disponível.", _bot.Messages);
+    }
+
+    [Fact]
     public void Formats_compact_sources_and_splits_long_answers()
     {
         var documentId = Guid.NewGuid();
@@ -514,6 +772,47 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
     private static object Payload(long updateId, string type = "private") => new
     { update_id = updateId, message = new { from = new { id = 123L }, chat = new { id = 123L, type }, text = "Olá" } };
     private sealed record LinkCodeResponse(string Code, string? DeepLink, DateTime ExpiresAt);
+    private async Task<(Guid ActionId, Guid CondominiumId, string Email)> AddCallbackRegistrationAsync(
+        long chatId, string email, DateTime? expiresAt = null)
+    {
+        Guid actionId = Guid.Empty, condominiumId = Guid.Empty;
+        await _host.WithDbAsync(async db =>
+        {
+            var condominium = await db.Condominiums.SingleAsync();
+            condominiumId = condominium.Id;
+            var link = await db.TelegramUserLinks.SingleOrDefaultAsync(x => x.UserId == _managerId);
+            if (link is null)
+            {
+                link = new TelegramUserLink(_managerId, chatId, chatId, DateTime.UtcNow);
+                db.Add(link);
+            }
+            link.SelectCondominium(condominium.Id, DateTime.UtcNow);
+            var unit = new Unit(condominium.Id, $"U{chatId}-{email[..email.IndexOf('@')]}", null, null, null);
+            var registration = new ResidentRegistrationPayload("João da Silva", email, null, unit.Id,
+                "Tenant", true, false, "None", false, false, null);
+            var expires = expiresAt ?? DateTime.UtcNow.AddMinutes(15);
+            var action = new PendingAssistantAction(PendingAssistantActionType.ResidentRegistration, _managerId,
+                condominium.Id, CondominiumAssistantChannel.Telegram, TelegramActionCallbacks.ChatContext(chatId),
+                JsonSerializer.Serialize(registration), Guid.NewGuid().ToString("N"), DateTime.UtcNow, expires);
+            db.AddRange(unit, action); await db.SaveChangesAsync(); actionId = action.Id;
+        });
+        return (actionId, condominiumId, email);
+    }
+    private async Task PostCallbackAsync(long updateId, long chatId, Guid actionId, TelegramActionDecision decision)
+    {
+        var payload = new { update_id = updateId, callback_query = new { id = $"callback-{updateId}",
+            from = new { id = chatId }, message = new { chat = new { id = chatId, type = "private" } },
+            data = TelegramActionCallbacks.Format(actionId, decision) } };
+        var client = _host.AnonymousClient();
+        client.DefaultRequestHeaders.Add("X-Telegram-Bot-Api-Secret-Token", "test-secret");
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/integrations/telegram/webhook", payload)).StatusCode);
+        await ProcessPendingAsync();
+    }
+    private Task<AssistantPrepareResult> PrepareTelegramRegistrationAsync(Guid actorId, Guid condominiumId, long chatId,
+        string email, string relationship, string unitIdentifier, string key) => _host.WithServicesAsync(services =>
+        services.GetRequiredService<AssistantResidentRegistrationService>().PrepareAsync(new(actorId, condominiumId,
+            CondominiumAssistantChannel.Telegram, TelegramActionCallbacks.ChatContext(chatId), key, "João da Silva",
+            email, null, unitIdentifier, null, relationship, false), default));
     private async Task ProcessTextAsync(long updateId, long telegramId, string text)
     {
         await _host.WithDbAsync(async db =>
@@ -569,10 +868,15 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
         public bool FailSends { get; set; }
         public Exception? Failure { get; set; }
         public Exception? DownloadFailure { get; set; }
+        public List<TelegramInlineKeyboard> InlineKeyboards { get; } = [];
+        public List<string> CallbackAnswers { get; } = [];
         public Task SendMessageAsync(long chatId, string text, CancellationToken ct)
         { if (Failure is not null) throw Failure; if (FailSends) throw new HttpRequestException("failed"); Messages.Add(text); Markups.Add(TelegramReplyMarkup.None); return Task.CompletedTask; }
         public Task SendMessageAsync(long chatId, string text, TelegramReplyMarkup markup, CancellationToken ct)
         { if (Failure is not null) throw Failure; if (FailSends) throw new HttpRequestException("failed"); Messages.Add(text); Markups.Add(markup); return Task.CompletedTask; }
+        public Task SendInlineMessageAsync(long chatId, string text, TelegramInlineKeyboard keyboard, CancellationToken ct)
+        { if (Failure is not null) throw Failure; if (FailSends) throw new HttpRequestException("failed"); Messages.Add(text); InlineKeyboards.Add(keyboard); return Task.CompletedTask; }
+        public Task AnswerCallbackAsync(string callbackQueryId, string? text, CancellationToken ct) { CallbackAnswers.Add(callbackQueryId); return Task.CompletedTask; }
         public Task SendTypingAsync(long chatId, CancellationToken ct) { TypingCount++; return Task.CompletedTask; }
         public Task<byte[]> DownloadFileAsync(string fileId, long maximumBytes, CancellationToken ct)
         { DownloadCount++; return DownloadFailure is null ? Task.FromResult(new byte[] { 1, 2, 3 })

@@ -306,7 +306,7 @@ public static class CondominiumAssistantEndpoints
             await db.SaveChangesAsync(ct);
             var result = await assistant.AskAsync(conversation, question, ct, executionId);
             db.CondominiumAssistantMessages.Add(new(conversationId, CondominiumAssistantRole.Assistant, result.Answer, SerializeReferences(result)));
-            await db.SaveChangesAsync(ct); return Results.Ok(result);
+            await db.SaveChangesAsync(ct); return Results.Ok(new { result.Answer, result.Sources, result.Model, result.OperationalReferences });
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         { return Results.Json(new { error = "O assistente está temporariamente indisponível. Tente novamente." }, statusCode: 503); }

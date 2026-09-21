@@ -101,7 +101,9 @@ public static class TelegramAssistantEndpoints
             if (pending >= 20) inbound.Ignore(now);
             db.TelegramInboundUpdates.Add(inbound);
             try
-            { await db.SaveChangesAsync(ct); request.HttpContext.RequestServices.GetService<TelegramInboundSignal>()?.Wake(); logger.LogInformation("Telegram update persisted. UpdateId: {UpdateId}; ChatId: {ChatId}; Kind: {Kind}; QueueLimited: {QueueLimited}.", updateId, inboundMessage.ChatId, inboundMessage.Kind, pending >= 20); }
+            { await db.SaveChangesAsync(ct); request.HttpContext.RequestServices.GetService<TelegramInboundSignal>()?.Wake();
+              if (!string.IsNullOrWhiteSpace(inboundMessage.CallbackQueryId)) await request.HttpContext.RequestServices.GetRequiredService<ITelegramBotClient>().AnswerCallbackAsync(inboundMessage.CallbackQueryId, null, ct);
+              logger.LogInformation("Telegram update persisted. UpdateId: {UpdateId}; ChatId: {ChatId}; Kind: {Kind}; QueueLimited: {QueueLimited}.", updateId, inboundMessage.ChatId, inboundMessage.Kind, pending >= 20); }
             catch (DbUpdateException)
             { logger.LogInformation("Telegram update deduplicated. UpdateId: {UpdateId}.", updateId); return Results.Ok(); }
         }
@@ -119,6 +121,20 @@ public static class TelegramAssistantEndpoints
     internal static bool TryPrivateMessage(JsonElement root, out TelegramInboundMessage result)
     {
         result = default;
+        if (root.TryGetProperty("callback_query", out var callback)
+            && callback.TryGetProperty("id", out var callbackId)
+            && callback.TryGetProperty("from", out var callbackFrom)
+            && callbackFrom.TryGetProperty("id", out var callbackUser)
+            && callback.TryGetProperty("message", out var callbackMessage)
+            && callbackMessage.TryGetProperty("chat", out var callbackChat)
+            && callbackChat.TryGetProperty("type", out var callbackType) && callbackType.GetString() == "private"
+            && callbackChat.TryGetProperty("id", out var callbackChatId)
+            && callback.TryGetProperty("data", out var callbackData)
+            && callbackUser.TryGetInt64(out var callbackUserId) && callbackChatId.TryGetInt64(out var callbackChatValue)
+            && callbackUserId > 0 && callbackChatValue > 0 && !string.IsNullOrWhiteSpace(callbackId.GetString())
+            && TelegramActionCallbacks.TryParse(callbackData.GetString(), out _))
+        { result = new(callbackUserId, callbackChatValue, CondoLink.Domain.Enums.TelegramInboundKind.Text,
+            TelegramActionCallbacks.InboundText(callbackData.GetString()!), CallbackQueryId: callbackId.GetString()); return true; }
         if (!root.TryGetProperty("message", out var message)
             || !message.TryGetProperty("chat", out var chat)
             || !chat.TryGetProperty("type", out var type) || type.GetString() != "private"
@@ -184,4 +200,4 @@ internal readonly record struct TelegramInboundMessage(long UserId, long ChatId,
     CondoLink.Domain.Enums.TelegramInboundKind Kind, string Text,
     string? ContactPhoneNumber = null, long? ContactUserId = null,
     string? FileId = null, long? FileSize = null, int? DurationSeconds = null,
-    string? FileName = null, string? MimeType = null);
+    string? FileName = null, string? MimeType = null, string? CallbackQueryId = null);

@@ -2,6 +2,7 @@ using System.Text.Json;
 using CondoLink.Api.Features.Management;
 using CondoLink.Api.Features.Requests;
 using CondoLink.Api.Features.Agenda;
+using CondoLink.Api.Features.CondominiumMembers;
 using CondoLink.Domain.Enums;
 using CondoLink.Infrastructure.Identity;
 using CondoLink.Infrastructure.Persistence;
@@ -12,15 +13,15 @@ namespace CondoLink.Api.Features.CondominiumAssistant;
 
 public sealed record AssistantOperationalReference(string Type, Guid Id, string Label, string? Href);
 public sealed record AssistantToolResult(string Json, IReadOnlyList<AssistantOperationalReference> References,
-    bool Succeeded);
+    bool Succeeded, Guid? PendingActionId = null, AssistantResidentPreview? ResidentPreview = null);
 
 /// <summary>Read-only operational tool registry. Scope comes from conversation, never model arguments.</summary>
 public sealed class AssistantOperationalTools(AppDbContext db, ILogger<AssistantOperationalTools> logger,
-    IOptions<AgendaOptions> agendaOptions)
+    IOptions<AgendaOptions> agendaOptions, AssistantResidentRegistrationService? residentRegistration = null)
 {
     public const int MaxToolCalls = 6;
     private const int MaxRows = 20;
-    public IReadOnlyList<object> Definitions { get; } =
+    private static readonly IReadOnlyList<object> ReadOnlyDefinitions =
     [
         Function("search_residents", "Fonte operacional autoritativa. Localiza moradores por nome ou telefone; use unit para localizar por unidade. Use para encontrar um morador, nao para consultar regras ou documentos.", new { type = "object", properties = new { query = new { type = "string" }, unit = new { type = "string" } }, additionalProperties = false }),
         Function("get_unit_residents", "Fonte operacional autoritativa para fatos da unidade: quem mora, proprietario, ocupantes e moradores do apartamento informado. Use sempre que a pergunta pedir moradores de uma unidade. Nao use RAG ou documentos para esse fato.", new { type = "object", properties = new { unit = new { type = "string", description = "Identificador da unidade, por exemplo 1201 ou 206." } }, required = new[] { "unit" }, additionalProperties = false }),
@@ -35,11 +36,21 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
     private static object Function(string name, string description, object parameters) => new
     { type = "function", function = new { name, description, parameters } };
 
+    public IReadOnlyList<object> GetDefinitions(CondominiumAssistantChannel channel) =>
+        channel == CondominiumAssistantChannel.Telegram
+            ? [.. ReadOnlyDefinitions, PrepareResidentRegistrationDefinition]
+            : ReadOnlyDefinitions;
+
+    private static readonly object PrepareResidentRegistrationDefinition = Function("prepare_resident_registration",
+        "Prepara, sem executar, o cadastro de um morador no Telegram. Use quando o usuário pedir cadastro/registro e todos os dados obrigatórios explícitos estiverem disponíveis: nome, email, unidade e vínculo. Nunca inferir vínculo; use Owner, Tenant ou AuthorizedOccupant. Não inclua IDs, condomínio, ator, chat ou contexto técnico.",
+        new { type = "object", properties = new { fullName = new { type = "string" }, email = new { type = "string" }, phoneNumber = new { type = "string" }, unitIdentifier = new { type = "string" }, blockIdentifier = new { type = "string" }, relationshipType = new { type = "string", @enum = new[] { "Owner", "Tenant", "AuthorizedOccupant" } }, isPrimaryResidence = new { type = "boolean" } }, required = new[] { "fullName", "email", "unitIdentifier", "relationshipType" }, additionalProperties = false });
+
     public async Task<AssistantToolResult> ExecuteAsync(string name, string arguments, Guid userId, Guid condominiumId, CancellationToken ct,
-        string channel = "Unknown", IReadOnlyCollection<Guid>? conversationUnitIds = null)
+        string channel = "Unknown", IReadOnlyCollection<Guid>? conversationUnitIds = null,
+        string? externalContextId = null, string? idempotencyKey = null)
     {
         var started = System.Diagnostics.Stopwatch.StartNew();
-        if (!await CanReadAsync(name, userId, condominiumId, ct))
+        if (name != "prepare_resident_registration" && !await CanReadAsync(name, userId, condominiumId, ct))
         {
             logger.LogInformation("Assistant tool denied. Tool: {Tool}; Channel: {Channel}; CondominiumId: {CondominiumId}.", name, channel, condominiumId);
             return Error("Consulta não autorizada.");
@@ -59,6 +70,7 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
                 "search_service_providers" => await SearchProviders(document.RootElement, userId, condominiumId, ct),
                 "get_management_company" => await ManagementCompany(condominiumId, ct),
                 "search_management_company_requests" => await SearchManagementCompanyRequests(document.RootElement, condominiumId, ct),
+                "prepare_resident_registration" => await PrepareResidentRegistration(document.RootElement, userId, condominiumId, channel, externalContextId, idempotencyKey, ct),
                 _ => Error("Tool inexistente.")
             };
             logger.LogInformation("Assistant tool completed. Tool: {Tool}; Channel: {Channel}; CondominiumId: {CondominiumId}; ArgumentFields: {@ArgumentFields}; ResultKind: {ResultKind}; Results: {Results}; ReferenceTypes: {@ReferenceTypes}; DurationMs: {DurationMs}.",
@@ -74,6 +86,22 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         { logger.LogWarning("Assistant tool failed. Tool: {Tool}; CondominiumId: {CondominiumId}; FailureType: {FailureType}.", name, condominiumId, ex.GetType().Name); return Error("Não foi possível consultar este domínio."); }
+    }
+
+    private async Task<AssistantToolResult> PrepareResidentRegistration(JsonElement a, Guid actor, Guid condo, string channel,
+        string? externalContextId, string? idempotencyKey, CancellationToken ct)
+    {
+        if (residentRegistration is null || !Enum.TryParse<CondominiumAssistantChannel>(channel, out var parsedChannel)
+            || parsedChannel != CondominiumAssistantChannel.Telegram || string.IsNullOrWhiteSpace(externalContextId) || string.IsNullOrWhiteSpace(idempotencyKey))
+            return Error("Não foi possível preparar este cadastro agora.");
+        var prepared = await residentRegistration.PrepareAsync(new(actor, condo, parsedChannel, externalContextId, idempotencyKey,
+            Text(a, "fullName"), Text(a, "email"), Text(a, "phoneNumber"), Text(a, "unitIdentifier"), Text(a, "blockIdentifier"),
+            Text(a, "relationshipType"), Bool(a, "isPrimaryResidence")), ct);
+        if (prepared.ReadyToPreview && prepared.ActionId is Guid actionId && prepared.Preview is not null)
+            return new(JsonSerializer.Serialize(new { status = "prepared", preview = new { prepared.Preview.FullName, prepared.Preview.Unit, prepared.Preview.Email, prepared.Preview.PhoneNumber, prepared.Preview.RelationshipType } }), [], true, actionId, prepared.Preview);
+        if (prepared.MissingFields is { Count: > 0 }) return Error($"Dados necessários: {string.Join(", ", prepared.MissingFields)}.");
+        if (prepared.UnitOptions is { Count: > 0 }) return Error($"Informe o bloco da unidade: {string.Join("; ", prepared.UnitOptions)}.");
+        return Error(prepared.Error switch { "UnitNotFound" => "Unidade não encontrada. Confira bloco e unidade.", "Forbidden" => "Não foi possível preparar este cadastro.", _ => "Confira os dados do cadastro e tente novamente." });
     }
 
     private async Task<bool> CanReadAsync(string tool, Guid userId, Guid condo, CancellationToken ct)
@@ -216,6 +244,7 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
     private IQueryable<CondoLink.Domain.Entities.Request> RequestsFor(Guid condo) =>
         db.Requests.AsNoTracking().Where(x => x.CondominiumId == condo);
     private static string Text(JsonElement e, string name) => e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString()?.Trim() ?? "" : "";
+    private static bool Bool(JsonElement e, string name) => e.TryGetProperty(name, out var p) && p.ValueKind is JsonValueKind.True or JsonValueKind.False && p.GetBoolean();
     private static string ResultKind(string json)
     {
         using var document = JsonDocument.Parse(json);
