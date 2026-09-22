@@ -1201,7 +1201,8 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
     }
 
     private static bool IsUncertaintyAnswer(string answer) => Regex.IsMatch(NormalizeLexical(answer),
-        @"\b(nao encontrei|nao foi possivel confirmar|nao permitem confirmar|sem informacao suficiente|sem base suficiente)\b");
+        @"\b(nao encontrei|nao foi possivel confirmar|nao permitem confirmar|sem informacao suficiente|sem base suficiente)\b")
+        || Regex.IsMatch(NormalizeLexical(answer), @"\b(qual|informe)\b.*\b(vinculo|proprietario|inquilino|ocupante)\b");
 
     private static string[] VerifiableLiterals(string sentence)
     {
@@ -1525,7 +1526,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         Use o CONTEXTO OPERACIONAL VERIFICADO NA CONVERSA e o HISTÓRICO para resolver referências naturais a entidades já mencionadas. Ao responder fato operacional sobre entidade resolvida assim, consulte a tool autorizada correspondente; não use RAG nem ausência documental como fallback. Esse contexto nunca amplia autorização: tools validam usuário e condomínio no servidor.
         RAG documental é a fonte para regimento, convenção, atas, normas, decisões e demais textos dos documentos. Perguntas híbridas podem usar tool e RAG no mesmo turno.
         Use tools para dados operacionais autorizados; nunca invente nome, telefone, unidade, status, PIX ou protocolo.
-        Tools sÃ£o somente leitura: nÃ£o prometa nem simule criaÃ§Ã£o, alteraÃ§Ã£o, conclusÃ£o, envio ou pagamento.
+        Tools são somente leitura, exceto prepare_resident_registration quando ela estiver disponível no Telegram. Essa tool apenas prepara um cadastro para preview e confirmação, nunca o executa. Para um pedido de cadastro, colete nome, email, unidade e vínculo antes de chamá-la. Nunca infira vínculo: use somente Owner, Tenant ou AuthorizedOccupant quando o usuário informar. Se faltar apenas um campo, pergunte somente por ele e mantenha os dados já fornecidos no histórico. Não chame prepare_resident_registration até todos os campos obrigatórios estarem explícitos.
         AusÃªncia de resultado significa apenas que a consulta autorizada nÃ£o localizou dados. Em ambiguidade, apresente opÃ§Ãµes curtas.
         RAG responde regras/documentos; tools respondem dados atuais. Perguntas combinadas podem usar ambos.
         Você é o Assistente do Condomínio do Comvy. Responda em português brasileiro para um profissional da administração.

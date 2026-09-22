@@ -105,6 +105,12 @@ public sealed class CondominiumAssistantTests
     }
 
     [Fact]
+    public void Operational_references_are_empty_for_legacy_sources_array()
+    {
+        Assert.Empty(CondominiumAssistantEndpoints.ParseOperationalReferences("[]"));
+    }
+
+    [Fact]
     public async Task Local_embedding_is_stable_and_normalized()
     {
         var service = new LocalEmbeddingService();

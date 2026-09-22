@@ -470,7 +470,8 @@ public static class CondominiumAssistantEndpoints
         try
         {
             using var document = JsonDocument.Parse(json);
-            if (!document.RootElement.TryGetProperty("operationalReferences", out var values)
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("operationalReferences", out var values)
                 || values.ValueKind != JsonValueKind.Array) return [];
             return values.EnumerateArray().Select(item =>
             {
