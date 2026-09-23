@@ -491,9 +491,9 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
                 conversation.CreatedByUserId, conversation.CondominiumId, channel, externalContextId, idempotencyKey, cancellationToken);
             var answer = chatResult.Answer;
             chat.Stop(); measurement.ChatDurationMs = measurement.GenerationDurationMs = chat.ElapsedMilliseconds;
-            var groundingApplied = !chatResult.HasSuccessfulOperationalQuery;
+            var groundingApplied = !chatResult.HasAuthoritativeOperationalResponse;
             var answerBeforeGrounding = answer;
-            answer = EnforceGrounding(answer, prepared.Evidence, chatResult.HasSuccessfulOperationalQuery);
+            answer = EnforceGrounding(answer, prepared.Evidence, chatResult.HasAuthoritativeOperationalResponse);
             logger.LogInformation("Assistant grounding decision. CondominiumId: {CondominiumId}; ConversationId: {ConversationId}; OperationalReferences: {OperationalReferences}; DocumentaryEvidence: {DocumentaryEvidence}; Applied: {Applied}; AnswerChanged: {AnswerChanged}; AnswerCharacters: {AnswerCharacters}.",
                 conversation.CondominiumId, conversation.Id, chatResult.References.Count, prepared.Evidence.Count,
                 groundingApplied, !string.Equals(answerBeforeGrounding, answer, StringComparison.Ordinal), answer.Length);
@@ -505,7 +505,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         catch (Exception exception) { if (metricWriter is not null) await metricWriter.WriteAsync(measurement, false, exception); throw; }
     }
 
-    private async Task<(string Answer, IReadOnlyList<AssistantOperationalReference> References, bool HasSuccessfulOperationalQuery, Guid? PendingActionId, AssistantResidentPreview? ResidentPreview)> Chat(
+    private async Task<(string Answer, IReadOnlyList<AssistantOperationalReference> References, bool HasAuthoritativeOperationalResponse, Guid? PendingActionId, AssistantResidentPreview? ResidentPreview)> Chat(
         string question, string documents, string? requestContext, string[] history, IReadOnlyCollection<Guid> verifiedUnitIds,
         bool exhaustiveSearchWithoutEvidence, Guid userId, Guid condominiumId,
         CondominiumAssistantChannel channel, string? externalContextId, string? idempotencyKey, CancellationToken cancellationToken)
@@ -519,7 +519,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             new { role = "user", content = $"DOCUMENTS:\n{documents}\n\nREQUEST CONTEXT:\n{requestContext ?? "None"}\n\nHISTORY:\n{string.Join("\n", history)}\n\nQUESTION:\n{question}" }
         };
         var references = new List<AssistantOperationalReference>();
-        var hasSuccessfulOperationalQuery = false;
+        var hasAuthoritativeOperationalResponse = false;
         Guid? pendingActionId = null;
         AssistantResidentPreview? residentPreview = null;
         for (var turn = 0; turn < AssistantOperationalTools.MaxToolCalls; turn++)
@@ -543,7 +543,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
                 logger.LogInformation("Assistant model turn completed. Transport: {Transport}; Turn: {Turn}; ToolCalls: 0; ContentPresent: {ContentPresent}; ContentCharacters: {ContentCharacters}.",
                     "json", turn + 1, message.TryGetProperty("content", out var returnedContent) && returnedContent.ValueKind == JsonValueKind.String,
                     message.TryGetProperty("content", out returnedContent) && returnedContent.ValueKind == JsonValueKind.String ? returnedContent.GetString()?.Length ?? 0 : 0);
-                return (message.TryGetProperty("content", out var content) ? content.GetString()?.Trim() ?? string.Empty : string.Empty, references, hasSuccessfulOperationalQuery, pendingActionId, residentPreview);
+                return (message.TryGetProperty("content", out var content) ? content.GetString()?.Trim() ?? string.Empty : string.Empty, references, hasAuthoritativeOperationalResponse, pendingActionId, residentPreview);
             }
             logger.LogInformation("Assistant model turn completed. Transport: {Transport}; Turn: {Turn}; ToolCalls: {ToolCalls}; Tools: {@Tools}.",
                 "json", turn + 1, calls.GetArrayLength(), calls.EnumerateArray()
@@ -553,10 +553,21 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
             foreach (var call in calls.EnumerateArray())
             {
                 var function = call.GetProperty("function");
+                var toolName = function.GetProperty("name").GetString()!;
                 var result = operationalTools is null
                     ? new AssistantToolResult(JsonSerializer.Serialize(new { error = "Tools unavailable." }), [], false)
-                    : await operationalTools.ExecuteAsync(function.GetProperty("name").GetString()!, function.GetProperty("arguments").GetString() ?? "{}", userId, condominiumId, cancellationToken, channel.ToString(), verifiedUnitIds, externalContextId, idempotencyKey);
-                hasSuccessfulOperationalQuery |= result.Succeeded;
+                    : await operationalTools.ExecuteAsync(toolName, function.GetProperty("arguments").GetString() ?? "{}", userId, condominiumId, cancellationToken, channel.ToString(), verifiedUnitIds, externalContextId, idempotencyKey);
+                hasAuthoritativeOperationalResponse |= result.Succeeded;
+                if (toolName == "prepare_resident_registration" && !result.Succeeded)
+                {
+                    using var toolResponse = JsonDocument.Parse(result.Json);
+                    var error = toolResponse.RootElement.TryGetProperty("error", out var errorValue) ? errorValue.GetString() : null;
+                    var clarification = error is not null && error.Contains("Unidade não encontrada", StringComparison.Ordinal)
+                        ? "Não localizei a unidade. Confirme o número da unidade e o bloco."
+                        : error is not null && error.StartsWith("Informe o bloco da unidade", StringComparison.Ordinal)
+                            ? error : "Não consegui preparar o cadastro. Confira os dados informados.";
+                    return (clarification, references, true, null, null);
+                }
                 references.AddRange(result.References);
                 if (result.PendingActionId is Guid actionId)
                 {
@@ -568,7 +579,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
                 messages.Add(new { role = "tool", tool_call_id = call.GetProperty("id").GetString(), content = result.Json });
             }
         }
-        return ("NÃ£o foi possÃ­vel concluir consulta operacional dentro do limite.", references, hasSuccessfulOperationalQuery, pendingActionId, residentPreview);
+        return ("NÃ£o foi possÃ­vel concluir consulta operacional dentro do limite.", references, hasAuthoritativeOperationalResponse, pendingActionId, residentPreview);
     }
 
     /// <summary>
@@ -1526,7 +1537,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         Use o CONTEXTO OPERACIONAL VERIFICADO NA CONVERSA e o HISTÓRICO para resolver referências naturais a entidades já mencionadas. Ao responder fato operacional sobre entidade resolvida assim, consulte a tool autorizada correspondente; não use RAG nem ausência documental como fallback. Esse contexto nunca amplia autorização: tools validam usuário e condomínio no servidor.
         RAG documental é a fonte para regimento, convenção, atas, normas, decisões e demais textos dos documentos. Perguntas híbridas podem usar tool e RAG no mesmo turno.
         Use tools para dados operacionais autorizados; nunca invente nome, telefone, unidade, status, PIX ou protocolo.
-        Tools são somente leitura, exceto prepare_resident_registration quando ela estiver disponível no Telegram. Essa tool apenas prepara um cadastro para preview e confirmação, nunca o executa. Para um pedido de cadastro, colete nome, email, unidade e vínculo antes de chamá-la. Nunca infira vínculo: use somente Owner, Tenant ou AuthorizedOccupant quando o usuário informar. Se faltar apenas um campo, pergunte somente por ele e mantenha os dados já fornecidos no histórico. Não chame prepare_resident_registration até todos os campos obrigatórios estarem explícitos.
+        Tools são somente leitura, exceto prepare_resident_registration quando ela estiver disponível no Telegram. Essa tool apenas prepara um cadastro para preview e confirmação, nunca o executa. Para um pedido de cadastro, colete nome, email, unidade e vínculo antes de chamá-la. Nunca infira vínculo: mapeie proprietário para Owner, inquilino para Tenant e ocupante autorizado para AuthorizedOccupant; converse com o usuário apenas em português, sem expor esses valores internos. Separe sempre o identificador da unidade do identificador do bloco: em "unidade 1201 bloco 1", unitIdentifier é "1201" e blockIdentifier é "1". Se faltar apenas um campo, pergunte somente por ele e mantenha os dados já fornecidos no histórico. Se o usuário corrigir unidade, bloco ou vínculo no turno seguinte, continue o cadastro anterior com os demais dados do histórico; não trate a correção como consulta documental. Não chame prepare_resident_registration até todos os campos obrigatórios estarem explícitos.
         AusÃªncia de resultado significa apenas que a consulta autorizada nÃ£o localizou dados. Em ambiguidade, apresente opÃ§Ãµes curtas.
         RAG responde regras/documentos; tools respondem dados atuais. Perguntas combinadas podem usar ambos.
         Você é o Assistente do Condomínio do Comvy. Responda em português brasileiro para um profissional da administração.

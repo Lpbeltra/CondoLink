@@ -634,6 +634,120 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Resident_registration_tenant_in_one_sentence_prepares_the_separate_unit_and_block()
+    {
+        _registrationChat.Mode = RegistrationMode.TenantComplete;
+        await SeedTelegramRegistrationContextAsync(898, "1201", "1");
+
+        await ProcessTextAsync(824, 898,
+            "Cadastre Simao Pedro Debastiani como inquilino da unidade 1201 do bloco 1. O email é simao@pedro.com e o telefone é 44999997777.");
+
+        Assert.Contains("Cadastro de morador", Assert.Single(_bot.Messages));
+        Assert.Single(_bot.InlineKeyboards);
+        Assert.Contains(_registrationChat.SystemPrompts, x => x.Contains("unitIdentifier é \"1201\" e blockIdentifier é \"1\"", StringComparison.Ordinal));
+        await AssertTenantActionAsync();
+    }
+
+    [Fact]
+    public async Task Resident_registration_tenant_followup_keeps_the_original_fields()
+    {
+        _registrationChat.Mode = RegistrationMode.TenantFollowup;
+        await SeedTelegramRegistrationContextAsync(899, "1201", "1");
+        await ProcessTextAsync(825, 899,
+            "Cadastre o morador Simao Pedro Debastiani, email simao@pedro.com, telefone 44999997777 na unidade 1201 bloco 1");
+        Assert.Contains("vínculo", Assert.Single(_bot.Messages), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("(Owner)", _bot.Messages.Single(), StringComparison.Ordinal);
+        Assert.DoesNotContain("(Tenant)", _bot.Messages.Single(), StringComparison.Ordinal);
+        Assert.Empty(_bot.InlineKeyboards);
+        _bot.Messages.Clear();
+
+        await ProcessTextAsync(826, 899, "É inquilino.");
+
+        Assert.Contains("Cadastro de morador", Assert.Single(_bot.Messages));
+        Assert.Single(_bot.InlineKeyboards);
+        Assert.Contains(_registrationChat.ChatPrompts, x => x.Contains("QUESTION:\nÉ inquilino.", StringComparison.Ordinal)
+            && x.Contains("simao@pedro.com", StringComparison.Ordinal)
+            && x.Contains("unidade 1201 bloco 1", StringComparison.Ordinal));
+        await AssertTenantActionAsync();
+    }
+
+    [Fact]
+    public async Task Resident_registration_unit_correction_continues_the_registration_instead_of_rag()
+    {
+        _registrationChat.Mode = RegistrationMode.UnitCorrection;
+        await SeedTelegramRegistrationContextAsync(900, "1201", "1");
+        await ProcessTextAsync(827, 900,
+            "Cadastre Simao Pedro Debastiani como inquilino da unidade 999 bloco 1. O email é simao@pedro.com e o telefone é 44999997777.");
+        Assert.Contains("unidade", Assert.Single(_bot.Messages), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("documentos disponíveis", _bot.Messages.Single(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(_bot.InlineKeyboards);
+        _bot.Messages.Clear();
+
+        await ProcessTextAsync(828, 900, "A unidade é 1201. Ela pertence ao bloco 1. É inquilino.");
+
+        Assert.Contains("Cadastro de morador", Assert.Single(_bot.Messages));
+        Assert.Single(_bot.InlineKeyboards);
+        Assert.Contains(_registrationChat.ChatPrompts, x => x.Contains("QUESTION:\nA unidade é 1201.", StringComparison.Ordinal)
+            && x.Contains("simao@pedro.com", StringComparison.Ordinal)
+            && x.Contains("Assistant: Não localizei a unidade", StringComparison.Ordinal));
+        Assert.Contains(_registrationChat.SystemPrompts, x => x.Contains("continue o cadastro anterior", StringComparison.Ordinal));
+        await AssertTenantActionAsync();
+    }
+
+    [Fact]
+    public async Task Resident_registration_still_allows_a_documentary_question()
+    {
+        _registrationChat.Mode = RegistrationMode.DocumentQuestion;
+        await SeedTelegramRegistrationContextAsync(901, "1201", "1");
+
+        await ProcessTextAsync(829, 901, "O que o regimento diz sobre mudança?");
+
+        Assert.Contains("documentos recuperados", Assert.Single(_bot.Messages), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(_bot.InlineKeyboards);
+        await _host.WithDbAsync(async db => Assert.Empty(await db.PendingAssistantActions.ToArrayAsync()));
+    }
+
+    [Fact]
+    public async Task Resident_registration_resolves_a_unit_even_if_the_model_repeats_its_separate_block_in_the_unit_field()
+    {
+        await SeedTelegramRegistrationContextAsync(902, "1201", "1");
+        var result = await _host.WithServicesAsync(async services =>
+        {
+            var condominiumId = await services.GetRequiredService<AppDbContext>().Condominiums.Select(x => x.Id).SingleAsync();
+            return await services.GetRequiredService<AssistantResidentRegistrationService>().PrepareAsync(new(
+                _managerId, condominiumId, CondominiumAssistantChannel.Telegram,
+                TelegramActionCallbacks.ChatContext(902), "unit-block-regression", "Simao Pedro Debastiani",
+                "simao@pedro.com", "44999997777", "1201 bloco 1", "1", "Tenant", false), default);
+        });
+        Assert.True(result.ReadyToPreview);
+        var mismatchedBlock = await _host.WithServicesAsync(async services =>
+        {
+            var condominiumId = await services.GetRequiredService<AppDbContext>().Condominiums.Select(x => x.Id).SingleAsync();
+            return await services.GetRequiredService<AssistantResidentRegistrationService>().PrepareAsync(new(
+                _managerId, condominiumId, CondominiumAssistantChannel.Telegram,
+                TelegramActionCallbacks.ChatContext(903), "unit-block-mismatch", "Simao Pedro Debastiani",
+                "simao@pedro.com", "44999997777", "1201 bloco 1", "2", "Tenant", false), default);
+        });
+        Assert.Equal("UnitNotFound", mismatchedBlock.Error);
+    }
+
+    private Task AssertTenantActionAsync() => _host.WithDbAsync(async db =>
+    {
+        var action = await db.PendingAssistantActions.SingleAsync();
+        Assert.Equal(PendingAssistantActionStatus.Pending, action.Status);
+        var payload = JsonSerializer.Deserialize<ResidentRegistrationPayload>(action.PayloadJson);
+        Assert.NotNull(payload);
+        Assert.Equal("Simao Pedro Debastiani", payload.FullName);
+        Assert.Equal("simao@pedro.com", payload.Email);
+        Assert.Equal("+5544999999777", payload.PhoneNumber);
+        Assert.Equal("Tenant", payload.RelationshipType);
+        var unit = await db.Units.SingleAsync(x => x.Id == payload.UnitId);
+        Assert.Equal("1201", unit.Identifier);
+        Assert.Equal("1", (await db.CondominiumBlocks.SingleAsync(x => x.Id == unit.BlockId)).Identifier);
+        Assert.False(await db.Users.AnyAsync(x => x.Email == payload.Email));
+    });
+
+    [Fact]
     public async Task Callback_duplicate_confirm_uses_the_terminal_state_without_duplicate_onboarding()
     {
         var (actionId, condominiumId, email) = await AddCallbackRegistrationAsync(895, "joao.duplicate@example.com");
@@ -921,11 +1035,14 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
         var worker = ActivatorUtilities.CreateInstance<TelegramAssistantWorker>(services);
         Assert.True(await worker.ProcessOneAsync(default));
     });
+    private enum RegistrationMode { Owner, TenantComplete, TenantFollowup, UnitCorrection, DocumentQuestion }
     private sealed class TelegramRegistrationChatHandler : HttpMessageHandler
     {
         private bool askedRelationship;
+        public RegistrationMode Mode { get; set; }
         public int PlannerCalls { get; private set; }
         public List<string> ChatPrompts { get; } = [];
+        public List<string> SystemPrompts { get; } = [];
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);
@@ -938,9 +1055,22 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
                 return Json("{\"choices\":[{\"message\":{\"content\":\"{\\\"queries\\\":[\\\"cadastro morador\\\"]}\"}}]}");
             }
             if (body.Contains("resident-registration", StringComparison.Ordinal))
+            {
+                var toolResult = messages[messages.GetArrayLength() - 1].GetProperty("content").GetString() ?? "";
+                if (Mode == RegistrationMode.UnitCorrection && toolResult.Contains("Unidade não encontrada", StringComparison.Ordinal))
+                    return Json("{\"choices\":[{\"message\":{\"content\":\"Não localizei a unidade. Confirme o número e o bloco.\"}}]}");
                 return Json("{\"choices\":[{\"message\":{\"content\":\"Cadastro preparado para confirmação.\"}}]}");
+            }
             var user = messages[1].GetProperty("content").GetString() ?? "";
             ChatPrompts.Add(user);
+            SystemPrompts.Add(system);
+            if (Mode == RegistrationMode.DocumentQuestion)
+                return Json("{\"choices\":[{\"message\":{\"content\":\"Os documentos recuperados não permitem confirmar essa regra.\"}}]}");
+            if (Mode == RegistrationMode.TenantComplete) return ToolCall("Tenant");
+            if (Mode == RegistrationMode.TenantFollowup && user.Contains("QUESTION:\nÉ inquilino.", StringComparison.Ordinal))
+                return ToolCall("Tenant");
+            if (Mode == RegistrationMode.UnitCorrection)
+                return ToolCall("Tenant", user.Contains("QUESTION:\nA unidade é 1201.", StringComparison.Ordinal) ? "1201" : "999");
             if (askedRelationship || body.Contains("1201 do bloco 1", StringComparison.Ordinal)) return ToolCall();
             if (!body.Contains("Simao Pedro Debastiani", StringComparison.Ordinal))
                 throw new HttpRequestException("No deterministic response configured for this test.");
@@ -948,12 +1078,12 @@ public sealed class TelegramAssistantFoundationTests : IAsyncLifetime
             return Json("{\"choices\":[{\"message\":{\"content\":\"Qual é o vínculo de Simao Pedro Debastiani com a unidade 1201 do bloco 1: proprietário, inquilino ou ocupante autorizado?\"}}]}");
         }
 
-        private static HttpResponseMessage ToolCall()
+        private static HttpResponseMessage ToolCall(string relationship = "Owner", string unit = "1201")
         {
             var arguments = JsonSerializer.Serialize(new
             {
                 fullName = "Simao Pedro Debastiani", email = "simao@pedro.com", phoneNumber = "+5544999999777",
-                unitIdentifier = "1201", blockIdentifier = "1", relationshipType = "Owner"
+                unitIdentifier = unit, blockIdentifier = "1", relationshipType = relationship
             });
             return Json(JsonSerializer.Serialize(new
             {

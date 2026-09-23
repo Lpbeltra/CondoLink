@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using CondoLink.Api.Features.Management;
 using CondoLink.Domain.Entities;
 using CondoLink.Domain.Enums;
@@ -17,7 +18,12 @@ public sealed class AssistantResidentRegistrationService(AppDbContext db, Reside
     {
         var missing = Missing(input); if (missing.Count != 0) return AssistantPrepareResult.Missing(missing);
         if (!await IsAuthorizedAsync(input.ActorUserId, input.CondominiumId, ct)) return AssistantPrepareResult.Forbidden();
-        var unit = await ResolveUnitAsync(input.CondominiumId, input.UnitIdentifier!, input.BlockIdentifier, ct);
+        var unitIdentifier = input.UnitIdentifier!.Trim();
+        if (!string.IsNullOrWhiteSpace(input.BlockIdentifier))
+            unitIdentifier = Regex.Replace(unitIdentifier,
+                $@"\s*,?\s*(?:do\s+)?bloco\s+{Regex.Escape(input.BlockIdentifier.Trim())}\s*$", "",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Trim();
+        var unit = await ResolveUnitAsync(input.CondominiumId, unitIdentifier, input.BlockIdentifier, ct);
         if (unit.Count == 0) return AssistantPrepareResult.UnitNotFound();
         if (unit.Count > 1) return AssistantPrepareResult.Ambiguous(unit.Select(x => x.Display).ToArray());
         var email = input.Email!.Trim().ToLowerInvariant();
