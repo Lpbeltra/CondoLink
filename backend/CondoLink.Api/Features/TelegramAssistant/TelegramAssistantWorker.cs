@@ -251,7 +251,7 @@ public sealed class TelegramAssistantWorker(IServiceScopeFactory scopes,
         var responseText = answer.PendingActionId is not null && answer.ResidentPreview is not null
             ? FormatResidentPreview(answer.ResidentPreview) : FormatAnswer(answer);
         db.CondominiumAssistantMessages.Add(new(conversation.Id, CondominiumAssistantRole.Assistant,
-            answer.Answer, JsonSerializer.Serialize(answer.Sources, CondominiumAssistantEndpoints.AssistantJsonOptions)));
+            answer.Answer, CondominiumAssistantEndpoints.SerializeReferences(answer)));
         conversation.Touch();
         if (answer.PendingActionId is Guid actionId)
             PrepareActionResponse(update, responseText, actionId);

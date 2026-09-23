@@ -563,9 +563,18 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
                     using var toolResponse = JsonDocument.Parse(result.Json);
                     var error = toolResponse.RootElement.TryGetProperty("error", out var errorValue) ? errorValue.GetString() : null;
                     var clarification = error is not null && error.Contains("Unidade não encontrada", StringComparison.Ordinal)
-                        ? "Não localizei a unidade. Confirme o número da unidade e o bloco."
-                        : error is not null && error.StartsWith("Informe o bloco da unidade", StringComparison.Ordinal)
-                            ? error : "Não consegui preparar o cadastro. Confira os dados informados.";
+                        ? "Não localizei essa unidade. Confira o número e o bloco."
+                        : error is not null && error.StartsWith("Encontrei mais de uma unidade", StringComparison.Ordinal)
+                            ? error
+                            : error is not null && error.Contains("RelationshipType", StringComparison.Ordinal)
+                                ? "Qual é o vínculo do morador com a unidade: proprietário, inquilino ou ocupante autorizado?"
+                                : error is not null && error.Contains("UnitIdentifier", StringComparison.Ordinal)
+                                    ? "Qual é a unidade do morador?"
+                                    : error is not null && error.Contains("Email", StringComparison.Ordinal)
+                                        ? "Qual é o email do morador?"
+                                        : error is not null && error.Contains("FullName", StringComparison.Ordinal)
+                                            ? "Qual é o nome completo do morador?"
+                                            : "Não consegui preparar o cadastro. Confira os dados informados.";
                     return (clarification, references, true, null, null);
                 }
                 references.AddRange(result.References);
@@ -701,12 +710,16 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         Guid[] verifiedUnitIds = [];
         if (unitIds.Length > 0)
         {
-            var units = await db.Units.AsNoTracking().Where(x => x.CondominiumId == conversation.CondominiumId
-                && unitIds.Contains(x.Id)).Select(x => new { x.Id, x.Identifier }).ToArrayAsync(cancellationToken);
+            var units = await (from unit in db.Units.AsNoTracking()
+                join block in db.CondominiumBlocks.AsNoTracking() on unit.BlockId equals block.Id into blocks
+                from block in blocks.DefaultIfEmpty()
+                where unit.CondominiumId == conversation.CondominiumId && unitIds.Contains(unit.Id)
+                select new { unit.Id, unit.Identifier, Block = block == null ? null : block.Identifier })
+                .ToArrayAsync(cancellationToken);
             if (units.Length > 0)
             {
                 verifiedUnitIds = units.Select(x => x.Id).ToArray();
-                history = [.. history, $"CONTEXTO OPERACIONAL VERIFICADO NA CONVERSA (não é evidência documental; use apenas para resolver referências): unidades {string.Join(", ", units.Select(x => x.Identifier))}."];
+                history = [.. history, $"CONTEXTO OPERACIONAL VERIFICADO NA CONVERSA (não é evidência documental; use apenas para resolver referências): unidades {string.Join(", ", units.Select(x => x.Block is null ? x.Identifier : $"{x.Identifier} do bloco {x.Block}"))}."];
                 verifiedUnitContextIncluded = true;
             }
         }
@@ -1537,7 +1550,7 @@ public sealed class CondominiumAssistantService(AppDbContext db, IEmbeddingServi
         Use o CONTEXTO OPERACIONAL VERIFICADO NA CONVERSA e o HISTÓRICO para resolver referências naturais a entidades já mencionadas. Ao responder fato operacional sobre entidade resolvida assim, consulte a tool autorizada correspondente; não use RAG nem ausência documental como fallback. Esse contexto nunca amplia autorização: tools validam usuário e condomínio no servidor.
         RAG documental é a fonte para regimento, convenção, atas, normas, decisões e demais textos dos documentos. Perguntas híbridas podem usar tool e RAG no mesmo turno.
         Use tools para dados operacionais autorizados; nunca invente nome, telefone, unidade, status, PIX ou protocolo.
-        Tools são somente leitura, exceto prepare_resident_registration quando ela estiver disponível no Telegram. Essa tool apenas prepara um cadastro para preview e confirmação, nunca o executa. Para um pedido de cadastro, colete nome, email, unidade e vínculo antes de chamá-la. Nunca infira vínculo: mapeie proprietário para Owner, inquilino para Tenant e ocupante autorizado para AuthorizedOccupant; converse com o usuário apenas em português, sem expor esses valores internos. Separe sempre o identificador da unidade do identificador do bloco: em "unidade 1201 bloco 1", unitIdentifier é "1201" e blockIdentifier é "1". Se faltar apenas um campo, pergunte somente por ele e mantenha os dados já fornecidos no histórico. Se o usuário corrigir unidade, bloco ou vínculo no turno seguinte, continue o cadastro anterior com os demais dados do histórico; não trate a correção como consulta documental. Não chame prepare_resident_registration até todos os campos obrigatórios estarem explícitos.
+        Tools são somente leitura, exceto prepare_resident_registration quando ela estiver disponível no Telegram. Essa tool apenas prepara um cadastro para preview e confirmação, nunca o executa. Para um pedido de cadastro, colete nome, email, unidade e vínculo antes de chamá-la. Nunca infira vínculo: mapeie proprietário para Owner, inquilino para Tenant e ocupante autorizado para AuthorizedOccupant; converse com o usuário apenas em português, sem expor esses valores internos. Separe sempre o identificador da unidade do identificador do bloco: em "unidade 1201 bloco 1", unitIdentifier é "1201" e blockIdentifier é "1". Se faltar apenas um campo, pergunte somente por ele e mantenha os dados já fornecidos no histórico. Se o usuário corrigir unidade, bloco ou vínculo no turno seguinte, continue o cadastro anterior com os demais dados do histórico; não trate a correção como consulta documental. Se você perguntou se deve preparar o cadastro e o usuário respondeu "sim", use o histórico e o contexto operacional verificado para chamar apenas prepare_resident_registration; esse "sim" não confirma nem executa o cadastro. Não chame prepare_resident_registration até todos os campos obrigatórios estarem explícitos.
         AusÃªncia de resultado significa apenas que a consulta autorizada nÃ£o localizou dados. Em ambiguidade, apresente opÃ§Ãµes curtas.
         RAG responde regras/documentos; tools respondem dados atuais. Perguntas combinadas podem usar ambos.
         Você é o Assistente do Condomínio do Comvy. Responda em português brasileiro para um profissional da administração.

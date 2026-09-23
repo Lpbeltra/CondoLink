@@ -18,12 +18,16 @@ public sealed class AssistantResidentRegistrationService(AppDbContext db, Reside
     {
         var missing = Missing(input); if (missing.Count != 0) return AssistantPrepareResult.Missing(missing);
         if (!await IsAuthorizedAsync(input.ActorUserId, input.CondominiumId, ct)) return AssistantPrepareResult.Forbidden();
-        var unitIdentifier = input.UnitIdentifier!.Trim();
-        if (!string.IsNullOrWhiteSpace(input.BlockIdentifier))
-            unitIdentifier = Regex.Replace(unitIdentifier,
-                $@"\s*,?\s*(?:do\s+)?bloco\s+{Regex.Escape(input.BlockIdentifier.Trim())}\s*$", "",
+        var unitIdentifier = Regex.Replace(input.UnitIdentifier!.Trim(),
+            @"^(?:unidade|apartamento|apto\.?)\s+", "", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Trim();
+        var blockIdentifier = string.IsNullOrWhiteSpace(input.BlockIdentifier) ? null
+            : Regex.Replace(input.BlockIdentifier.Trim(), @"^bloco\s+", "",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Trim();
-        var unit = await ResolveUnitAsync(input.CondominiumId, unitIdentifier, input.BlockIdentifier, ct);
+        if (!string.IsNullOrWhiteSpace(blockIdentifier))
+            unitIdentifier = Regex.Replace(unitIdentifier,
+                $@"\s*,?\s*(?:do\s+)?bloco\s+{Regex.Escape(blockIdentifier)}\s*$", "",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant).Trim();
+        var unit = await ResolveUnitAsync(input.CondominiumId, unitIdentifier, blockIdentifier, ct);
         if (unit.Count == 0) return AssistantPrepareResult.UnitNotFound();
         if (unit.Count > 1) return AssistantPrepareResult.Ambiguous(unit.Select(x => x.Display).ToArray());
         var email = input.Email!.Trim().ToLowerInvariant();

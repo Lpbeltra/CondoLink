@@ -495,7 +495,7 @@ public static class CondominiumAssistantEndpoints
         _ => null
     };
 
-    private static string SerializeReferences(AssistantAnswer answer) => JsonSerializer.Serialize(new
+    internal static string SerializeReferences(AssistantAnswer answer) => JsonSerializer.Serialize(new
     {
         sources = answer.Sources,
         operationalReferences = answer.OperationalReferences ?? []

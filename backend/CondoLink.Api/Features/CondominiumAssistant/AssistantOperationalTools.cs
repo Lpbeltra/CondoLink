@@ -100,7 +100,7 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
         if (prepared.ReadyToPreview && prepared.ActionId is Guid actionId && prepared.Preview is not null)
             return new(JsonSerializer.Serialize(new { status = "prepared", preview = new { prepared.Preview.FullName, prepared.Preview.Unit, prepared.Preview.Email, prepared.Preview.PhoneNumber, prepared.Preview.RelationshipType } }), [], true, actionId, prepared.Preview);
         if (prepared.MissingFields is { Count: > 0 }) return Error($"Dados necessários: {string.Join(", ", prepared.MissingFields)}.");
-        if (prepared.UnitOptions is { Count: > 0 }) return Error($"Informe o bloco da unidade: {string.Join("; ", prepared.UnitOptions)}.");
+        if (prepared.UnitOptions is { Count: > 0 }) return Error("Encontrei mais de uma unidade com esse número. Qual é o bloco?");
         return Error(prepared.Error switch { "UnitNotFound" => "Unidade não encontrada. Confira bloco e unidade.", "Forbidden" => "Não foi possível preparar este cadastro.", _ => "Confira os dados do cadastro e tente novamente." });
     }
 
@@ -137,12 +137,18 @@ public sealed class AssistantOperationalTools(AppDbContext db, ILogger<Assistant
         var rows = await (from m in db.UnitMemberships.AsNoTracking()
                           join u in db.Units.AsNoTracking() on m.UnitId equals u.Id
                           join p in db.Users.AsNoTracking() on m.UserId equals p.Id
+                          join b in db.CondominiumBlocks.AsNoTracking() on u.BlockId equals b.Id into blocks
+                          from b in blocks.DefaultIfEmpty()
                           where u.CondominiumId == condo && u.IsActive && m.IsActive && m.IsResident && u.Identifier.ToLower() == unit.ToLower()
-                          select new { UnitId = u.Id, p.FullName, p.PhoneNumber, p.Email, Unit = u.Identifier, Relationship = m.RelationshipType.ToString() }).Take(MaxRows).ToArrayAsync(ct);
-        var reference = rows.FirstOrDefault() is { } first
-            ? new AssistantOperationalReference("unit", first.UnitId, $"Unidade {first.Unit}", $"/management/units/{first.UnitId}")
-            : null;
-        return Rows(rows, reference is null ? [] : [reference]);
+                          select new { UnitId = u.Id, p.FullName, p.PhoneNumber, p.Email, Unit = u.Identifier, Block = b == null ? null : b.Identifier, Relationship = m.RelationshipType.ToString() }).Take(MaxRows).ToArrayAsync(ct);
+        var references = rows.GroupBy(x => x.UnitId).Select(group =>
+        {
+            var first = group.First();
+            return new AssistantOperationalReference("unit", first.UnitId,
+                first.Block is null ? $"Unidade {first.Unit}" : $"Bloco {first.Block} — Unidade {first.Unit}",
+                $"/management/units/{first.UnitId}");
+        }).ToArray();
+        return Rows(rows, references);
     }
 
     private async Task<AssistantToolResult> SearchRequests(JsonElement a, Guid condo, CancellationToken ct,
