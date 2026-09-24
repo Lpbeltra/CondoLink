@@ -90,6 +90,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<OperationalEvent> OperationalEvents => Set<OperationalEvent>();
     public DbSet<OperationalMessageTemplate> OperationalMessageTemplates =>
         Set<OperationalMessageTemplate>();
+    public DbSet<CommercialDemoDataset> CommercialDemoDatasets => Set<CommercialDemoDataset>();
     public DbSet<AgendaReminder> AgendaReminders => Set<AgendaReminder>();
     public DbSet<AgendaReminderRequest> AgendaReminderRequests =>
         Set<AgendaReminderRequest>();

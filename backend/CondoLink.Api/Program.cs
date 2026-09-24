@@ -234,6 +234,8 @@ builder.Services.AddSwaggerGen(options =>
 
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<LocalFileStorage>();
+builder.Services.AddScoped<CondoLink.Api.Features.Overwatch.CommercialDemo.CommercialDemoCreator>();
+builder.Services.AddScoped<CondoLink.Api.Features.Overwatch.CommercialDemo.CommercialDemoReverter>();
 builder.Services.AddSingleton<ICondominiumDocumentStorage>(services => services.GetRequiredService<LocalFileStorage>());
 
 var allowedOrigins = builder.Configuration

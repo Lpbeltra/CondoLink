@@ -51,7 +51,8 @@ public static class CondominiumAssistantEndpoints
                 NeedsKnowledgeUpdate = x.ProcessingStatus == CondominiumDocumentProcessingStatus.Ready
                     && !db.CondominiumDocumentKnowledge.Any(item => item.CondominiumDocumentId == x.Id) }).ToArrayAsync(ct);
         return Results.Ok(documents.Select(x => new { x.Id,
-            Name = CondominiumAssistantService.DisplayDocumentName(x.Name, x.OriginalFileName), x.DocumentType,
+            Name = CondominiumAssistantService.DisplayDocumentName(x.Name, x.OriginalFileName),
+            DocumentType = x.DocumentType.ToString(),
             x.OriginalFileName, x.Version, x.DocumentDate, x.IsActive, x.ProcessingStatus,
             x.ProcessingError, x.CreatedAt, x.UpdatedAt, x.NeedsReindexing, x.NeedsKnowledgeUpdate }));
     }
