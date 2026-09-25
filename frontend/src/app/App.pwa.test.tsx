@@ -10,10 +10,14 @@ vi.mock('../theme/AppThemeProvider', () => ({
 vi.mock('../auth/AuthProvider', () => ({
   AuthProvider: ({ children }: PropsWithChildren) => <>{children}</>,
 }))
+vi.mock('../auth/AuthContext', () => ({
+  useAuth: () => ({ user: null, isInitializing: false }),
+}))
 vi.mock('../condominiums/CondominiumProvider', () => ({
   CondominiumProvider: ({ children }: PropsWithChildren) => <>{children}</>,
 }))
 vi.mock('../pages/LoginPage', () => ({ LoginPage: () => <div>Login route</div> }))
+vi.mock('../pages/PublicLandingPage', () => ({ PublicLandingPage: () => <div>Public landing route</div> }))
 
 describe('global PWA update prompt', () => {
   beforeEach(() => {
@@ -27,5 +31,13 @@ describe('global PWA update prompt', () => {
 
     expect(screen.getByText('Login route')).toBeVisible()
     expect(await screen.findByText('Nova versão do Comvy disponível.')).toBeVisible()
+  })
+
+  it('keeps the root public when there is no authenticated session', () => {
+    window.history.pushState({}, '', '/')
+
+    render(<App />)
+
+    expect(screen.getByText('Public landing route')).toBeVisible()
   })
 })

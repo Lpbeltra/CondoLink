@@ -26,6 +26,7 @@ import { getProtectedRouteAccess } from "../auth/routeAccess";
 import { lazyPage } from "./lazyPage";
 import { AdministratorProvider } from "../administrator/AdministratorProvider";
 import { PwaUpdatePrompt } from "../pwa/PwaUpdatePrompt";
+import { PublicLandingPage } from "../pages/PublicLandingPage";
 
 const MyRequestsPage = lazyPage(
   () => import("../pages/MyRequestsPage"),
@@ -187,6 +188,12 @@ function ProtectedRoute() {
   );
 }
 
+function PublicRootRoute() {
+  const { user, isInitializing } = useAuth();
+  if (isInitializing) return <LoadingScreen />;
+  return user ? <Navigate to="/app" replace /> : <PublicLandingPage />;
+}
+
 function ManagementPeopleRoute() {
   const location = useLocation();
   return new URLSearchParams(location.search).get("view") === "units"
@@ -202,6 +209,7 @@ export function App() {
         <AuthProvider>
           <CondominiumProvider>
             <Routes>
+              <Route path="/" element={<PublicRootRoute />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -209,7 +217,7 @@ export function App() {
               <Route path="/primeiro-acesso" element={<FirstAccessPage />} />
               <Route element={<ProtectedRoute />}>
                 <Route element={<AppShell />}>
-                  <Route index element={<HomePage />} />
+                  <Route path="app" element={<HomePage />} />
                   <Route path="requests" element={<MyRequestsPage />} />
                   <Route path="requests/new" element={<CreateRequestPage />} />
                   <Route
