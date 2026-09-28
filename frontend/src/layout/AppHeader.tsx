@@ -51,7 +51,7 @@ export function AppHeader() {
   const brandPath = location.pathname.startsWith("/overwatch")
     ? "/overwatch"
     : (managementContext?.condominiumCount ?? 0) > 0
-      ? "/management/dashboard"
+      ? "/app"
       : administrator
         ? "/administrator/requests"
         : "/";

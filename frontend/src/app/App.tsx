@@ -10,7 +10,7 @@ import { AuthProvider } from "../auth/AuthProvider";
 import { useAuth } from "../auth/AuthContext";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { AppShell } from "../layout/AppShell";
-import { HomePage } from "../pages/HomePage";
+import { AuthenticatedEntryPage } from "../pages/AuthenticatedEntryPage";
 import { LoginPage } from "../pages/LoginPage";
 import { ChangePasswordPage } from "../pages/ChangePasswordPage";
 import { FirstAccessPage } from "../pages/FirstAccessPage";
@@ -184,7 +184,7 @@ function ProtectedRoute() {
       </AdministratorProvider>
     </ManagementContextProvider>
   ) : (
-    <Navigate to="/login" replace state={{ from: location.pathname }} />
+    <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />
   );
 }
 
@@ -217,7 +217,7 @@ export function App() {
               <Route path="/primeiro-acesso" element={<FirstAccessPage />} />
               <Route element={<ProtectedRoute />}>
                 <Route element={<AppShell />}>
-                  <Route path="app" element={<HomePage />} />
+                  <Route path="app" element={<AuthenticatedEntryPage />} />
                   <Route path="requests" element={<MyRequestsPage />} />
                   <Route path="requests/new" element={<CreateRequestPage />} />
                   <Route

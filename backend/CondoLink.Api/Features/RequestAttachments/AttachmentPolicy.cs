@@ -50,6 +50,7 @@ public static class AttachmentPolicy
         return mediaType?.ToLowerInvariant() switch
         {
             "audio/ogg" => new("audio/ogg", "audio.ogg"),
+            "audio/webm" => new("audio/webm", "audio.webm"),
             "audio/mpeg" => new("audio/mpeg", "audio.mp3"),
             "audio/mp4" or "audio/x-m4a" => new("audio/mp4", "audio.m4a"),
             "audio/aac" => new("audio/aac", "audio.aac"),

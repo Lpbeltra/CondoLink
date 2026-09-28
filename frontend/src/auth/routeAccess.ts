@@ -5,6 +5,13 @@ export type ProtectedRouteAccess = 'loading' | 'authenticated' | 'login'
 export type OverwatchRouteAccess = 'loading' | 'allowed' | 'home'
 export const authenticatedEntryPath = '/'
 
+export function authenticationReturnPath(state: unknown): string {
+  const from = (state as { from?: unknown } | null)?.from
+  return typeof from === 'string' && from.startsWith('/') && !from.startsWith('//')
+    && !from.includes('\\') && !/^\/(login|change-password|primeiro-acesso)(?:[/?#]|$)/.test(from)
+    ? from : authenticatedEntryPath
+}
+
 export function getProtectedRouteAccess(
   isInitializing: boolean,
   user: User | null,

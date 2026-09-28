@@ -395,6 +395,7 @@ app.MapResetMemberTemporaryPassword();
 app.MapUpdateCondominiumMember();
 app.MapCondominiumSetup();
 app.MapCondominiumAssistant();
+CondoLink.Api.Features.Voice.VoiceTranscriptionEndpoints.MapVoiceTranscription(app);
 
 // Management
 app.MapManagementContext();

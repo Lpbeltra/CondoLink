@@ -15,7 +15,7 @@ vi.mock("../layout/AppShell", async () => {
   return { AppShell: () => <Outlet /> };
 });
 vi.mock("../components/LoadingScreen", () => ({ LoadingScreen: () => <div>Restoring session</div> }));
-vi.mock("../pages/HomePage", () => ({ HomePage: () => <div>Existing profile entry</div> }));
+vi.mock("../pages/AuthenticatedEntryPage", () => ({ AuthenticatedEntryPage: () => <div>Existing profile entry</div> }));
 vi.mock("../pages/LoginPage", () => ({ LoginPage: () => <div>Existing login</div> }));
 
 describe("landing route boundaries", () => {

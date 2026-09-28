@@ -13,13 +13,14 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
 import { authError } from '../auth/errors'
 import { useAuth } from '../auth/AuthContext'
-import { authenticatedEntryPath } from '../auth/routeAccess'
+import { authenticationReturnPath } from '../auth/routeAccess'
 import { PasswordVisibilityAdornment } from '../components/PasswordVisibilityAdornment'
 import { AuthShell } from '../layout/AuthShell'
 
 interface ChangePasswordLocationState {
   email?: string
   temporaryPassword?: string
+  from?: string
 }
 
 export function ChangePasswordPage() {
@@ -58,7 +59,7 @@ export function ChangePasswordPage() {
         confirmation,
       })
       await login(email.trim(), newPassword)
-      navigate(authenticatedEntryPath, {
+      navigate(authenticationReturnPath(state), {
         replace: true,
         state: { passwordChanged: true },
       })

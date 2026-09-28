@@ -6,7 +6,7 @@ export const pwaManifest = {
   theme_color: '#6682f4',
   background_color: '#f6f8fc',
   display: 'standalone' as const,
-  start_url: '/',
+  start_url: '/app',
   scope: '/',
   lang: 'pt-BR',
   icons: [

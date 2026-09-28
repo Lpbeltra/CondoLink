@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { HomePage } from './HomePage'
+import { AuthenticatedEntryPage } from './AuthenticatedEntryPage'
 
 const state = vi.hoisted(() => ({
   mobile: true,
@@ -14,7 +14,6 @@ const state = vi.hoisted(() => ({
   resident: false,
   administrator: null as object | null,
 }))
-vi.mock('@mui/material', async original => ({ ...await original<typeof import('@mui/material')>(), useMediaQuery: () => state.mobile }))
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ user: state.user }) }))
 vi.mock('../management/ManagementContext', () => ({ useManagementContext: () => state.management }))
 vi.mock('../condominiums/CondominiumContext', () => ({ useCondominium: () => ({ currentCondominium: null, isResident: state.resident }) }))
@@ -23,7 +22,11 @@ vi.mock('../management/components/ManagementCondominiumSwitcher', () => ({ Manag
 
 function page(path = '/app') {
   return render(<MemoryRouter initialEntries={[path]}><Routes>
-    <Route path="/app" element={<HomePage />} />
+    <Route path="/app" element={<AuthenticatedEntryPage />} />
+    <Route path="/requests" element={<div>Resident destination</div>} />
+    <Route path="/overwatch" element={<div>Overwatch destination</div>} />
+    <Route path="/management/people" element={<div>Management destination</div>} />
+    <Route path="/management/service-providers" element={<div>Management destination</div>} />
     <Route path="/management/dashboard" element={<div>Dashboard destination</div>} />
     <Route path="/management/requests" element={<div>Attendance destination</div>} />
     <Route path="/management/requests/:id" element={<div>Deep link destination</div>} />
@@ -33,6 +36,7 @@ function page(path = '/app') {
 
 describe('home entry by viewport and resolved context', () => {
   beforeEach(() => {
+    vi.spyOn(window, 'matchMedia').mockImplementation(query => ({ matches: state.mobile && query.includes('max-width'), media: query, onchange: null, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false }))
     state.mobile = true
     state.user.roles = ['Manager']
     state.management = { activeCondominium: { id: 'condo', name: 'Aurora' }, condominiumCount: 1, isLoading: false, managementRoles: ['Manager'], subManagerPermissions: [] }
@@ -46,10 +50,10 @@ describe('home entry by viewport and resolved context', () => {
   it.each([true, false])('respects SubManager Attendance permission (%s)', allowed => {
     state.management.managementRoles = ['SubManager']; state.user.roles = ['SubManager']
     state.management.subManagerPermissions = allowed ? ['Attendance'] : ['Management']
-    page(); expect(screen.getByText(allowed ? 'Attendance destination' : 'Dashboard destination')).toBeVisible()
+    page(); expect(screen.getByText(allowed ? 'Attendance destination' : 'Management destination')).toBeVisible()
   })
-  it('leaves PlatformAdmin entry unchanged', () => { state.user.roles = ['PlatformAdmin']; page(); expect(screen.getByRole('heading', { name: 'Olá, Maria' })).toBeVisible() })
+  it('opens Overwatch for PlatformAdmin', () => { state.user.roles = ['PlatformAdmin']; page(); expect(screen.getByText('Overwatch destination')).toBeVisible() })
   it('keeps the administrator portal entry', () => { state.management.condominiumCount = 0; state.management.activeCondominium = null; state.administrator = {}; page(); expect(screen.getByText('Administrator destination')).toBeVisible() })
-  it('leaves residents on their existing home', () => { state.management.condominiumCount = 0; state.management.activeCondominium = null; state.resident = true; state.user.roles = ['Resident']; page(); expect(screen.getByRole('button', { name: 'Ver minhas solicitações' })).toBeVisible() })
+  it('opens the resident request list without the intermediate home', () => { state.management.condominiumCount = 0; state.management.activeCondominium = null; state.resident = true; state.user.roles = ['Resident']; page(); expect(screen.getByText('Resident destination')).toBeVisible() })
   it('does not intercept a deep link', () => { page('/management/requests/request?tab=history'); expect(screen.getByText('Deep link destination')).toBeVisible() })
 })

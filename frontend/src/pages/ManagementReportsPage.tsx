@@ -84,7 +84,7 @@ function AttentionSection({ data }: { data: OperationalDashboardData | null }) {
     {
       label: 'Dar andamento',
       value: data.counts.waitingForManager,
-      description: 'Precisam de acao',
+      description: 'Precisam de ação',
       to: '/management/requests?status=WaitingForManager',
       tone: 'primary.main',
     },

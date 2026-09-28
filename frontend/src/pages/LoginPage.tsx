@@ -1,23 +1,24 @@
 import { useState, type FormEvent } from 'react'
 import { Alert, Box, Button, CircularProgress, Stack, TextField, Typography } from '@mui/material'
 import LoginRoundedIcon from '@mui/icons-material/LoginRounded'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { authError } from '../auth/errors'
-import { authenticatedEntryPath } from '../auth/routeAccess'
+import { authenticationReturnPath } from '../auth/routeAccess'
 import { PasswordVisibilityAdornment } from '../components/PasswordVisibilityAdornment'
 import { AuthShell } from '../layout/AuthShell'
 
 export function LoginPage() {
   const { user, login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
-  if (user) return <Navigate to="/" replace />
+  if (user) return <Navigate to={authenticationReturnPath(location.state)} replace />
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
@@ -34,11 +35,12 @@ export function LoginPage() {
           state: {
             email: outcome.email,
             temporaryPassword: outcome.temporaryPassword,
+            from: authenticationReturnPath(location.state),
           },
         })
         return
       }
-      navigate(authenticatedEntryPath, { replace: true })
+      navigate(authenticationReturnPath(location.state), { replace: true })
     } catch (requestError) {
       setError(authError(requestError))
     } finally {

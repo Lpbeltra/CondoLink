@@ -78,7 +78,7 @@ export function Sidebar() {
             administrator && condominiumCount === 0
               ? "/administrator/requests"
               : condominiumCount > 0
-                ? "/management/dashboard"
+                ? "/app"
                 : "/"
           }
           aria-label="Ir para a página principal"

@@ -9,7 +9,8 @@ import { PageContainer } from '../components/PageContainer'
 import { PageHeader } from '../components/PageHeader'
 import { useGuardedLoad } from '../components/useGuardedLoad'
 import { useManagementContext } from '../management/ManagementContext'
-import { hasWhatsAppPhone, OpenProviderWhatsAppButton } from '../requests/components/ProviderWhatsAppDialog'
+import { OpenProviderWhatsAppButton } from '../requests/components/ProviderWhatsAppDialog'
+import { hasWhatsAppPhone } from '../communication/whatsApp'
 import { createServiceProvider, listServiceProviders, updateServiceProvider, type PixKeyType, type ServiceProvider, type ServiceProviderInput } from './api'
 
 const blank: ServiceProviderInput = { name:'', companyName:'', specialties:[], phone:'', email:'', pixKey:'', pixKeyType:null, notes:'', isMine:true, condominiumIds:[], isActive:true }

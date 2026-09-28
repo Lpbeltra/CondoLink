@@ -8,7 +8,7 @@ const publicAsset = (name: string) => resolve(process.cwd(), 'public', name)
 describe('PWA manifest identity', () => {
   it('defines stable identity and install icons', () => {
     expect(pwaManifest.id).toBe('/')
-    expect(pwaManifest.start_url).toBe('/')
+    expect(pwaManifest.start_url).toBe('/app')
     expect(pwaManifest.scope).toBe('/')
     expect(pwaManifest.icons).toEqual(expect.arrayContaining([
       expect.objectContaining({ src: '/comvy-icon-192-v1.png', sizes: '192x192', purpose: 'any' }),

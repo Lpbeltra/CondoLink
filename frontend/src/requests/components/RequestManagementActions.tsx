@@ -1,6 +1,12 @@
 import { useState } from 'react'
 import axios from 'axios'
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded'
+import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded'
+import FlagRoundedIcon from '@mui/icons-material/FlagRounded'
+import EventNoteRoundedIcon from '@mui/icons-material/EventNoteRounded'
+import { VoiceInput } from '../../communication/VoiceInput'
+import { WhatsAppButton } from '../../communication/WhatsAppButton'
+import { hasWhatsAppPhone } from '../../communication/whatsApp'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import ReplayRoundedIcon from '@mui/icons-material/ReplayRounded'
 import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlineRounded'
@@ -13,11 +19,12 @@ import { canSubmitStatus, getRequestActionVisibility, getStatusConfirmation, req
 import { useNavigate } from 'react-router-dom'
 import type { AgendaReminderSummary } from '../types'
 
-interface Props { requestId: string; status: RequestStatus; priority: RequestPriority; agendaReminder?: AgendaReminderSummary | null; onUpdated: () => Promise<void> }
+interface Props { requestId: string; status: RequestStatus; priority: RequestPriority; agendaReminder?: AgendaReminderSummary | null; residentPhone?: string | null; onUpdated: () => Promise<void> }
 const residentStatuses: RequestStatus[] = ['WaitingForResident', 'WaitingForThirdParty', 'WaitingForResidentClosure', 'Resolved', 'Cancelled', 'Open']
 
-export function RequestManagementActions({ requestId, status, priority, agendaReminder, onUpdated }: Props) {
+export function RequestManagementActions({ requestId, status, priority, agendaReminder, residentPhone, onUpdated }: Props) {
   const navigate = useNavigate()
+  const [voiceBusy, setVoiceBusy] = useState(false)
   const [statusOpen, setStatusOpen] = useState(false), [priorityOpen, setPriorityOpen] = useState(false)
   const [nextStatus, setNextStatus] = useState<RequestStatus | ''>(''), [nextPriority, setNextPriority] = useState<RequestPriority | ''>('')
   const [reason, setReason] = useState(''), [suggestion, setSuggestion] = useState(''), [suggestionSource, setSuggestionSource] = useState('')
@@ -39,7 +46,7 @@ export function RequestManagementActions({ requestId, status, priority, agendaRe
   const openStatus = (selected: RequestStatus | null) => { setError(''); setSuccess(''); resetComposer(); setShortcut(selected); if (selected) setNextStatus(selected); setStatusOpen(true) }
 
   const saveStatus = async (message: string) => {
-    if (!canSubmitStatus(nextStatus, isSaving) || message.length > 3000) return
+    if (voiceBusy || !canSubmitStatus(nextStatus, isSaving) || message.length > 3000) return
     setIsSaving(true); setError(''); setSuccess('')
     try {
       const changedStatus = nextStatus
@@ -65,18 +72,19 @@ export function RequestManagementActions({ requestId, status, priority, agendaRe
   const updateAllowed = status === 'InProgress' || status === 'WaitingForThirdParty'
   const updateSuggestionStale = !!updateSuggestion && updateSuggestionSource !== updateText
   const suggestUpdate = async () => { if (!updateText.trim() || isSuggesting || updateText.length > 3000) return; const source = updateText; setIsSuggesting(true); setSuggestionError(''); try { const result = await suggestRequestStatusMessage(requestId, status, source.trim()); setUpdateSuggestion(result.suggestion); setUpdateSuggestionSource(source) } catch { setSuggestionError('Não foi possível gerar a sugestão. Você ainda pode enviar seu texto.') } finally { setIsSuggesting(false) } }
-  const sendUpdate = async (content: string) => { if (!content.trim() || content.length > 3000 || isSaving) return; setIsSaving(true); setError(''); try { await createAdministrativeRequestUpdate(requestId, content.trim()); setUpdateOpen(false); setUpdateText(''); setUpdateSuggestion(''); await onUpdated(); setSuccess('Atualização enviada sem alterar o status.') } catch (requestError) { setError(friendlyError(requestError)) } finally { setIsSaving(false) } }
+  const sendUpdate = async (content: string) => { if (!content.trim() || content.length > 3000 || isSaving || voiceBusy) return; setIsSaving(true); setError(''); try { await createAdministrativeRequestUpdate(requestId, content.trim()); setUpdateOpen(false); setUpdateText(''); setUpdateSuggestion(''); await onUpdated(); setSuccess('Atualização enviada sem alterar o status.') } catch (requestError) { setError(friendlyError(requestError)) } finally { setIsSaving(false) } }
 
   return <Box component="section" sx={{ mb: 2.5 }}>
     <Typography variant="h3">Ações de atendimento</Typography><Typography color="text.secondary" mt={.5} sx={{ display: { xs: 'none', md: 'block' } }}>Atualize a situação desta solicitação.</Typography>
     {success && <Alert severity="success" sx={{ mt: 2 }}>{success}</Alert>}
-    <Box mt={2} sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1, '& .MuiButton-root': { width: '100%', minWidth: 0, whiteSpace: 'normal', height: '100%', px: { xs: 1, md: 2 }, overflowWrap: 'anywhere', justifyContent: 'flex-start', textAlign: 'left' }, '& > .MuiButton-root:first-of-type': { order: { xs: 1, sm: 0 }, gridRow: { sm: updateAllowed ? 2 : 1, xs: 'auto' } }, '& > .MuiButton-root:last-of-type': { order: { xs: 10, sm: 0 }, gridColumn: '1 / -1', gridRow: { sm: updateAllowed ? 4 : 3, xs: 'auto' } } }}>
-      {updateAllowed && <Box sx={{ gridColumn: '1 / -1' }}><Button variant="contained" color="primary" onClick={() => { setError(''); setSuccess(''); setSuggestionError(''); setUpdateOpen(true) }}>Atualizar / enviar mensagem</Button></Box>}
+    <Box mt={2} sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gridAutoRows: { xs: 'minmax(64px, auto)', md: 'auto' }, gap: 1, '& .MuiButton-root': { width: '100%', minWidth: 0, height: '100%', whiteSpace: 'normal', px: { xs: 1, md: 2 }, overflowWrap: 'anywhere', justifyContent: { xs: 'center', md: 'flex-start' }, textAlign: { xs: 'center', md: 'left' }, '& .MuiButton-startIcon': { mr: .75, ml: 0, flexShrink: 0 } } }}>
+      {updateAllowed && <Button sx={{ gridColumn: '1 / -1' }} variant="contained" color="primary" startIcon={<ChatBubbleOutlineRoundedIcon />} onClick={() => { setError(''); setSuccess(''); setSuggestionError(''); setUpdateOpen(true) }}>Atualizar / enviar mensagem</Button>}
       {(actions.changeStatus || actions.reopen) && <Button variant="outlined" startIcon={actions.reopen ? <ReplayRoundedIcon /> : <EditRoundedIcon />} disabled={transitions.length === 0 || isSaving} onClick={() => openStatus(actions.reopen ? 'Open' : null)}>{actions.reopen ? 'Reabrir solicitação' : 'Alterar status'}</Button>}
-      {actions.changePriority && <Box sx={{ order: { xs: 2, sm: 0 } }}><Button variant="outlined" disabled={isSaving} onClick={() => { setError(''); setSuccess(''); setPriorityOpen(true) }}>Alterar prioridade</Button></Box>}
-      {agendaReminder ? <Button variant="outlined" onClick={() => navigate(`/management/agenda?reminderId=${agendaReminder.id}`)}>Abrir lembrete{agendaReminder.isActive ? '' : ' concluído'}</Button> : status !== 'Resolved' && status !== 'Cancelled' && <Button variant="outlined" onClick={() => navigate(`/management/agenda?create=true&requestId=${requestId}`)}>Vincular lembrete</Button>}
-      {actions.resolve && <Box sx={{ order: { xs: 3, sm: 0 }, gridRow: { sm: updateAllowed ? 3 : 2, xs: 'auto' } }}><Button variant="outlined" color="success" startIcon={<CheckCircleOutlineRoundedIcon />} disabled={isSaving} onClick={() => openStatus(requestShortcutStatuses.resolve)}>Resolver</Button></Box>}
-      {actions.cancel && <Box sx={{ order: { xs: 3, sm: 0 }, gridRow: { sm: updateAllowed ? 3 : 2, xs: 'auto' } }}><Button variant="outlined" color="error" startIcon={<CancelOutlinedIcon />} disabled={isSaving} onClick={() => openStatus(requestShortcutStatuses.cancel)}>Cancelar</Button></Box>}
+      {actions.changePriority && <Button variant="outlined" startIcon={<FlagRoundedIcon />} disabled={isSaving} onClick={() => { setError(''); setSuccess(''); setPriorityOpen(true) }}>Alterar prioridade</Button>}
+      {actions.resolve && <Button variant="outlined" color="success" startIcon={<CheckCircleOutlineRoundedIcon />} disabled={isSaving} onClick={() => openStatus(requestShortcutStatuses.resolve)}>Resolver</Button>}
+      {actions.cancel && <Button variant="outlined" color="error" startIcon={<CancelOutlinedIcon />} disabled={isSaving} onClick={() => openStatus(requestShortcutStatuses.cancel)}>Cancelar</Button>}
+      {agendaReminder ? <Button variant="outlined" startIcon={<EventNoteRoundedIcon />} onClick={() => navigate(`/management/agenda?reminderId=${agendaReminder.id}`)}>Abrir lembrete{agendaReminder.isActive ? '' : ' concluído'}</Button> : status !== 'Resolved' && status !== 'Cancelled' && <Button variant="outlined" startIcon={<EventNoteRoundedIcon />} onClick={() => navigate(`/management/agenda?create=true&requestId=${requestId}`)}>Vincular lembrete</Button>}
+      {hasWhatsAppPhone(residentPhone) && <WhatsAppButton phone={residentPhone} variant="outlined">Chamar no WhatsApp</WhatsAppButton>}
     </Box>
 
     <Dialog open={statusOpen} onClose={() => { if (!isSaving && !isSuggesting) closeStatus() }} fullWidth maxWidth="sm">
@@ -85,6 +93,7 @@ export function RequestManagementActions({ requestId, status, priority, agendaRe
         {error && <Alert severity="error">{error}</Alert>}
         {shortcut === 'Open' ? <Alert severity="info">A solicitação voltará para os atendimentos ativos com o status Aberta.</Alert> : shortcut ? <Typography>{getStatusConfirmation(shortcut)}</Typography> : <FormControl fullWidth><InputLabel>Novo status</InputLabel><Select label="Novo status" value={nextStatus} onChange={event => { setNextStatus(event.target.value as RequestStatus); setSuggestion(''); setSuggestionSource('') }}>{transitions.map(item => <MenuItem key={item} value={item}>{statusPresentation[item].label}</MenuItem>)}</Select></FormControl>}
         <TextField multiline minRows={3} label="Mensagem ao morador (opcional)" value={reason} onChange={event => setReason(event.target.value)} inputProps={{ maxLength: 3001 }} error={reason.length > 3000} helperText={<Box component="span" display="flex" justifyContent="space-between"><span>{reason.length > 3000 ? 'A mensagem pode ter no máximo 3000 caracteres.' : 'Você pode enviar este texto diretamente.'}</span><Box component="span" color={counterColor}>{reason.length} / 3000</Box></Box>} />
+        <VoiceInput key={requestId + ':status'} endpoint={`/management/requests/${requestId}/transcription`} active={statusOpen} value={reason} onChange={setReason} maxLength={3000} disabled={isSaving || isSuggesting} onBusyChange={setVoiceBusy} />
         {canSuggest && <Box><Button size="small" startIcon={isSuggesting ? <CircularProgress size={16} /> : <AutoAwesomeRoundedIcon />} disabled={isSuggesting || isSaving || reason.length > 3000} onClick={() => void generateSuggestion()}>Gerar sugestão com IA</Button></Box>}
         {suggestionError && <Alert severity="warning">{suggestionError}</Alert>}
         {suggestion && <Stack spacing={1.5}>
@@ -94,17 +103,18 @@ export function RequestManagementActions({ requestId, status, priority, agendaRe
         </Stack>}
         {!shortcut && nextStatus === 'Cancelled' && <Alert severity="warning">Confirme o encerramento desta solicitação.</Alert>}
       </Stack></DialogContent>
-      <DialogActions sx={{ flexWrap: 'wrap' }}><Button onClick={closeStatus} disabled={isSaving || isSuggesting}>Voltar</Button>{suggestion && <Button variant="outlined" disabled={isSaving || !suggestion.trim() || suggestionIsStale} onClick={() => void saveStatus(suggestion)}>Enviar sugestão da IA</Button>}<Button variant="contained" color={nextStatus === 'Cancelled' ? 'error' : 'secondary'} disabled={!canSubmitStatus(nextStatus, isSaving) || isSuggesting || reason.length > 3000} onClick={() => void saveStatus(reason)}>{isSaving ? <CircularProgress size={20} color="inherit" /> : suggestion ? 'Enviar meu texto' : shortcut === 'Open' ? 'Confirmar reabertura' : shortcut === 'Resolved' ? 'Enviar conclusão' : shortcut === 'Cancelled' ? 'Confirmar cancelamento' : 'Confirmar'}</Button></DialogActions>
+      <DialogActions sx={{ flexWrap: 'wrap' }}><Button onClick={closeStatus} disabled={isSaving || isSuggesting}>Voltar</Button>{suggestion && <Button variant="outlined" disabled={voiceBusy || isSaving || !suggestion.trim() || suggestionIsStale} onClick={() => void saveStatus(suggestion)}>Enviar sugestão da IA</Button>}<Button variant="contained" color={nextStatus === 'Cancelled' ? 'error' : 'secondary'} disabled={voiceBusy || !canSubmitStatus(nextStatus, isSaving) || isSuggesting || reason.length > 3000} onClick={() => void saveStatus(reason)}>{isSaving ? <CircularProgress size={20} color="inherit" /> : suggestion ? 'Enviar meu texto' : shortcut === 'Open' ? 'Confirmar reabertura' : shortcut === 'Resolved' ? 'Enviar conclusão' : shortcut === 'Cancelled' ? 'Confirmar cancelamento' : 'Confirmar'}</Button></DialogActions>
     </Dialog>
 
     <Dialog open={updateOpen} onClose={() => !isSaving && !isSuggesting && setUpdateOpen(false)} fullWidth maxWidth="sm"><DialogTitle>Atualizar / enviar mensagem ao morador</DialogTitle><DialogContent><Stack spacing={2} mt={1}>
       <Alert severity="info"><strong>Status atual: {statusPresentation[status].label}</strong><br />Esta mensagem será enviada ao morador sem alterar o status do atendimento.</Alert>
       {error && <Alert severity="error">{error}</Alert>}
       <TextField multiline minRows={4} label="Mensagem ao morador" value={updateText} onChange={event => setUpdateText(event.target.value)} inputProps={{ maxLength: 3001 }} error={updateText.length > 3000} helperText={`${updateText.length} / 3000`} />
+      <VoiceInput key={requestId + ':update'} endpoint={`/management/requests/${requestId}/transcription`} active={updateOpen} value={updateText} onChange={setUpdateText} maxLength={3000} disabled={isSaving || isSuggesting} onBusyChange={setVoiceBusy} />
       <Box><Button size="small" startIcon={isSuggesting ? <CircularProgress size={16} /> : <AutoAwesomeRoundedIcon />} disabled={!updateText.trim() || isSuggesting || isSaving || updateText.length > 3000} onClick={() => void suggestUpdate()}>Gerar sugestão com IA</Button></Box>
       {suggestionError && <Alert severity="warning">{suggestionError}</Alert>}
       {updateSuggestion && <Box><Typography variant="subtitle2">Sugestão da IA</Typography><TextField sx={{ mt: .5 }} fullWidth multiline minRows={3} value={updateSuggestion} onChange={event => setUpdateSuggestion(event.target.value)} inputProps={{ maxLength: 3000 }} helperText={`${updateSuggestion.length} / 3000`} />{updateSuggestionStale && <Alert severity="warning" sx={{ mt: 1 }}>A sugestão foi gerada a partir de uma versão anterior do seu texto.</Alert>}</Box>}
-    </Stack></DialogContent><DialogActions sx={{ flexWrap: 'wrap' }}><Button onClick={() => setUpdateOpen(false)} disabled={isSaving || isSuggesting}>Cancelar</Button>{updateSuggestion && <Button variant="outlined" disabled={isSaving || !updateSuggestion.trim() || updateSuggestionStale} onClick={() => void sendUpdate(updateSuggestion)}>Enviar sugestão da IA</Button>}<Button variant="contained" disabled={isSaving || !updateText.trim() || updateText.length > 3000} onClick={() => void sendUpdate(updateText)}>{isSaving ? <CircularProgress size={20} color="inherit" /> : 'Enviar meu texto'}</Button></DialogActions></Dialog>
+    </Stack></DialogContent><DialogActions sx={{ flexWrap: 'wrap' }}><Button onClick={() => setUpdateOpen(false)} disabled={isSaving || isSuggesting}>Cancelar</Button>{updateSuggestion && <Button variant="outlined" disabled={voiceBusy || isSaving || !updateSuggestion.trim() || updateSuggestionStale} onClick={() => void sendUpdate(updateSuggestion)}>Enviar sugestão da IA</Button>}<Button variant="contained" disabled={voiceBusy || isSaving || !updateText.trim() || updateText.length > 3000} onClick={() => void sendUpdate(updateText)}>{isSaving ? <CircularProgress size={20} color="inherit" /> : 'Enviar meu texto'}</Button></DialogActions></Dialog>
 
     <Dialog open={priorityOpen} onClose={() => !isSaving && setPriorityOpen(false)} fullWidth maxWidth="xs"><DialogTitle>Alterar prioridade</DialogTitle><DialogContent><Box mt={1}>{error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}<FormControl fullWidth><InputLabel>Nova prioridade</InputLabel><Select label="Nova prioridade" value={nextPriority} onChange={event => setNextPriority(event.target.value as RequestPriority)}>{(['Normal', 'High', 'Urgent'] as RequestPriority[]).filter(item => item !== priority).map(item => <MenuItem key={item} value={item}>{priorityPresentation[item].label}</MenuItem>)}</Select></FormControl></Box></DialogContent><DialogActions><Button onClick={() => setPriorityOpen(false)} disabled={isSaving}>Voltar</Button><Button variant="contained" color="secondary" disabled={!nextPriority || isSaving} onClick={() => void savePriority()}>{isSaving ? <CircularProgress size={20} color="inherit" /> : 'Salvar'}</Button></DialogActions></Dialog>
   </Box>

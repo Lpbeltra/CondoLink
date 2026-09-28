@@ -1,3 +1,4 @@
+import { VoiceInput } from '../communication/VoiceInput';
 import { useCallback, useEffect, useRef, useState } from "react";
 import { streamAssistant } from "../assistant/streamAssistant";
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Drawer, IconButton, Menu, MenuItem, Skeleton, Stack, TextField, Typography } from "@mui/material";
@@ -17,6 +18,8 @@ export { CondominiumDocumentsPage } from './CondominiumDocumentsPage';
 const suggestions = [["Operação", "O que precisa da minha atenção?"], ["Atendimentos", "Quais atendimentos estão aguardando ação?"], ["Pessoas", "Encontre um morador"], ["Agenda", "O que tenho para hoje?"], ["Prestadores", "Encontre um prestador"], ["Documentos", "Consulte o regimento"]];
 
 export function CondominiumAssistantPage() {
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [composerRevision, setComposerRevision] = useState(0);
   const { activeCondominiumId, activeCondominium } = useManagementContext();
   const [params] = useSearchParams();
   const initialRequestId = params.get("requestId") ?? undefined;
@@ -84,9 +87,9 @@ export function CondominiumAssistantPage() {
     } catch (openError) { setConversationError(getErrorMessage(openError)); }
     finally { setOpening(false); }
   };
-  const fresh = () => { streamAbortRef.current?.abort(); setConversation(null); setMessages([]); setRequestContext(null); setPendingRequestId(undefined); setQuestion(""); setError(""); setConversationError(""); setDrawer(false); };
+  const fresh = () => { streamAbortRef.current?.abort(); setComposerRevision(value => value + 1); setConversation(null); setMessages([]); setRequestContext(null); setPendingRequestId(undefined); setQuestion(""); setError(""); setConversationError(""); setDrawer(false); };
   const send = async () => {
-    if (!activeCondominiumId || !question.trim() || sending) return;
+    if (!activeCondominiumId || !question.trim() || sending || voiceBusy) return;
     const value = question.trim(); const answerId = `answer-${Date.now()}`; let receivedToken = false;
     setQuestion(""); setSending(true); setSearching(true); setError("");
     setMessages(x => [...x, { id: `pending-${Date.now()}`, role: "User", content: value, createdAt: new Date().toISOString(), sources: [], operationalReferences: [] }]);
@@ -140,7 +143,7 @@ export function CondominiumAssistantPage() {
             {sending && <Stack direction="row" gap={1} alignItems="center" aria-live="polite"><CircularProgress size={18} /><Typography color="text.secondary">{searching ? "Consultando informações…" : "Preparando resposta…"}</Typography></Stack>}
             <div ref={endRef} />
           </Stack>
-          <Stack direction={{ xs: "column", sm: "row" }} gap={1} mt={2} sx={{ maxWidth: 900, width: "100%", mx: "auto" }}><TextField fullWidth inputRef={composerRef} label="Pergunte ao assistente" placeholder="Pergunte sobre o condomínio…" value={question} onChange={event => setQuestion(event.target.value)} multiline maxRows={5} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (!sending && !opening && question.trim()) void send(); } }} />{sending ? <Button variant="outlined" color="inherit" startIcon={<StopRoundedIcon />} onClick={() => streamAbortRef.current?.abort()} aria-label="Parar geração">Parar</Button> : <Button variant="contained" disabled={opening} onClick={() => void send()}>Enviar</Button>}</Stack>
+          <Stack direction="row" flexWrap="wrap" alignItems="flex-end" gap={1} mt={2} sx={{ maxWidth: 900, width: "100%", mx: "auto" }}><Box sx={{ minWidth: 0, flex: 1, flexBasis: { xs: voiceBusy ? "100%" : 0, sm: 0 } }}><TextField fullWidth inputRef={composerRef} label="Pergunte ao assistente" placeholder="Pergunte sobre o condomínio…" value={question} onChange={event => setQuestion(event.target.value)} multiline maxRows={5} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (!voiceBusy && !sending && !opening && question.trim()) void send(); } }} /></Box><VoiceInput key={`${composerRevision}:${activeCondominiumId}:${conversation?.id ?? 'new'}:${pendingRequestId ?? ''}`} endpoint={`/condominiums/${activeCondominiumId}/assistant/transcription`} value={question} onChange={setQuestion} maxLength={2000} disabled={sending || opening} active={!opening} onBusyChange={setVoiceBusy} />{sending ? <Button variant="outlined" color="inherit" startIcon={<StopRoundedIcon />} onClick={() => streamAbortRef.current?.abort()} aria-label="Parar geração">Parar</Button> : <Button variant="contained" disabled={opening || voiceBusy} onClick={() => void send()}>Enviar</Button>}</Stack>
         </Box>
       </Box>
     </Stack>

@@ -3,6 +3,7 @@ import {
   authenticatedEntryPath,
   getProtectedRouteAccess,
   getOverwatchRouteAccess,
+  authenticationReturnPath,
 } from './routeAccess'
 import { hydrateSessionUser } from './session'
 import type { User } from './types'
@@ -30,6 +31,12 @@ function apiUser(roles?: string[]): User {
 }
 
 describe('real session restoration flow', () => {
+  it('preserves a valid deep link through authentication and rejects unsafe return paths', () => {
+    expect(authenticationReturnPath({ from: '/management/requests/r1?tab=history#notes' }))
+      .toBe('/management/requests/r1?tab=history#notes')
+    expect(authenticationReturnPath({ from: '//external.example/path' })).toBe('/')
+    expect(authenticationReturnPath({ from: '/login?return=/management' })).toBe('/')
+  })
   it('keeps Overwatch pending while authentication is initializing', () => {
     expect(getOverwatchRouteAccess(true, null)).toBe('loading')
   })

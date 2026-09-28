@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hasWhatsAppPhone, normalizeWhatsAppPhone, providerWhatsAppUrl } from './ProviderWhatsAppDialog'
+import { hasWhatsAppPhone, normalizeWhatsAppPhone, whatsAppUrl as providerWhatsAppUrl } from '../../communication/whatsApp'
 
 describe('provider WhatsApp link', () => {
   it('normalizes Brazilian phones and encodes the reviewed message', () => {

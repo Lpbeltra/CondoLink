@@ -28,15 +28,21 @@ describe('ServiceProvidersPage WhatsApp action', () => {
   it('opens WhatsApp for a provider with a valid phone', async () => {
     list.mockResolvedValue([{ id: 'provider-1', name: 'Cesar', specialty: 'Plumbing', companyName: null, contactName: null, phone: '(44) 99999-9999', isActive: true, isMine: true, condominiums: [] }])
     render(<ServiceProvidersPage />)
-    await userEvent.setup().click(await screen.findByRole('button', { name: 'Abrir WhatsApp' }))
-    expect(window.open).toHaveBeenCalledWith('https://wa.me/5544999999999?text=', '_blank', 'noopener,noreferrer')
+    const route = window.location.href
+    const link = await screen.findByRole('link', { name: 'Abrir WhatsApp' })
+    expect(link).toHaveAttribute('href', 'https://wa.me/5544999999999')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    await userEvent.setup().click(link)
+    expect(window.open).not.toHaveBeenCalled()
+    expect(window.location.href).toBe(route)
   })
 
   it('hides WhatsApp when phone is missing or invalid', async () => {
     list.mockResolvedValue([{ id: 'provider-1', name: 'Cesar', specialty: 'Plumbing', companyName: null, contactName: null, phone: 'sem telefone', isActive: true, isMine: true, condominiums: [] }])
     render(<ServiceProvidersPage />)
     await waitFor(() => expect(screen.getByText('Cesar')).toBeVisible())
-    expect(screen.queryByRole('button', { name: 'Abrir WhatsApp' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Abrir WhatsApp' })).not.toBeInTheDocument()
   })
 
   it('sends the selected condominium to the server', async () => {
