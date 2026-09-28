@@ -49,6 +49,8 @@ public static class MapOverwatch
             endpoints.MapSubManagerEndpoints();
             endpoints.MapListManagementCompanies();
             endpoints.MapGetManagementCompany();
+            endpoints.MapSuperlogicaIntegrationEndpoints();
+            endpoints.MapSuperlogicaImportPreviewEndpoints();
             endpoints.MapCreateManagementCompany();
             endpoints.MapUpdateManagementCompany();
             endpoints.MapUpdateManagementCompanyStatus();

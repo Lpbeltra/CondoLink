@@ -37,6 +37,7 @@ import { managementCompanyError } from '../managementCompanies/errors'
 import { ManagementCompanyEmployees } from '../managementCompanies/ManagementCompanyEmployees'
 import { ManagementCompanyModules } from '../managementCompanies/ManagementCompanyModules'
 import { ManagementCompanyCategories } from '../managementCompanies/ManagementCompanyCategories'
+import { ManagementCompanyIntegrations } from '../managementCompanies/ManagementCompanyIntegrations'
 import { ManagementCompanyFormDialog } from '../managementCompanies/ManagementCompanyFormDialog'
 import { managementCompanyDetailTabs } from '../managementCompanies/presentation'
 import type {
@@ -44,7 +45,7 @@ import type {
   ManagementCompanyInput,
 } from '../managementCompanies/types'
 
-type DetailTab = 'overview' | 'employees' | 'categories'
+type DetailTab = 'overview' | 'employees' | 'categories' | 'integrations'
 
 const overviewFields: Array<{
   label: string
@@ -238,6 +239,9 @@ export function OverwatchManagementCompanyDetailsPage() {
           )}
           {tab === 'categories' && (
             <ManagementCompanyCategories managementCompanyId={company.id} />
+          )}
+          {tab === 'integrations' && (
+            <ManagementCompanyIntegrations managementCompanyId={company.id} />
           )}
         </CardContent>
       </Card>

@@ -3,6 +3,7 @@ using System;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CondoLink.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260925212048_AddAdministratorIntegrations")]
+    partial class AddAdministratorIntegrations
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1606,50 +1609,6 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasDatabaseName("ux_employee_document_deliveries_document_id_channel");
 
                     b.ToTable("employee_document_deliveries", (string)null);
-                });
-
-            modelBuilder.Entity("CondoLink.Domain.Entities.ExternalCondominiumMapping", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<Guid>("AdministratorIntegrationId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("administrator_integration_id");
-
-                    b.Property<Guid>("CondominiumId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("condominium_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("ExternalCondominiumId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("external_condominium_id");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CondominiumId");
-
-                    b.HasIndex("AdministratorIntegrationId", "CondominiumId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_external_condominium_mappings_integration_condominium");
-
-                    b.HasIndex("AdministratorIntegrationId", "ExternalCondominiumId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_external_condominium_mappings_integration_external_id");
-
-                    b.ToTable("external_condominium_mappings", (string)null);
                 });
 
             modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompany", b =>
@@ -4946,25 +4905,6 @@ namespace CondoLink.Infrastructure.Migrations
                         .HasForeignKey("QueuedByUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-                });
-
-            modelBuilder.Entity("CondoLink.Domain.Entities.ExternalCondominiumMapping", b =>
-                {
-                    b.HasOne("CondoLink.Domain.Entities.AdministratorIntegration", "AdministratorIntegration")
-                        .WithMany()
-                        .HasForeignKey("AdministratorIntegrationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("CondoLink.Domain.Entities.Condominium", "Condominium")
-                        .WithMany()
-                        .HasForeignKey("CondominiumId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("AdministratorIntegration");
-
-                    b.Navigation("Condominium");
                 });
 
             modelBuilder.Entity("CondoLink.Domain.Entities.ManagementCompanyEmployee", b =>

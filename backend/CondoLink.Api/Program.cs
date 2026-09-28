@@ -27,6 +27,7 @@ using Microsoft.OpenApi;
 using CondoLink.Api;
 using CondoLink.Api.Features.Overwatch;
 using CondoLink.Api.Features.Overwatch.Managers;
+using CondoLink.Api.Features.Overwatch.ManagementCompanies;
 using Microsoft.EntityFrameworkCore;
 using CondoLink.Api.Features.Observability;
 using CondoLink.Api.Features.OperationalMessages;
@@ -41,6 +42,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddComvyDataProtection(builder.Configuration);
+builder.Services.AddHttpClient<ISuperlogicaClient, SuperlogicaClient>(client =>
+{
+    client.BaseAddress = new Uri("https://api.superlogica.net");
+    client.Timeout = TimeSpan.FromSeconds(15);
+}).RemoveAllLoggers();
 builder.Services.AddOpenApi();
 builder.Services.AddExceptionHandler<AppExceptionHandler>();
 builder.Services.AddProblemDetails();

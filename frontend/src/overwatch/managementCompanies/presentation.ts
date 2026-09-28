@@ -4,6 +4,7 @@ export const managementCompanyDetailTabs = [
   { value: 'overview', label: 'Visão geral' },
   { value: 'employees', label: 'Funcionários' },
   { value: 'categories', label: 'Categorias' },
+  { value: 'integrations', label: 'Integrações' },
 ] as const
 
 export function managementCompanyDetailsPath(id: string) {

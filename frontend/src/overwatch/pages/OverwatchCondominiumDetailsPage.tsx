@@ -39,6 +39,7 @@ import { condominiumError } from '../condominiums/errors'
 import { CondominiumFormDialog } from '../condominiums/CondominiumFormDialog'
 import { CondominiumManagers } from '../condominiums/CondominiumManagers'
 import { CondominiumModulesCard } from '../condominiums/CondominiumModulesCard'
+import { SuperlogicaImportPreviewDialog } from '../condominiums/SuperlogicaImportPreviewDialog'
 import { condominiumDetailTabs } from '../condominiums/presentation'
 import type {
   CondominiumInput,
@@ -218,6 +219,7 @@ export function OverwatchCondominiumDetailsPage() {
           </Typography>
         </Box>
         <Stack direction="row" gap={1} flexWrap="wrap">
+          {condominium.managementCompanyId && <SuperlogicaImportPreviewDialog condominiumId={condominium.id} />}
           <Button
             variant="outlined"
             startIcon={<TuneRoundedIcon />}

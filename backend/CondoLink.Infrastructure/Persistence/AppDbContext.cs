@@ -13,6 +13,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<Condominium> Condominiums => Set<Condominium>();
     public DbSet<ManagementCompany> ManagementCompanies =>
         Set<ManagementCompany>();
+    public DbSet<AdministratorIntegration> AdministratorIntegrations => Set<AdministratorIntegration>();
+    public DbSet<ExternalCondominiumMapping> ExternalCondominiumMappings => Set<ExternalCondominiumMapping>();
     public DbSet<ManagementCompanyModule> ManagementCompanyModules => Set<ManagementCompanyModule>();
     public DbSet<ManagementCompanyEmployee> ManagementCompanyEmployees =>
         Set<ManagementCompanyEmployee>();
