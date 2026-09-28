@@ -61,6 +61,12 @@ export function createAppTheme(mode: ThemeMode): Theme {
           body: {
             backgroundColor: t.background,
           },
+          // Safari zooms focused form controls when their computed font is below 16px.
+          '@media (max-width:899.95px)': {
+            'input:not([type="checkbox"]):not([type="radio"]), select, textarea, .MuiSelect-select': {
+              fontSize: '16px !important',
+            },
+          },
           // Honour the OS reduced-motion preference globally.
           '@media (prefers-reduced-motion: reduce)': {
             '*, *::before, *::after': {

@@ -13,7 +13,7 @@ export async function loginAsManager(page: Page) {
   await page.getByRole('textbox', { name: 'E-mail' }).fill(managerCredentials.email)
   await page.getByRole('textbox', { name: 'Senha' }).fill(managerCredentials.password)
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).toHaveURL(/\/management\/dashboard|\/$/)
+  await expect(page).toHaveURL(/\/management\/(dashboard|requests)|\/$/)
 }
 
 export function observeUnexpectedRuntimeErrors(page: Page) {

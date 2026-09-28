@@ -11,6 +11,8 @@ import {
   Stack,
   Typography,
   alpha,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import WavingHandRoundedIcon from "@mui/icons-material/WavingHandRounded";
 import { useAuth } from "../auth/AuthContext";
@@ -22,10 +24,13 @@ import { useManagementContext } from "../management/ManagementContext";
 import { ManagementCondominiumSwitcher } from "../management/components/ManagementCondominiumSwitcher";
 import { managementHomeState } from "../management/contextState";
 import { hasPlatformAdminAccess } from "../auth/permissions";
+import { getNavigationItems } from "../layout/navigation";
+import type { CondominiumRole } from "../condominiums/types";
 import { useAdministrator } from "../administrator/AdministratorContext";
 
 export function HomePage() {
   const { user } = useAuth();
+  const isMobile = useMediaQuery(useTheme().breakpoints.down("md"));
   const navigate = useNavigate();
   const location = useLocation();
   const passwordChanged = Boolean(
@@ -35,6 +40,8 @@ export function HomePage() {
   const {
     activeCondominium,
     condominiumCount,
+    managementRoles,
+    subManagerPermissions,
     isLoading: isManagementLoading,
   } = useManagementContext();
   const firstName = user?.fullName.trim().split(" ")[0];
@@ -56,7 +63,10 @@ export function HomePage() {
     );
   }
   if (condominiumCount > 0 && !hasPlatformAdminAccess(user)) {
-    return <Navigate to="/management/dashboard" replace />;
+    const roles = managementRoles?.length ? managementRoles : currentCondominium?.roles ?? [];
+    const canOpenAttendance = getNavigationItems(roles as CondominiumRole[], user?.roles, subManagerPermissions)
+      .some(item => item.path === "/management/requests");
+    return <Navigate to={isMobile && canOpenAttendance ? "/management/requests" : "/management/dashboard"} replace />;
   }
   // Only a user with no management condominiums and no resident access can
   // land on the administrator portal, so the redirect decision only needs to

@@ -9,7 +9,7 @@ import { RequestStatusChip } from './RequestStatusChip'
 export function ManagementRequestCard({ request }: { request: ManagementRequestItem }) {
   const navigate = useNavigate()
   const unit = formatTargetUnit(request.targetUnit)
-  return <Box component="article" sx={{ borderBottom: '1px solid', borderColor: 'divider', '&:last-child': { borderBottom: 0 } }}>
+  return <Box component="article" sx={{ border: { xs: '1px solid', md: 0 }, borderBottom: '1px solid', borderColor: 'divider', borderRadius: { xs: 1, md: 0 }, bgcolor: { xs: 'background.paper', md: 'transparent' }, '&:last-child': { borderBottom: { xs: '1px solid', md: 0 }, borderColor: 'divider' } }}>
     <ButtonBase onClick={() => navigate(`/management/requests/${request.id}`)} sx={{ width: '100%', display: 'block', textAlign: 'left', px: { xs: 1.25, sm: 1.5 }, py: 1.5, borderRadius: 1, '&:hover': { bgcolor: 'action.hover' }, '&:focus-visible': { outline: 2, outlineColor: 'primary.main', outlineOffset: -2 } }}>
       <Box display="flex" gap={1.5} alignItems="flex-start">
         <Box flex={1} minWidth={0}>

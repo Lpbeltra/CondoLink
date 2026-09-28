@@ -33,6 +33,8 @@ import {
   Stack,
   TextField,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import { EmptyState } from "../components/EmptyState";
 import { PageContainer } from "../components/PageContainer";
@@ -74,6 +76,8 @@ const relationshipLabels: Record<RelationshipType, string> = {
   AuthorizedOccupant: "Ocupante autorizado",
 };
 export function ManagementPeoplePage() {
+  const isMobile = useMediaQuery(useTheme().breakpoints.down("md"));
+  const [pageActionsAnchor, setPageActionsAnchor] = useState<HTMLElement | null>(null);
   const { activeCondominiumId } = useManagementContext();
   const navigate = useNavigate();
   const [people, setPeople] = useState<CondominiumMember[]>([]);
@@ -491,7 +495,7 @@ export function ManagementPeoplePage() {
       <Stack
         direction={{ xs: "column", sm: "row" }}
         justifyContent="space-between"
-        gap={2}
+        gap={{ xs: 1, md: 2 }}
       >
         <Box>
           <Typography variant="h1">Moradores</Typography>
@@ -499,16 +503,20 @@ export function ManagementPeoplePage() {
             Gerencie quem possui acesso ao condomínio.
           </Typography>
         </Box>
-        <Stack direction={{ xs: "column", sm: "row" }} gap={1}>
-          <Button variant="text" disabled={exportingPdf}
+        <Stack direction="row" gap={1} alignItems="center" sx={{ flexShrink: 0 }}>
+          {!isMobile && <Button variant="text" disabled={exportingPdf}
             onClick={() => void exportPdf()}>
             {exportingPdf ? "Gerando PDF..." : "Exportar moradores em PDF"}
-          </Button>
+          </Button>}
           <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={beginAdd}>
-            Adicionar morador
+            {isMobile ? "Morador" : "Adicionar morador"}
           </Button>
+          {isMobile && <IconButton aria-label="Mais ações de moradores" aria-controls={pageActionsAnchor ? "people-page-actions" : undefined} aria-haspopup="menu" aria-expanded={Boolean(pageActionsAnchor)} onClick={event => setPageActionsAnchor(event.currentTarget)}><MoreVertRoundedIcon /></IconButton>}
         </Stack>
       </Stack>
+      <Menu id="people-page-actions" anchorEl={pageActionsAnchor} open={Boolean(pageActionsAnchor)} onClose={() => setPageActionsAnchor(null)}>
+        <MenuItem disabled={exportingPdf} onClick={() => { setPageActionsAnchor(null); void exportPdf(); }}>Exportar moradores em PDF</MenuItem>
+      </Menu>
       {success && (
         <Alert severity="success" sx={{ mt: 2 }}>
           {success}
@@ -523,7 +531,7 @@ export function ManagementPeoplePage() {
           {error}
         </Alert>
       )}
-      <Stack mt={3} direction={{ xs: "column", sm: "row" }} gap={1.25}>
+      <Stack mt={{ xs: 2, md: 3 }} direction={{ xs: "column", sm: "row" }} gap={1.25}>
         <TextField
           size="small"
           fullWidth
@@ -558,20 +566,20 @@ export function ManagementPeoplePage() {
       ) : (
         <Box role="list" sx={{ mt: 3, borderTop: "1px solid", borderColor: "divider" }}>
           {people.map((person) => (
-            <Box key={person.membershipId} role="listitem" sx={{ display: "grid", gridTemplateColumns: { xs: "1fr auto", md: "minmax(220px, 1.2fr) minmax(220px, 1fr) minmax(140px, .6fr) auto" }, gap: { xs: .75, md: 2 }, alignItems: "center", px: { xs: 1, md: 2 }, py: { xs: 1.25, md: 1.5 }, borderBottom: "1px solid", borderColor: "divider" }}>
+            <Box key={person.membershipId} role="listitem" sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr) auto", md: "minmax(220px, 1.2fr) minmax(220px, 1fr) minmax(140px, .6fr) auto" }, gap: { xs: .75, md: 2 }, alignItems: "center", px: { xs: 1, md: 2 }, py: { xs: 1.25, md: 1.5 }, borderBottom: "1px solid", borderColor: "divider" }}>
                 <Box minWidth={0}>
-                  <Typography fontWeight={750}>{person.fullName}</Typography>
-                  <Typography variant="body2" color="text.secondary" noWrap>
+                  <Typography fontWeight={750} sx={{ overflowWrap: "anywhere" }}>{person.fullName}</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: "anywhere", whiteSpace: { xs: "normal", md: "nowrap" }, overflow: "hidden", textOverflow: "ellipsis" }}>
                     {person.email}{person.phoneNumber ? ` · ${person.phoneNumber}` : ""}
                   </Typography>
                 </Box>
-                <Stack gap={.25} minWidth={0}>
-                  {person.unitLinks.length === 0 ? <Typography variant="body2" color="text.secondary">Sem vínculo com unidade</Typography> : person.unitLinks.map((link) => <Button key={link.unitMembershipId} size="small" color="inherit" sx={{ justifyContent: "flex-start", p: 0, minWidth: 0, textTransform: "none", "&:hover": { bgcolor: "transparent", textDecoration: "underline" } }} onClick={() => navigate(`/management/units/${link.unitId}`)}>{`${link.block ? `${link.block} · ` : ""}${link.unitIdentifier} · ${relationshipLabels[link.relationshipType]}`}</Button>)}
+                <Stack gap={.25} minWidth={0} sx={{ gridColumn: { xs: "1", md: "auto" } }}>
+                  {person.unitLinks.length === 0 ? <Typography variant="body2" color="text.secondary">Sem vínculo com unidade</Typography> : person.unitLinks.map((link) => <Button key={link.unitMembershipId} size="small" color="inherit" sx={{ justifyContent: "flex-start", p: 0, minWidth: 0, textTransform: "none", textAlign: "left", overflowWrap: "anywhere", "&:hover": { bgcolor: "transparent", textDecoration: "underline" } }} onClick={() => navigate(`/management/units/${link.unitId}`)}>{`${link.block ? `${link.block} · ` : ""}${link.unitIdentifier} · ${relationshipLabels[link.relationshipType]}`}</Button>)}
                 </Stack>
                 <Stack direction="row" gap={.5} flexWrap="wrap" sx={{ display: { xs: "none", md: "flex" } }}>
                   {getPersonBadges(person).slice(0, 2).map((badge) => <Chip key={badge.label} size="small" label={badge.label} color={badge.color} />)}
                 </Stack>
-                <Box>
+                <Box sx={{ gridColumn: { xs: 2, md: "auto" }, gridRow: { xs: 1, md: "auto" }, alignSelf: "start" }}>
                   <IconButton
                     aria-label={`Ações de ${person.fullName}`}
                     onClick={(event) => openActions(event, person)}
@@ -761,6 +769,7 @@ export function ManagementPeoplePage() {
               )}
               <TextField
                 label="Telefone / WhatsApp"
+                type="tel"
                 value={phone}
                 onChange={(e) => {
                   setPhone(e.target.value);

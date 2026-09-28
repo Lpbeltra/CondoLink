@@ -31,6 +31,18 @@ describe('RequestDetailsPage workspace', () => {
     expect(screen.queryByRole('tab', { name: 'Timeline' })).not.toBeInTheDocument()
   })
 
+  it('places a single management action group between the opening date and tabs on mobile', async () => {
+    const media = window.matchMedia('(max-width:899.95px)')
+    vi.spyOn(window, 'matchMedia').mockImplementation(query => ({ ...media, media: query, matches: query.includes('max-width') }))
+    page()
+    const tabs = await screen.findByRole('tablist')
+    const actions = screen.getByText('Ações de atendimento')
+    const opened = screen.getAllByText(/^Aberto em/)[0]
+    expect(screen.getAllByText('Ações de atendimento')).toHaveLength(1)
+    expect(opened.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(actions.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it.each(['conversation', 'timeline'])('normalizes legacy %s links to Histórico', async legacyTab => {
     page(true, `/requests/request?tab=${legacyTab}`)
     expect(await screen.findByRole('tab', { name: 'Histórico' })).toHaveAttribute('aria-selected', 'true')
