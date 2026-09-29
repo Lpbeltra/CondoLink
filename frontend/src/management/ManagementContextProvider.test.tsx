@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -43,6 +43,7 @@ function Probe() {
     <output aria-label="escopo consolidado">{String(value.usesConsolidatedManagementScope)}</output>
     <output aria-label="permissões">{value.subManagerPermissions?.join(',') ?? 'nenhuma'}</output>
     <output aria-label="troca em andamento">{String(value.isSwitching)}</output>
+    <output aria-label="carregando contexto">{String(value.isLoading)}</output>
     {value.error && <div role="alert">{value.error}</div>}
     <button onClick={() => void value.selectCondominium(null)}>Todos</button>
     <button onClick={() => void value.selectCondominium('condo-2')}>Bosque</button>
@@ -57,6 +58,15 @@ describe('ManagementContextProvider switching baseline', () => {
   beforeEach(() => {
     mocks.getManagementContext.mockReset().mockResolvedValue(context('condo-1', false))
     mocks.setManagementContext.mockReset()
+  })
+
+  it('holds context loading until initial scope has resolved', async () => {
+    let resolve!: (value: ManagementContextResponse) => void
+    mocks.getManagementContext.mockReturnValue(new Promise(done => { resolve = done }))
+    renderProvider()
+    expect(screen.getByLabelText('carregando contexto')).toHaveTextContent('true')
+    await act(async () => { resolve(context('condo-1', false)) })
+    await waitFor(() => expect(screen.getByLabelText('carregando contexto')).toHaveTextContent('false'))
   })
 
   it('selects Todos as a real null context and adopts the server scope', async () => {

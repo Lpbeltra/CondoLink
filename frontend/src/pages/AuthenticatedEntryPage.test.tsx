@@ -52,7 +52,10 @@ describe('home entry by viewport and resolved context', () => {
     state.management.subManagerPermissions = allowed ? ['Attendance'] : ['Management']
     page(); expect(screen.getByText(allowed ? 'Attendance destination' : 'Management destination')).toBeVisible()
   })
-  it('opens Overwatch for PlatformAdmin', () => { state.user.roles = ['PlatformAdmin']; page(); expect(screen.getByText('Overwatch destination')).toBeVisible() })
+  it('opens attendance on mobile for a PlatformAdmin with Manager access', () => { state.user.roles = ['PlatformAdmin', 'Manager']; page(); expect(screen.getByText('Attendance destination')).toBeVisible() })
+  it('keeps desktop PlatformAdmin entry in Overwatch', () => { state.mobile = false; state.user.roles = ['PlatformAdmin', 'Manager']; page(); expect(screen.getByText('Overwatch destination')).toBeVisible() })
+  it('shows desktop-only notice on mobile for PlatformAdmin without management access', () => { state.user.roles = ['PlatformAdmin']; state.management = { activeCondominium: null, condominiumCount: 0, isLoading: false, managementRoles: [], subManagerPermissions: [] }; page(); expect(screen.getByRole('heading', { name: /Overwatch/ })).toBeVisible() })
+  it('waits for mobile management scope before choosing PlatformAdmin entry', () => { state.user.roles = ['PlatformAdmin']; state.management.isLoading = true; page(); expect(screen.queryByRole('heading', { name: /Overwatch/ })).not.toBeInTheDocument() })
   it('keeps the administrator portal entry', () => { state.management.condominiumCount = 0; state.management.activeCondominium = null; state.administrator = {}; page(); expect(screen.getByText('Administrator destination')).toBeVisible() })
   it('opens the resident request list without the intermediate home', () => { state.management.condominiumCount = 0; state.management.activeCondominium = null; state.resident = true; state.user.roles = ['Resident']; page(); expect(screen.getByText('Resident destination')).toBeVisible() })
   it('does not intercept a deep link', () => { page('/management/requests/request?tab=history'); expect(screen.getByText('Deep link destination')).toBeVisible() })

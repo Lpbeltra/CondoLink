@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getMobileNavigationItems, getMobileNavigationParts, getMobileSelectedPath, getMoreNavigationItems, getNavigationItems, managementEntryPath, shouldShowGeneralCondominiumSwitcher } from "./navigation";
+import { getMobileNavigationItems, getMobileNavigationParts, getMobileSelectedPath, getMoreNavigationItems, getNavigationItems, getManagementEntryDestination, managementEntryPath, shouldShowGeneralCondominiumSwitcher } from "./navigation";
 import type { CondominiumContext } from "../condominiums/types";
 
 const allPermissions = ["Attendance", "ManagementCompany", "Agenda", "Assistant", "Documents", "Management"];
@@ -31,10 +31,19 @@ describe("role-based navigation", () => {
     expect(getNavigationItems(["Resident"], ["PlatformAdmin"]).map(item => item.path)).toContain("/overwatch");
     expect(getMobileSelectedPath("/administrator/requests/abc")).toBe("/administrator/requests");
     expect(getMobileSelectedPath("/management/reports")).toBe("/management/dashboard");
+    expect(getNavigationItems(["Manager"], ["PlatformAdmin"]).map(item => item.path)).toContain("/overwatch");
+    const platformManagerMobile = getMobileNavigationParts(["Manager"], ["PlatformAdmin"]);
+    expect([...platformManagerMobile.bottom, ...platformManagerMobile.more].map(item => item.path)).not.toContain("/overwatch");
     expect(getMobileNavigationItems(["Manager"], ["PlatformAdmin"]).length).toBeGreaterThan(0);
     const parts = getMobileNavigationParts(["SubManager"], [], allPermissions);
     expect(new Set([...parts.bottom, ...parts.more]).size).toBe(parts.allowed.length);
     expect(getMoreNavigationItems(["SubManager"], [], allPermissions)).toEqual(parts.more);
+  });
+
+  it("chooses attendance as mobile manager entry while preserving desktop dashboard", () => {
+    expect(getManagementEntryDestination(true, ["Manager"], ["PlatformAdmin"])).toBe("/management/requests");
+    expect(getManagementEntryDestination(false, ["Manager"], ["PlatformAdmin"])).toBe("/management/dashboard");
+    expect(getManagementEntryDestination(true, [], ["PlatformAdmin"])).toBeNull();
   });
 
   it("hides the general condominium switcher in management contexts", () => {

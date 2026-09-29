@@ -2,7 +2,7 @@ import { hasPlatformAdminAccess } from './permissions'
 import type { User } from './types'
 
 export type ProtectedRouteAccess = 'loading' | 'authenticated' | 'login'
-export type OverwatchRouteAccess = 'loading' | 'allowed' | 'home'
+export type OverwatchRouteAccess = 'loading' | 'allowed' | 'home' | 'management' | 'desktop-only'
 export const authenticatedEntryPath = '/'
 
 export function authenticationReturnPath(state: unknown): string {
@@ -23,7 +23,11 @@ export function getProtectedRouteAccess(
 export function getOverwatchRouteAccess(
   isInitializing: boolean,
   user: User | null,
+  options: { mobile?: boolean; managementLoading?: boolean; managementEntry?: string | null } = {},
 ): OverwatchRouteAccess {
   if (isInitializing) return 'loading'
-  return hasPlatformAdminAccess(user) ? 'allowed' : 'home'
+  if (!hasPlatformAdminAccess(user)) return 'home'
+  if (!options.mobile) return 'allowed'
+  if (options.managementLoading) return 'loading'
+  return options.managementEntry ? 'management' : 'desktop-only'
 }

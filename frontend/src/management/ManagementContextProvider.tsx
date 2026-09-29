@@ -37,7 +37,7 @@ export function ManagementContextProvider({
   const [subManagerPermissions, setSubManagerPermissions] = useState<string[] | undefined>(undefined)
 
   // Apenas para o carregamento inicial do contexto
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
   // Apenas para a troca de condomínio
   const [isSwitching, setIsSwitching] = useState(false)

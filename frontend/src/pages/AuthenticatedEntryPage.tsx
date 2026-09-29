@@ -6,7 +6,8 @@ import { useCondominium } from '../condominiums/CondominiumContext'
 import type { CondominiumRole } from '../condominiums/types'
 import { useManagementContext } from '../management/ManagementContext'
 import { useAdministrator } from '../administrator/AdministratorContext'
-import { getNavigationItems } from '../layout/navigation'
+import { getManagementEntryDestination } from '../layout/navigation'
+import { OverwatchDesktopOnlyNotice } from '../overwatch/OverwatchDesktopOnlyNotice'
 import { LoadingScreen } from '../components/LoadingScreen'
 
 /** Neutral entry only: explicit module URLs never pass through this route. */
@@ -18,15 +19,15 @@ export function AuthenticatedEntryPage() {
   const administrator = useAdministrator()
 
   if (isInitializing) return <LoadingScreen />
-  if (hasPlatformAdminAccess(user)) return <Navigate to="/overwatch" replace />
+  if (hasPlatformAdminAccess(user) && !mobile) return <Navigate to="/overwatch" replace />
   if (condominiumLoading || management.isLoading || management.isSwitching) return <LoadingScreen />
   if (management.condominiumCount > 0) {
     const roles = management.managementRoles?.length ? management.managementRoles : currentCondominium?.roles ?? []
-    const items = getNavigationItems(roles as CondominiumRole[], user?.roles, management.subManagerPermissions)
-    const preferred = mobile ? '/management/requests' : '/management/dashboard'
-    const destination = items.find(item => item.path === preferred)?.path ?? items[0]?.path
-    return destination ? <Navigate to={destination} replace /> : <Alert severity="info">Nenhum módulo de gestão disponível para este perfil.</Alert>
+    const destination = getManagementEntryDestination(mobile, roles as CondominiumRole[], user?.roles, management.subManagerPermissions)
+    if (destination) return <Navigate to={destination} replace />
+    if (!hasPlatformAdminAccess(user) || !mobile) return <Alert severity="info">Nenhum módulo de gestão disponível para este perfil.</Alert>
   }
+  if (hasPlatformAdminAccess(user) && mobile) return <OverwatchDesktopOnlyNotice />
   if (isResident) return <Navigate to="/requests" replace />
   if (administrator.loading) return <LoadingScreen />
   if (administrator.value) return <Navigate to="/administrator/requests" replace />

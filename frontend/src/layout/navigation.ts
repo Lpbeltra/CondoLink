@@ -60,19 +60,25 @@ export function getNavigationItems(roles: CondominiumRole[], userRoles: string[]
   return commonItems.filter(item => canAccessNavigationItem(item, roles, userRoles, subManagerPermissions));
 }
 
+export function getManagementEntryDestination(mobile: boolean, roles: CondominiumRole[], userRoles: string[] = [], subManagerPermissions?: string[]) {
+  const items = getNavigationItems(roles, userRoles, subManagerPermissions)
+    .filter(item => item.path.startsWith("/management/"));
+  const preferred = mobile ? "/management/requests" : "/management/dashboard";
+  return items.find(item => item.path === preferred)?.path ?? items[0]?.path ?? null;
+}
+
 export function getMobileNavigationParts(roles: CondominiumRole[], userRoles: string[] = [], subManagerPermissions?: string[]): MobileNavigationParts {
   const allowed = getNavigationItems(roles, userRoles, subManagerPermissions);
+  const mobileAllowed = allowed.filter(item => !item.platformAdminOnly);
   if (!roles.includes("Manager") && !roles.includes("SubManager")) {
-    const bottom = allowed.filter(item => !item.platformAdminOnly);
-    const more = allowed.filter(item => item.platformAdminOnly);
-    return { allowed, bottom, more };
+    return { allowed: mobileAllowed, bottom: mobileAllowed, more: [] };
   }
-  const candidates = allowed.filter(item => item.mobilePrimary || item.mobilePriority !== undefined)
+  const candidates = mobileAllowed.filter(item => item.mobilePrimary || item.mobilePriority !== undefined)
     .sort((left, right) => (left.mobilePriority ?? Number.MAX_SAFE_INTEGER) - (right.mobilePriority ?? Number.MAX_SAFE_INTEGER));
   const bottom = candidates.slice(0, 3);
   const bottomSet = new Set(bottom);
-  const more = allowed.filter(item => !bottomSet.has(item));
-  return { allowed, bottom, more };
+  const more = mobileAllowed.filter(item => !bottomSet.has(item));
+  return { allowed: mobileAllowed, bottom, more };
 }
 
 export function getMoreNavigationItems(roles: CondominiumRole[], userRoles: string[] = [], subManagerPermissions?: string[]) {

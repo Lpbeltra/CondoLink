@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { Alert, Box, Button, Skeleton, Stack, Toolbar, Typography } from "@mui/material";
+import { Alert, Box, Button, Skeleton, Stack, Toolbar, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { Outlet, useLocation } from "react-router-dom";
 import { AppHeader } from "./AppHeader";
 import { MobileBottomNavigation } from "./MobileBottomNavigation";
@@ -12,13 +12,15 @@ import { hasPlatformAdminAccess } from "../auth/permissions";
 import { useManagementContext } from "../management/ManagementContext";
 import { PwaInstallBanner } from "../pwa/PwaInstallBanner";
 import { useAdministrator } from "../administrator/AdministratorContext";
-import { canAccessNavigationItem, getNavigationItemForPath } from "./navigation";
+import { canAccessNavigationItem, getManagementEntryDestination, getNavigationItemForPath } from "./navigation";
+import type { CondominiumRole } from "../condominiums/types";
 
 export function AppShell() {
   const { currentCondominium, isLoading, error, refreshCondominiums } =
     useCondominium();
   const { user } = useAuth();
   const location = useLocation();
+  const mobile = useMediaQuery(useTheme().breakpoints.down("md"));
   const { condominiumCount, isLoading: isManagementLoading, isSwitching, subManagerPermissions, managementRoles } =
     useManagementContext();
   const hasManagementContext = condominiumCount > 0;
@@ -28,7 +30,13 @@ export function AppShell() {
     Boolean(currentCondominium) ||
     hasManagementContext ||
     Boolean(administrator);
-  const showNavigation = hasContext || hasPlatformAdminAccess(user);
+  const roles = (managementRoles?.length ? managementRoles : currentCondominium?.roles ?? []) as CondominiumRole[];
+  const mobileManagementEntry = condominiumCount > 0
+    ? getManagementEntryDestination(true, roles, user?.roles, subManagerPermissions)
+    : null;
+  const mobileAdminEntryNotice = mobile && location.pathname === "/app"
+    && hasPlatformAdminAccess(user) && !mobileManagementEntry;
+  const showNavigation = !mobileAdminEntryNotice && (hasContext || hasPlatformAdminAccess(user));
   const routeItem = getNavigationItemForPath(location.pathname);
   const routeRoles = (managementRoles ?? []).length ? managementRoles : currentCondominium?.roles ?? [];
   const isRestricted = Boolean(routeItem && (managementRoles?.length || currentCondominium) && !canAccessNavigationItem(
