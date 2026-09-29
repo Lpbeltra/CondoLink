@@ -42,7 +42,7 @@ describe('voice dictation lifecycle', () => {
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia } })
     vi.spyOn(api, 'post').mockResolvedValue({ data: { text: 'Texto ditado' } })
   })
-  async function begin() { await userEvent.click(screen.getByRole('button', { name: 'Ditar mensagem' })); await screen.findByText(/Gravando 00:00/) }
+  async function begin() { await userEvent.click(screen.getByRole('button', { name: 'Gravar para transcrever' })); await screen.findByText(/Gravando 00:00/) }
 
   it('records, transcribes, appends and allows editing without sending', async () => {
     render(<Composer />)
@@ -71,7 +71,7 @@ describe('voice dictation lifecycle', () => {
   it('explains a denied permission and permits retry', async () => {
     getUserMedia.mockRejectedValueOnce(new DOMException('denied', 'NotAllowedError'))
     render(<Composer />)
-    await userEvent.click(screen.getByRole('button', { name: 'Ditar mensagem' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gravar para transcrever' }))
     expect(await screen.findByText(/Permissão de microfone negada/)).toBeVisible()
     await begin()
     expect(api.post).not.toHaveBeenCalled()
@@ -97,7 +97,7 @@ describe('voice dictation lifecycle', () => {
     let resolve!: (stream: MediaStream) => void
     getUserMedia.mockReturnValue(new Promise<MediaStream>(done => { resolve = done }))
     render(<Composer />)
-    await userEvent.click(screen.getByRole('button', { name: 'Ditar mensagem' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gravar para transcrever' }))
     await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
     await act(async () => resolve(media))
     expect(track.stop).toHaveBeenCalled()
@@ -105,7 +105,7 @@ describe('voice dictation lifecycle', () => {
   })
   it('prevents simultaneous microphone captures', async () => {
     render(<><Composer /><Composer /></>)
-    const microphones = screen.getAllByRole('button', { name: 'Ditar mensagem' })
+    const microphones = screen.getAllByRole('button', { name: 'Gravar para transcrever' })
     await userEvent.click(microphones[0])
     await screen.findByText(/Gravando/)
     await userEvent.click(microphones[1])

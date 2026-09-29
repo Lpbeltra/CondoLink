@@ -169,4 +169,18 @@ test('desktop keeps dashboard entry and six assistant suggestions', async ({ pag
   await ui(page.locator('#assistant-suggestions').getByRole('button')).toHaveCount(6)
   await ui(page.getByRole('button', { name: 'Mais sugestões' })).toHaveCount(0)
   await noOverflow(page)
+
+  for (const width of [1024, 1280, 1440]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto('/management/requests')
+    const cards = page.locator('article')
+    await ui(cards.first()).toBeVisible()
+    await cards.first().click()
+    const actions = page.getByRole('heading', { name: 'Ações de atendimento' }).locator('..')
+    await ui(actions).toBeVisible()
+    for (const button of await actions.getByRole('button').all()) {
+      expect(await button.evaluate(element => getComputedStyle(element).whiteSpace)).toBe('nowrap')
+    }
+    await noOverflow(page)
+  }
 })

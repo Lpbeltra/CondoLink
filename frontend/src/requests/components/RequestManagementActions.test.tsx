@@ -36,6 +36,16 @@ function LocationProbe() {
 describe('RequestManagementActions AI preview', () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it('keeps mobile grid rules scoped below desktop breakpoint and preserves WhatsApp action', () => {
+    render(<MemoryRouter><RequestManagementActions requestId="request-1" status="InProgress" priority="Normal" residentPhone="44999999999" onUpdated={vi.fn()} /></MemoryRouter>)
+    const layout = screen.getByTestId('request-actions-layout')
+    expect(screen.getByRole('link', { name: 'Chamar no WhatsApp' })).toBeInTheDocument()
+    const styles = [...document.querySelectorAll('style')].map(style => style.textContent).join(' ')
+    expect(styles).toContain(layout.className.split(' ').at(-1)!)
+    expect(styles).toMatch(/@media\s*\(min-width:\s*900px\)/)
+    expect(styles).toMatch(/white-space:\s*nowrap/)
+  })
+
   it('shows original and suggestion and sends only the explicitly selected suggestion', async () => {
     vi.mocked(suggestRequestStatusMessage).mockResolvedValue({ suggestion: 'Mensagem revisada.' })
     vi.mocked(updateRequestStatus).mockResolvedValue({})
@@ -62,14 +72,14 @@ describe('RequestManagementActions AI preview', () => {
 
     await user.click(screen.getByRole('button', { name: 'Resolver' }))
     const input = screen.getByLabelText('Mensagem ao morador (opcional)')
-    await user.type(input, 'Texto com acentos.\nSegunda linha.')
+    fireEvent.change(input, { target: { value: 'Texto com acentos.' + String.fromCharCode(10) + 'Segunda linha.' } })
     const generate = screen.getByRole('button', { name: 'Gerar sugestão com IA' })
     await user.click(generate)
     expect(generate).toBeDisabled()
     expect(suggestRequestStatusMessage).toHaveBeenCalledTimes(1)
     await act(async () => { resolveSuggestion({ suggestion: 'Texto claro.' }) })
     expect(await screen.findByDisplayValue('Texto claro.')).toBeVisible()
-    await user.type(input, ' Alterado')
+    fireEvent.change(input, { target: { value: 'Texto com acentos.' + String.fromCharCode(10) + 'Segunda linha. Alterado' } })
     expect(screen.getByText(/versão anterior/)).toBeVisible()
     expect(screen.getByRole('button', { name: 'Enviar sugestão da IA' })).toBeDisabled()
   })
@@ -79,9 +89,9 @@ describe('RequestManagementActions AI preview', () => {
     const user = userEvent.setup(); renderActions()
     await user.click(screen.getByRole('button', { name: 'Atualizar / enviar mensagem' }))
     expect(screen.getByText(/Status atual:/)).toHaveTextContent('Em andamento')
-    await user.type(screen.getByLabelText('Mensagem ao morador'), 'Visita amanhã às 14h.')
+    fireEvent.change(screen.getByLabelText('Mensagem ao morador'), { target: { value: 'Visita amanha as 14h.' } })
     await user.click(screen.getByRole('button', { name: 'Enviar meu texto' }))
-    expect(createAdministrativeRequestUpdate).toHaveBeenCalledWith('request-1', 'Visita amanhã às 14h.')
+    expect(createAdministrativeRequestUpdate).toHaveBeenCalledWith('request-1', 'Visita amanha as 14h.')
     expect(updateRequestStatus).not.toHaveBeenCalled()
   })
 

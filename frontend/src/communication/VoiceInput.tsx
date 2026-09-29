@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import MicRoundedIcon from '@mui/icons-material/MicRounded'
 import StopRoundedIcon from '@mui/icons-material/StopRounded'
-import { Alert, Box, Button, CircularProgress, IconButton, Stack, Tooltip, Typography } from '@mui/material'
+import { Alert, Box, Button, CircularProgress, IconButton, InputAdornment, Stack, Tooltip, Typography } from '@mui/material'
 import { api, getErrorMessage } from '../services/api'
 
 const MAX_SECONDS = 120
@@ -16,9 +16,10 @@ interface Props {
   maxLength: number
   disabled?: boolean
   active?: boolean
+  inline?: boolean
 }
 
-export function VoiceInput({ endpoint, value, onChange, onBusyChange, maxLength, disabled = false, active = true }: Props) {
+export function VoiceInput({ endpoint, value, onChange, onBusyChange, maxLength, disabled = false, active = true, inline = false }: Props) {
   const [phase, setPhase] = useState<Phase>('idle')
   const [seconds, setSeconds] = useState(0)
   const [error, setError] = useState('')
@@ -150,14 +151,14 @@ export function VoiceInput({ endpoint, value, onChange, onBusyChange, maxLength,
     }
   }
 
-  return <Box sx={{ minWidth: 0 }}>
-    {phase === 'idle' ? <Tooltip title="Ditar mensagem"><span><IconButton aria-label="Ditar mensagem" disabled={disabled || !active} onClick={() => void start()}><MicRoundedIcon /></IconButton></span></Tooltip>
-      : <Stack direction="row" alignItems="center" flexWrap="wrap" gap={.5} role="status" aria-live="polite" sx={{ p: .75, border: '1px solid', borderColor: phase === 'recording' ? 'error.main' : 'divider', borderRadius: 1, bgcolor: 'background.paper' }}>
-        {phase === 'recording' ? <Typography color="error.main" fontWeight={700}>● Gravando {`${Math.floor(seconds / 60)}`.padStart(2, '0')}:{`${seconds % 60}`.padStart(2, '0')}</Typography>
-          : <><CircularProgress size={16} /><Typography>{phase === 'requesting' ? 'Aguardando microfone…' : 'Transcrevendo…'}</Typography></>}
-        <Button size="small" color="inherit" onClick={cancel}>Cancelar</Button>
-        {phase === 'recording' && <Button size="small" variant="outlined" startIcon={<StopRoundedIcon />} onClick={() => { if (recorder.current?.state === 'recording') recorder.current.stop() }}>Concluir</Button>}
-      </Stack>}
-    {error && <Alert severity="warning" sx={{ mt: .5 }}>{error}</Alert>}
-  </Box>
+  const control = phase === 'idle' ? <Tooltip title="Gravar para transcrever"><span><IconButton aria-label="Gravar para transcrever" disabled={disabled || !active} onClick={() => void start()}><MicRoundedIcon /></IconButton></span></Tooltip>
+    : <Stack direction="row" alignItems="center" flexWrap="wrap" gap={.25} role="status" aria-live="polite" sx={{ minWidth: 0 }}>
+      {phase === 'recording' ? <Typography color="error.main" fontWeight={700}>● Gravando {`${Math.floor(seconds / 60)}`.padStart(2, '0')}:{`${seconds % 60}`.padStart(2, '0')}</Typography>
+        : <><CircularProgress size={16} /><Typography>{phase === 'requesting' ? 'Aguardando microfone…' : 'Transcrevendo…'}</Typography></>}
+      <Button size="small" color="inherit" onClick={cancel}>Cancelar</Button>
+      {phase === 'recording' && <Button size="small" variant="outlined" startIcon={<StopRoundedIcon />} onClick={() => { if (recorder.current?.state === 'recording') recorder.current.stop() }}>Concluir</Button>}
+    </Stack>
+  return <>
+    {inline ? <InputAdornment position="end" sx={{ alignSelf: 'flex-end', ml: .5 }}>{control}{error && <Tooltip title={error}><Typography component="span" role="alert" color="warning.main" aria-label={error} sx={{ px: .5 }}>!</Typography></Tooltip>}</InputAdornment> : <Box sx={{ minWidth: 0 }}>{control}{error && <Alert severity="warning" sx={{ mt: .5 }}>{error}</Alert>}</Box>}
+  </>
 }
