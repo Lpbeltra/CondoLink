@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using CondoLink.Api.Features.Auth;
+using CondoLink.Api.Features.Management;
 using CondoLink.Api.Features.Observability;
 using CondoLink.Api.Features.WhatsApp;
 using CondoLink.Domain.Entities;
@@ -96,26 +97,20 @@ public sealed class AgendaReminderWorker(IServiceScopeFactory scopes,
             where occurrence.Id == occurrenceId
             select new { Occurrence = occurrence, Reminder = reminder,
                 CondominiumName = condominium.Name }).SingleAsync(ct);
-        var managers = await (from membership in db.CondominiumMemberships.AsNoTracking()
-            join role in db.CondominiumMembershipRoles.AsNoTracking()
-                on membership.Id equals role.CondominiumMembershipId
-            join user in db.Set<ApplicationUser>().AsNoTracking()
-                on membership.UserId equals user.Id
-            where membership.CondominiumId == data.Reminder.CondominiumId
-                && membership.IsActive && membership.EndedAt == null
-                && (role.Role == CondominiumRole.Manager || role.Role == CondominiumRole.SubManager) && role.IsActive
-                && role.RevokedAt == null && user.IsActive
-            select new { User = user }).ToArrayAsync(ct);
-        if (managers.Length != 1)
+        var recipient = await db.Set<ApplicationUser>().AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == data.Reminder.CreatedByUserId
+                && x.IsActive, ct);
+        if (recipient is null || !await SubManagerAccess.HasAsync(db,
+            recipient.Id, data.Reminder.CondominiumId, SubManagerModule.Agenda, ct))
         {
-            var code = managers.Length == 0 ? "manager_not_found" : "manager_ambiguous";
             if (data.Occurrence.EmailStatus == AgendaDeliveryStatus.Pending)
-                data.Occurrence.EmailResult(false, code, now);
+                data.Occurrence.EmailResult(false, "creator_unavailable", now);
             if (data.Occurrence.WhatsAppStatus == AgendaDeliveryStatus.Pending)
-                data.Occurrence.WhatsAppResult(AgendaDeliveryStatus.Skipped, code, null, now);
+                data.Occurrence.WhatsAppResult(AgendaDeliveryStatus.Skipped,
+                    "creator_unavailable", null, now);
             await db.SaveChangesAsync(ct); return;
         }
-        var manager = managers[0].User;
+        var manager = recipient;
         var local = TimeZoneInfo.ConvertTimeFromUtc(data.Occurrence.ScheduledForUtc,
             TimeZoneInfo.FindSystemTimeZoneById(data.Reminder.TimeZoneId));
         var unit = data.Reminder.UnitId.HasValue

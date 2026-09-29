@@ -225,6 +225,9 @@ public sealed class AgendaTests : IAsyncLifetime
         var reminderId = await _host.WithDbAsync(async db =>
         {
             var due = DateTime.UtcNow.AddMinutes(-1);
+            var subManager = CoreTestSeed.User("Subsindico ativo", "agenda-active-submanager@example.com");
+            db.Add(subManager);
+            CoreTestSeed.AddMember(db, subManager.Id, _condominiumId, CondominiumRole.SubManager);
             var reminder = new AgendaReminder(_condominiumId, _managerId,
                 "Vistoria mensal", "Conferir equipamentos.", _unitId,
                 "Elevadores Paraná", due, "America/Sao_Paulo",
@@ -254,8 +257,93 @@ public sealed class AgendaTests : IAsyncLifetime
             Assert.Equal(AgendaDeliveryStatus.Sent, occurrence.EmailStatus);
             Assert.Equal(AgendaDeliveryStatus.Queued, occurrence.WhatsAppStatus);
             var outbound = await db.WhatsAppOutboundMessages.SingleAsync();
+            Assert.Equal(_managerId, outbound.UserId);
             Assert.Equal(WhatsAppSendMode.SessionText, outbound.SendMode);
             Assert.Equal($"agenda:{occurrence.Id}:whatsapp", outbound.IdempotencyKey);
+        });
+    }
+
+    [Fact]
+    public async Task Authorized_submanager_creator_receives_agenda_notification()
+    {
+        var ids = await _host.WithDbAsync(async db =>
+        {
+            var subManager = CoreTestSeed.User("Subsindico Agenda", "agenda-authorized-submanager@example.com");
+            subManager.Update(subManager.FullName, "+55 11 98888-0002");
+            subManager.SetEmailDeliveryEnabled(true);
+            var membership = CoreTestSeed.AddMember(db, subManager.Id,
+                _condominiumId, CondominiumRole.SubManager);
+            db.Add(new SubManagerModulePermission(membership.Id,
+                SubManagerModule.Agenda, _managerId));
+            var due = DateTime.UtcNow.AddMinutes(-1);
+            var reminder = new AgendaReminder(_condominiumId, subManager.Id,
+                "Revisao do portao", "", null, null, due,
+                "America/Sao_Paulo", AgendaRecurrenceType.None, true, true, due);
+            var inbound = new WhatsAppInboundMessage("wamid.agenda-submanager",
+                "+5511988880002", "text", "Oi", due);
+            inbound.Complete(subManager.Id, "main_menu", due);
+            db.AddRange(subManager, reminder, inbound);
+            await db.SaveChangesAsync();
+            return (subManagerId: subManager.Id, reminderId: reminder.Id);
+        });
+
+        Assert.Equal(1, await RunAgendaWorkerAsync());
+
+        Assert.Single(_email.Messages);
+        Assert.Equal("agenda-authorized-submanager@example.com", _email.Messages[0].Recipient);
+        await _host.WithDbAsync(async db =>
+        {
+            var occurrence = await db.AgendaReminderOccurrences.SingleAsync(x =>
+                x.ReminderId == ids.reminderId);
+            var outbound = await db.WhatsAppOutboundMessages.SingleAsync();
+            Assert.Equal(ids.subManagerId, outbound.UserId);
+            Assert.Equal(AgendaDeliveryStatus.Queued, occurrence.WhatsAppStatus);
+            Assert.Equal(WhatsAppSendMode.SessionText, outbound.SendMode);
+        });
+    }
+
+    [Fact]
+    public async Task Inactive_or_unauthorized_creator_does_not_receive_notifications()
+    {
+        var reminderIds = await _host.WithDbAsync(async db =>
+        {
+            var inactiveManager = await db.Set<ApplicationUser>().SingleAsync(x => x.Id == _managerId);
+            inactiveManager.SetActiveStatus(false);
+            var denied = CoreTestSeed.User("Subsindico sem Agenda", "agenda-denied-submanager@example.com");
+            denied.Update(denied.FullName, "+55 11 98888-0003");
+            denied.SetEmailDeliveryEnabled(true);
+            var membership = CoreTestSeed.AddMember(db, denied.Id,
+                _condominiumId, CondominiumRole.SubManager);
+            var permission = new SubManagerModulePermission(membership.Id,
+                SubManagerModule.Agenda, _managerId);
+            permission.SetAllowed(false, _managerId);
+            db.AddRange(denied, permission);
+            var due = DateTime.UtcNow.AddMinutes(-1);
+            var inactiveReminder = new AgendaReminder(_condominiumId, _managerId,
+                "Criador inativo", null, null, null, due, "America/Sao_Paulo",
+                AgendaRecurrenceType.None, true, true, due);
+            var unauthorizedReminder = new AgendaReminder(_condominiumId, denied.Id,
+                "Criador sem acesso", null, null, null, due.AddSeconds(1), "America/Sao_Paulo",
+                AgendaRecurrenceType.None, true, true, due);
+            db.AddRange(inactiveReminder, unauthorizedReminder);
+            await db.SaveChangesAsync();
+            return new[] { inactiveReminder.Id, unauthorizedReminder.Id };
+        });
+
+        Assert.Equal(2, await RunAgendaWorkerAsync());
+        Assert.Empty(_email.Messages);
+        await _host.WithDbAsync(async db =>
+        {
+            var occurrences = await db.AgendaReminderOccurrences.Where(x =>
+                reminderIds.Contains(x.ReminderId)).ToArrayAsync();
+            Assert.Equal(2, occurrences.Length);
+            Assert.All(occurrences, occurrence =>
+            {
+                Assert.Equal(AgendaDeliveryStatus.Failed, occurrence.EmailStatus);
+                Assert.Equal(AgendaDeliveryStatus.Skipped, occurrence.WhatsAppStatus);
+                Assert.Equal("creator_unavailable", occurrence.WhatsAppDiagnostic);
+            });
+            Assert.Empty(await db.WhatsAppOutboundMessages.ToArrayAsync());
         });
     }
 
@@ -301,6 +389,15 @@ public sealed class AgendaTests : IAsyncLifetime
         relatedThirdParty = "Elevadores Paraná",
         startsAtUtc = startsAt ?? DateTime.UtcNow.AddHours(1), recurrenceType,
         notifyByWhatsApp = true, notifyByEmail = true, requestIds = requests };
+    private async Task<int> RunAgendaWorkerAsync() => await _host.WithServicesAsync(async services =>
+    {
+        var worker = new AgendaReminderWorker(
+            services.GetRequiredService<IServiceScopeFactory>(),
+            Options.Create(new AgendaOptions { WorkerBatchSize = 10 }),
+            services.GetRequiredService<OperationalTelemetry>(),
+            NullLogger<AgendaReminderWorker>.Instance);
+        return await worker.ProcessBatchAsync(DateTime.UtcNow, default);
+    });
     private sealed record IdResponse(Guid Id);
     private sealed class RecordingEmailSender : IEmailSender
     {
