@@ -1,22 +1,24 @@
 import { render, screen } from '@testing-library/react'
+import { createTheme, ThemeProvider } from '@mui/material/styles'
 import { describe, expect, it } from 'vitest'
-import { brandIconColors } from '../theme/tokens'
 import { Brand } from './Brand'
 
 describe('Brand', () => {
-  it('renders one accessible brand name and hides the decorative mark', () => {
-    const { container } = render(<Brand />)
-    expect(screen.getByRole('img', { name: 'Comvy' })).toBeInTheDocument()
-    expect(screen.getByText('Comvy')).toBeInTheDocument()
-    expect(container.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+  it('uses approved light and dark lockups', () => {
+    const { rerender } = render(<Brand />)
+    expect(screen.getByRole('img', { name: 'Comvy' })).toHaveAttribute('src', '/comvy-logo.svg')
+
+    rerender(<Brand surface="dark" />)
+    expect(screen.getByRole('img', { name: 'Comvy' })).toHaveAttribute('src', '/comvy-logo-dark.svg')
   })
 
-  it('uses the shared colors for the circular mark, bubble and C', () => {
-    const { container } = render(<Brand compact />)
-    expect(container.querySelector('circle')).toHaveAttribute('fill', brandIconColors.background)
-    const paths = container.querySelectorAll('path')
-    expect(paths[0]).toHaveAttribute('fill', brandIconColors.foreground)
-    expect(paths[1]).toHaveAttribute('fill', brandIconColors.accent)
-    expect(screen.queryByText('Comvy')).not.toBeInTheDocument()
+  it('uses the approved symbol alone in compact headers', () => {
+    render(<Brand compact />)
+    expect(screen.getByRole('img', { name: 'Comvy' })).toHaveAttribute('src', '/comvy-symbol.svg')
+  })
+
+  it('selects the reverse lockup automatically in dark theme', () => {
+    render(<ThemeProvider theme={createTheme({ palette: { mode: 'dark' } })}><Brand /></ThemeProvider>)
+    expect(screen.getByRole('img', { name: 'Comvy' })).toHaveAttribute('src', '/comvy-logo-dark.svg')
   })
 })

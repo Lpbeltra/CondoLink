@@ -11,6 +11,11 @@ export default defineConfig({
       includeAssets: [
         'icon.svg',
         'icon-maskable.svg',
+        'comvy-symbol.svg',
+        'comvy-logo.svg',
+        'comvy-logo-dark.svg',
+        'comvy-logo-mono-dark.svg',
+        'comvy-logo-mono-light.svg',
         'comvy-icon-192-v1.png',
         'comvy-icon-512-v1.png',
         'comvy-maskable-512-v1.png',

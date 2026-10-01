@@ -15,5 +15,7 @@ describe('AuthShell', () => {
     expect(screen.getByRole('button', { name: /Alternar para o tema/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Conteúdo de autenticação' })).toBeInTheDocument()
     expect(screen.getByTestId('auth-brand-graphic')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByTestId('auth-brand-graphic').querySelector('image'))
+      .toHaveAttribute('href', '/comvy-symbol.svg')
   })
 })

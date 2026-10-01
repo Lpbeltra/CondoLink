@@ -10,13 +10,6 @@
 
 export type ThemeMode = 'light' | 'dark'
 
-/** Stable brand-mark colors shared by light and dark UI treatments. */
-export const brandIconColors = {
-  background: '#6682f4',
-  foreground: '#ffffff',
-  accent: '#7cc4f5',
-} as const
-
 export interface ColorTokens {
   /** Brand accent, used for primary actions and active navigation. */
   primary: string

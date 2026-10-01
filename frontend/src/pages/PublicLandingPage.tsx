@@ -46,9 +46,7 @@ function MarketingHeader({ onNavigate }: { onNavigate: (id: string) => void }) {
     <header className="landing-header">
       <div className="landing-header__inner">
         <a className="landing-brand" href="#inicio" aria-label="Comvy — início" onClick={(event) => followAnchor(event, "inicio")}>
-          {/* Replace this single integration point with the approved main logo's
-              navy-background SVG when supplied. Do not trace the reference board. */}
-          <Brand />
+          <Brand surface="dark" />
         </a>
         <nav className="landing-nav" aria-label="Navegação principal">
           <a href="#como-funciona" onClick={(event) => followAnchor(event, "como-funciona")}>Como funciona</a>

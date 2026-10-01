@@ -3,18 +3,12 @@
 The Aurora PNGs are unchanged product screenshots supplied for the landing.
 Presentation crops are applied in CSS; no product content is fabricated.
 
-## Approved brand asset pending
+## Approved brand assets
 
-The reference is the large **LOGO PRINCIPAL** composition in
-`Imagem do Codex 24 de set. de 2026, 15_28_51.png`: blue C with its integrated
-lower tail, plus the lowercase `comvy` wordmark. Studies 04.1–04.5 are not
-replacement logos. Do not trace or approximate the reference board.
-
-The final SVG is not present in this repository. Until it is provided,
-`MarketingHeader` in `PublicLandingPage.tsx` retains the existing `Brand`.
-Replace that single rendering point with the approved reverse asset (blue
-symbol, white wordmark) for the navy header. Keep its accessible name and
-reserved dimensions. Do not replace application-wide branding in this lot.
+The approved vector assets live in `frontend/public/comvy-*.svg`. The public
+header uses `comvy-logo-dark.svg` on navy. It keeps its link, accessible name,
+sticky position, and layout. Other shared product brands use the lockup that
+matches the current theme; compact headers use `comvy-symbol.svg`.
 
 ## Commercial destination pending
 
