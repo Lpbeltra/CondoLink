@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using CondoLink.Domain.Entities;
 using CondoLink.Infrastructure.Persistence;
 using Microsoft.AspNetCore.DataProtection;
@@ -28,11 +29,11 @@ public sealed record SuperlogicaUnitRow(string? ExternalUnitId, string? Identifi
 
 public sealed class SuperlogicaClient(HttpClient httpClient) : ISuperlogicaClient
 {
+    private const string CondominiumsUri = "/v2/condor/condominios/get?id=-1&somenteCondominiosAtivos=1&ignorarCondominioModelo=1&apenasColunasPrincipais=1&apenasDadosDoPlanoDeContas=0&comDataFechamento=1&itensPorPagina=50&pagina=1";
+
     public async Task<SuperlogicaValidationResult> ValidateAsync(string appToken, string accessToken, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/v2/condor/condominios");
-        request.Headers.TryAddWithoutValidation("app_token", appToken);
-        request.Headers.TryAddWithoutValidation("access_token", accessToken);
+        using var request = CreateCondominiumsRequest(appToken, accessToken);
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         return response.IsSuccessStatusCode
             ? new(true, false)
@@ -42,9 +43,7 @@ public sealed class SuperlogicaClient(HttpClient httpClient) : ISuperlogicaClien
 
     public async Task<SuperlogicaCondominiumListResult> ListCondominiumsAsync(string appToken, string accessToken, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/v2/condor/condominios");
-        request.Headers.TryAddWithoutValidation("app_token", appToken);
-        request.Headers.TryAddWithoutValidation("access_token", accessToken);
+        using var request = CreateCondominiumsRequest(appToken, accessToken);
         using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             return new(null, true);
@@ -78,6 +77,18 @@ public sealed class SuperlogicaClient(HttpClient httpClient) : ISuperlogicaClien
         foreach (var name in names)
             if (root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array) return value;
         return default;
+    }
+
+    private static HttpRequestMessage CreateCondominiumsRequest(string appToken, string accessToken)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, CondominiumsUri)
+        {
+            Content = new ByteArrayContent([])
+        };
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        request.Headers.TryAddWithoutValidation("app_token", appToken);
+        request.Headers.TryAddWithoutValidation("access_token", accessToken);
+        return request;
     }
 
     private static SuperlogicaUnitRow ReadUnitRow(JsonElement row) => new(

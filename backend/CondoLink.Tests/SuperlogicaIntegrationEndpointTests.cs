@@ -69,10 +69,11 @@ public sealed class SuperlogicaIntegrationEndpointTests : IAsyncLifetime
         var sentHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         _provider.ValidationClient = new SuperlogicaClient(new HttpClient(new StubHttpHandler(request =>
         {
+            AssertCondominiumsRequest(request);
             sentHeaders["app_token"] = request.Headers.GetValues("app_token").Single();
             sentHeaders["access_token"] = request.Headers.GetValues("access_token").Single();
             return new HttpResponseMessage(HttpStatusCode.OK);
-        })) { BaseAddress = new Uri("https://superlogica.example") });
+        })) { BaseAddress = new Uri("https://api.superlogica.net") });
         const string token = "TOKEN_TESTE_123";
         const string accessToken = "ACCESS_TESTE_456";
         const string secret = "SECRET_TESTE_789";
@@ -227,7 +228,7 @@ public sealed class SuperlogicaIntegrationEndpointTests : IAsyncLifetime
         var sentHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var handler = new StubHttpHandler(request =>
         {
-            Assert.Equal("/v2/condor/condominios", request.RequestUri!.AbsolutePath);
+            AssertCondominiumsRequest(request);
             sentHeaders["app_token"] = request.Headers.GetValues("app_token").Single();
             sentHeaders["access_token"] = request.Headers.GetValues("access_token").Single();
             return new HttpResponseMessage(HttpStatusCode.OK)
@@ -235,7 +236,7 @@ public sealed class SuperlogicaIntegrationEndpointTests : IAsyncLifetime
                 Content = new StringContent("""[{"id_condominio_cond":28,"st_nome_cond":" Residencial X ","st_fantasia_cond":" X ","st_cpf_cond":"11.222.333/0001-81","st_endereco_cond":" Rua A ","st_complemento_cond":" Bloco B ","st_bairro_cond":" Centro ","st_cidade_cond":" Maringá ","st_uf_uf":"pr","st_cep_cond":"87.000-000"}]""")
             };
         });
-        var result = await new SuperlogicaClient(new HttpClient(handler) { BaseAddress = new Uri("https://superlogica.example") })
+        var result = await new SuperlogicaClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.superlogica.net") })
             .ListCondominiumsAsync("TOKEN_TESTE_123", "ACCESS_TESTE_456", CancellationToken.None);
         Assert.Equal("TOKEN_TESTE_123", sentHeaders["app_token"]);
         Assert.Equal("ACCESS_TESTE_456", sentHeaders["access_token"]);
@@ -247,6 +248,36 @@ public sealed class SuperlogicaIntegrationEndpointTests : IAsyncLifetime
         Assert.Equal("11222333000181", item.TaxId);
         Assert.Equal("87000000", item.ZipCode);
         Assert.Equal("PR", item.State);
+    }
+
+    [Fact]
+    public async Task Validate_endpoint_does_not_report_not_found_as_invalid_credentials()
+    {
+        _provider.ValidationClient = new SuperlogicaClient(new HttpClient(new StubHttpHandler(request =>
+        {
+            AssertCondominiumsRequest(request);
+            return new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("route not found") };
+        })) { BaseAddress = new Uri("https://api.superlogica.net") });
+
+        var response = await _admin.PutAsJsonAsync(Path, new
+        {
+            appToken = "TOKEN_TESTE_123", accessToken = "ACCESS_TESTE_456", secret = "SECRET_TESTE_789"
+        });
+
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("ValidationFailed", body);
+        Assert.Contains("não concluiu a validação", body);
+        Assert.DoesNotContain("não foram aceitas", body);
+    }
+
+    private static void AssertCondominiumsRequest(HttpRequestMessage request)
+    {
+        Assert.Equal(HttpMethod.Get, request.Method);
+        Assert.Equal("https://api.superlogica.net/v2/condor/condominios/get", request.RequestUri!.GetLeftPart(UriPartial.Path));
+        Assert.Equal("?id=-1&somenteCondominiosAtivos=1&ignorarCondominioModelo=1&apenasColunasPrincipais=1&apenasDadosDoPlanoDeContas=0&comDataFechamento=1&itensPorPagina=50&pagina=1", request.RequestUri.Query);
+        Assert.Equal("application/json", request.Content?.Headers.ContentType?.MediaType);
+        Assert.Null(request.Headers.Authorization);
     }
 
     private string Path => $"/overwatch/management-companies/{_administratorId}/integrations/superlogica";
