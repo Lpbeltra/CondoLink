@@ -64,7 +64,7 @@ export function ManagementCompanyIntegrations({ managementCompanyId }: { managem
       </Stack>
     </>}
     {editing && <>
-      <TextField label="App Token" type="password" autoComplete="new-password" value={appToken} onChange={event => setAppToken(event.target.value)} />
+      <TextField label="Token" type="password" autoComplete="new-password" value={appToken} onChange={event => setAppToken(event.target.value)} />
       <TextField label="Access Token" type="password" autoComplete="new-password" value={accessToken} onChange={event => setAccessToken(event.target.value)} />
       <TextField label="Secret" type="password" autoComplete="new-password" value={secret} onChange={event => setSecret(event.target.value)} />
       <Stack direction="row" gap={1}>

@@ -66,16 +66,35 @@ public sealed class SuperlogicaIntegrationEndpointTests : IAsyncLifetime
     [Fact]
     public async Task Saves_encrypted_credentials_validates_and_never_returns_tokens()
     {
-        var response = await _admin.PutAsJsonAsync(Path, new { appToken = "APP_SECRET_VALUE", accessToken = "ACCESS_SECRET_VALUE", secret = "OTHER_SECRET_VALUE" });
+        var sentHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        _provider.ValidationClient = new SuperlogicaClient(new HttpClient(new StubHttpHandler(request =>
+        {
+            sentHeaders["app_token"] = request.Headers.GetValues("app_token").Single();
+            sentHeaders["access_token"] = request.Headers.GetValues("access_token").Single();
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        })) { BaseAddress = new Uri("https://superlogica.example") });
+        const string token = "TOKEN_TESTE_123";
+        const string accessToken = "ACCESS_TESTE_456";
+        const string secret = "SECRET_TESTE_789";
+        var response = await _admin.PutAsJsonAsync(Path, new { appToken = token, accessToken, secret });
         var body = await response.Content.ReadAsStringAsync();
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.DoesNotContain("APP_SECRET_VALUE", body); Assert.DoesNotContain("ACCESS_SECRET_VALUE", body); Assert.DoesNotContain("OTHER_SECRET_VALUE", body);
+        Assert.DoesNotContain(token, body); Assert.DoesNotContain(accessToken, body); Assert.DoesNotContain(secret, body);
         Assert.Contains("Connected", body);
-        Assert.Equal("APP_SECRET_VALUE", _provider.AppToken); Assert.Equal("ACCESS_SECRET_VALUE", _provider.AccessToken);
+        Assert.Equal(token, _provider.AppToken); Assert.Equal(accessToken, _provider.AccessToken);
+        Assert.Equal(token, sentHeaders["app_token"]);
+        Assert.Equal(accessToken, sentHeaders["access_token"]);
+        Assert.DoesNotContain(secret, sentHeaders.Values);
         await using var scope = _application!.Services.CreateAsyncScope();
-        var stored = await scope.ServiceProvider.GetRequiredService<AppDbContext>().AdministratorIntegrations.SingleAsync();
-        Assert.DoesNotContain("APP_SECRET_VALUE", stored.EncryptedAppToken);
-        Assert.DoesNotContain("ACCESS_SECRET_VALUE", stored.EncryptedAccessToken);
+        var services = scope.ServiceProvider;
+        var stored = await services.GetRequiredService<AppDbContext>().AdministratorIntegrations.SingleAsync();
+        Assert.DoesNotContain(token, stored.EncryptedAppToken);
+        Assert.DoesNotContain(accessToken, stored.EncryptedAccessToken);
+        Assert.DoesNotContain(secret, stored.EncryptedSecret);
+        var protector = services.GetRequiredService<IDataProtectionProvider>().CreateProtector("Comvy.AdministratorIntegration.Superlogica.v1");
+        Assert.Equal(token, protector.Unprotect(stored.EncryptedAppToken));
+        Assert.Equal(accessToken, protector.Unprotect(stored.EncryptedAccessToken));
+        Assert.Equal(secret, protector.Unprotect(stored.EncryptedSecret));
         var updated = await _admin.PutAsJsonAsync(Path, new { appToken = "APP_UPDATED", accessToken = "ACCESS_UPDATED", secret = "SECRET_UPDATED" });
         Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
         Assert.DoesNotContain("APP_UPDATED", await updated.Content.ReadAsStringAsync());
@@ -205,18 +224,22 @@ public sealed class SuperlogicaIntegrationEndpointTests : IAsyncLifetime
     [Fact]
     public async Task Http_client_maps_superlogica_fields_to_normalized_model()
     {
+        var sentHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var handler = new StubHttpHandler(request =>
         {
             Assert.Equal("/v2/condor/condominios", request.RequestUri!.AbsolutePath);
-            Assert.Equal("app", request.Headers.GetValues("app_token").Single());
-            Assert.Equal("access", request.Headers.GetValues("access_token").Single());
+            sentHeaders["app_token"] = request.Headers.GetValues("app_token").Single();
+            sentHeaders["access_token"] = request.Headers.GetValues("access_token").Single();
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("""[{"id_condominio_cond":28,"st_nome_cond":" Residencial X ","st_fantasia_cond":" X ","st_cpf_cond":"11.222.333/0001-81","st_endereco_cond":" Rua A ","st_complemento_cond":" Bloco B ","st_bairro_cond":" Centro ","st_cidade_cond":" Maringá ","st_uf_uf":"pr","st_cep_cond":"87.000-000"}]""")
             };
         });
         var result = await new SuperlogicaClient(new HttpClient(handler) { BaseAddress = new Uri("https://superlogica.example") })
-            .ListCondominiumsAsync("app", "access", CancellationToken.None);
+            .ListCondominiumsAsync("TOKEN_TESTE_123", "ACCESS_TESTE_456", CancellationToken.None);
+        Assert.Equal("TOKEN_TESTE_123", sentHeaders["app_token"]);
+        Assert.Equal("ACCESS_TESTE_456", sentHeaders["access_token"]);
+        Assert.DoesNotContain("SECRET_TESTE_789", sentHeaders.Values);
         var item = Assert.Single(result.Condominiums!);
         Assert.Equal("28", item.ExternalId);
         Assert.Equal("Residencial X", item.Name);
@@ -234,6 +257,7 @@ public sealed class SuperlogicaIntegrationEndpointTests : IAsyncLifetime
     {
         public string? AppToken { get; private set; }
         public string? AccessToken { get; private set; }
+        public ISuperlogicaClient? ValidationClient { get; set; }
         public SuperlogicaValidationResult Result { get; set; } = new(true, false);
         public bool ThrowTimeout { get; set; }
         public Guid OtherAdministratorId { get; set; }
@@ -242,6 +266,7 @@ public sealed class SuperlogicaIntegrationEndpointTests : IAsyncLifetime
         {
             AppToken = appToken; AccessToken = accessToken;
             if (ThrowTimeout) throw new OperationCanceledException();
+            if (ValidationClient is not null) return ValidationClient.ValidateAsync(appToken, accessToken, cancellationToken);
             return Task.FromResult(Result);
         }
         public Task<SuperlogicaCondominiumListResult> ListCondominiumsAsync(string appToken, string accessToken, CancellationToken cancellationToken)
