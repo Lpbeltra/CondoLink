@@ -18,15 +18,10 @@ for asset in [
 (PUBLIC/'icon-maskable.svg').write_bytes((ROOT/'comvy-symbol.svg').read_bytes())
 
 def render_app_icon(size, filename, maskable=False):
-    """Rasterize approved C over existing blue-and-white app-icon palette."""
+    """Rasterize the approved C alone on a white app-icon tile."""
     scale = 4
-    canvas = Image.new('RGBA', (size*scale, size*scale), '#6682f4' if maskable else (0,0,0,0))
-    draw = ImageDraw.Draw(canvas)
-    if not maskable:
-        draw.ellipse((0,0,size*scale-1,size*scale-1), fill='#6682f4')
-    inset = size * scale * (0.125 if not maskable else 0.12)
-    draw.ellipse((inset,inset,size*scale-inset,size*scale-inset), fill='#ffffff')
-    mark_height = round(size * scale * 0.5625)
+    canvas = Image.new('RGBA', (size*scale, size*scale), '#ffffff')
+    mark_height = round(size * scale * 0.60)
     mark_width = round(mark_height * 116/132)
     mark = Image.open(io.BytesIO(resvg_py.svg_to_bytes(
         svg_path=str(PUBLIC/'comvy-symbol.svg'), width=mark_width, height=mark_height
@@ -41,6 +36,39 @@ for size, filename, maskable in [
     (180,'apple-touch-icon-180-v1.png',False),
 ]:
     render_app_icon(size, filename, maskable)
+
+# Review copies only: keep published product screenshots untouched.
+SCREENSHOTS = PUBLIC / 'marketing' / 'aurora'
+PREVIEWS = ROOT / 'screenshot-previews'
+PREVIEWS.mkdir(exist_ok=True)
+ORIGINAL_COPIES = PREVIEWS / 'originals'
+ORIGINAL_COPIES.mkdir(exist_ok=True)
+for source in sorted(SCREENSHOTS.glob('*.png')):
+    original_copy = ORIGINAL_COPIES/source.name
+    if not original_copy.exists():
+        original_copy.write_bytes(source.read_bytes())
+    original = Image.open(source).convert('RGBA')
+    background = original.getpixel((10, 10))
+    preview = original.copy()
+    # Replace only the existing top-left identity in the navy header.
+    ImageDraw.Draw(preview).rectangle((12, 12, 320, 116), fill=background)
+    mark_height = 72
+    mark_width = round(mark_height * 442 / 132)
+    mark = Image.open(io.BytesIO(resvg_py.svg_to_bytes(
+        svg_path=str(PUBLIC/'comvy-logo-dark.svg'), width=mark_width, height=mark_height
+    ))).convert('RGBA')
+    preview.alpha_composite(mark, (32, 27))
+    preview.save(PREVIEWS/source.name, optimize=True)
+
+(PREVIEWS/'app-icon-512.png').write_bytes((PUBLIC/'comvy-icon-512-v1.png').read_bytes())
+
+gallery = ['<!doctype html><meta charset="utf-8"><title>Comvy — marca implementada</title>',
+           '<style>body{font:16px system-ui;margin:24px;background:#f4f6fa;color:#111827}h1{font-size:24px}.icon{width:160px;margin:16px 0 28px}.icon img{width:100%;border-radius:16px}.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0 32px}.pair img{width:100%;border-radius:8px}figure{margin:0}figcaption{margin:6px 0;color:#475569}@media(max-width:700px){.pair{grid-template-columns:1fr}}</style>',
+           '<h1>Comvy — marca implementada</h1><p>Ícone do app e comparação das capturas antes/depois do cabeçalho.</p><figure class="icon"><figcaption>Ícone: C azul sobre branco</figcaption><img src="app-icon-512.png"></figure>']
+for source in sorted(SCREENSHOTS.glob('*.png')):
+    preview = PREVIEWS/source.name
+    gallery.append(f'<h2>{source.stem}</h2><div class="pair"><figure><figcaption>Antes</figcaption><img src="originals/{source.name}"></figure><figure><figcaption>Implementado</figcaption><img src="{source.name}"></figure></div>')
+(PREVIEWS/'index.html').write_text('\n'.join(gallery), encoding='utf-8')
 FONT_DIR = Path('C:/Windows/Fonts')
 font = ImageFont.truetype(str(FONT_DIR / 'arial.ttf'), 22)
 small = ImageFont.truetype(str(FONT_DIR / 'arial.ttf'), 17)
